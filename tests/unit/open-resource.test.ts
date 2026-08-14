@@ -2,10 +2,10 @@ import { describe, expect, test } from 'bun:test'
 import { resourceKey, type ResourceSummary } from '@/lib/domain/resource'
 import { type OpenIntent, type OpenSurface } from '@/src/features/open/open-resource'
 import {
-  BUILT_IN_RENDERER_ID,
   createRendererRegistry,
   type RendererDescriptor,
 } from '@/src/features/open/renderer-registry'
+import { FILESYSTEM_RENDERER_ID } from '@/src/integrations/filesystem/renderers'
 import { createResourceOpener } from '@/src/features/open/open-resource'
 import { openResource } from '@/src/integrations/open-resource'
 import { HERMES_CHAT_RENDERER_ID, hermesResourceKey } from '@/src/integrations/hermes/module'
@@ -57,50 +57,50 @@ describe('openResource', () => {
         }),
         'read',
         'render',
-        BUILT_IN_RENDERER_ID.folderReader,
+        FILESYSTEM_RENDERER_ID.folderReader,
       ],
       [
         'video play',
         resource({ presentation: 'video', mime: 'video/mp4' }),
         'play',
         'render',
-        BUILT_IN_RENDERER_ID.video,
+        FILESYSTEM_RENDERER_ID.video,
       ],
       [
         'audio default',
         resource({ presentation: 'audio', mime: 'audio/mpeg' }),
         'default',
         'render',
-        BUILT_IN_RENDERER_ID.audio,
+        FILESYSTEM_RENDERER_ID.audio,
       ],
-      ['image view', resource(), 'view', 'render', BUILT_IN_RENDERER_ID.image],
+      ['image view', resource(), 'view', 'render', FILESYSTEM_RENDERER_ID.image],
       [
         'text default',
         resource({ presentation: 'text', mime: 'text/markdown' }),
         'default',
         'render',
-        BUILT_IN_RENDERER_ID.text,
+        FILESYSTEM_RENDERER_ID.text,
       ],
       [
         'pdf read',
         resource({ presentation: 'pdf', mime: 'application/pdf' }),
         'read',
         'render',
-        BUILT_IN_RENDERER_ID.pdf,
+        FILESYSTEM_RENDERER_ID.pdf,
       ],
       [
         'book read',
         resource({ presentation: 'book', mime: 'application/epub+zip' }),
         'read',
         'render',
-        BUILT_IN_RENDERER_ID.book,
+        FILESYSTEM_RENDERER_ID.book,
       ],
       [
         'other default',
         resource({ presentation: 'unsupported', mime: 'application/octet-stream' }),
         'default',
         'render',
-        BUILT_IN_RENDERER_ID.unsupported,
+        FILESYSTEM_RENDERER_ID.unsupported,
       ],
     ]
     const surfaces: readonly OpenSurface[] = ['library', 'workspace', 'canvas']
@@ -138,21 +138,21 @@ describe('openResource', () => {
         status: 'ready',
         kind: 'render',
         resource: resource().key,
-        renderer: BUILT_IN_RENDERER_ID.image,
+        renderer: FILESYSTEM_RENDERER_ID.image,
         intent: 'default',
       },
       {
         status: 'ready',
         kind: 'render',
         resource: resource().key,
-        renderer: BUILT_IN_RENDERER_ID.image,
+        renderer: FILESYSTEM_RENDERER_ID.image,
         intent: 'default',
       },
       {
         status: 'ready',
         kind: 'render',
         resource: resource().key,
-        renderer: BUILT_IN_RENDERER_ID.image,
+        renderer: FILESYSTEM_RENDERER_ID.image,
         intent: 'default',
       },
     ])

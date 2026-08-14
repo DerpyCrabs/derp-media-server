@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { MediaType } from '@/lib/types'
 import type { WorkspaceWindowDefinition } from '@/lib/use-workspace'
 import {
   findMergeTarget,
   mergeTargetFromElement,
   workspaceWindowsByGroupId,
 } from '@/src/workspace/merge-target'
+import { workspaceWindow } from './workspace-window-fixture'
 
 const OrigElement = globalThis.Element
 
@@ -27,19 +27,13 @@ function asElem<T extends object>(props: T): Element {
 }
 
 function browser(id: string, gid: string): WorkspaceWindowDefinition {
-  return {
+  return workspaceWindow({
     id,
-    type: 'browser',
     title: id,
-    iconName: null,
-    iconPath: '',
-    iconType: MediaType.FOLDER,
-    iconIsVirtual: false,
-    source: { kind: 'local', rootPath: null },
-    initialState: { dir: '/' },
+    path: '',
     tabGroupId: gid,
     layout: { minimized: false, zIndex: 1 },
-  }
+  })
 }
 
 describe('workspaceWindowsByGroupId', () => {

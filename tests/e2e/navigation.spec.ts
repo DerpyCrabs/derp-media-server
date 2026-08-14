@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { libraryUrl, workspaceUrl } from './canonical-urls'
 
 test.describe('Folder Navigation', () => {
   test('shows all top-level folders at root', async ({ page }) => {
@@ -14,22 +15,22 @@ test.describe('Folder Navigation', () => {
   test('navigates into a folder on click', async ({ page }) => {
     await page.goto('/')
     await page.locator('table').getByText('Videos', { exact: true }).click()
-    await page.waitForURL(/dir=Videos/)
+    await page.waitForURL(libraryUrl('Videos'))
     await expect(page.locator('table').getByText('sample.mp4')).toBeVisible()
   })
 
   test('navigates back via breadcrumbs', async ({ page }) => {
-    await page.goto(`/?dir=${encodeURIComponent('Notes/subfolder')}`)
+    await page.goto(libraryUrl('Notes/subfolder'))
     await expect(page.locator('table').getByText('nested-note.md')).toBeVisible()
     await page.getByRole('button', { name: 'Notes', exact: true }).click()
-    await page.waitForURL(/dir=Notes(?:&|$)/)
+    await page.waitForURL(libraryUrl('Notes'))
     await expect(page.locator('table').getByText('welcome.md')).toBeVisible()
   })
 
   test('breadcrumb folder context menu includes Set icon and workspace actions', async ({
     page,
   }) => {
-    await page.goto(`/?dir=${encodeURIComponent('Notes/subfolder')}`)
+    await page.goto(libraryUrl('Notes/subfolder'))
     await expect(page.locator('table').getByText('nested-note.md')).toBeVisible()
     await page.locator('[data-breadcrumb-path="Notes"]').click({ button: 'right' })
     await expect(page.getByTestId('breadcrumb-menu-set-icon')).toBeVisible()
@@ -38,20 +39,20 @@ test.describe('Folder Navigation', () => {
   })
 
   test('navigates to parent using ".." row', async ({ page }) => {
-    await page.goto('/?dir=Videos')
+    await page.goto(libraryUrl('Videos'))
     await page.locator('table').getByText('..').first().click()
     await expect(page.locator('table').getByText('Videos', { exact: true })).toBeVisible()
   })
 
   test('navigates into nested folders', async ({ page }) => {
-    await page.goto('/?dir=Notes')
+    await page.goto(libraryUrl('Notes'))
     await page.locator('table').getByText('subfolder', { exact: true }).first().click()
-    await page.waitForURL(/dir=Notes.*subfolder/)
+    await page.waitForURL(libraryUrl('Notes/subfolder'))
     await expect(page.locator('table').getByText('nested-note.md')).toBeVisible()
   })
 
   test('switches to grid view and back', async ({ page }) => {
-    await page.goto('/?dir=Videos')
+    await page.goto(libraryUrl('Videos'))
     await expect(page.locator('table')).toBeVisible()
 
     await page.locator('button:has(.lucide-layout-grid)').click()
@@ -63,8 +64,8 @@ test.describe('Folder Navigation', () => {
   })
 
   test('shows empty state for empty folder', async ({ page }) => {
-    await page.goto('/?dir=EmptyFolder')
-    await expect(page.getByText('..')).toBeVisible()
+    await page.goto(libraryUrl('EmptyFolder'))
+    await expect(page.getByText('..', { exact: true })).toBeVisible()
     await expect(page.getByTestId('directory-empty')).toBeVisible()
     await expect(page.getByText('This folder is empty')).toBeVisible()
     const dataRows = page.locator('table tbody tr')
@@ -72,7 +73,7 @@ test.describe('Folder Navigation', () => {
   })
 
   test('favorites a file and sees it in Favorites virtual folder', async ({ page }) => {
-    await page.goto('/?dir=Documents')
+    await page.goto(libraryUrl('Documents'))
     const row = page.locator('table tr').filter({ hasText: 'readme.txt' })
     await row.hover()
     await Promise.all([
@@ -82,7 +83,7 @@ test.describe('Folder Navigation', () => {
       row.locator('button[title="Add to favorites"]').click(),
     ])
 
-    await page.goto('/?dir=Favorites')
+    await page.goto(libraryUrl('Favorites'))
     await expect(page.getByText('readme.txt')).toBeVisible()
 
     // cleanup
@@ -102,17 +103,17 @@ test.describe('Folder Navigation', () => {
     })
     expect(res.ok()).toBeTruthy()
 
-    await page.goto('/?dir=Most Played')
+    await page.goto(libraryUrl('Most Played'))
     await expect(page.locator('table').getByText('readme.txt')).toBeVisible()
   })
 
   test('loads folder from direct URL', async ({ page }) => {
-    await page.goto('/?dir=Music')
+    await page.goto(libraryUrl('Music'))
     await expect(page.locator('table').getByText('track.mp3')).toBeVisible()
   })
 
   test('shows file metadata in list view', async ({ page }) => {
-    await page.goto('/?dir=Documents')
+    await page.goto(libraryUrl('Documents'))
     const row = page.locator('table tr').filter({ hasText: 'readme.txt' })
     await expect(row).toBeVisible()
     // File size cell should contain a number
@@ -120,7 +121,7 @@ test.describe('Folder Navigation', () => {
   })
 
   test('increments view count when opening a file in list view', async ({ page }) => {
-    await page.goto('/?dir=Documents')
+    await page.goto(libraryUrl('Documents'))
     await page.locator('table').getByText('readme.txt', { exact: true }).click()
     await expect(page).toHaveURL(/viewing=/)
     const row = page.locator('table tr').filter({ hasText: 'readme.txt' })
@@ -133,7 +134,7 @@ test.describe('Folder Navigation', () => {
     await expect(page.getByText('Most Played')).toBeVisible()
   })
 
-  test('context menu Open in Workspace targets workspace with folder dir', async ({ page }) => {
+  test('context menu Open in Workspace targets the canonical folder resource', async ({ page }) => {
     await page.goto('/')
     await page.locator('table').getByText('Documents', { exact: true }).click({ button: 'right' })
     await expect(
@@ -151,7 +152,7 @@ test.describe('Folder Navigation', () => {
     const captured = await page.evaluate(
       () => (window as Window & { __workspaceMenuOpenUrl?: string }).__workspaceMenuOpenUrl ?? '',
     )
-    expect(captured).toMatch(/\/workspace\?dir=Documents(?:&|$)/)
+    expect(captured).toContain(workspaceUrl('Documents'))
   })
 
   test('favorites a folder via context menu and removes from Favorites', async ({ page }) => {
@@ -164,7 +165,7 @@ test.describe('Folder Navigation', () => {
       page.locator('[data-slot="context-menu-item"]').getByText('Favorite').click(),
     ])
 
-    await page.goto('/?dir=Favorites')
+    await page.goto(libraryUrl('Favorites'))
     await expect(page.getByText('Notes').first()).toBeVisible()
 
     await page.locator('table').getByText('Notes', { exact: true }).click({ button: 'right' })
@@ -177,7 +178,7 @@ test.describe('Folder Navigation', () => {
   })
 
   test('unsupported file from URL shows dialog and close clears viewing', async ({ page }) => {
-    await page.goto('/?dir=Documents')
+    await page.goto(libraryUrl('Documents'))
     await page.locator('table').getByText('unsupported.xyz').click()
     await page.waitForURL(/viewing=/)
     await expect(page.getByRole('heading', { name: 'Unsupported File Type' })).toBeVisible()
@@ -196,13 +197,13 @@ test.describe('Application surface navigation', () => {
       const count = Number(sessionStorage.getItem(key) ?? '0') + 1
       sessionStorage.setItem(key, String(count))
     })
-    await page.goto('/?dir=Music')
+    await page.goto(libraryUrl('Music'))
 
     const switcher = page.getByRole('navigation', { name: 'Application surfaces' })
     await expect(switcher).toBeVisible()
     await switcher.getByRole('link', { name: 'Workspace' }).click()
     await expect(page.locator('.workspace-layout')).toBeVisible()
-    await expect(page).toHaveURL(/\/workspace\?dir=Music&ws=/)
+    await expect.poll(() => page.url()).toContain(workspaceUrl('Music'))
 
     await switcher.getByRole('link', { name: 'Canvas' }).click()
     await expect(page.locator('.canvas-layout')).toBeVisible()
@@ -210,18 +211,18 @@ test.describe('Application surface navigation', () => {
 
     await page.goBack()
     await expect(page.locator('.workspace-layout')).toBeVisible()
-    await expect(page).toHaveURL(/\/workspace\?dir=Music&ws=/)
+    await expect.poll(() => page.url()).toContain(workspaceUrl('Music'))
 
     await page.goBack()
     await expect(page.getByTestId('file-browser')).toBeVisible()
-    await expect(page).toHaveURL(/\/\?dir=Music$/)
+    await expect(page).toHaveURL(libraryUrl('Music'))
     await expect
       .poll(() => page.evaluate(() => sessionStorage.getItem('surface-navigation-document-loads')))
       .toBe('1')
   })
 
   test('shows a frontend not-found state for an unknown path', async ({ page }) => {
-    await page.goto('/missing/path?dir=Music')
+    await page.goto(libraryUrl('Music').replace(/^\//, '/missing/path'))
 
     await expect(page.getByTestId('not-found')).toBeVisible()
     await expect(page.getByTestId('file-browser')).toHaveCount(0)

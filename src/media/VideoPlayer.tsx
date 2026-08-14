@@ -13,6 +13,7 @@ import {
   usePlaybackSession,
   usePlaybackSnapshot,
 } from '../features/playback/PlaybackProvider'
+import { filesystemPlaybackItemPath } from '../integrations/filesystem/playback'
 import { closePlayer, setAudioOnly } from '../lib/url-state-actions'
 
 export function VideoPlayer() {
@@ -108,7 +109,8 @@ export function VideoPlayer() {
 
   let lastScrolledPlayingPath: string | null = null
   createEffect(() => {
-    const path = currentItem()?.locator ?? null
+    const item = currentItem()
+    const path = item ? filesystemPlaybackItemPath(item) : null
     if (!path || !isVideoFile() || isMinimized()) return
     if (lastScrolledPlayingPath === path) return
     lastScrolledPlayingPath = path

@@ -1,8 +1,9 @@
 import { test, expect } from '@playwright/test'
+import { libraryUrl } from './canonical-urls'
 
 test.describe('File Download', () => {
   test('context menu shows Download for files', async ({ page }) => {
-    await page.goto('/?dir=Documents')
+    await page.goto(libraryUrl('Documents'))
     await page.locator('table tr').filter({ hasText: 'readme.txt' }).click({ button: 'right' })
     await expect(
       page.locator('[data-slot="context-menu-item"]').getByText('Download', { exact: true }),
@@ -10,7 +11,7 @@ test.describe('File Download', () => {
   })
 
   test('downloads a single file via context menu', async ({ page }) => {
-    await page.goto('/?dir=Documents')
+    await page.goto(libraryUrl('Documents'))
 
     const downloadPromise = page.waitForEvent('download')
     await page.locator('table tr').filter({ hasText: 'readme.txt' }).click({ button: 'right' })

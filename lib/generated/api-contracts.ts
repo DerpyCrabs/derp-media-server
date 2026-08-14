@@ -16,98 +16,88 @@ export type ReconciliationDetails = { operation: string; path: string }
 export type ApiErrorBody = { code: ApiErrorCode; message: string; details?: ReconciliationDetails }
 export type MediaRootDto = { id: string; name: string; editableFolders: Array<string> }
 export type ServerConfigDto = { editableFolders: Array<string>; mediaRoots: Array<MediaRootDto> }
-export type MediaTypeDto =
-  | 'video'
-  | 'audio'
-  | 'image'
-  | 'text'
-  | 'pdf'
-  | 'book'
-  | 'folder'
-  | 'other'
-export type FileItemDto = {
+export type ResourceKeyDto = { provider: string; id: string }
+export type ResourceAppearanceDto = { icon?: string; tone?: string; color?: string }
+export type ResourceSummaryDto = {
+  key: ResourceKeyDto
   name: string
-  path: string
-  type: MediaTypeDto
-  size: number
-  extension: string
-  isDirectory: boolean
-  isVirtual?: boolean
-  viewCount?: number
-  thumbnailGenerated?: boolean
-  version?: number
-}
-export type VirtualCapabilityDto =
-  | 'open'
-  | 'createFile'
-  | 'createFolder'
-  | 'rename'
-  | 'archive'
-  | 'restore'
-  | 'deletePermanently'
-  | 'deleteProject'
-  | 'download'
-  | 'copyId'
-  | 'branch'
-  | 'moveToProject'
-  | 'addProjectFolder'
-  | 'removeProjectFolder'
-  | 'setPrimaryFolder'
-  | 'setAppearance'
-export type VirtualOpenTargetTypeDto = 'hermesSession' | 'hermesDraft'
-export type VirtualOpenTargetDto = {
-  type: VirtualOpenTargetTypeDto
-  sessionId?: string
-  projectPath?: string | null
-  readOnly: boolean
-}
-export type VirtualAppearanceToneDto = 'violet' | 'indigo' | 'muted'
-export type VirtualAppearanceDto = { icon: string; tone: VirtualAppearanceToneDto; color?: string }
-export type VirtualEntryDto = {
-  provider: string
   kind: string
-  id?: string
-  archived?: boolean
-  capabilities: Array<VirtualCapabilityDto>
-  openTarget?: VirtualOpenTargetDto
+  mime?: string
+  capabilities: Array<string>
+  presentation?: string
+  appearance?: ResourceAppearanceDto
+  size?: number
   metadata?: Record<string, unknown>
-  appearance?: VirtualAppearanceDto
 }
-export type VirtualDirectoryDto = {
-  provider: string
-  kind: string
-  path: string
-  capabilities: Array<VirtualCapabilityDto>
-  offset: number
-  pageSize: number
+export type ResourcePageDto = {
+  schemaVersion: 1
+  location: ResourceKeyDto
+  locationSummary?: ResourceSummaryDto
+  breadcrumbs?: Array<ResourceSummaryDto>
+  items: Array<ResourceSummaryDto>
+  recentItems?: Array<ResourceSummaryDto>
+  nextCursor?: string
   total: number
-  nextOffset?: number
 }
-export type FileListResponse = {
-  files: Array<FileItemDto>
-  virtualEntries?: { [key in string]: VirtualEntryDto }
-  virtualDirectory?: VirtualDirectoryDto
+export type IntegrationCapabilityDto =
+  | 'browse'
+  | 'inspect'
+  | 'actions'
+  | 'search'
+  | 'assistant'
+  | 'panes'
+  | 'events'
+export type IntegrationDescriptorDto = {
+  id: string
+  name: string
+  capabilities: Array<IntegrationCapabilityDto>
+  root?: ResourceSummaryDto
+}
+export type IntegrationActionRequestDto = {
+  key: ResourceKeyDto
+  action: string
+  name?: string
+  metadata?: Record<string, unknown> | null
+}
+export type IntegrationOpenTargetDto = {
+  kind: string
+  resource?: ResourceKeyDto
+  readOnly: boolean
+  payload?: Record<string, unknown> | null
+}
+export type IntegrationActionOutcomeDto = {
+  success: boolean
+  resource?: ResourceSummaryDto
+  openTarget?: IntegrationOpenTargetDto
+  data?: unknown
+}
+export type IntegrationSearchResultDto = {
+  id: string
+  contributor: string
+  resource: ResourceSummaryDto
+  title: string
+  detail?: string
+  snippet?: string
+  score: number
+  action?: string
+}
+export type IntegrationSearchFailureDto = { contributor: string; message: string }
+export type IntegrationSearchResponseDto = {
+  schemaVersion: 1
+  results: Array<IntegrationSearchResultDto>
+  truncated: boolean
+  failures?: Array<IntegrationSearchFailureDto>
 }
 export type AutoSaveSettingDto = { enabled: boolean; readOnly?: boolean }
-export type WorkspaceTaskbarPinSourceKindDto = 'local'
-export type WorkspaceTaskbarPinSourceDto = {
-  kind: WorkspaceTaskbarPinSourceKindDto
-  rootPath?: string | null
-}
 export type WorkspaceTaskbarPinDto = {
   id: string
-  path: string
-  isDirectory: boolean
+  resource: ResourceKeyDto
   title: string
   customIconName?: string | null
-  isVirtual?: boolean
-  source: WorkspaceTaskbarPinSourceDto
 }
-export type WorkspaceLayoutScopeDto = 'admin'
 export type WorkspaceLayoutPresetDto = {
   id: string
   name: string
-  scope: WorkspaceLayoutScopeDto
   snapshot: PersistedWorkspaceState
   createdAt: string
   updatedAt?: string
@@ -122,24 +112,6 @@ export type SettingsDto = {
   workspaceTaskbarPins: Array<WorkspaceTaskbarPinDto>
   workspaceLayoutPresets: Array<WorkspaceLayoutPresetDto>
 }
-export type CreateFileKindDto = 'file' | 'folder'
-export type CreateFileRequest = {
-  type?: CreateFileKindDto
-  path: string
-  content?: string
-  base64Content?: string
-}
-export type EditFileRequest = {
-  path: string
-  content?: string
-  base64Content?: string
-  expectedVersion?: number
-}
-export type FilePathRequest = { path: string }
-export type RenameFileRequest = { oldPath: string; newPath: string }
-export type CopyFileRequest = { sourcePath: string; destinationDir: string }
-export type FileMutationResponse = { success: boolean; message: string }
-export type UploadResponse = { success: boolean; uploaded: number }
 export type ViewModeRequest = { path: string; viewMode: ViewModeDto }
 export type FileSettingRequest = { filePath: string }
 export type CustomIconRequest = { path: string; iconName: string }
@@ -147,17 +119,7 @@ export type RemoveCustomIconRequest = { path: string }
 export type AutoSaveRequest = { filePath: string; enabled: boolean; readOnly?: boolean }
 export type WorkspaceTaskbarPinsRequest = { items: Array<WorkspaceTaskbarPinDto> }
 export type WorkspaceLayoutPresetsRequest = { presets: Array<WorkspaceLayoutPresetDto> }
-export type SettingsMutationResponse = {
-  success: boolean
-  isFavorite?: boolean
-  isKnowledgeBase?: boolean
-  favorites?: Array<string>
-  knowledgeBases?: Array<string>
-  customIcons?: { [key in string]: string }
-  autoSave?: { [key in string]: AutoSaveSettingDto }
-  workspaceTaskbarPins?: Array<WorkspaceTaskbarPinDto>
-  workspaceLayoutPresets?: Array<WorkspaceLayoutPresetDto>
-}
+export type SettingsMutationResponse = { success: boolean }
 export type AppEvent =
   | { type: 'connected'; timestamp: number }
   | { type: 'files-changed'; directory: string; path?: string; timestamp: number }
@@ -166,14 +128,6 @@ export type AppEvent =
   | { type: 'path-moved'; oldPath: string; newPath: string; timestamp: number }
 export const apiRoutes = {
   config: '/api/config',
-  files: '/api/files',
-  filesCreate: '/api/files/create',
-  filesEdit: '/api/files/edit',
-  filesDelete: '/api/files/delete',
-  filesRename: '/api/files/rename',
-  filesCopy: '/api/files/copy',
-  filesUpload: '/api/files/upload',
-  filesDownload: '/api/files/download',
   settings: '/api/settings',
   settingsViewMode: '/api/settings/viewMode',
   settingsFavorite: '/api/settings/favorite',
@@ -184,6 +138,8 @@ export const apiRoutes = {
   settingsTaskbarPins: '/api/settings/workspaceTaskbarPins',
   settingsLayoutPresets: '/api/settings/workspaceLayoutPresets',
   events: '/api/events/stream',
+  integrations: '/api/integrations',
+  integrationSearch: '/api/search',
 } as const
 export const apiQueryRoots = {
   files: 'files',
@@ -192,4 +148,5 @@ export const apiQueryRoots = {
   stats: 'stats',
   content: 'content',
   audioMetadata: 'audio-metadata',
+  integrations: 'integrations',
 } as const

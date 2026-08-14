@@ -1,4 +1,5 @@
 import type { ResourceError, ResourceKey, ResourceSummary } from '@/lib/domain/resource'
+import type { ResourceActionForm } from '@/src/features/content/contracts'
 
 export type ExplorerViewMode = 'list' | 'grid'
 export type ExplorerSortField = 'default' | 'name' | 'kind' | 'size'
@@ -7,7 +8,6 @@ export type ExplorerStatus = 'idle' | 'loading' | 'ready' | 'error'
 
 export type ExplorerLocation = Readonly<{
   key: ResourceKey
-  path?: string
 }>
 
 export type ExplorerActionScope = 'resource' | 'location' | 'host'
@@ -21,33 +21,17 @@ export type ExplorerActionInteraction =
   | 'text'
   | 'appearance'
 
-export type ExplorerActionForm =
-  | Readonly<{
-      kind: 'choice'
-      title: string
-      submitLabel: string
-      choices: readonly Readonly<{ label: string; value: string }>[]
-    }>
-  | Readonly<{
-      kind: 'project'
-      title: string
-      submitLabel: string
-    }>
-  | Readonly<{
-      kind: 'appearance'
-      title: string
-      submitLabel: string
-      icons: readonly string[]
-    }>
+export type ExplorerActionForm = ResourceActionForm
 
 export type ExplorerActionDescriptor = Readonly<{
   id: string
+  operation: string
   label: string
   capability: string
   scope: ExplorerActionScope
   destructive?: boolean
   optimisticEffect?: ExplorerOptimisticEffect
-  interaction?: ExplorerActionInteraction
+  interaction: ExplorerActionInteraction
   form?: ExplorerActionForm
 }>
 

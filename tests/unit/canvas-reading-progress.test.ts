@@ -14,7 +14,8 @@ for (const name of installedGlobals) {
   })
 }
 
-const { bindReadingProgress } = await import('@/src/canvas/reading-progress')
+const { bindReadingProgress, canvasReadingProgressKey } =
+  await import('@/src/canvas/reading-progress')
 
 afterAll(() => {
   testWindow.close()
@@ -25,6 +26,12 @@ afterAll(() => {
 })
 
 describe('canvas reading progress', () => {
+  test('owns the device-local presentation key', () => {
+    expect(canvasReadingProgressKey('canvas-1', 'Books/example.epub')).toBe(
+      'canvas-reading-position-v1:canvas-1:Books/example.epub',
+    )
+  })
+
   test('restores after a scroll container mounts asynchronously and cleans up', async () => {
     const root = document.createElement('div')
     const values = new Map([['reading-key', '0.5']])

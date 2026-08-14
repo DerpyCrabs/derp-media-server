@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
+import { libraryUrl } from './canonical-urls'
 
 async function useListView(page: Page) {
   await page.getByRole('button', { name: 'List view' }).click()
@@ -7,7 +8,7 @@ async function useListView(page: Page) {
 
 test.describe('Image Viewer', () => {
   test('image thumbnails appear in grid view', async ({ page }) => {
-    await page.goto('/?dir=Images')
+    await page.goto(libraryUrl('Images'))
     await page.locator('button:has(.lucide-layout-grid)').click()
     const card = page
       .locator('[data-testid=file-browser] .file-browser-grid [role=button]')
@@ -25,35 +26,40 @@ test.describe('Image Viewer', () => {
   })
 
   test('opens image viewer when clicking an image file', async ({ page }) => {
-    await page.goto('/?dir=Images')
+    await page.goto(libraryUrl('Images'))
     await useListView(page)
     await page.locator('table').getByText('photo.jpg').click()
     await expect(page.getByTestId('image-viewer-content')).toBeVisible()
     const image = page.locator('img[alt="photo.jpg"]')
     await expect(image).toBeVisible()
-    await expect(image).toHaveAttribute('src', /\/api\/image\/Images\/photo\.jpg\?/)
+    await expect(image).toHaveAttribute('src', /\/api\/(?:image|media)\/Images\/photo\.jpg(?:\?|$)/)
   })
 
   test('reflects viewing image in URL', async ({ page }) => {
-    await page.goto('/?dir=Images')
+    await page.goto(libraryUrl('Images'))
     await useListView(page)
     await page.locator('table').getByText('photo.jpg').click()
     await expect(page).toHaveURL(/viewing=Images.*photo\.jpg/)
   })
 
   test('shows zoom controls', async ({ page }) => {
-    await page.goto('/?dir=Images&viewing=Images%2Fphoto.jpg')
+    await page.goto(libraryUrl('Images', { viewing: 'Images/photo.jpg' }))
     await expect(page.getByRole('button', { name: 'Zoom in' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Zoom out' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Rotate clockwise' })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Download' })).toBeVisible()
+    await expect(
+      page.getByTestId('image-viewer-content').getByRole('button', {
+        name: 'Download',
+        exact: true,
+      }),
+    ).toBeVisible()
     await expect(page.getByRole('button', { name: 'Close' })).toBeVisible()
     await expect(page.getByText('Fit')).toBeVisible()
   })
 
   test('keeps every header action inside a narrow mobile viewport', async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 640 })
-    await page.goto('/?dir=Images&viewing=Images%2Fphoto.jpg')
+    await page.goto(libraryUrl('Images', { viewing: 'Images/photo.jpg' }))
 
     const dialog = page.getByRole('dialog')
     const buttons = dialog.locator('button')
@@ -67,7 +73,7 @@ test.describe('Image Viewer', () => {
   })
 
   test('zooms in and out on button click', async ({ page }) => {
-    await page.goto('/?dir=Images&viewing=Images%2Fphoto.jpg')
+    await page.goto(libraryUrl('Images', { viewing: 'Images/photo.jpg' }))
     await expect(page.getByText('Fit')).toBeVisible()
 
     await page.locator('button:has(.lucide-zoom-in)').click()
@@ -82,11 +88,11 @@ test.describe('Image Viewer', () => {
     const nextImageGate = new Promise<void>((resolve) => {
       releaseNextImage = resolve
     })
-    await page.route('**/api/image/Images/photo.png*', async (route) => {
+    await page.route(/\/api\/(?:image|media)\/Images\/photo\.png(?:\?|$)/, async (route) => {
       await nextImageGate
       await route.continue()
     })
-    await page.goto('/?dir=Images&viewing=Images%2Fphoto.jpg')
+    await page.goto(libraryUrl('Images', { viewing: 'Images/photo.jpg' }))
     const img = page.locator('img[alt="photo.jpg"]')
     await expect(img).toBeVisible()
 
@@ -110,12 +116,15 @@ test.describe('Image Viewer', () => {
 
     releaseNextImage()
     await expect(nextImage).toBeVisible()
-    await expect(nextImage).toHaveAttribute('src', /\/api\/image\/Images\/photo\.png/)
+    await expect(nextImage).toHaveAttribute(
+      'src',
+      /\/api\/(?:image|media)\/Images\/photo\.png(?:\?|$)/,
+    )
     expect(await nextImage.evaluate((el) => el.style.transform)).toContain('rotate(0deg)')
   })
 
   test('fit-to-screen button resets zoom and rotation', async ({ page }) => {
-    await page.goto('/?dir=Images&viewing=Images%2Fphoto.jpg')
+    await page.goto(libraryUrl('Images', { viewing: 'Images/photo.jpg' }))
 
     await page.locator('button:has(.lucide-zoom-in)').click()
     await page.locator('button:has(.lucide-rotate-cw)').click()
@@ -128,7 +137,7 @@ test.describe('Image Viewer', () => {
   })
 
   test('navigates to next image with ArrowRight key', async ({ page }) => {
-    await page.goto('/?dir=Images')
+    await page.goto(libraryUrl('Images'))
     await useListView(page)
     await page.locator('table').getByText('photo.jpg').click()
     await expect(page.locator('img[alt="photo.jpg"]')).toBeVisible()
@@ -142,7 +151,7 @@ test.describe('Image Viewer', () => {
   })
 
   test('navigates to previous image with ArrowLeft key', async ({ page }) => {
-    await page.goto('/?dir=Images')
+    await page.goto(libraryUrl('Images'))
     await useListView(page)
     await page.locator('table').getByText('photo.png').click()
     await expect(page.locator('img[alt="photo.png"]')).toBeVisible()
@@ -154,7 +163,7 @@ test.describe('Image Viewer', () => {
   })
 
   test('does not swipe images when dragging with a mouse', async ({ page }) => {
-    await page.goto('/?dir=Images&viewing=Images%2Fphoto.jpg')
+    await page.goto(libraryUrl('Images', { viewing: 'Images/photo.jpg' }))
     const surface = page.getByTestId('image-gesture-surface')
     const box = (await surface.boundingBox())!
     await page.mouse.move(box.x + box.width - 20, box.y + box.height / 2)
@@ -166,7 +175,7 @@ test.describe('Image Viewer', () => {
   })
 
   test('navigates images by clicking desktop edge zones', async ({ page }) => {
-    await page.goto('/?dir=Images&viewing=Images%2Fphoto.jpg')
+    await page.goto(libraryUrl('Images', { viewing: 'Images/photo.jpg' }))
     await page.getByTestId('image-next-zone').click()
     await expect(page.locator('img[alt="photo.png"]')).toBeVisible()
     await page.getByTestId('image-previous-zone').click()
@@ -174,7 +183,7 @@ test.describe('Image Viewer', () => {
   })
 
   test('navigates images with desktop scroll wheel', async ({ page }) => {
-    await page.goto('/?dir=Images&viewing=Images%2Fphoto.jpg')
+    await page.goto(libraryUrl('Images', { viewing: 'Images/photo.jpg' }))
     await expect(page.getByText('1 of 2')).toBeVisible()
     await page.getByTestId('image-gesture-surface').hover()
     await page.mouse.wheel(0, 100)
@@ -186,12 +195,12 @@ test.describe('Image Viewer', () => {
   })
 
   test('shows image counter', async ({ page }) => {
-    await page.goto('/?dir=Images&viewing=Images%2Fphoto.jpg')
+    await page.goto(libraryUrl('Images', { viewing: 'Images/photo.jpg' }))
     await expect(page.getByText('1 of 2')).toBeVisible()
   })
 
   test('closing viewer returns to file list', async ({ page }) => {
-    await page.goto('/?dir=Images&viewing=Images%2Fphoto.jpg')
+    await page.goto(libraryUrl('Images', { viewing: 'Images/photo.jpg' }))
     await expect(page.locator('img[alt="photo.jpg"]')).toBeVisible()
 
     await page.locator('button:has(.lucide-x)').click()

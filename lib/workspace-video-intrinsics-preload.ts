@@ -1,15 +1,11 @@
-import { buildAdminMediaUrl } from '@/src/lib/build-media-url'
+import { buildMediaUrl } from '@/lib/api-media-urls'
 import { createDefaultBounds, getPlayerBoundsForAspectRatio } from '@/lib/workspace-geometry'
-import type { WorkspaceSource } from '@/lib/use-workspace'
 
 const cache = new Map<string, { width: number; height: number }>()
 const inFlight = new Set<string>()
 
-export function workspaceVideoIntrinsicsCacheKey(
-  source: WorkspaceSource,
-  filePath: string,
-): string {
-  return `${source.kind}:${filePath}`
+export function workspaceVideoIntrinsicsCacheKey(filePath: string): string {
+  return filePath
 }
 
 export function getWorkspaceVideoIntrinsics(
@@ -19,22 +15,21 @@ export function getWorkspaceVideoIntrinsics(
 }
 
 export function rememberWorkspaceVideoIntrinsics(
-  source: WorkspaceSource,
   filePath: string,
   width: number,
   height: number,
 ): void {
   if (width <= 0 || height <= 0) return
-  cache.set(workspaceVideoIntrinsicsCacheKey(source, filePath), { width, height })
+  cache.set(workspaceVideoIntrinsicsCacheKey(filePath), { width, height })
 }
 
 function mediaUrlForPreload(filePath: string): string {
-  return buildAdminMediaUrl(filePath)
+  return buildMediaUrl(filePath)
 }
 
-export function preloadWorkspaceVideoIntrinsics(source: WorkspaceSource, filePath: string): void {
+export function preloadWorkspaceVideoIntrinsics(filePath: string): void {
   if (typeof document === 'undefined') return
-  const key = workspaceVideoIntrinsicsCacheKey(source, filePath)
+  const key = workspaceVideoIntrinsicsCacheKey(filePath)
   if (cache.has(key) || inFlight.has(key)) return
   inFlight.add(key)
 
@@ -73,10 +68,9 @@ export function preloadWorkspaceVideoIntrinsics(source: WorkspaceSource, filePat
 /** Initial viewer window bounds when opening a video, if hover (or prior play) filled the cache. */
 export function viewerBoundsForVideoOpen(
   filePath: string,
-  source: WorkspaceSource,
   defaultIndex: number,
 ): ReturnType<typeof createDefaultBounds> {
-  const key = workspaceVideoIntrinsicsCacheKey(source, filePath)
+  const key = workspaceVideoIntrinsicsCacheKey(filePath)
   const dims = getWorkspaceVideoIntrinsics(key)
   if (!dims) return createDefaultBounds(defaultIndex, 'viewer')
   return getPlayerBoundsForAspectRatio(dims.width / dims.height, null)

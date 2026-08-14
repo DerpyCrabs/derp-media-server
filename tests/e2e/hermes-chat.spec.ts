@@ -57,6 +57,24 @@ async function seedHermesExplorer(workspaceId: string) {
 test('renders parity controls and native export, then archives read-only', async () => {
   let archived = false
   let archiveRequests = 0
+  let exportActionRequests = 0
+  await page.route('**/api/integrations/hermes/actions', async (route) => {
+    const body = route.request().postDataJSON() as {
+      action?: string
+      key?: { provider?: string; id?: string }
+    }
+    expect(body).toMatchObject({
+      action: 'hermes.download',
+      key: { provider: 'hermes', id: 'v1:7:sessionsession-1' },
+    })
+    exportActionRequests++
+    await route.fulfill({
+      json: {
+        success: true,
+        data: { url: '/api/hermes/sessions/session-1/export' },
+      },
+    })
+  })
   await page.route('**/api/hermes/**', async (route) => {
     const url = new URL(route.request().url())
     if (url.pathname.endsWith('/messages')) {
@@ -290,6 +308,7 @@ test('renders parity controls and native export, then archives read-only', async
   await chat.locator('summary[aria-label="Chat options"]').click()
   await chat.getByRole('button', { name: 'Export' }).click()
   await expect((await download).suggestedFilename()).toBe('Hermes-E2E.json')
+  expect(exportActionRequests).toBe(1)
 
   await chat.getByRole('button', { name: 'Archive' }).click()
   await expect.poll(() => archiveRequests).toBe(1)
@@ -449,6 +468,9 @@ test('matches Hermes Desktop optimistic, streaming, and stick-to-bottom behavior
   await transcript.evaluate((element) => {
     element.scrollTop = 0
   })
+  const jumpToLatest = chat.getByRole('button', { name: 'Jump to latest message' })
+  await expect(jumpToLatest).toBeVisible()
+  expect(await transcript.evaluate((element) => element.scrollTop)).toBeLessThan(3)
   await emit('tool.start', {
     tool_id: 'tool-1',
     name: 'vision_analyze',
@@ -463,6 +485,7 @@ test('matches Hermes Desktop optimistic, streaming, and stick-to-bottom behavior
   await transcript.evaluate((element) => {
     element.scrollTop = element.scrollHeight
   })
+  await expect(jumpToLatest).toHaveCount(0)
   await emit('message.delta', { text: ' and more text' })
   await expect(streamMessage).toContainText('First streamed chunk and more text')
   await expect
@@ -582,31 +605,24 @@ test('pages older history and opens externally active sessions in observer mode'
 
 test('keeps the Hermes project dialog compact inside its browser window', async () => {
   await seedHermesExplorer('ws-hermes-project-dialog')
-  await page.route('**/api/files?*', async (route) => {
-    const url = new URL(route.request().url())
-    if (url.searchParams.get('dir') !== 'Hermes Sessions') {
-      await route.continue()
-      return
-    }
+  await page.route('**/api/integrations/hermes/browse?*', async (route) => {
     await route.fulfill({
       json: {
-        files: [],
-        virtualDirectory: {
-          provider: 'hermes',
-          kind: 'root',
-          path: 'Hermes Sessions',
-          capabilities: ['createFile', 'createFolder'],
-          offset: 0,
-          pageSize: 200,
-          total: 0,
+        schemaVersion: 1,
+        location: { provider: 'hermes', id: 'v1:4:root' },
+        locationSummary: {
+          key: { provider: 'hermes', id: 'v1:4:root' },
+          name: 'Hermes Sessions',
+          kind: 'hermes-root',
+          capabilities: ['browse', 'hermes.createFile', 'hermes.createFolder'],
+          presentation: 'browse',
         },
-        virtualEntries: {},
+        breadcrumbs: [],
+        items: [],
+        total: 0,
       },
     })
   })
-  await page.route('**/api/virtual-directory/fs?*', (route) =>
-    route.fulfill({ json: { entries: [] } }),
-  )
   await page.goto('/workspace?ws=hermes-project-dialog')
   await page.locator('button[title="Create new project"]').click()
   const dialog = page.getByRole('dialog', { name: 'Create Hermes project' })
@@ -626,74 +642,56 @@ test('keeps the Hermes project dialog compact inside its browser window', async 
 test('uses in-window Hermes project actions with gateway-backed choices', async () => {
   await seedHermesExplorer('ws-hermes-actions')
   const actions: Array<Record<string, unknown>> = []
-  const files = [
+  const items = [
     {
+      key: { provider: 'hermes', id: 'v1:7:projectproject-a' },
       name: 'Project Alpha',
-      path: 'Hermes Sessions/project/project-a',
-      type: 'folder',
-      size: 0,
-      extension: '',
-      isDirectory: true,
-      isVirtual: true,
-    },
-    {
-      name: 'Loose session',
-      path: 'Hermes Sessions/session/session-loose',
-      type: 'other',
-      size: 0,
-      extension: '',
-      isDirectory: false,
-      isVirtual: true,
-    },
-  ]
-  const virtualEntries = {
-    'Hermes Sessions/project/project-a': {
-      provider: 'hermes',
-      kind: 'project',
-      id: 'project-a',
+      kind: 'hermes-project',
       capabilities: [
-        'open',
-        'addProjectFolder',
-        'removeProjectFolder',
-        'setPrimaryFolder',
-        'setAppearance',
+        'browse',
+        'hermes.open',
+        'hermes.addProjectFolder',
+        'hermes.removeProjectFolder',
+        'hermes.setPrimaryFolder',
+        'hermes.setAppearance',
       ],
+      presentation: 'browse',
+      appearance: { icon: 'Folder', tone: 'indigo' },
       metadata: {
         primary_path: 'C:/work/alpha',
         folders: [{ path: 'C:/work/alpha', is_primary: true }],
       },
-      appearance: { icon: 'Folder', tone: 'indigo' },
     },
-    'Hermes Sessions/session/session-loose': {
-      provider: 'hermes',
-      kind: 'session',
-      id: 'session-loose',
-      capabilities: ['open', 'moveToProject'],
+    {
+      key: { provider: 'hermes', id: 'v1:7:sessionsession-loose' },
+      name: 'Loose session',
+      kind: 'hermes-session',
+      capabilities: ['read', 'hermes.open', 'hermes.moveToProject'],
+      presentation: 'hermes-session',
       appearance: { icon: 'agent-session', tone: 'violet' },
     },
-  }
-  await page.route('**/api/files?*', async (route) => {
-    const url = new URL(route.request().url())
-    if (url.searchParams.get('dir') !== 'Hermes Sessions') return route.continue()
+  ]
+  await page.route('**/api/integrations/hermes/browse?*', async (route) => {
     await route.fulfill({
       json: {
-        files,
-        virtualDirectory: {
-          provider: 'hermes',
-          kind: 'root',
-          path: 'Hermes Sessions',
-          capabilities: ['createFile', 'createFolder'],
-          offset: 0,
-          pageSize: 200,
-          total: files.length,
+        schemaVersion: 1,
+        location: { provider: 'hermes', id: 'v1:4:root' },
+        locationSummary: {
+          key: { provider: 'hermes', id: 'v1:4:root' },
+          name: 'Hermes Sessions',
+          kind: 'hermes-root',
+          capabilities: ['browse', 'hermes.createFile', 'hermes.createFolder'],
+          presentation: 'browse',
         },
-        virtualEntries,
+        breadcrumbs: [],
+        items,
+        total: items.length,
       },
     })
   })
-  await page.route('**/api/virtual-directory/action', async (route) => {
+  await page.route('**/api/integrations/hermes/actions', async (route) => {
     actions.push(route.request().postDataJSON())
-    await route.fulfill({ json: {} })
+    await route.fulfill({ json: { success: true } })
   })
   await page.goto('/workspace?ws=hermes-actions')
 
@@ -704,7 +702,7 @@ test('uses in-window Hermes project actions with gateway-backed choices', async 
   await expect(moveDialog.getByRole('combobox')).toHaveValue('Project Alpha')
   await moveDialog.getByRole('button', { name: 'Move' }).click()
   await expect.poll(() => actions.length).toBe(1)
-  expect(actions[0]).toMatchObject({ action: 'moveToProject', name: 'Project Alpha' })
+  expect(actions[0]).toMatchObject({ action: 'hermes.moveToProject', name: 'Project Alpha' })
   await expect(moveDialog).toBeHidden()
 
   await page
@@ -717,5 +715,8 @@ test('uses in-window Hermes project actions with gateway-backed choices', async 
   await appearanceDialog.getByRole('button', { name: 'Star' }).click()
   await appearanceDialog.getByRole('button', { name: 'Save' }).click()
   await expect.poll(() => actions.length).toBe(2)
-  expect(actions[1]).toMatchObject({ action: 'setAppearance', metadata: { icon: 'Star' } })
+  expect(actions[1]).toMatchObject({
+    action: 'hermes.setAppearance',
+    metadata: { icon: 'Star' },
+  })
 })

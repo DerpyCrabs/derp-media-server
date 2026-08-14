@@ -30,24 +30,28 @@ function deferred<T>() {
 }
 
 function location(id: string): ExplorerLocation {
-  return { key: resourceKey('fixture', id), path: id }
+  return { key: resourceKey('fixture', id) }
 }
 
 const renameAction: ExplorerActionDescriptor = {
   id: 'rename',
+  operation: 'rename',
   label: 'Rename',
   capability: 'rename',
   scope: 'resource',
   optimisticEffect: 'rename',
+  interaction: 'name',
 }
 
 const deleteAction: ExplorerActionDescriptor = {
   id: 'delete',
+  operation: 'delete',
   label: 'Delete',
   capability: 'delete',
   scope: 'resource',
   optimisticEffect: 'delete',
   destructive: true,
+  interaction: 'immediate',
 }
 
 function item(
@@ -192,6 +196,7 @@ describe('Explorer controller', () => {
     const controller = createExplorerController({
       dataSource: source.dataSource,
       history: history.history,
+      initialLocation: root,
     })
 
     await controller.dispatch({ type: 'initialize' })
@@ -229,11 +234,12 @@ describe('Explorer controller', () => {
     const storage = createMemoryExplorerStorage()
     const source = dataSourceHarness({
       browse: async ({ location: current }) =>
-        page(current, current.path === 'A' ? [alpha, beta, gamma] : [other]),
+        page(current, current.key.id === 'A' ? [alpha, beta, gamma] : [other]),
     })
     const controller = createExplorerController({
       dataSource: source.dataSource,
       history: historyHarness(a).history,
+      initialLocation: a,
       storage,
     })
     await controller.dispatch({ type: 'initialize' })
@@ -257,6 +263,7 @@ describe('Explorer controller', () => {
     const restored = createExplorerController({
       dataSource: source.dataSource,
       history: historyHarness(a).history,
+      initialLocation: a,
       storage,
     })
     await restored.dispatch({ type: 'initialize' })
@@ -281,6 +288,7 @@ describe('Explorer controller', () => {
     const controller = createExplorerController({
       dataSource: source.dataSource,
       history: historyHarness(at).history,
+      initialLocation: at,
       storage,
     })
     await controller.dispatch({ type: 'initialize' })
@@ -308,6 +316,7 @@ describe('Explorer controller', () => {
     const restored = createExplorerController({
       dataSource: source.dataSource,
       history: historyHarness(at).history,
+      initialLocation: at,
       storage,
     })
     await restored.dispatch({ type: 'initialize' })
@@ -337,6 +346,7 @@ describe('Explorer controller', () => {
     const controller = createExplorerController({
       dataSource: source.dataSource,
       history: historyHarness(at).history,
+      initialLocation: at,
       pageSize: 2,
     })
     await controller.dispatch({ type: 'initialize' })
@@ -374,6 +384,7 @@ describe('Explorer controller', () => {
     const controller = createExplorerController({
       dataSource: source.dataSource,
       history: historyHarness(at).history,
+      initialLocation: at,
     })
     await controller.dispatch({ type: 'initialize' })
     await controller.dispatch({
@@ -393,11 +404,12 @@ describe('Explorer controller', () => {
     const first = deferred<ExplorerPage<Payload>>()
     const second = deferred<ExplorerPage<Payload>>()
     const source = dataSourceHarness({
-      browse: ({ location: current }) => (current.path === 'A' ? first.promise : second.promise),
+      browse: ({ location: current }) => (current.key.id === 'A' ? first.promise : second.promise),
     })
     const controller = createExplorerController({
       dataSource: source.dataSource,
       history: historyHarness(a).history,
+      initialLocation: a,
     })
 
     const initializing = controller.dispatch({ type: 'initialize' })
@@ -429,6 +441,7 @@ describe('Explorer controller', () => {
     const controller = createExplorerController({
       dataSource: source.dataSource,
       history: historyHarness(at).history,
+      initialLocation: at,
     })
     await controller.dispatch({ type: 'initialize' })
 
@@ -468,6 +481,7 @@ describe('Explorer controller', () => {
     const controller = createExplorerController({
       dataSource: source.dataSource,
       history: historyHarness(at).history,
+      initialLocation: at,
     })
     await controller.dispatch({ type: 'initialize' })
 
@@ -505,6 +519,7 @@ describe('Explorer controller', () => {
     const controller = createExplorerController({
       dataSource: source.dataSource,
       history: historyHarness(at).history,
+      initialLocation: at,
       clock: { now: () => 500 },
     })
     await controller.dispatch({ type: 'initialize' })
@@ -532,9 +547,11 @@ describe('Explorer controller', () => {
     const at = location('actions')
     const createAction: ExplorerActionDescriptor = {
       id: 'fixture.create',
+      operation: 'createFile',
       label: 'Create',
       capability: 'fixture.create',
       scope: 'location',
+      interaction: 'name',
     }
     const locationItem = item('actions-location', { actions: [createAction] })
     const source = dataSourceHarness({
@@ -548,6 +565,7 @@ describe('Explorer controller', () => {
     const controller = createExplorerController({
       dataSource: source.dataSource,
       history: historyHarness(at).history,
+      initialLocation: at,
       clock: { now: () => 700 },
     })
     await controller.dispatch({ type: 'initialize' })
@@ -579,6 +597,7 @@ describe('Explorer controller', () => {
     const controller = createExplorerController({
       dataSource: source.dataSource,
       history: historyHarness(at).history,
+      initialLocation: at,
     })
     await controller.dispatch({ type: 'initialize' })
 
@@ -610,13 +629,14 @@ describe('Explorer controller', () => {
     const betaExecution = deferred<ExplorerCommandReceipt>()
     const source = dataSourceHarness({
       browse: async ({ location: currentLocation }) =>
-        currentLocation.path === 'A' ? page(a, [alpha, beta]) : page(b, [current]),
+        currentLocation.key.id === 'A' ? page(a, [alpha, beta]) : page(b, [current]),
       execute: (command) =>
         command.item.key === alpha.key ? alphaExecution.promise : betaExecution.promise,
     })
     const controller = createExplorerController({
       dataSource: source.dataSource,
       history: historyHarness(a).history,
+      initialLocation: a,
     })
     await controller.dispatch({ type: 'initialize' })
 

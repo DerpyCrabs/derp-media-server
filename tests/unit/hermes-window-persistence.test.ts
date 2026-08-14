@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import '@/src/integrations/current-window-content'
 import {
   createEmptyCanvasState,
   parseInfiniteCanvasState,
@@ -10,16 +11,13 @@ import {
   type PersistedWorkspaceState,
   type WorkspaceWindowDefinition,
 } from '@/lib/use-workspace'
-import { deletedHermesSessionIds } from '@/lib/hermes-session-store'
+import { deletedHermesSessionIds } from '@/src/integrations/hermes/runtime-state'
 
 function hermesWindow(id: string, sessionId?: string): WorkspaceWindowDefinition {
   return {
     id,
-    type: 'integration',
     title: 'Hermes',
-    source: { kind: 'local' },
-    initialState: {},
-    runtimeContent: {
+    contentInstance: {
       id,
       type: 'integration',
       integration: 'hermes',
@@ -30,7 +28,7 @@ function hermesWindow(id: string, sessionId?: string): WorkspaceWindowDefinition
 }
 
 function hermesState(window: WorkspaceWindowDefinition | undefined) {
-  const content = window?.runtimeContent
+  const content = window?.contentInstance
   return content?.type === 'integration' && typeof content.state === 'object'
     ? (content.state as Record<string, unknown>)
     : undefined
@@ -113,7 +111,7 @@ describe('Hermes window persistence boundary', () => {
     )!
     restored.windows[0] = {
       ...restored.windows[0]!,
-      runtimeContent: {
+      contentInstance: {
         id: 'saved',
         type: 'integration',
         integration: 'hermes',

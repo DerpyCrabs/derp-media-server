@@ -1,54 +1,24 @@
-import { getMediaType } from '@/lib/media-utils'
+import { contentWindowKind } from '@/lib/content-window'
+import type { ContentInstance } from '@/lib/domain/content'
 import {
   createDefaultBounds,
   insertWindowAtGroupIndex,
   maxWorkspaceWindowZ,
 } from '@/lib/workspace-geometry'
-import { MediaType } from '@/lib/types'
 import type { PersistedWorkspaceState, WorkspaceWindowDefinition } from '@/lib/use-workspace'
 import {
   SPLIT_PANE_FRACTION_DEFAULT,
   clampSplitPaneFraction,
   type TabGroupSplitState,
 } from '@/lib/use-workspace'
-import { workspaceBrowserDirTitle } from '@/lib/workspace-browser-dir-title'
+import {
+  groupIdForWindow,
+  orderedAllGroupIds,
+  orderedVisibleGroupIds,
+  tabsInGroup,
+} from '@/lib/workspace-tab-groups'
 
-export function groupIdForWindow(w: WorkspaceWindowDefinition): string {
-  return w.tabGroupId ?? w.id
-}
-
-export function orderedVisibleGroupIds(windows: WorkspaceWindowDefinition[]): string[] {
-  const seen = new Set<string>()
-  const order: string[] = []
-  for (const win of windows) {
-    if (win.layout?.minimized) continue
-    const gid = groupIdForWindow(win)
-    if (seen.has(gid)) continue
-    seen.add(gid)
-    order.push(gid)
-  }
-  return order
-}
-
-/** Group ids in first-seen order (includes minimized), for taskbar rows. */
-export function orderedAllGroupIds(windows: WorkspaceWindowDefinition[]): string[] {
-  const seen = new Set<string>()
-  const order: string[] = []
-  for (const win of windows) {
-    const gid = groupIdForWindow(win)
-    if (seen.has(gid)) continue
-    seen.add(gid)
-    order.push(gid)
-  }
-  return order
-}
-
-export function tabsInGroup(
-  windows: WorkspaceWindowDefinition[],
-  groupId: string,
-): WorkspaceWindowDefinition[] {
-  return windows.filter((w) => groupIdForWindow(w) === groupId)
-}
+export { groupIdForWindow, orderedAllGroupIds, orderedVisibleGroupIds, tabsInGroup }
 
 /**
  * After removing a tab from a group, pick the next visible tab so the right pane does not
@@ -68,7 +38,7 @@ export function visibleTabIdAfterPlayerRemoved(
     if (right) return right.id
     return members[0]!.id
   }
-  const viewer = members.find((m) => m.type === 'viewer')
+  const viewer = members.find((m) => contentWindowKind(m) === 'viewer')
   if (viewer) return viewer.id
   return members[members.length - 1]!.id
 }
@@ -274,21 +244,13 @@ export function setSplitLeftTabFromContextState(
 export function openInSplitViewFromBrowserState(
   state: PersistedWorkspaceState,
   browserWindowId: string,
-  file: { path: string; isDirectory: boolean; isVirtual?: boolean },
-  currentPath: string,
-  sourceOverride?: WorkspaceWindowDefinition['source'],
+  content: ContentInstance,
+  title: string,
 ): PersistedWorkspaceState {
   const browser = state.windows.find((w) => w.id === browserWindowId)
-  if (!browser || browser.type !== 'browser') return state
+  if (!browser || contentWindowKind(browser) !== 'browser') return state
   const groupId = browser.tabGroupId || browserWindowId
-  const withOpen = openInNewTabInGroupState(
-    state,
-    browserWindowId,
-    file,
-    currentPath,
-    undefined,
-    sourceOverride,
-  )
+  const withOpen = openInNewTabInGroupState(state, browserWindowId, content, title, undefined)
   if (withOpen === state) return state
   return enterSplitViewState(withOpen, groupId, browserWindowId)
 }
@@ -412,16 +374,13 @@ export function mergeWindowIntoGroupState(
 export function openInNewTabInGroupState(
   state: PersistedWorkspaceState,
   sourceWindowId: string,
-  file: { path: string; isDirectory: boolean; isVirtual?: boolean },
-  currentPath: string,
+  content: ContentInstance,
+  title: string,
   insertIndex?: number,
-  sourceOverride?: WorkspaceWindowDefinition['source'],
 ): PersistedWorkspaceState {
-  if (file.isVirtual) return state
   const sourceWindow = state.windows.find((w) => w.id === sourceWindowId)
   if (!sourceWindow) return state
   const groupId = sourceWindow.tabGroupId || sourceWindowId
-  const source = sourceOverride ?? sourceWindow.source
   const n = state.nextWindowId
   const id = `workspace-window-${n}`
   const zIndex = sourceWindow.layout?.zIndex ?? 1
@@ -438,44 +397,16 @@ export function openInNewTabInGroupState(
       }
     : undefined
 
-  let newWindow: WorkspaceWindowDefinition
-  if (file.isDirectory) {
-    const folderTitle = workspaceBrowserDirTitle(file.path)
-    newWindow = {
-      id,
-      type: 'browser',
-      title: folderTitle,
-      iconName: null,
-      iconPath: file.path,
-      iconType: MediaType.FOLDER,
-      iconIsVirtual: false,
-      source,
-      initialState: { dir: file.path },
-      tabGroupId: groupId,
-      layout: sharedLayout ?? {
-        minimized: false,
-        zIndex,
-      },
-    }
-  } else {
-    const dir = file.path.split(/[/\\]/).slice(0, -1).join('/') || currentPath
-    const title = file.path.split(/[/\\]/).filter(Boolean).at(-1) || 'Viewer'
-    newWindow = {
-      id,
-      type: 'viewer',
-      title,
-      iconName: null,
-      iconPath: file.path,
-      iconType: getMediaType(file.path.split('.').pop() ?? ''),
-      iconIsVirtual: false,
-      source,
-      initialState: { dir, viewing: file.path },
-      tabGroupId: groupId,
-      layout: sharedLayout ?? {
-        minimized: false,
-        zIndex,
-      },
-    }
+  let newWindow: WorkspaceWindowDefinition = {
+    id,
+    title,
+    iconName: null,
+    contentInstance: { ...content, id },
+    tabGroupId: groupId,
+    layout: sharedLayout ?? {
+      minimized: false,
+      zIndex,
+    },
   }
 
   const withTabGroup = state.windows.map((w) => {
@@ -612,9 +543,12 @@ export function duplicateTabInGroupState(
   const clone: WorkspaceWindowDefinition = {
     ...sourceWindow,
     id: newId,
+    content: undefined,
+    contentInstance: sourceWindow.contentInstance
+      ? { ...sourceWindow.contentInstance, id: newId }
+      : undefined,
     tabPinned: false,
     openedFromWindowId: tabId,
-    initialState: { ...sourceWindow.initialState },
     layout: sourceWindow.layout ? { ...sourceWindow.layout } : undefined,
   }
 
@@ -650,15 +584,11 @@ export function addTabToGroupState(
 
   const newWindow: WorkspaceWindowDefinition = {
     id,
-    type: sourceWindow.type,
     title: '',
     iconName: null,
-    iconPath: '',
-    iconType: sourceWindow.type === 'browser' ? MediaType.FOLDER : MediaType.OTHER,
-    iconIsVirtual: false,
-    source: sourceWindow.source,
-    initialState:
-      sourceWindow.type === 'browser' ? { dir: sourceWindow.initialState.dir ?? null } : {},
+    contentInstance: sourceWindow.contentInstance
+      ? { ...sourceWindow.contentInstance, id }
+      : undefined,
     tabGroupId: groupId,
     layout: {
       bounds: sourceWindow.layout?.bounds,
@@ -703,7 +633,7 @@ export function splitWindowFromGroupState(
   const defaultBounds =
     offsetBounds ??
     (() => {
-      const base = w.layout?.bounds ?? createDefaultBounds(0, w.type)
+      const base = w.layout?.bounds ?? createDefaultBounds(0, contentWindowKind(w))
       return { x: base.x + 30, y: base.y + 30, width: base.width, height: base.height }
     })()
 
@@ -730,7 +660,7 @@ export function splitWindowFromGroupState(
   if (groupWindows.length === 2) {
     nextWindows = nextWindows.map((win) => {
       if (win.tabGroupId !== groupId) return win
-      const fallbackBounds = createDefaultBounds(0, win.type)
+      const fallbackBounds = createDefaultBounds(0, contentWindowKind(win))
       return {
         ...win,
         tabGroupId: null,

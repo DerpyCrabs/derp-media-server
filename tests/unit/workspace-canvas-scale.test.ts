@@ -3,21 +3,14 @@ import {
   adaptFloatingBoundsForCanvasResize,
   scaleSnappedWindowsBoundsForCanvasResize,
 } from '@/lib/workspace-geometry'
-import { MediaType } from '@/lib/types'
+import { workspaceWindow } from './workspace-window-fixture'
 
 describe('scaleSnappedWindowsBoundsForCanvasResize', () => {
   test('updates fullscreen bounds when canvas changes', () => {
     const windows = [
-      {
+      workspaceWindow({
         id: 'a',
-        type: 'browser' as const,
         title: '',
-        iconName: null,
-        iconPath: '',
-        iconType: MediaType.FOLDER,
-        iconIsVirtual: false,
-        source: { kind: 'local' as const },
-        initialState: {},
         layout: {
           fullscreen: true,
           snapZone: null,
@@ -26,7 +19,7 @@ describe('scaleSnappedWindowsBoundsForCanvasResize', () => {
           minimized: false,
           zIndex: 1,
         },
-      },
+      }),
     ]
 
     const next = scaleSnappedWindowsBoundsForCanvasResize(
@@ -41,24 +34,17 @@ describe('scaleSnappedWindowsBoundsForCanvasResize', () => {
 
   test('scales snapped bounds when canvas grows', () => {
     const windows = [
-      {
+      workspaceWindow({
         id: 'a',
-        type: 'browser' as const,
         title: '',
-        iconName: null,
-        iconPath: '',
-        iconType: MediaType.FOLDER,
-        iconIsVirtual: false,
-        source: { kind: 'local' as const },
-        initialState: {},
         layout: {
-          snapZone: 'left' as const,
+          snapZone: 'left',
           bounds: { x: 0, y: 0, width: 400, height: 600 },
           fullscreen: false,
           minimized: false,
           zIndex: 1,
         },
-      },
+      }),
     ]
     const next = scaleSnappedWindowsBoundsForCanvasResize(
       windows,

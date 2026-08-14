@@ -16,7 +16,6 @@ export type PlaybackResolveReason = 'load' | 'restore' | 'refresh' | 'retry' | '
 
 export type PlaybackItem = Readonly<{
   resource: ResourceKey
-  locator: string
   name: string
   media: PlaybackMedia
 }>
@@ -94,7 +93,7 @@ export type PlaybackOutcome = Readonly<{
 }>
 
 export type PersistedPlaybackState = Readonly<{
-  schemaVersion: 1
+  schemaVersion: 2
   queue: readonly PlaybackItem[]
   currentIndex: number
   position: number
@@ -109,7 +108,6 @@ export interface PlaybackPersistence {
   load(): unknown
   save(state: PersistedPlaybackState): void
   clear?(): void
-  legacyPosition?(locator: string): number | null
 }
 
 export interface PlaybackSession {

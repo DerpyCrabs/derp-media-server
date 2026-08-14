@@ -6,10 +6,10 @@ export type SseEventPayload = AppEvent
 
 const useSharedWorker = typeof SharedWorker !== 'undefined'
 let sharedWorker: SharedWorker | null = null
-const adminListeners = new Set<(data: SseEventPayload) => void>()
+const applicationListeners = new Set<(data: SseEventPayload) => void>()
 
-function dispatchAdmin(data: SseEventPayload) {
-  for (const fn of adminListeners) {
+function dispatchApplication(data: SseEventPayload) {
+  for (const fn of applicationListeners) {
     try {
       fn(data)
     } catch {
@@ -27,51 +27,51 @@ function ensureSharedWorkerPort(): MessagePort {
     sharedWorker.port.start()
     sharedWorker.port.addEventListener('message', (event: MessageEvent) => {
       const message = event.data as { type?: string; data?: SseEventPayload }
-      if (message?.type === 'admin-sse' && message.data !== undefined) {
-        dispatchAdmin(message.data)
+      if (message?.type === 'application-sse' && message.data !== undefined) {
+        dispatchApplication(message.data)
       }
     })
   }
   return sharedWorker.port
 }
 
-let fallbackAdminEs: EventSource | null = null
-let fallbackAdminRef = 0
-let fallbackAdminReconnectCleanup: (() => void) | null = null
+let fallbackApplicationSource: EventSource | null = null
+let fallbackApplicationReferences = 0
+let fallbackApplicationReconnectCleanup: (() => void) | null = null
 
 function isTabVisible(): boolean {
   return typeof document !== 'undefined' && !document.hidden
 }
 
-function connectFallbackAdmin() {
-  if (!isTabVisible() || fallbackAdminEs) return
-  fallbackAdminReconnectCleanup?.()
+function connectFallbackApplication() {
+  if (!isTabVisible() || fallbackApplicationSource) return
+  fallbackApplicationReconnectCleanup?.()
   const { schedule, cleanup } = createReconnectScheduler(() => {
-    if (fallbackAdminRef > 0) connectFallbackAdmin()
+    if (fallbackApplicationReferences > 0) connectFallbackApplication()
   })
-  fallbackAdminReconnectCleanup = cleanup
+  fallbackApplicationReconnectCleanup = cleanup
 
-  fallbackAdminEs = new EventSource(apiEndpoints.events.streamUrl)
-  fallbackAdminEs.onmessage = (event) => {
+  fallbackApplicationSource = new EventSource(apiEndpoints.events.streamUrl)
+  fallbackApplicationSource.onmessage = (event) => {
     try {
-      dispatchAdmin(JSON.parse(event.data) as SseEventPayload)
+      dispatchApplication(JSON.parse(event.data) as SseEventPayload)
     } catch {
       // Ignore malformed events.
     }
   }
-  fallbackAdminEs.onerror = () => {
-    fallbackAdminEs?.close()
-    fallbackAdminEs = null
-    if (fallbackAdminRef > 0) schedule()
+  fallbackApplicationSource.onerror = () => {
+    fallbackApplicationSource?.close()
+    fallbackApplicationSource = null
+    if (fallbackApplicationReferences > 0) schedule()
   }
 }
 
-function disconnectFallbackAdminIfIdle() {
-  if (fallbackAdminRef > 0) return
-  fallbackAdminReconnectCleanup?.()
-  fallbackAdminReconnectCleanup = null
-  fallbackAdminEs?.close()
-  fallbackAdminEs = null
+function disconnectFallbackApplicationIfIdle() {
+  if (fallbackApplicationReferences > 0) return
+  fallbackApplicationReconnectCleanup?.()
+  fallbackApplicationReconnectCleanup = null
+  fallbackApplicationSource?.close()
+  fallbackApplicationSource = null
 }
 
 let fallbackVisibilityAttached = false
@@ -81,31 +81,31 @@ function attachFallbackVisibilityHandlers() {
   fallbackVisibilityAttached = true
   document.addEventListener('visibilitychange', () => {
     if (!isTabVisible()) {
-      fallbackAdminEs?.close()
-      fallbackAdminEs = null
-    } else if (fallbackAdminRef > 0) {
-      connectFallbackAdmin()
+      fallbackApplicationSource?.close()
+      fallbackApplicationSource = null
+    } else if (fallbackApplicationReferences > 0) {
+      connectFallbackApplication()
     }
   })
 }
 
-export function subscribeSseAdmin(onData: (data: SseEventPayload) => void): () => void {
-  adminListeners.add(onData)
+export function subscribeSseApplication(onData: (data: SseEventPayload) => void): () => void {
+  applicationListeners.add(onData)
 
   if (useSharedWorker) {
-    ensureSharedWorkerPort().postMessage({ type: 'subscribe-admin' })
+    ensureSharedWorkerPort().postMessage({ type: 'subscribe-application' })
     return () => {
-      adminListeners.delete(onData)
-      sharedWorker?.port.postMessage({ type: 'unsubscribe-admin' })
+      applicationListeners.delete(onData)
+      sharedWorker?.port.postMessage({ type: 'unsubscribe-application' })
     }
   }
 
-  fallbackAdminRef++
+  fallbackApplicationReferences++
   attachFallbackVisibilityHandlers()
-  connectFallbackAdmin()
+  connectFallbackApplication()
   return () => {
-    adminListeners.delete(onData)
-    fallbackAdminRef = Math.max(0, fallbackAdminRef - 1)
-    disconnectFallbackAdminIfIdle()
+    applicationListeners.delete(onData)
+    fallbackApplicationReferences = Math.max(0, fallbackApplicationReferences - 1)
+    disconnectFallbackApplicationIfIdle()
   }
 }

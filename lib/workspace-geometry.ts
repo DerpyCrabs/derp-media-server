@@ -8,7 +8,6 @@ import type {
 } from '@/lib/use-workspace'
 
 export const SNAP_SIBLING_MAP: Record<SnapZone, Record<string, SnapZone[]>> = {
-  'assist-custom': {},
   left: { right: ['right', 'top-right', 'bottom-right'] },
   right: { left: ['left', 'top-left', 'bottom-left'] },
   'top-left': { right: ['top-right'], bottom: ['bottom-left'] },
@@ -152,7 +151,7 @@ export function getPlayerBoundsForAspectRatio(
 
 export function createDefaultBounds(
   index: number,
-  _type: WorkspaceWindowDefinition['type'],
+  _type: 'browser' | 'viewer' | 'integration',
 ): NonNullable<WorkspaceWindowLayout['bounds']> {
   const viewport = getViewportSize()
   const maxWidth = Math.max(viewport.width - 48, 420)
@@ -274,8 +273,6 @@ export function snapZoneToBoundsWithOccupied(
 
   const defaultBounds: NonNullable<WorkspaceWindowLayout['bounds']> = (() => {
     switch (zone) {
-      case 'assist-custom':
-        return { x: 0, y: 0, width: viewport.width, height: viewport.height }
       case 'left':
         return { x: 0, y: 0, width: halfW, height: viewport.height }
       case 'right':
@@ -542,7 +539,7 @@ function layoutGroupKey(w: WorkspaceWindowDefinition): string {
 
 /**
  * Recompute pixel bounds from `snapZone` for every snapped window group.
- * Named layout presets and localStorage often keep stale bounds (different viewport, old clamping);
+ * Named layout presets and localStorage often keep stale bounds from a different viewport;
  * without this, tiles look fine but shared-edge resize can miss neighbors.
  */
 export function reconcileLayoutBoundsFromSnapZones(
@@ -571,11 +568,7 @@ export function reconcileLayoutBoundsFromSnapZones(
   }
 
   const snappedReps = [...repByGroup.values()].filter(
-    (w) =>
-      w.layout?.snapZone &&
-      w.layout.snapZone !== 'assist-custom' &&
-      !w.layout.fullscreen &&
-      !w.layout.minimized,
+    (w) => w.layout?.snapZone && !w.layout.fullscreen && !w.layout.minimized,
   )
   if (snappedReps.length === 0) return semanticWindows
 
@@ -618,14 +611,6 @@ export function reconcileLayoutBoundsFromSnapZones(
       },
     }
   })
-}
-
-export function getPlaybackTitle(path: string | undefined) {
-  if (!path) return 'Video Player'
-
-  const normalized = path.replace(/\\/g, '/')
-  const fileName = normalized.split('/').pop()
-  return fileName || 'Video Player'
 }
 
 export function isVideoPath(path: string) {

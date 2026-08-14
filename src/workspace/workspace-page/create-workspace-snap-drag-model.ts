@@ -21,6 +21,7 @@ import {
   type WorkspaceCanvasSize,
 } from '@/lib/workspace-geometry'
 import type { PersistedWorkspaceState, SnapZone } from '@/lib/use-workspace'
+import { contentWindowKind } from '@/lib/content-window'
 import {
   TOP_SNAP_ASSIST_HANDLE_HEIGHT_PX,
   snapAssistSurfaceWidth,
@@ -424,7 +425,7 @@ export function createWorkspaceSnapDragModel(options: {
           const inGroup = gid && groupIdForWindow(w) === gid
           const solo = !gid && w.id === windowId
           if (!inGroup && !solo) return w
-          const currentBounds = w.layout?.bounds ?? createDefaultBounds(0, w.type)
+          const currentBounds = w.layout?.bounds ?? createDefaultBounds(0, contentWindowKind(w))
           const isFs = w.layout?.fullscreen ?? false
           return {
             ...w,

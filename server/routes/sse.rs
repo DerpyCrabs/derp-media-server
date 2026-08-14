@@ -14,7 +14,7 @@ use axum::{
 use std::time::Duration;
 
 async fn events(State(state): State<Shared>) -> Response {
-    let mut receiver = state.admin_events.subscribe();
+    let mut receiver = state.application_events.subscribe();
     let stream = async_stream::stream! {
         yield Ok::<Event, std::convert::Infallible>(
             Event::default()

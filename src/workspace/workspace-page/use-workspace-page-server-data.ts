@@ -1,4 +1,5 @@
 import type { PinnedTaskbarItem } from '@/lib/use-workspace'
+import { parseWorkspaceTaskbarPins } from '@/lib/workspace-taskbar-pins'
 import {
   serverConfigQueryOptions,
   settingsMutationOptions,
@@ -29,7 +30,7 @@ export function useWorkspacePageServerData() {
 
   const serverPinsList = createMemo((): PinnedTaskbarItem[] => {
     const pins = settingsQuery.data?.workspaceTaskbarPins
-    return pins ? fromQueryData(pins) : []
+    return parseWorkspaceTaskbarPins(pins ? fromQueryData(pins) : [])
   })
 
   const serverLayoutPresets = createMemo((): WorkspaceLayoutPreset[] => {

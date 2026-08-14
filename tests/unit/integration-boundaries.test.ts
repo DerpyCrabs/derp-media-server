@@ -1,6 +1,20 @@
 import { describe, expect, test } from 'bun:test'
 
 describe('frontend integration boundaries', () => {
+  test('lib never imports application-owned src modules', async () => {
+    const violations: string[] = []
+    for await (const relative of new Bun.Glob('**/*.{ts,tsx}').scan('lib')) {
+      const source = await Bun.file(`lib/${relative}`).text()
+      if (
+        /(?:from\s*|import\s*\()\s*['"]@\/src\//.test(source) ||
+        /(?:from\s*|import\s*\()\s*['"](?:\.\.\/)+src\//.test(source)
+      ) {
+        violations.push(relative)
+      }
+    }
+    expect(violations).toEqual([])
+  })
+
   test('Hermes content lives in its integration and has neutral host inputs', async () => {
     const pane = Bun.file('src/integrations/hermes/HermesChatPane.tsx')
     const card = Bun.file('src/integrations/hermes/HermesMessageCard.tsx')
@@ -30,6 +44,24 @@ describe('frontend integration boundaries', () => {
     )
   })
 
+  test('frontend integration contract has no unused generic event bus', async () => {
+    const contracts = await Bun.file('src/features/content/contracts.ts').text()
+    const registry = await Bun.file('src/features/content/registry.ts').text()
+
+    expect(contracts).not.toMatch(/IntegrationEventProvider|readonly events\??:/)
+    expect(registry).not.toMatch(/events\(provider|\.events\b/)
+  })
+
+  test('shared feature modules do not import provider integrations', async () => {
+    const violations: string[] = []
+    for await (const relative of new Bun.Glob('**/*.{ts,tsx}').scan('src/features')) {
+      const source = await Bun.file(`src/features/${relative}`).text()
+      if (/\/integrations\/(?:filesystem|hermes)\//.test(source)) violations.push(relative)
+    }
+
+    expect(violations).toEqual([])
+  })
+
   test('layout and chrome contain no provider branch or fabricated provider path', async () => {
     const sources = await Promise.all(
       [
@@ -45,7 +77,7 @@ describe('frontend integration boundaries', () => {
     )
 
     expect(sources.join('\n')).not.toMatch(
-      /\bhermes\b|Hermes Sessions|hermes:\/\/|virtualOpenTarget|\/api\/virtual-directory/,
+      /\bhermes\b|Hermes Sessions|hermes:\/\/|virtualOpenTarget|\/api\/virtual-directory|FILESYSTEM_PROVIDER|HERMES_PROVIDER|\.key\.provider\s*===/,
     )
   })
 })

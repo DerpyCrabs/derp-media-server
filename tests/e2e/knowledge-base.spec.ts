@@ -1,55 +1,11 @@
 import { test, expect } from '@playwright/test'
+import { libraryUrl } from './canonical-urls'
 
 test.use({ permissions: ['clipboard-read', 'clipboard-write'] })
 
 test.describe('Knowledge Base', () => {
-  test('shows search input in KB folders', async ({ page }) => {
-    await page.goto('/?dir=Notes')
-    const searchButton = page.getByRole('button', { name: 'Search note contents' })
-    await expect(searchButton).toHaveAttribute('aria-pressed', 'false')
-    await searchButton.click()
-    await expect(searchButton).toHaveAttribute('aria-pressed', 'true')
-    const searchInput = page.getByPlaceholder('Search notes...')
-    await expect(searchInput).toBeVisible()
-    await expect(searchInput).toHaveAttribute('type', 'text')
-  })
-
-  test('opens KB search with Ctrl+K and focuses input', async ({ page }) => {
-    await page.goto('/?dir=Notes')
-    await page.keyboard.press('Control+k')
-    const searchInput = page.getByPlaceholder('Search notes...')
-    await expect(searchInput).toBeVisible()
-    await expect(searchInput).toBeFocused()
-  })
-
-  test('opens KB search with slash when not in a text field', async ({ page }) => {
-    await page.goto('/?dir=Notes')
-    await page.keyboard.press('/')
-    const searchInput = page.getByPlaceholder('Search notes...')
-    await expect(searchInput).toBeVisible()
-    await expect(searchInput).toBeFocused()
-  })
-
-  test('searches notes and shows results', async ({ page }) => {
-    await page.goto('/?dir=Notes')
-    await page.getByRole('button', { name: 'Search note contents' }).click()
-    const searchInput = page.getByPlaceholder('Search notes...')
-    await searchInput.fill('welcome')
-    // Wait for search results to appear
-    await expect(page.getByText('welcome.md')).toBeVisible()
-  })
-
-  test('shows recent notes', async ({ page }) => {
-    await page.goto('/?dir=Notes')
-    await expect(page.getByTestId('kb-recent-strip')).toBeVisible()
-    // The KB dashboard shows recently modified notes
-    // Recent notes should include our fixture files (may appear in recent list and file list)
-    await expect(page.locator('table').getByText('welcome.md').first()).toBeVisible()
-    await expect(page.locator('table').getByText('todo.md').first()).toBeVisible()
-  })
-
   test('defaults to .md extension when creating files in KB', async ({ page }) => {
-    await page.goto('/?dir=Notes')
+    await page.goto(libraryUrl('Notes'))
     await page.locator('button[title="Create new file"]').click()
     await expect(page.getByText('.md extension will be added')).toBeVisible()
     const stem = `kb.${Date.now()}.08.08`
@@ -60,12 +16,12 @@ test.describe('Knowledge Base', () => {
 
   test('empty-space context menu offers new file and new folder', async ({ page }) => {
     const folderName = `ctx-menu-empty-${Date.now()}`
-    await page.goto('/?dir=Notes')
+    await page.goto(libraryUrl('Notes'))
     await page.locator('button[title="Create new folder"]').click()
     await page.getByPlaceholder('Folder name').fill(folderName)
     await page.getByRole('button', { name: 'Create' }).click()
     await expect(page.locator('table').getByText(folderName)).toBeVisible()
-    await page.goto(`/?dir=Notes/${folderName}`)
+    await page.goto(libraryUrl(`Notes/${folderName}`))
     await expect(page.getByTestId('directory-empty')).toBeVisible()
 
     await page
@@ -91,12 +47,6 @@ test.describe('Knowledge Base', () => {
     await expect(setKbItem).toBeVisible()
     await setKbItem.click({ noWaitAfter: true })
 
-    // Navigate into the folder — should now show search
-    await page.locator('table').getByText('MediaContent', { exact: true }).click()
-    await page.waitForURL(/dir=MediaContent/)
-    await page.getByRole('button', { name: 'Search note contents' }).click()
-    await expect(page.getByPlaceholder('Search notes...')).toBeVisible()
-
     // Toggle off
     await page.goto('/')
     await page.locator('table tr').filter({ hasText: 'MediaContent' }).click({ button: 'right' })
@@ -110,7 +60,7 @@ test.describe('Knowledge Base', () => {
   test('paste image in KB text editor saves under images/ and inserts ![[Pasted image …]]', async ({
     page,
   }) => {
-    await page.goto(`/?dir=Notes&viewing=${encodeURIComponent('Notes/todo.md')}`)
+    await page.goto(libraryUrl('Notes', { viewing: 'Notes/todo.md' }))
     const editor = page.getByRole('textbox', { name: 'todo.md Markdown editor' })
     await expect(editor).toBeVisible()
 
@@ -123,7 +73,8 @@ test.describe('Knowledge Base', () => {
 
     const createPromise = page.waitForResponse(
       (resp) =>
-        resp.url().includes('/api/files/create') &&
+        resp.url().includes('/api/integrations/filesystem/actions') &&
+        resp.request().postDataJSON()?.action === 'filesystem.createFile' &&
         resp.request().method() === 'POST' &&
         resp.status() === 200,
     )
@@ -154,10 +105,13 @@ test.describe('Knowledge Base', () => {
     })
 
     const createResp = await createPromise
-    const body = createResp.request().postDataJSON() as { path?: string; base64Content?: string }
-    expect(body.path).toMatch(/^Notes\/images\/Pasted image \d{14}(_\d+)?\.png$/)
-    expect(typeof body.base64Content).toBe('string')
-    expect(body.base64Content!.length).toBeGreaterThan(10)
+    const body = createResp.request().postDataJSON() as {
+      name?: string
+      metadata?: { base64Content?: string }
+    }
+    expect(body.name).toMatch(/^Pasted image \d{14}(_\d+)?\.png$/)
+    expect(typeof body.metadata?.base64Content).toBe('string')
+    expect(body.metadata!.base64Content!.length).toBeGreaterThan(10)
 
     await editor.focus()
     await page.keyboard.press('Control+a')
@@ -168,7 +122,7 @@ test.describe('Knowledge Base', () => {
   })
 
   test('renders Obsidian-style ![[image]] embeds', async ({ page }) => {
-    await page.goto('/?dir=Notes')
+    await page.goto(libraryUrl('Notes'))
     await page.locator('table').getByText('welcome.md').click()
     // Notes is editable, so the file opens in edit mode — switch to read-only
     await page.getByRole('button', { name: 'Read only' }).click()

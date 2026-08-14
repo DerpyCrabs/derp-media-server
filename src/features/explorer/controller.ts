@@ -190,15 +190,14 @@ type PendingCommand<TPayload> = {
 export function createExplorerController<TPayload>(options: {
   dataSource: ExplorerDataSource<TPayload>
   history?: ExplorerHistory
-  initialLocation?: ExplorerLocation
+  initialLocation: ExplorerLocation
   storage?: ExplorerStorage
   optimisticUpdate?: ExplorerOptimisticUpdater<TPayload>
   pageSize?: number
   loadMoreThreshold?: number
   clock?: { now(): number }
 }): ExplorerController<TPayload> {
-  const initialLocation = options.initialLocation ??
-    options.history?.current() ?? { key: { provider: 'filesystem', id: 'root' } }
+  const initialLocation = options.initialLocation
   const history = options.history ?? defaultHistory(initialLocation)
   const storage = options.storage ?? createMemoryExplorerStorage()
   const clock = options.clock ?? { now: () => Date.now() }

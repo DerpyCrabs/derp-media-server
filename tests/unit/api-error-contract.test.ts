@@ -24,7 +24,9 @@ describe('API error contract', () => {
         ),
       )) as unknown as typeof fetch
 
-    const error = await api('/api/files/rename').catch((reason: unknown) => reason)
+    const error = await api('/api/integrations/filesystem/actions').catch(
+      (reason: unknown) => reason,
+    )
 
     expect(error).toBeInstanceOf(ApiError)
     if (!(error instanceof ApiError)) throw new Error('Expected ApiError')

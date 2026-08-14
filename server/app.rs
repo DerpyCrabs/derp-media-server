@@ -1,16 +1,10 @@
 use crate::{
-    config::Config, contracts::AppEvent, error::AppResult, file_commands::FileCommandService,
-    file_search::FileSearch, image_variants, media, store, thumbnails,
+    config::Config, contracts::AppEvent, file_commands::FileCommandService, image_variants,
+    integrations::registry::IntegrationRegistry, thumbnails,
 };
 use base64::Engine;
-use serde::Serialize;
 use serde_json::{Value, json};
-use std::{
-    collections::{HashMap, HashSet},
-    path::PathBuf,
-    sync::Arc,
-    time::UNIX_EPOCH,
-};
+use std::{sync::Arc, time::UNIX_EPOCH};
 use tokio::sync::Mutex;
 
 pub(crate) struct AppState {
@@ -19,24 +13,11 @@ pub(crate) struct AppState {
     pub dev: bool,
     pub vite_port: u16,
     pub client: reqwest::Client,
-    pub events: tokio::sync::broadcast::Sender<FileEvent>,
-    pub admin_events: tokio::sync::broadcast::Sender<AppEvent>,
-    pub hermes_events: tokio::sync::broadcast::Sender<Value>,
+    pub application_events: tokio::sync::broadcast::Sender<AppEvent>,
     pub reader_state_db: Mutex<()>,
     pub thumbnails: thumbnails::Thumbnailer,
     pub image_variants: image_variants::ImageVariants,
-    pub file_search: Arc<FileSearch>,
-    pub hermes: Option<Arc<dyn crate::hermes::HermesTransport>>,
-    pub hermes_project_operations: Mutex<()>,
-    pub hermes_runtime_ids: Mutex<HashMap<String, String>>,
-    pub hermes_active_ids: Mutex<HashSet<String>>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub(crate) struct FileEvent {
-    pub directory: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub path: Option<String>,
+    pub integrations: Arc<IntegrationRegistry>,
 }
 
 pub(crate) type Shared = Arc<AppState>;
@@ -65,66 +46,33 @@ pub(crate) fn decode_node_base64(value: &str) -> Vec<u8> {
 }
 
 pub(crate) fn emit(state: &AppState, path: &str) {
-    let event = FileEvent {
-        directory: parent_logical(path),
-        path: Some(path.replace('\\', "/")),
-    };
-    let _ = state.events.send(event.clone());
-    state.file_search.changed(&event.directory);
-    let _ = state.admin_events.send(AppEvent::FilesChanged {
-        directory: event.directory,
-        path: event.path,
+    let directory = parent_logical(path);
+    let path = path.replace('\\', "/");
+    state.integrations.changed("filesystem", &directory);
+    let _ = state.application_events.send(AppEvent::FilesChanged {
+        directory,
+        path: Some(path),
         timestamp: timestamp_ms(),
     });
 }
 
-pub(crate) fn emit_admin(state: &AppState, event: AppEvent) {
-    let _ = state.admin_events.send(event);
+pub(crate) fn emit_application_event(state: &AppState, event: AppEvent) {
+    let _ = state.application_events.send(event);
 }
 
 pub(crate) fn emit_path_removed(state: &AppState, path: &str) {
-    let _ = state.admin_events.send(AppEvent::PathRemoved {
+    let _ = state.application_events.send(AppEvent::PathRemoved {
         path: path.replace('\\', "/"),
         timestamp: timestamp_ms(),
     });
 }
 
 pub(crate) fn emit_path_moved(state: &AppState, old_path: &str, new_path: &str) {
-    let _ = state.admin_events.send(AppEvent::PathMoved {
+    let _ = state.application_events.send(AppEvent::PathMoved {
         old_path: old_path.replace('\\', "/"),
         new_path: new_path.replace('\\', "/"),
         timestamp: timestamp_ms(),
     });
-}
-
-pub(crate) fn list_directory(state: &AppState, path: &str) -> AppResult<Vec<media::FileItem>> {
-    let mut files = media::list(&state.config, path)?;
-    for file in &mut files {
-        if !matches!(file.media_type.as_str(), "image" | "video") {
-            continue;
-        }
-        if let Ok(resolved) = media::resolve(&state.config, &file.path)
-            && let Ok(metadata) = std::fs::metadata(&resolved.full)
-        {
-            file.thumbnail_generated = metadata
-                .modified()
-                .ok()
-                .map(|modified| state.thumbnails.cached(&resolved.full, modified));
-        }
-    }
-    Ok(files)
-}
-
-pub(crate) fn settings_path(state: &AppState) -> PathBuf {
-    state.config.data_path.join("settings.json")
-}
-
-pub(crate) fn canvases_path(state: &AppState) -> PathBuf {
-    state.config.data_path.join("canvases.json")
-}
-
-pub(crate) fn stats_path(state: &AppState) -> PathBuf {
-    state.config.data_path.join("stats.json")
 }
 
 pub(crate) fn default_settings() -> Value {
@@ -145,27 +93,6 @@ pub(crate) fn timestamp_ms() -> u64 {
         .as_millis()
         .try_into()
         .unwrap_or(u64::MAX)
-}
-
-pub(crate) fn knowledge_bases(state: &AppState) -> Vec<String> {
-    store::section(
-        &settings_path(state),
-        &state.config.library_key,
-        default_settings(),
-    )["knowledgeBases"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|value| value.as_str().map(str::to_string))
-        .collect()
-}
-
-pub(crate) fn knowledge_base_root(state: &AppState, path: &str) -> Option<String> {
-    let normalized = path.replace('\\', "/");
-    knowledge_bases(state)
-        .into_iter()
-        .map(|root| root.replace('\\', "/"))
-        .find(|root| normalized == *root || normalized.starts_with(&format!("{root}/")))
 }
 
 pub(crate) fn safe_upload_name(name: &str) -> String {

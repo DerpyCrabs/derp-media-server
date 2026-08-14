@@ -7,7 +7,12 @@ import { FloatingContextMenu } from '../file-browser/FloatingContextMenu'
 import { Show, createSignal } from 'solid-js'
 import type { Accessor } from 'solid-js'
 import { resolveGroupVisibleTabId, tabsInGroup } from './tab-group-ops'
-import { applicationContentLiveStatus } from '@/src/integrations/content-live-status'
+import { applicationContentRegistry } from '@/src/integrations/registry'
+import { contentWindowKind } from '@/lib/content-window'
+import {
+  contentInstanceFromCurrentWindow,
+  contentWindowFilesystemPath,
+} from '@/src/integrations/current-window-content'
 
 export function TaskbarGroupRow(props: {
   groupId: string
@@ -42,17 +47,18 @@ export function TaskbarGroupRow(props: {
   const tooltip = () => {
     const d = displayWindow()
     if (!d) return ''
-    const path =
-      d.iconPath ??
-      (d.type === 'browser'
-        ? (d.initialState.dir ?? '')
-        : (d.initialState.viewing ?? d.initialState.playing ?? props.playingPath() ?? ''))
-    const isDir = d.type === 'browser'
+    const path = contentWindowFilesystemPath(d) ?? props.playingPath() ?? ''
+    const isDir = contentWindowKind(d) === 'browser'
     return path ? `${isDir ? 'Folder' : 'File'}: ${path}` : getWorkspaceWindowTitle(d)
   }
   const isActive = () => groupWindows().some((w) => w.id === props.activeWindowId())
   const isMinimized = () => leader()?.layout?.minimized ?? false
-  const contentStatus = () => applicationContentLiveStatus(displayWindow()?.runtimeContent)
+  const contentStatus = () => {
+    const window = displayWindow()
+    if (!window) return null
+    const instance = contentInstanceFromCurrentWindow(window)
+    return instance ? applicationContentRegistry.liveStatus(instance) : null
+  }
 
   const onSelect = () => {
     const g = groupWindows()

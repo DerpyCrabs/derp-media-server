@@ -1,5 +1,9 @@
 import { afterAll, beforeEach, describe, expect, test } from 'bun:test'
-import { tryPasteKnowledgeBaseImage, type KbImagePasteContext } from '@/lib/handle-kb-image-paste'
+import { filesystemResourceAddress } from '@/lib/domain/resource'
+import {
+  tryPasteKnowledgeBaseImage,
+  type KbImagePasteContext,
+} from '@/src/integrations/filesystem/knowledge-base-image-paste'
 
 type RecordedRequest = { url: string; body: Record<string, unknown> }
 
@@ -64,8 +68,12 @@ describe('tryPasteKnowledgeBaseImage', () => {
     ).toBe(true)
     expect(paste.wasPrevented()).toBe(true)
     expect(requests).toHaveLength(1)
-    expect(requests[0]!.url).toBe('/api/files/create')
-    expect(requests[0]!.body.path).toMatch(/^Notes\/images\/Pasted image \d{14}\.png$/)
+    expect(requests[0]!.url).toBe('/api/integrations/filesystem/actions')
+    expect(requests[0]!.body.action).toBe('filesystem.createFile')
+    expect(
+      filesystemResourceAddress(requests[0]!.body.key as { provider: string; id: string }),
+    ).toEqual({ rootId: 'configured-default', path: 'Notes/images' })
+    expect(requests[0]!.body.name).toMatch(/^Pasted image \d{14}\.png$/)
     expect(completed).toMatch(/^!\[\[Pasted image \d{14}\.png\]\]$/)
   })
 
@@ -78,10 +86,14 @@ describe('tryPasteKnowledgeBaseImage', () => {
       ),
     ).toBe(true)
     expect(requests.map((request) => request.url)).toEqual([
-      '/api/files/create',
-      '/api/files/delete',
+      '/api/integrations/filesystem/actions',
+      '/api/integrations/filesystem/actions',
     ])
-    expect(requests[1]!.body.path).toBe(requests[0]!.body.path)
+    expect(requests[1]!.body.action).toBe('filesystem.delete')
+    const createdName = requests[0]!.body.name
+    expect(
+      filesystemResourceAddress(requests[1]!.body.key as { provider: string; id: string }),
+    ).toEqual({ rootId: 'configured-default', path: `Notes/images/${createdName}` })
   })
 
   test('ignores non-Markdown files and non-editable knowledge bases', async () => {

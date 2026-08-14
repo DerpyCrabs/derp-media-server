@@ -5,7 +5,7 @@ import {
   buildImageUrl,
   buildMediaUrl,
   type ResponsiveImageRequest,
-} from './build-media-url'
+} from '@/lib/api-media-urls'
 
 type Dimensions = { width: number; height: number }
 
@@ -20,7 +20,7 @@ type Options = {
 const configRequests = new Map<string, Promise<boolean>>()
 
 function imageOptimizationEnabled(): Promise<boolean> {
-  let request = configRequests.get('admin')
+  let request = configRequests.get('application')
   if (!request) {
     request = fetch(buildImageConfigUrl(), { credentials: 'include' })
       .then(async (response) => {
@@ -28,7 +28,7 @@ function imageOptimizationEnabled(): Promise<boolean> {
         return Boolean(((await response.json()) as { enabled?: boolean }).enabled)
       })
       .catch(() => true)
-    configRequests.set('admin', request)
+    configRequests.set('application', request)
   }
   return request
 }

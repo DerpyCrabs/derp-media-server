@@ -1,43 +1,25 @@
-import { apiEndpoints } from '@/lib/api-endpoints'
-import {
-  FILE_SEARCH_DEFAULT_LIMIT,
-  FILE_SEARCH_MIN_QUERY_LENGTH,
-  fileSearchCodePointLength,
-  normalizeFileSearchText,
-  type FileSearchResult,
-  type FileSearchStatus,
-} from '@/lib/file-search'
-import { queryKeys } from '@/lib/query-keys'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
-import Database from 'lucide-solid/icons/database'
 import File from 'lucide-solid/icons/file'
 import FileSearch from 'lucide-solid/icons/file-search'
 import Folder from 'lucide-solid/icons/folder'
-import RefreshCw from 'lucide-solid/icons/refresh-cw'
 import Search from 'lucide-solid/icons/search'
 import X from 'lucide-solid/icons/x'
-import { For, Show, createEffect, createSignal, createUniqueId, on, onCleanup } from 'solid-js'
+import { For, Show, createEffect, createSignal, createUniqueId, onCleanup } from 'solid-js'
 import { Portal } from 'solid-js/web'
+import {
+  SEARCH_DEFAULT_LIMIT,
+  SEARCH_MIN_QUERY_LENGTH,
+  type SearchHit,
+} from './features/search/contracts'
+import { createSearchController } from './features/search/solid-controller'
+import { applicationSearchCoordinator } from './integrations/search'
 
 export type FileSearchButtonProps = {
   title: string
-  onSelect: (result: FileSearchResult) => void
+  onSelect: (result: SearchHit) => void
   disabled?: boolean
   class?: string
   iconClass?: string
   testId?: string
-}
-
-function stateLabel(status: FileSearchStatus | undefined): string {
-  if (!status) return 'Loading index status…'
-  if (status.state === 'building')
-    return `Indexing… ${status.indexedEntries.toLocaleString()} items`
-  if (status.state === 'refreshing') return 'Checking for changes…'
-  if (status.state === 'partial') return 'Some media directories are unavailable or incomplete'
-  if (status.state === 'error') return status.error ?? 'Search index error'
-  if (status.state === 'disabled') return 'File search is disabled'
-  const polling = status.roots.filter((root) => root.refreshMode === 'polling').length
-  return `${status.indexedEntries.toLocaleString()} indexed items · ${status.watcherCount} watched · ${polling} polling`
 }
 
 export function FileSearchButton(props: FileSearchButtonProps) {
@@ -72,61 +54,19 @@ export function FileSearchButton(props: FileSearchButtonProps) {
 function FileSearchPalette(props: {
   title: string
   onClose: () => void
-  onSelect: (result: FileSearchResult) => void
+  onSelect: (result: SearchHit) => void
 }) {
-  const queryClient = useQueryClient()
   const listId = createUniqueId()
-  const [query, setQuery] = createSignal('')
-  const [debouncedQuery, setDebouncedQuery] = createSignal('')
-  const [activeIndex, setActiveIndex] = createSignal(0)
+  const controller = createSearchController({
+    coordinator: applicationSearchCoordinator,
+    minimumQueryLength: SEARCH_MIN_QUERY_LENGTH,
+    limit: SEARCH_DEFAULT_LIMIT,
+  })
   let dialogEl: HTMLDivElement | undefined
   let inputEl: HTMLInputElement | undefined
   const previousFocus = document.activeElement as HTMLElement | null
 
-  createEffect(() => {
-    const value = query()
-    const timer = window.setTimeout(() => setDebouncedQuery(value.trim()), 120)
-    onCleanup(() => window.clearTimeout(timer))
-  })
-
-  const normalizedQuery = () => normalizeFileSearchText(debouncedQuery())
-  const queryLongEnough = () =>
-    fileSearchCodePointLength(normalizedQuery()) >= FILE_SEARCH_MIN_QUERY_LENGTH
-
-  const statusQuery = useQuery(() => ({
-    queryKey: queryKeys.fileSearchStatus(),
-    queryFn: apiEndpoints.fileSearch.status,
-    refetchInterval: 2_000,
-    staleTime: 0,
-  }))
-
-  const searchQuery = useQuery(() => ({
-    queryKey: queryKeys.fileSearch(normalizedQuery()),
-    queryFn: ({ signal }: { signal: AbortSignal }) =>
-      apiEndpoints.fileSearch.search(debouncedQuery(), FILE_SEARCH_DEFAULT_LIMIT, signal),
-    enabled: queryLongEnough(),
-    staleTime: 0,
-    gcTime: 30_000,
-    placeholderData: (previousData) => previousData,
-  }))
-
-  const reindexMutation = useMutation(() => ({
-    mutationFn: (mode: 'reconcile' | 'full') => apiEndpoints.fileSearch.reindex(mode),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.fileSearchStatus() })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.fileSearch() })
-    },
-  }))
-
-  const results = () => (queryLongEnough() ? (searchQuery.data?.results ?? []) : [])
-  const status = () => searchQuery.data?.status ?? statusQuery.data
-
-  createEffect(
-    on(
-      () => `${normalizedQuery()}:${results().length}`,
-      () => setActiveIndex(0),
-    ),
-  )
+  const results = controller.results
 
   createEffect(() => {
     const oldOverflow = document.body.style.overflow
@@ -159,32 +99,13 @@ function FileSearchPalette(props: {
     })
   })
 
-  function choose(result: FileSearchResult) {
+  function choose(result: SearchHit) {
     props.onSelect(result)
     props.onClose()
   }
 
   function onInputKeyDown(event: KeyboardEvent) {
-    const items = results()
-    if (event.key === 'ArrowDown') {
-      event.preventDefault()
-      if (items.length > 0) setActiveIndex((index) => (index + 1) % items.length)
-    } else if (event.key === 'ArrowUp') {
-      event.preventDefault()
-      if (items.length > 0) setActiveIndex((index) => (index - 1 + items.length) % items.length)
-    } else if (event.key === 'Home') {
-      event.preventDefault()
-      setActiveIndex(0)
-    } else if (event.key === 'End') {
-      event.preventDefault()
-      if (items.length > 0) setActiveIndex(items.length - 1)
-    } else if (event.key === 'Enter') {
-      const result = items[activeIndex()]
-      if (result) {
-        event.preventDefault()
-        choose(result)
-      }
-    }
+    controller.onKeyDown(event, choose)
   }
 
   return (
@@ -213,13 +134,13 @@ function FileSearchPalette(props: {
               aria-expanded='true'
               aria-controls={listId}
               aria-activedescendant={
-                results().length > 0 ? `${listId}-option-${activeIndex()}` : undefined
+                results().length > 0 ? `${listId}-option-${controller.activeIndex()}` : undefined
               }
               autocomplete='off'
               placeholder='Search files and folders…'
               class='h-11 min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground'
-              value={query()}
-              onInput={(event) => setQuery(event.currentTarget.value)}
+              value={controller.query()}
+              onInput={(event) => controller.setQuery(event.currentTarget.value)}
               onKeyDown={onInputKeyDown}
             />
             <button
@@ -233,28 +154,28 @@ function FileSearchPalette(props: {
           </div>
 
           <div id={listId} role='listbox' class='min-h-48 flex-1 overflow-y-auto p-2'>
-            <Show when={!queryLongEnough()}>
+            <Show when={!controller.queryLongEnough()}>
               <div class='flex min-h-44 items-center justify-center px-6 text-center text-sm text-muted-foreground'>
-                Type at least {FILE_SEARCH_MIN_QUERY_LENGTH} characters to search every media
-                directory.
+                Type at least {SEARCH_MIN_QUERY_LENGTH} characters to search every media directory.
               </div>
             </Show>
-            <Show when={queryLongEnough() && searchQuery.isLoading && results().length === 0}>
+            <Show
+              when={controller.queryLongEnough() && controller.loading() && results().length === 0}
+            >
               <div class='flex min-h-44 items-center justify-center text-sm text-muted-foreground'>
                 Searching…
               </div>
             </Show>
-            <Show when={queryLongEnough() && searchQuery.isError}>
+            <Show when={controller.queryLongEnough() && controller.error()}>
               <div class='flex min-h-44 items-center justify-center px-6 text-center text-sm text-destructive'>
-                {searchQuery.error?.message ?? 'Search failed'}
+                {controller.error()?.message ?? 'Search failed'}
               </div>
             </Show>
             <Show
               when={
-                queryLongEnough() &&
-                !searchQuery.isLoading &&
-                !searchQuery.isFetching &&
-                !searchQuery.isError &&
+                controller.queryLongEnough() &&
+                !controller.loading() &&
+                !controller.error() &&
                 results().length === 0
               }
             >
@@ -268,17 +189,17 @@ function FileSearchPalette(props: {
                   id={`${listId}-option-${index()}`}
                   type='button'
                   role='option'
-                  aria-selected={index() === activeIndex()}
+                  aria-selected={index() === controller.activeIndex()}
                   class={`flex min-h-12 w-full items-center gap-3 rounded-lg px-3 py-2 text-left outline-none ${
-                    index() === activeIndex()
+                    index() === controller.activeIndex()
                       ? 'bg-accent text-accent-foreground'
                       : 'hover:bg-muted'
                   }`}
-                  onPointerMove={() => setActiveIndex(index())}
+                  onPointerMove={() => controller.setActiveIndex(index())}
                   onClick={() => choose(result)}
                 >
                   <Show
-                    when={result.isDirectory}
+                    when={result.resource?.capabilities.includes('browse')}
                     fallback={
                       <File class='size-5 shrink-0 text-muted-foreground' aria-hidden='true' />
                     }
@@ -286,51 +207,27 @@ function FileSearchPalette(props: {
                     <Folder class='size-5 shrink-0 text-amber-500' aria-hidden='true' />
                   </Show>
                   <span class='min-w-0 flex-1'>
-                    <span class='block truncate text-sm font-medium'>{result.name}</span>
+                    <span class='block truncate text-sm font-medium'>{result.title}</span>
                     <span class='block truncate text-xs text-muted-foreground'>
-                      {result.parentPath || result.rootName}
+                      {result.detail ?? result.snippet ?? result.contributorLabel}
                     </span>
                   </span>
                   <span class='max-w-28 truncate rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground'>
-                    {result.rootName}
+                    {result.group ?? result.contributorLabel}
                   </span>
                 </button>
               )}
             </For>
           </div>
 
-          <div class='flex min-h-12 flex-wrap items-center gap-2 border-t border-border px-3 py-2 text-xs text-muted-foreground'>
-            <Database class='size-4 shrink-0' aria-hidden='true' />
-            <span class='min-w-0 flex-1' aria-live='polite'>
-              {stateLabel(status())}
-              <Show when={searchQuery.data?.truncated}>
+          <div class='flex min-h-12 items-center border-t border-border px-3 py-2 text-xs text-muted-foreground'>
+            <span aria-live='polite'>
+              {results().length.toLocaleString()} results
+              <Show when={controller.response().truncated}>
                 {' '}
-                · First {FILE_SEARCH_DEFAULT_LIMIT} results
+                · First {SEARCH_DEFAULT_LIMIT} results
               </Show>
             </span>
-            <button
-              type='button'
-              class='inline-flex h-9 items-center gap-1.5 rounded-md px-2 hover:bg-muted hover:text-foreground disabled:opacity-50'
-              disabled={reindexMutation.isPending}
-              onClick={() => reindexMutation.mutate('reconcile')}
-            >
-              <RefreshCw class={`size-3.5 ${reindexMutation.isPending ? 'animate-spin' : ''}`} />
-              Refresh
-            </button>
-            <button
-              type='button'
-              class='h-9 rounded-md px-2 hover:bg-muted hover:text-foreground disabled:opacity-50'
-              disabled={reindexMutation.isPending}
-              onClick={() => {
-                if (
-                  window.confirm('Rebuild the complete file search index? This may take a while.')
-                ) {
-                  reindexMutation.mutate('full')
-                }
-              }}
-            >
-              Rebuild
-            </button>
           </div>
         </div>
       </div>

@@ -1,4 +1,4 @@
-import type { HermesMessage, HermesToolCall } from '@/lib/hermes-session-store'
+import type { HermesMessage, HermesToolCall } from './session-store'
 import Bot from 'lucide-solid/icons/bot'
 import Braces from 'lucide-solid/icons/braces'
 import CheckSquare from 'lucide-solid/icons/square-check-big'
@@ -12,7 +12,7 @@ import MoreHorizontal from 'lucide-solid/icons/ellipsis'
 import LoaderCircle from 'lucide-solid/icons/loader-circle'
 import CircleCheck from 'lucide-solid/icons/circle-check'
 import { ErrorBoundary, For, Show, createMemo, createSignal, onCleanup } from 'solid-js'
-import { classifyHermesTool, hermesImageUrl } from '@/lib/hermes-chat-parity'
+import { classifyHermesTool, hermesImageUrl } from './chat-parity'
 import { LazyMarkdownDocument } from '../../media/LazyMarkdownDocument'
 
 const LARGE_OUTPUT_CHARS = 8_000

@@ -1,23 +1,33 @@
-import type { ContentInstance } from './domain/content'
-import type { NavigationState } from './navigation-session'
-import type { MediaType } from './types'
+import {
+  isContentInstance,
+  type ContentInstance,
+  type PersistedContentEnvelope,
+} from './domain/content'
 
-export interface ContentWindowSource {
-  kind: 'local'
-  rootPath?: string | null
-}
+export type ContentWindowKind = 'browser' | 'viewer' | 'integration'
 
 export interface ContentWindowDefinition {
   id: string
-  type: 'browser' | 'viewer' | 'integration'
   title: string
   iconName?: string | null
-  iconPath?: string | null
-  iconType?: MediaType | null
-  iconIsVirtual?: boolean
-  source: ContentWindowSource
-  initialState: Partial<NavigationState>
-  content?: unknown
-  runtimeContent?: ContentInstance
+  content?: PersistedContentEnvelope
+  contentInstance?: ContentInstance
   contentRecoveryReason?: string
+}
+
+export function liveContentInstance(
+  window: Pick<ContentWindowDefinition, 'id' | 'contentInstance'>,
+): ContentInstance | null {
+  return isContentInstance(window.contentInstance) && window.contentInstance.id === window.id
+    ? window.contentInstance
+    : null
+}
+
+export function contentWindowKind(
+  window: Pick<ContentWindowDefinition, 'id' | 'contentInstance'>,
+): ContentWindowKind {
+  const instance = liveContentInstance(window)
+  if (instance?.type === 'explorer') return 'browser'
+  if (instance?.type === 'integration') return 'integration'
+  return 'viewer'
 }

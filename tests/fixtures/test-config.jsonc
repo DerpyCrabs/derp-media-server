@@ -2,4 +2,5 @@
   "mediaDir": "test-media",
   "dataPath": "../../test-data-local",
   "editableFolders": ["Notes", "MediaContent"],
+  "hermes": { "gatewayUrl": "http://127.0.0.1:1" },
 }

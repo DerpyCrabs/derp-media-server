@@ -1,10 +1,11 @@
 import { expect, test } from '@playwright/test'
+import { libraryUrl } from './canonical-urls'
 
 test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
 
 test.describe('mobile media management', () => {
   test('exposes 44px action targets and preserves the chosen view', async ({ page }) => {
-    await page.goto('/?dir=Images')
+    await page.goto(libraryUrl('Images'))
     const gridView = page.getByRole('button', { name: 'Grid view' })
     if ((await gridView.getAttribute('aria-pressed')) !== 'true') await gridView.click()
     await expect(page.locator('.file-browser-grid')).toBeVisible()
@@ -20,7 +21,7 @@ test.describe('mobile media management', () => {
   })
 
   test('swipes between images', async ({ page }) => {
-    await page.goto('/?dir=Images&viewing=Images%2Fphoto.jpg')
+    await page.goto(libraryUrl('Images', { viewing: 'Images/photo.jpg' }))
     const surface = page.getByTestId('image-gesture-surface')
     const box = (await surface.boundingBox())!
     await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2)
@@ -40,7 +41,7 @@ test.describe('mobile media management', () => {
   })
 
   test('renders PDFs in the controlled mobile viewer', async ({ page }) => {
-    await page.goto('/?dir=Documents&viewing=Documents%2Fsample.pdf')
+    await page.goto(libraryUrl('Documents', { viewing: 'Documents/sample.pdf' }))
     await expect(page.getByTestId('pdf-canvas')).toBeVisible()
     await expect(page.locator('embed')).toHaveCount(0)
     const controls = page.getByRole('dialog').locator('button')

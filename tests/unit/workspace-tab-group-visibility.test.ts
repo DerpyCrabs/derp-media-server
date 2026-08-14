@@ -1,5 +1,4 @@
 import { describe, expect, test } from 'bun:test'
-import { MediaType } from '@/lib/types'
 import type { WorkspaceWindowDefinition } from '@/lib/use-workspace'
 import {
   insertIndexAfterAllRightTabs,
@@ -9,37 +8,26 @@ import {
   tabsInGroup,
   visibleTabIdAfterPlayerRemoved,
 } from '@/src/workspace/tab-group-ops'
+import { workspaceWindow } from './workspace-window-fixture'
 
 function browserTab(id: string, gid = 'g1'): WorkspaceWindowDefinition {
-  return {
+  return workspaceWindow({
     id,
-    type: 'browser',
     title: id,
-    iconName: null,
-    iconPath: '',
-    iconType: MediaType.FOLDER,
-    iconIsVirtual: false,
-    source: { kind: 'local', rootPath: null },
-    initialState: { dir: '/' },
     tabGroupId: gid,
     layout: { minimized: false, zIndex: 1 },
-  }
+  })
 }
 
 function viewerTab(id: string, gid = 'g1'): WorkspaceWindowDefinition {
-  return {
+  return workspaceWindow({
     id,
-    type: 'viewer',
     title: id,
-    iconName: null,
-    iconPath: '/f',
-    iconType: MediaType.OTHER,
-    iconIsVirtual: false,
-    source: { kind: 'local', rootPath: null },
-    initialState: { dir: '/', viewing: '/f' },
+    contentKind: 'resource',
+    path: 'f.txt',
     tabGroupId: gid,
     layout: { minimized: false, zIndex: 1 },
-  }
+  })
 }
 
 describe('resolveGroupVisibleTabId', () => {

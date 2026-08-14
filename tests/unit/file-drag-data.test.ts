@@ -35,32 +35,12 @@ describe('file drag data', () => {
     expect(dt.getData('text/plain')).toBe('Documents/readme.txt')
   })
 
-  test('round-trips virtual open targets', () => {
-    const dt = createMockDataTransfer()
-    const data: FileDragData = {
-      path: 'opaque-provider-entry',
-      isDirectory: false,
-      sourceKind: 'local',
-      isVirtual: true,
-      virtualOpenTarget: { type: 'hermesSession', sessionId: 'durable-1', readOnly: false },
-    }
-    setFileDragData(dt, data)
-    expect(getFileDragData(dt)).toEqual(data)
-  })
-
   test('reports custom drag data and rejects malformed payloads', () => {
     const dt = createMockDataTransfer()
     expect(hasFileDragData(dt)).toBe(false)
     dt.setData('application/x-derp-file-drag', JSON.stringify({ isDirectory: true }))
     expect(hasFileDragData(dt)).toBe(true)
     expect(getFileDragData(dt)).toBeNull()
-
-    const malformedVirtualFlag = createMockDataTransfer()
-    malformedVirtualFlag.setData(
-      'application/x-derp-file-drag',
-      JSON.stringify({ path: 'virtual', isDirectory: true, isVirtual: 'yes' }),
-    )
-    expect(getFileDragData(malformedVirtualFlag)).toBeNull()
   })
 
   test('matches local sources', () => {

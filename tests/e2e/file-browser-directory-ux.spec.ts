@@ -1,11 +1,12 @@
 import { test, expect } from '@playwright/test'
+import { libraryUrl } from './canonical-urls'
 
 test.describe('File browser directory UX', () => {
   test('shows deferred loading state for slow client navigation fetch', async ({ page }) => {
     await page.goto('/')
-    await page.route('**/api/files**', async (route) => {
+    await page.route('**/api/integrations/filesystem/browse?*', async (route) => {
       const url = route.request().url()
-      if (!url.includes(encodeURIComponent('Notes')) && !url.includes('dir=Notes')) {
+      if (!new URL(url).searchParams.get('id')?.includes('Notes')) {
         await route.continue()
         return
       }
@@ -13,16 +14,16 @@ test.describe('File browser directory UX', () => {
       await route.continue()
     })
     await page.locator('table').getByText('Notes', { exact: true }).click()
-    await expect(page).toHaveURL(/dir=Notes/)
+    await expect(page).toHaveURL(libraryUrl('Notes'))
     await expect(page.getByTestId('directory-loading')).toBeVisible()
   })
 
   test('retry refetches listing after error on client navigation', async ({ page }) => {
     let notesFetches = 0
     await page.goto('/')
-    await page.route('**/api/files**', async (route) => {
+    await page.route('**/api/integrations/filesystem/browse?*', async (route) => {
       const url = route.request().url()
-      if (!url.includes('dir=Notes')) {
+      if (!new URL(url).searchParams.get('id')?.includes('Notes')) {
         await route.continue()
         return
       }

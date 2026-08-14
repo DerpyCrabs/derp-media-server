@@ -1,3 +1,4 @@
+import { buildMediaUrl } from '@/lib/api-media-urls'
 import { getKnowledgeBaseRoot } from '@/lib/utils'
 
 function decodeUrlPath(value: string): string | null {
@@ -23,6 +24,6 @@ export function buildResolveMarkdownImageUrl(
       if (kbRoot) src = `${kbRoot}/images/${src}`
     }
 
-    return `/api/media/${src.split('/').filter(Boolean).map(encodeURIComponent).join('/')}`
+    return buildMediaUrl(src.split('/').filter(Boolean).join('/'))
   }
 }

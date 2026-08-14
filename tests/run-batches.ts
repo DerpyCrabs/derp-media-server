@@ -79,6 +79,7 @@ function generateBatchConfig(batchId: string, port: number): string {
     mediaDir: `test-media-${batchId}`,
     dataPath: `../../test-data-${batchId}`,
     editableFolders: ['Notes', 'MediaContent'],
+    hermes: { gatewayUrl: 'http://127.0.0.1:1' },
   }
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2))
   return configPath

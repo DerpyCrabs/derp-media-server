@@ -68,7 +68,7 @@ describe('ExplorerVirtualizedItems boundary', () => {
     expect(source).toContain('props.onVisibleRange')
   })
 
-  test('provides compatible table and file-browser-grid wrappers', () => {
+  test('provides table and file-browser-grid wrappers', () => {
     expect(source).toContain('<table')
     expect(source).toContain("'file-browser-grid gap-3 p-3'")
     expect(source).toContain('explorerItemKey(items, index)')

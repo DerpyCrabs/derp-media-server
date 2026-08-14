@@ -82,7 +82,7 @@ export async function createTempFile(page: Page, content: Locator, fileName: str
 export async function deleteFileViaContextMenu(page: Page, content: Locator, fileName: string) {
   await content.locator('tr').filter({ hasText: fileName }).click({ button: 'right' })
   await page.locator('[data-slot="context-menu-item"]').getByText('Delete').click()
-  await page.getByRole('button', { name: /Delete/i }).click()
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Delete', exact: true }).click()
   await expect(content.locator('tr').filter({ hasText: fileName })).not.toBeVisible({
     timeout: 5_000,
   })

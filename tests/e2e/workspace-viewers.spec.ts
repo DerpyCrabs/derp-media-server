@@ -8,9 +8,16 @@ import {
 } from '@playwright/test'
 import { getWindowGroups, gotoWorkspace } from './workspace-layout-helpers'
 import { createWorkspaceE2EContext, workspaceE2EOrigin } from './workspace-e2e-context'
+import { filesystemResourceKey } from '../../lib/domain/resource'
+import {
+  createFilesystemFile,
+  deleteFilesystemResource,
+  editFilesystemFile,
+} from './filesystem-actions'
 
 let sharedContext: BrowserContext
 let page: Page
+const TODO_MARKDOWN_PATH = 'Notes/todo.md'
 
 test.beforeAll(async ({ browser }) => {
   sharedContext = await createWorkspaceE2EContext(browser)
@@ -63,9 +70,12 @@ function uniqueWorkspaceMarkdownPath(prefix: string) {
 }
 
 async function createWorkspaceMarkdown(filePath: string, content: string) {
-  const response = await sharedContext.request.post(`${workspaceE2EOrigin()}/api/files/create`, {
-    data: { type: 'file', path: filePath, content },
-  })
+  const response = await createFilesystemFile(
+    sharedContext.request,
+    filePath,
+    content,
+    workspaceE2EOrigin(),
+  )
   expect(response.ok()).toBe(true)
 }
 
@@ -79,9 +89,17 @@ async function readWorkspaceMarkdown(filePath: string) {
 }
 
 async function deleteWorkspaceMarkdown(filePath: string) {
-  await sharedContext.request.post(`${workspaceE2EOrigin()}/api/files/delete`, {
-    data: { path: filePath },
-  })
+  await deleteFilesystemResource(sharedContext.request, filePath, workspaceE2EOrigin())
+}
+
+function isFilesystemEditFor(response: Response, path: string): boolean {
+  if (!response.url().includes('/api/integrations/filesystem/actions')) return false
+  const body = response.request().postDataJSON() as {
+    action?: string
+    key?: { provider?: string; id?: string }
+  } | null
+  const expected = filesystemResourceKey('configured-default', path)
+  return body?.action === 'filesystem.edit' && body.key?.id === expected.id
 }
 
 test.describe('Workspace File Browser', () => {
@@ -91,7 +109,16 @@ test.describe('Workspace File Browser', () => {
       const content = getBrowserContent(page)
       await content.getByText('Documents', { exact: true }).click()
       await expect(content.getByText('readme.txt')).toBeVisible()
-      await content.getByRole('button', { name: 'Home' }).click()
+      const directHome = content.getByRole('button', { name: 'Home', exact: true })
+      if ((await directHome.count()) > 0) {
+        await directHome.click()
+      } else {
+        await content.locator('[data-breadcrumb-segment="path-picker"]').click()
+        await page
+          .getByTestId('breadcrumb-path-menu')
+          .getByRole('menuitem', { name: 'Home', exact: true })
+          .click()
+      }
       const table = content.locator('table')
       await Promise.all(
         ['Videos', 'Music', 'Images', 'Documents'].map((folder) =>
@@ -139,6 +166,16 @@ test.describe('Workspace File Browser', () => {
       await content.getByText('Notes', { exact: true }).click()
       await content.locator('table').getByText('subfolder', { exact: true }).click()
       await expect(content.locator('table').getByText('nested-note.md')).toBeVisible()
+      const actionsTrigger = content.getByRole('button', { name: 'Location actions' })
+      await expect(actionsTrigger).toBeVisible()
+      await actionsTrigger.click()
+      await expect(
+        content.getByTestId('explorer-location-actions-menu').getByRole('menuitem', {
+          name: 'Rename',
+          exact: true,
+        }),
+      ).toBeVisible()
+      await page.keyboard.press('Escape')
       let notesBreadcrumb = content.locator('[data-breadcrumb-path="Notes"]')
       if ((await notesBreadcrumb.count()) === 0) {
         await content.locator('[data-breadcrumb-segment="path-picker"]').click()
@@ -160,7 +197,12 @@ test.describe('Workspace File Browser', () => {
     await expect(content.getByTestId('kb-recent-strip')).toBeVisible()
     await expect(content.getByRole('button', { name: 'Search note contents' })).toBeVisible()
     await content.getByRole('button', { name: 'Search note contents' }).click()
-    await expect(page.getByPlaceholder('Search notes...')).toBeVisible()
+    const contentSearch = page.getByPlaceholder('Search notes...')
+    await expect(contentSearch).toBeVisible()
+    await contentSearch.fill('nested note')
+    await expect(
+      content.locator('[data-kb-search-result]').getByText('nested-note.md'),
+    ).toBeVisible()
     await expect(content.locator('table')).toBeVisible()
     await expect(content.getByRole('button', { name: 'New file', exact: true })).toBeVisible()
     await expect(content.getByRole('button', { name: 'New folder', exact: true })).toBeVisible()
@@ -527,9 +569,12 @@ test.describe('Workspace Text Viewer', () => {
     const initial = '# Workspace Outside KB\n\nEditable Markdown file.\n'
     const updated = '# Workspace Outside KB Updated\n\nSaved through CodeMirror.\n'
     const origin = workspaceE2EOrigin()
-    const createResponse = await sharedContext.request.post(`${origin}/api/files/create`, {
-      data: { type: 'file', path: filePath, content: initial },
-    })
+    const createResponse = await createFilesystemFile(
+      sharedContext.request,
+      filePath,
+      initial,
+      origin,
+    )
     expect(createResponse.ok()).toBe(true)
 
     try {
@@ -547,11 +592,7 @@ test.describe('Workspace Text Viewer', () => {
       await editor.fill(updated)
       await Promise.all([
         page.waitForResponse((response) => {
-          if (!response.url().includes('/api/files/edit') || response.status() !== 200) return false
-          const body = response.request().postDataJSON() as {
-            path?: string
-          } | null
-          return body?.path === filePath
+          return response.status() === 200 && isFilesystemEditFor(response, filePath)
         }),
         editor.press('Control+s'),
       ])
@@ -561,9 +602,7 @@ test.describe('Workspace Text Viewer', () => {
       expect(readResponse.ok()).toBe(true)
       expect(await readResponse.text()).toBe(updated)
     } finally {
-      await sharedContext.request.post(`${origin}/api/files/delete`, {
-        data: { path: filePath },
-      })
+      await deleteFilesystemResource(sharedContext.request, filePath, origin)
     }
   })
 
@@ -665,9 +704,12 @@ test.describe('Workspace Text Viewer', () => {
       await expect(editor).toBeVisible()
       expect(await copyMarkdownSource(page, editor)).toBe(initial)
 
-      const response = await secondContext.request.post(`${workspaceE2EOrigin()}/api/files/edit`, {
-        data: { path: filePath, content: remote },
-      })
+      const response = await editFilesystemFile(
+        secondContext.request,
+        filePath,
+        remote,
+        workspaceE2EOrigin(),
+      )
       expect(response.ok()).toBe(true)
 
       await expect.poll(() => copyMarkdownSource(page, editor)).toBe(remote)
@@ -695,18 +737,22 @@ test.describe('Workspace Text Viewer', () => {
     let targetRequestCount = 0
     let completedTargetRequestCount = 0
     const onResponse = (response: Response) => {
-      if (!response.url().includes('/api/files/edit') || response.status() !== 200) return
-      const body = response.request().postDataJSON() as {
-        path?: string
-      } | null
-      if (body?.path === filePath) completedTargetRequestCount += 1
+      if (response.status() === 200 && isFilesystemEditFor(response, filePath)) {
+        completedTargetRequestCount += 1
+      }
     }
 
     await createWorkspaceMarkdown(filePath, initial)
     page.on('response', onResponse)
-    await page.route('**/api/files/edit', async (route) => {
-      const body = route.request().postDataJSON() as { path?: string } | null
-      if (body?.path === filePath) {
+    await page.route('**/api/integrations/filesystem/actions', async (route) => {
+      const body = route.request().postDataJSON() as {
+        action?: string
+        key?: { id?: string }
+      } | null
+      if (
+        body?.action === 'filesystem.edit' &&
+        body.key?.id === filesystemResourceKey('configured-default', filePath).id
+      ) {
         targetRequestCount += 1
         if (targetRequestCount === 1) {
           markFirstSaveStarted()
@@ -740,7 +786,7 @@ test.describe('Workspace Text Viewer', () => {
     } finally {
       releaseFirstSave()
       page.off('response', onResponse)
-      await page.unroute('**/api/files/edit')
+      await page.unroute('**/api/integrations/filesystem/actions')
       await deleteWorkspaceMarkdown(filePath)
     }
   })
@@ -753,9 +799,7 @@ test.describe('Workspace Text Viewer', () => {
     const secondContext = await createWorkspaceE2EContext(browser)
     const origin = workspaceE2EOrigin()
     try {
-      await secondContext.request.post(`${origin}/api/files/create`, {
-        data: { type: 'file', path: filePath, content: '# Original\n' },
-      })
+      await createFilesystemFile(secondContext.request, filePath, '# Original\n', origin)
       await gotoWorkspace(page)
       const browserPane = getBrowserContent(page)
       await browserPane.getByText('Notes', { exact: true }).click()
@@ -767,18 +811,14 @@ test.describe('Workspace Text Viewer', () => {
       expect(await copyMarkdownSource(page, editor)).toBe('# Original\n')
       await editor.fill('# Local dirty edit\n')
 
-      await secondContext.request.post(`${origin}/api/files/edit`, {
-        data: { path: filePath, content: '# Remote edit\n' },
-      })
+      await editFilesystemFile(secondContext.request, filePath, '# Remote edit\n', origin)
 
       await expect(viewer.getByText('This file changed elsewhere.')).toBeVisible()
       expect(await copyMarkdownSource(page, editor)).toBe('# Local dirty edit\n')
       await viewer.getByRole('button', { name: 'Reload remote version' }).click()
       await expect.poll(() => copyMarkdownSource(page, editor)).toBe('# Remote edit\n')
     } finally {
-      await secondContext.request.post(`${origin}/api/files/delete`, {
-        data: { path: filePath },
-      })
+      await deleteFilesystemResource(secondContext.request, filePath, origin)
       await secondContext.close()
     }
   })
@@ -903,14 +943,14 @@ test.describe('Workspace Text Viewer', () => {
     )
     await Promise.all([
       page.waitForResponse(
-        (response) => response.url().includes('/api/files/edit') && response.ok(),
+        (response) => isFilesystemEditFor(response, TODO_MARKDOWN_PATH) && response.ok(),
       ),
       editor.press('Control+s'),
     ])
     await editor.fill(original)
     await Promise.all([
       page.waitForResponse(
-        (response) => response.url().includes('/api/files/edit') && response.ok(),
+        (response) => isFilesystemEditFor(response, TODO_MARKDOWN_PATH) && response.ok(),
       ),
       editor.press('Control+s'),
     ])
@@ -966,7 +1006,7 @@ test.describe('Workspace Text Viewer', () => {
     const viewerWindow = getWindowGroups(page).nth(1)
     await Promise.all([
       page.waitForResponse(
-        (resp) => resp.url().includes('/api/files/edit') && resp.status() === 200,
+        (resp) => isFilesystemEditFor(resp, TODO_MARKDOWN_PATH) && resp.status() === 200,
       ),
       editor.press('Control+s'),
     ])
@@ -989,7 +1029,7 @@ test.describe('Workspace Text Viewer', () => {
     await newEditor.fill('# Todo List\n\n- [ ] First task\n- [ ] Second task\n- [x] Done task\n')
     await Promise.all([
       page.waitForResponse(
-        (resp) => resp.url().includes('/api/files/edit') && resp.status() === 200,
+        (resp) => isFilesystemEditFor(resp, TODO_MARKDOWN_PATH) && resp.status() === 200,
       ),
       getWindowGroups(page).nth(1).locator('[data-testid="window-drag-handle"]').click(),
     ])

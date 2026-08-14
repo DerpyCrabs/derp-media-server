@@ -8,9 +8,9 @@ import type { ParentProps } from 'solid-js'
 import { GlobalForbiddenToast } from './GlobalForbiddenToast'
 import { SolidThemeSync } from './SolidThemeSync'
 import { PlaybackMediaHost } from './features/playback/PlaybackMediaHost'
-import { PlaybackPathMutationSync } from './features/playback/PlaybackPathMutationSync'
 import { PlaybackProvider } from './features/playback/PlaybackProvider'
-import { createOwnerBrowserPlaybackSession } from './features/playback/browser-session'
+import { FilesystemPlaybackSync } from './integrations/filesystem/PlaybackSync'
+import { createFilesystemBrowserPlaybackSession } from './integrations/filesystem/playback'
 
 export function createAppQueryClient(dehydratedState?: DehydratedState): QueryClient {
   const queryClient = new QueryClient({
@@ -27,7 +27,7 @@ export function createAppQueryClient(dehydratedState?: DehydratedState): QueryCl
 }
 
 export function AppProviders(props: ParentProps<{ queryClient: QueryClient }>) {
-  const playbackSession = createOwnerBrowserPlaybackSession()
+  const playbackSession = createFilesystemBrowserPlaybackSession()
 
   return (
     <QueryClientProvider client={props.queryClient}>
@@ -35,7 +35,7 @@ export function AppProviders(props: ParentProps<{ queryClient: QueryClient }>) {
         <SolidThemeSync />
         <GlobalForbiddenToast />
         <PlaybackMediaHost />
-        <PlaybackPathMutationSync />
+        <FilesystemPlaybackSync />
         {props.children}
       </PlaybackProvider>
     </QueryClientProvider>

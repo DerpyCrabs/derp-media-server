@@ -14,7 +14,6 @@ function item(id: string, media: 'audio' | 'video' = 'audio'): PlaybackItem {
   const locator = `${media === 'audio' ? 'Music' : 'Videos'}/${id}.${extension}`
   return {
     resource: { provider: 'filesystem', id: locator },
-    locator,
     name: `${id}.${extension}`,
     media,
   }

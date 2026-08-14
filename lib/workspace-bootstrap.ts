@@ -1,21 +1,15 @@
-import { isVirtualFolderPath } from '@/lib/constants'
-import { MediaType } from '@/lib/types'
-import {
-  normalizePersistedWorkspaceState,
-  type PersistedWorkspaceState,
-  type WorkspaceSource,
-} from '@/lib/use-workspace'
+import { filesystemResourceAddress, type ResourceKey } from '@/lib/domain/resource'
+import { normalizePersistedWorkspaceState, type PersistedWorkspaceState } from '@/lib/use-workspace'
 import type { WorkspaceLayoutPreset } from '@/lib/workspace-layout-presets'
 import { createDefaultBounds, createWindowLayout } from '@/lib/workspace-geometry'
-import { defaultPersistedState } from '@/src/workspace/workspace-page-persistence'
+import { defaultPersistedState } from '@/lib/workspace-default-state'
 
 export type WorkspaceHydrationInput = {
-  dirParam: string | null
+  resource: ResourceKey | null
   presetParam: string | null
   loaded: PersistedWorkspaceState | null
   presetsReadyNow: boolean
   presetsList: WorkspaceLayoutPreset[]
-  source: WorkspaceSource
 }
 
 export type WorkspaceHydrationInitialOutcome =
@@ -28,22 +22,19 @@ export type WorkspaceHydrationInitialOutcome =
     }
   | { kind: 'defer-preset' }
 
-export function buildWorkspaceFromDirParam(
-  dirParam: string,
-  source: WorkspaceSource,
-): PersistedWorkspaceState {
+export function buildWorkspaceFromResource(resource: ResourceKey): PersistedWorkspaceState {
+  const path = filesystemResourceAddress(resource)?.path ?? ''
   return {
     windows: [
       {
         id: 'workspace-window-1',
-        type: 'browser',
-        title: dirParam.split(/[/\\]/).filter(Boolean).pop() ?? 'Browser 1',
+        title: path.split('/').filter(Boolean).pop() ?? 'Browser 1',
         iconName: null,
-        iconPath: dirParam,
-        iconType: MediaType.FOLDER,
-        iconIsVirtual: isVirtualFolderPath(dirParam),
-        source,
-        initialState: { dir: dirParam },
+        contentInstance: {
+          id: 'workspace-window-1',
+          type: 'explorer',
+          location: resource,
+        },
         tabGroupId: null,
         layout: createWindowLayout(undefined, createDefaultBounds(0, 'browser'), 1),
       },
@@ -72,10 +63,10 @@ function findPresetSnapshot(
 export function resolveWorkspaceInitialHydration(
   input: WorkspaceHydrationInput,
 ): WorkspaceHydrationInitialOutcome {
-  const { dirParam, presetParam, loaded, presetsReadyNow, presetsList, source } = input
+  const { resource, presetParam, loaded, presetsReadyNow, presetsList } = input
 
-  if (dirParam != null && dirParam !== '') {
-    const workspace = buildWorkspaceFromDirParam(dirParam, source)
+  if (resource) {
+    const workspace = buildWorkspaceFromResource(resource)
     return {
       kind: 'set-workspace',
       workspace,
@@ -109,7 +100,7 @@ export function resolveWorkspaceInitialHydration(
     }
     return {
       kind: 'set-workspace',
-      workspace: defaultPersistedState(source),
+      workspace: defaultPersistedState(),
       baselinePresetId: null,
       baselineSnapshot: null,
       stripPresetFromUrl: true,
@@ -122,7 +113,7 @@ export function resolveWorkspaceInitialHydration(
 
   return {
     kind: 'set-workspace',
-    workspace: defaultPersistedState(source),
+    workspace: defaultPersistedState(),
     baselinePresetId: null,
     baselineSnapshot: null,
     stripPresetFromUrl: false,

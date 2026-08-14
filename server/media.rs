@@ -27,8 +27,6 @@ pub struct FileItem {
     pub extension: String,
     pub is_directory: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub is_virtual: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub view_count: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thumbnail_generated: Option<bool>,
@@ -234,27 +232,9 @@ fn excluded_file(n: &str) -> bool {
     ]
     .contains(&n)
 }
-fn virtual_item(name: &str) -> FileItem {
-    FileItem {
-        name: name.into(),
-        path: name.into(),
-        media_type: "folder".into(),
-        size: 0,
-        extension: String::new(),
-        is_directory: true,
-        is_virtual: Some(true),
-        view_count: None,
-        thumbnail_generated: None,
-        version: None,
-    }
-}
 pub fn list(config: &Config, input: &str) -> AppResult<Vec<FileItem>> {
     let logical = clean_logical(input)?;
-    let mut items = if logical.is_empty() {
-        vec![virtual_item("Favorites"), virtual_item("Most Played")]
-    } else {
-        vec![]
-    };
+    let mut items = Vec::new();
     let roots = &config.roots;
     if roots.len() > 1 && logical.is_empty() {
         for r in roots {
@@ -265,7 +245,6 @@ pub fn list(config: &Config, input: &str) -> AppResult<Vec<FileItem>> {
                 size: 0,
                 extension: String::new(),
                 is_directory: true,
-                is_virtual: None,
                 view_count: None,
                 thumbnail_generated: None,
                 version: None,
@@ -297,7 +276,7 @@ pub fn list(config: &Config, input: &str) -> AppResult<Vec<FileItem>> {
             .modified()
             .ok()
             .and_then(|x| x.duration_since(UNIX_EPOCH).ok())
-            .map(|x| x.as_secs_f64() * 1000.0);
+            .map(|x| x.as_micros() as f64 / 1000.0);
         items.push(FileItem {
             name,
             path,
@@ -309,7 +288,6 @@ pub fn list(config: &Config, input: &str) -> AppResult<Vec<FileItem>> {
             size: if meta.is_dir() { 0 } else { meta.len() },
             extension: ext,
             is_directory: meta.is_dir(),
-            is_virtual: None,
             view_count: None,
             thumbnail_generated: if meta.is_file()
                 && ["image", "video"].contains(&media_type(
@@ -331,10 +309,8 @@ pub fn list(config: &Config, input: &str) -> AppResult<Vec<FileItem>> {
 }
 fn sort(v: &mut [FileItem]) {
     v.sort_by(|a, b| {
-        b.is_virtual
-            .unwrap_or(false)
-            .cmp(&a.is_virtual.unwrap_or(false))
-            .then_with(|| b.is_directory.cmp(&a.is_directory))
+        b.is_directory
+            .cmp(&a.is_directory)
             .then_with(|| natord::compare_ignore_case(&a.name, &b.name))
     })
 }

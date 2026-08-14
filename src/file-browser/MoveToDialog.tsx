@@ -1,5 +1,8 @@
-import { apiEndpoints } from '@/lib/api-endpoints'
-import type { FileItem } from '@/lib/types'
+import { listFilesystemResources } from '@/src/integrations/filesystem/query-options'
+import {
+  filesystemPathForResourceKey,
+  filesystemResourceIsDirectory,
+} from '@/src/integrations/filesystem/resource'
 import type { ModalOverlayScope } from './modal-overlay-scope'
 import { modalDialogBackdropClass } from './modal-overlay-scope'
 import ArrowUp from 'lucide-solid/icons/arrow-up'
@@ -52,8 +55,8 @@ export function MoveToDialog(props: MoveToDialogProps) {
   const listSource = createMemo(() => browsePath())
 
   const [dirFiles] = createResource(listSource, async (src) => {
-    const { files } = await apiEndpoints.files.list({ dir: src })
-    return files
+    const { resources } = await listFilesystemResources({ dir: src })
+    return resources
   })
 
   const sourceDir = createMemo(() => {
@@ -66,13 +69,15 @@ export function MoveToDialog(props: MoveToDialogProps) {
   const normalizedRoot = createMemo(() => selectedRoot().replace(/\\/g, '/'))
 
   const folders = createMemo(() => {
-    const rawFiles: FileItem[] = dirFiles() ?? []
+    const resources = dirFiles() ?? []
     const normalizedFilePath = props.filePath.replace(/\\/g, '/')
-    return rawFiles
-      .filter((f) => f.isDirectory)
-      .map((f) => {
-        const navPath = f.path.replace(/\\/g, '/')
-        return { name: f.name, navPath }
+    return resources
+      .filter(filesystemResourceIsDirectory)
+      .flatMap((resource) => {
+        const path = filesystemPathForResourceKey(resource.key)
+        if (path === null) return []
+        const navPath = path.replace(/\\/g, '/')
+        return [{ name: resource.name, navPath }]
       })
       .filter((f) => {
         if (f.navPath === normalizedFilePath) return false

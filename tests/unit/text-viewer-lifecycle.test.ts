@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { filesystemResourceKey } from '@/lib/domain/resource'
-import { BUILT_IN_RENDERER_ID } from '@/src/features/open/renderer-registry'
+import { FILESYSTEM_RENDERER_ID } from '@/src/integrations/filesystem/renderers'
 import {
   canCloseTextViewerContent,
   createTextViewerCloseController,
@@ -86,7 +86,7 @@ describe('text viewer close lifecycle', () => {
       id: 'text-window',
       type: 'resource' as const,
       resource: filesystemResourceKey('media', 'Notes/file.txt'),
-      renderer: BUILT_IN_RENDERER_ID.text,
+      renderer: FILESYSTEM_RENDERER_ID.text,
     }
     const lifecycle = createFilesystemIntegrationModule().lifecycles?.find((candidate) =>
       candidate.supports(instance),

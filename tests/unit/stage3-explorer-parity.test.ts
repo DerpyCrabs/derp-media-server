@@ -5,8 +5,7 @@ import {
   createFilesystemIntegrationModule,
   type FilesystemIntegrationTransport,
 } from '@/src/integrations/filesystem/module'
-import { hermesResourceKey } from '@/src/integrations/hermes/module'
-import { applicationContentRegistry } from '@/src/integrations/registry'
+import { hermesIntegrationModule, hermesResourceKey } from '@/src/integrations/hermes/module'
 
 const EXPLORER_HOSTS = [
   'src/FileBrowser.tsx',
@@ -53,23 +52,39 @@ describe('Stage 3 Explorer parity', () => {
 
   test('filesystem resources retain applicable actions and presentation metadata', async () => {
     const transport: FilesystemIntegrationTransport = {
-      list: async () => ({
-        files: [
+      browseResource: async ({ location }) => ({
+        schemaVersion: 1,
+        location,
+        locationSummary: {
+          key: location,
+          name: 'Library',
+          kind: 'root',
+          capabilities: ['browse'],
+          presentation: 'browse',
+        },
+        breadcrumbs: [],
+        items: [
           {
+            key: filesystemResourceKey('media', 'Notes'),
             name: 'Notes',
-            path: 'Notes',
-            type: 'folder',
-            size: 0,
-            extension: '',
-            isDirectory: true,
-            viewCount: 12,
-            thumbnailGenerated: true,
-            version: 4,
+            kind: 'folder',
+            capabilities: ['browse', 'filesystem.copy', 'download'],
+            presentation: 'browse',
+            metadata: { viewCount: 12, thumbnailGenerated: true, version: 4 },
           },
         ],
+        total: 1,
       }),
-      runAction: async () => undefined,
-      downloadUrl: () => '',
+      inspectResource: async (key) => ({
+        key,
+        name: 'Notes',
+        kind: 'folder',
+        capabilities: ['browse'],
+      }),
+      runResourceAction: async () => ({
+        success: true,
+        data: { url: '/download', filename: 'Notes.zip' },
+      }),
     }
     const registry = createContentRegistry([createFilesystemIntegrationModule(transport)])
     const location = filesystemResourceKey('media', '')
@@ -91,7 +106,7 @@ describe('Stage 3 Explorer parity', () => {
       actionId: 'filesystem.download',
       resource: folder,
     })
-    expect(download).toEqual({ value: { url: '', filename: 'Notes.zip' } })
+    expect(download).toEqual({ value: { url: '/download', filename: 'Notes.zip' } })
 
     const applicationAdapter = await Bun.file('src/integrations/explorer-adapter.ts').text()
     expect(applicationAdapter).toMatch(/id: 'application\.favorite'/)
@@ -101,6 +116,7 @@ describe('Stage 3 Explorer parity', () => {
   })
 
   test('Hermes browse and resource actions are reachable through the Library registry', () => {
+    const registry = createContentRegistry([hermesIntegrationModule])
     const root = hermesResourceKey('root')
     const session: ResourceSummary = {
       key: hermesResourceKey('session', 'session-1'),
@@ -110,9 +126,9 @@ describe('Stage 3 Explorer parity', () => {
       presentation: 'hermes-session',
     }
 
-    expect(applicationContentRegistry.browse(root)).not.toBeNull()
+    expect(registry.browse(root)).not.toBeNull()
     expect(
-      applicationContentRegistry
+      registry
         .actions(session)
         ?.list(session)
         .map((action) => action.id),

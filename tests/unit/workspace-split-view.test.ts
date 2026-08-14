@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { MediaType } from '@/lib/types'
+import '@/src/integrations/current-window-content'
 import type { PersistedWorkspaceState, WorkspaceWindowDefinition } from '@/lib/use-workspace'
 import {
   normalizePersistedWorkspaceState,
@@ -14,42 +14,31 @@ import {
   splitWindowFromGroupState,
   tabsInGroup,
 } from '@/src/workspace/tab-group-ops'
+import { workspaceContent, workspaceWindow } from './workspace-window-fixture'
 
 function browserTab(
   id: string,
   opts?: { tabGroupId?: string | null; tabPinned?: boolean },
 ): WorkspaceWindowDefinition {
   const gid = opts?.tabGroupId ?? 'g1'
-  return {
+  return workspaceWindow({
     id,
-    type: 'browser',
     title: id,
-    iconName: null,
-    iconPath: '',
-    iconType: MediaType.FOLDER,
-    iconIsVirtual: false,
-    source: { kind: 'local', rootPath: null },
-    initialState: { dir: '/' },
     tabGroupId: gid,
     layout: { minimized: false, zIndex: 1 },
     ...(opts?.tabPinned ? { tabPinned: true } : {}),
-  }
+  })
 }
 
 function viewerTab(id: string, gid = 'g1'): WorkspaceWindowDefinition {
-  return {
+  return workspaceWindow({
     id,
-    type: 'viewer',
     title: id,
-    iconName: null,
-    iconPath: '/f',
-    iconType: MediaType.OTHER,
-    iconIsVirtual: false,
-    source: { kind: 'local', rootPath: null },
-    initialState: { dir: '/', viewing: '/f' },
+    contentKind: 'resource',
+    path: 'f.txt',
     tabGroupId: gid,
     layout: { minimized: false, zIndex: 1 },
-  }
+  })
 }
 
 function baseState(windows: WorkspaceWindowDefinition[]): PersistedWorkspaceState {
@@ -98,8 +87,8 @@ describe('workspace split view', () => {
     const next = openInNewTabInGroupState(
       state,
       'b1',
-      { path: '/new.txt', isDirectory: false },
-      '/',
+      workspaceContent('pending', 'resource', 'new.txt'),
+      'new.txt',
     )
     const order = tabsInGroup(next.windows, 'g1').map((w) => w.id)
     expect(order).toEqual(['b1', 'v1', 'workspace-window-10'])
@@ -112,8 +101,8 @@ describe('workspace split view', () => {
     const next = openInSplitViewFromBrowserState(
       state,
       'only',
-      { path: '/y.txt', isDirectory: false },
-      '/',
+      workspaceContent('pending', 'resource', 'y.txt'),
+      'y.txt',
     )
     expect(next.tabGroupSplits?.g1?.leftTabId).toBe('only')
     const order = tabsInGroup(next.windows, 'g1').map((w) => w.id)
@@ -125,15 +114,12 @@ describe('workspace split view', () => {
   test('normalizePersistedWorkspaceState drops invalid split metadata', () => {
     const raw = {
       windows: [
-        {
+        workspaceWindow({
           id: 'a',
-          type: 'browser',
           title: 'a',
-          source: { kind: 'local', rootPath: null },
-          initialState: {},
           tabGroupId: 'g1',
           layout: { minimized: false, zIndex: 1 },
-        },
+        }),
       ],
       activeWindowId: 'a',
       activeTabMap: { g1: 'a' },

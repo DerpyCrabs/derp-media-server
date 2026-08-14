@@ -27,7 +27,6 @@ function deferred<T>(): Deferred<T> {
 function item(id: string, overrides: Partial<PlaybackItem> = {}): PlaybackItem {
   return {
     resource: { provider: 'filesystem', id: `Music/${id}.mp3` },
-    locator: `Music/${id}.mp3`,
     name: `${id}.mp3`,
     media: 'audio',
     ...overrides,
@@ -37,7 +36,7 @@ function item(id: string, overrides: Partial<PlaybackItem> = {}): PlaybackItem {
 function resolved(request: PlaybackSourceRequest): PlaybackSourceResolution {
   return {
     kind: 'resolved',
-    url: `/media/${encodeURIComponent(request.item.locator)}?mode=${request.mode}`,
+    url: `/media/${encodeURIComponent(request.item.resource.id)}?mode=${request.mode}`,
   }
 }
 
@@ -129,10 +128,9 @@ describe('owner PlaybackSession', () => {
   test('deduplicates queue identity and handles previous, next, repeat, and queue end', () => {
     const source = resolverHarness()
     const a = item('a')
-    const movedA = item('a', { locator: 'Archive/a.mp3', name: 'moved-a.mp3' })
+    const movedA = item('a', { name: 'moved-a.mp3' })
     const video = item('video', {
       resource: { provider: 'filesystem', id: 'Videos/video.mp4' },
-      locator: 'Videos/video.mp4',
       name: 'video.mp4',
       media: 'video',
     })
@@ -232,7 +230,6 @@ describe('owner PlaybackSession', () => {
     const session = createPlaybackSession({ sourceResolver: source.resolver })
     const original = item('stable')
     const moved = item('stable', {
-      locator: 'Archive/stable.mp3',
       name: 'renamed.mp3',
     })
 
@@ -259,7 +256,6 @@ describe('owner PlaybackSession', () => {
     }))
     const video = item('clip', {
       resource: { provider: 'filesystem', id: 'Videos/clip.mp4' },
-      locator: 'Videos/clip.mp4',
       name: 'clip.mp4',
       media: 'video',
     })
@@ -320,7 +316,7 @@ describe('owner PlaybackSession', () => {
 
   test('restores valid state without autoplay and remains idempotent after restart', async () => {
     const restored: PersistedPlaybackState = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       queue: [item('a'), item('b')],
       currentIndex: 1,
       position: 23,
@@ -368,7 +364,7 @@ describe('owner PlaybackSession', () => {
     })
   })
 
-  test('ignores malformed new state and preserves malformed legacy progress', () => {
+  test('ignores malformed persisted state', () => {
     for (const restored of [
       { schemaVersion: 2, queue: [] },
       { schemaVersion: 1, queue: [{ invalid: true }] },
@@ -380,49 +376,38 @@ describe('owner PlaybackSession', () => {
       })
       expect(session.getSnapshot()).toMatchObject({ phase: 'idle', queue: [], currentIndex: -1 })
     }
-
-    const values = new Map<string, string>([['legacy-progress', '{bad json']])
-    const storage = mapStorage(values)
-    const persistence = createBrowserPlaybackPersistence({
-      storage,
-      key: 'owner-session',
-      legacyProgressKey: 'legacy-progress',
-    })
-    const session = createPlaybackSession({
-      sourceResolver: resolverHarness().resolver,
-      persistence,
-    })
-    session.dispatch({ type: 'load', item: item('broken') })
-    expect(session.getSnapshot().position).toBe(0)
-    expect(values.get('legacy-progress')).toBe('{bad json')
   })
 
-  test('upgrades legacy video progress into new owner state without dual-writing old storage', () => {
-    const legacyValue = JSON.stringify({
-      state: { playbackTimes: { 'Music/legacy.mp3': 7 } },
-      version: 0,
-    })
-    const values = new Map<string, string>([['legacy-progress', legacyValue]])
+  test('browser persistence reads and writes only the owner envelope', () => {
+    const values = new Map<string, string>()
     const persistence = createBrowserPlaybackPersistence({
       storage: mapStorage(values),
       key: 'owner-session',
-      legacyProgressKey: 'legacy-progress',
     })
-    const session = createPlaybackSession({
-      sourceResolver: resolverHarness().resolver,
-      persistence,
-    })
+    const state: PersistedPlaybackState = {
+      schemaVersion: 2,
+      queue: [item('saved')],
+      currentIndex: 0,
+      position: 17,
+      duration: 90,
+      mode: 'audio',
+      volume: 0.5,
+      muted: false,
+      repeat: true,
+    }
 
-    session.dispatch({ type: 'load', item: item('legacy') })
-    expect(session.getSnapshot().position).toBe(7)
-    session.dispatch({ type: 'mediaTime', generation: 1, position: 13, duration: 100 })
-    session.dispatch({ type: 'checkpoint' })
+    expect(persistence.load()).toBeNull()
+    persistence.save(state)
+    expect(persistence.load()).toEqual(state)
+    expect([...values.keys()]).toEqual(['owner-session'])
 
-    expect(JSON.parse(values.get('owner-session') ?? '{}')).toMatchObject({
-      version: 1,
-      state: { schemaVersion: 1, position: 13, currentIndex: 0 },
-    })
-    expect(values.get('legacy-progress')).toBe(legacyValue)
+    values.set('owner-session', JSON.stringify(state))
+    expect(persistence.load()).toBeNull()
+    values.set('owner-session', JSON.stringify({ state, version: 0 }))
+    expect(persistence.load()).toBeNull()
+
+    persistence.clear?.()
+    expect(values.size).toBe(0)
   })
 })
 

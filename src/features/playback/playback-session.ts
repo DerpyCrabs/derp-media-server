@@ -37,7 +37,6 @@ function finiteAtLeast(value: number, minimum: number, fallback = minimum): numb
 function normalizeItem(item: PlaybackItem): PlaybackItem {
   return Object.freeze({
     resource: Object.freeze({ provider: item.resource.provider, id: item.resource.id }),
-    locator: item.locator.replace(/\\/g, '/'),
     name: item.name,
     media: item.media,
   })
@@ -52,8 +51,6 @@ function validItem(value: unknown): value is PlaybackItem {
     item.resource.provider.length > 0 &&
     typeof item.resource.id === 'string' &&
     item.resource.id.length > 0 &&
-    typeof item.locator === 'string' &&
-    item.locator.length > 0 &&
     typeof item.name === 'string' &&
     item.name.length > 0 &&
     (item.media === 'audio' || item.media === 'video')
@@ -64,7 +61,7 @@ function validPersistedState(value: unknown): value is PersistedPlaybackState {
   if (!value || typeof value !== 'object') return false
   const state = value as Partial<PersistedPlaybackState>
   return !!(
-    state.schemaVersion === 1 &&
+    state.schemaVersion === 2 &&
     Array.isArray(state.queue) &&
     state.queue.every(validItem) &&
     typeof state.currentIndex === 'number' &&
@@ -118,7 +115,7 @@ function safePersistedState(state: MutableState): PersistedPlaybackState {
       ? 0
       : finiteAtLeast(state.position, 0)
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     queue: state.queue.map(normalizeItem),
     currentIndex: state.currentIndex,
     position,
@@ -316,18 +313,10 @@ export function createPlaybackSession(options: CreatePlaybackSessionOptions): Pl
     return changed(sourceGeneration)
   }
 
-  function legacyPosition(item: PlaybackItem): number {
-    try {
-      return finiteAtLeast(options.persistence?.legacyPosition?.(item.locator) ?? 0, 0)
-    } catch {
-      return 0
-    }
-  }
-
   function selectIndex(index: number, autoplay: boolean): PlaybackOutcome {
     state.currentIndex = index
     const item = currentItem(state)!
-    state.position = legacyPosition(item)
+    state.position = 0
     state.duration = 0
     state.desiredPlaying = autoplay
     state.mode = modeFor(item)
@@ -361,10 +350,7 @@ export function createPlaybackSession(options: CreatePlaybackSessionOptions): Pl
         state.mode = modeFor(item, command.mode ?? (isSame ? state.mode : undefined))
         state.desiredPlaying = command.autoplay ?? true
         if (!isSame) {
-          state.position =
-            command.position === undefined
-              ? legacyPosition(item)
-              : finiteAtLeast(command.position, 0)
+          state.position = finiteAtLeast(command.position ?? 0, 0)
           state.duration = 0
         } else if (command.position !== undefined) {
           state.position = finiteAtLeast(command.position, 0)
@@ -390,7 +376,7 @@ export function createPlaybackSession(options: CreatePlaybackSessionOptions): Pl
         sourceAbort?.abort()
         sourceAbort = null
         generation += 1
-        state.position = next ? legacyPosition(next) : 0
+        state.position = 0
         state.duration = 0
         state.desiredPlaying = false
         state.mode = next ? modeFor(next) : 'audio'

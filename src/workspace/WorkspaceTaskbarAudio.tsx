@@ -1,6 +1,11 @@
 import { MediaType } from '@/lib/types'
+import type { ResourceKey } from '@/lib/domain/resource'
 import { queryKeys } from '@/lib/query-keys'
-import { filesQueryOptions } from '@/lib/query-options'
+import { filesystemResourcesQueryOptions } from '@/src/integrations/filesystem/query-options'
+import {
+  filesystemPathForResourceKey,
+  filesystemResourceMediaType,
+} from '@/src/integrations/filesystem/resource'
 import { useQuery } from '@tanstack/solid-query'
 import Headphones from 'lucide-solid/icons/headphones'
 import Monitor from 'lucide-solid/icons/monitor'
@@ -13,9 +18,12 @@ import Volume2 from 'lucide-solid/icons/volume-2'
 import VolumeX from 'lucide-solid/icons/volume-x'
 import X from 'lucide-solid/icons/x'
 import { Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js'
-import { buildAudioMetadataUrl, buildMediaUrl, buildThumbnailUrl } from '../lib/build-media-url'
+import { buildAudioMetadataUrl, buildMediaUrl, buildThumbnailUrl } from '@/lib/api-media-urls'
 import { usePlaybackSession, usePlaybackSnapshot } from '../features/playback/PlaybackProvider'
-import { audioPlaybackQueueFromFiles } from '../features/playback/items'
+import {
+  filesystemAudioPlaybackQueue,
+  filesystemPlaybackItemPath,
+} from '../integrations/filesystem/playback'
 
 async function fetchAudioMetadata(url: string) {
   const response = await fetch(url)
@@ -41,7 +49,7 @@ function formatTime(time: number) {
 }
 
 type Props = {
-  onShowVideo: (path: string, dir?: string) => void
+  onShowVideo: (resource: ResourceKey) => void
   onStopPlayback: () => void
   suppressTaskbarAudioChrome?: () => boolean
 }
@@ -51,7 +59,10 @@ export function WorkspaceTaskbarAudio(props: Props) {
   const playback = usePlaybackSnapshot()
   const [detailsOpen, setDetailsOpen] = createSignal(false)
   const item = createMemo(() => playback().currentItem)
-  const playingPath = createMemo(() => item()?.locator ?? null)
+  const playingPath = createMemo(() => {
+    const current = item()
+    return current ? filesystemPlaybackItemPath(current) : null
+  })
   const currentDir = createMemo(() => parentPath(playingPath() ?? ''))
   const isVideoFile = createMemo(() => item()?.media === 'video')
   const shouldHandleAudio = createMemo(
@@ -64,15 +75,15 @@ export function WorkspaceTaskbarAudio(props: Props) {
   })
 
   const filesQuery = useQuery(() => ({
-    ...filesQueryOptions({ dir: currentDir() }),
+    ...filesystemResourcesQueryOptions({ dir: currentDir() }),
     enabled: shouldHandleAudio() && !!playingPath(),
   }))
-  const allFiles = createMemo(() => filesQuery.data?.files ?? [])
+  const resources = createMemo(() => filesQuery.data?.resources ?? [])
   let queuedSignature = ''
   createEffect(() => {
     const current = item()
     if (!current || !shouldHandleAudio() || filesQuery.isPending) return
-    const queue = audioPlaybackQueueFromFiles(allFiles(), {}, current)
+    const queue = filesystemAudioPlaybackQueue(resources(), current)
     const signature = queue
       .map((candidate) => `${candidate.resource.provider}\0${candidate.resource.id}`)
       .join('\x01')
@@ -81,12 +92,13 @@ export function WorkspaceTaskbarAudio(props: Props) {
     session.dispatch({ type: 'setQueue', queue, current })
   })
   const coverArtUrl = createMemo(() => {
-    const cover = allFiles().find(
-      (file) =>
-        file.type === MediaType.IMAGE &&
-        file.name.toLowerCase().replace(/\.[^.]+$/, '') === 'cover',
+    const cover = resources().find(
+      (resource) =>
+        filesystemResourceMediaType(resource) === MediaType.IMAGE &&
+        resource.name.toLowerCase().replace(/\.[^.]+$/, '') === 'cover',
     )
-    return cover ? buildMediaUrl(cover.path) : null
+    const path = cover ? filesystemPathForResourceKey(cover.key) : null
+    return path ? buildMediaUrl(path) : null
   })
   const metadataUrl = createMemo(() => {
     const path = playingPath()
@@ -130,10 +142,10 @@ export function WorkspaceTaskbarAudio(props: Props) {
   })
 
   function handleShowVideo() {
-    const path = playingPath()
-    if (!path || !isVideoFile()) return
+    const current = item()
+    if (!current || !isVideoFile()) return
     session.dispatch({ type: 'setMode', mode: 'video' })
-    props.onShowVideo(path, currentDir() || undefined)
+    props.onShowVideo(current.resource)
   }
 
   return (

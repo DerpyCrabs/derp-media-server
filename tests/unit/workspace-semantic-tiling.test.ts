@@ -11,8 +11,8 @@ import {
   tilingPlacementToBounds,
 } from '@/lib/workspace-geometry'
 import { computeSnappedResizeWindows } from '@/lib/workspace-session-store'
-import { MediaType } from '@/lib/types'
 import type { WorkspaceWindowDefinition } from '@/lib/use-workspace'
+import { workspaceWindow } from './workspace-window-fixture'
 
 const CANVAS = { width: 1280, height: 688 }
 
@@ -32,19 +32,15 @@ function tiledWindow(
     colLines,
     rowLines: [0, 1],
   }
-  return {
+  return workspaceWindow({
     id,
-    type: 'browser',
     title: id,
-    iconType: MediaType.FOLDER,
-    source: { kind: 'local' },
-    initialState: {},
     layout: {
       snapZone: null,
       bounds: tilingPlacementToBounds(tiling, CANVAS),
       tiling,
     },
-  }
+  })
 }
 
 function assertExactAbutment(
@@ -153,29 +149,21 @@ describe('semantic workspace tiling', () => {
       gr0: 0,
       gr1: 0,
     }
-    const floating: WorkspaceWindowDefinition = {
+    const floating = workspaceWindow({
       id: 'right',
-      type: 'browser',
       title: 'right',
-      iconType: MediaType.FOLDER,
-      source: { kind: 'local' },
-      initialState: {},
       layout: {
         bounds: { x: 40, y: 40, width: 400, height: 300 },
       },
-    }
+    })
 
     let windows = applyAssistCustomSnapToWindows(
       [
-        {
+        workspaceWindow({
           id: 'left',
-          type: 'browser',
           title: 'left',
-          iconType: MediaType.FOLDER,
-          source: { kind: 'local' },
-          initialState: {},
           layout: { bounds: { x: 20, y: 20, width: 400, height: 300 } },
-        },
+        }),
         floating,
       ],
       'left',

@@ -4,6 +4,10 @@ import type {
   WorkspaceWindowDefinition,
 } from '@/lib/use-workspace'
 import type { InfiniteCanvasState } from '@/lib/infinite-canvas'
+import { workspaceTaskbarPinPath } from '@/lib/workspace-taskbar-pins'
+import { filesystemResourceAddress, filesystemResourceKey } from '@/lib/domain/resource'
+import { liveContentInstance } from '@/lib/content-window'
+import type { ContentInstance } from '@/lib/domain/content'
 
 export type WorkspacePathMutation =
   | { type: 'path-moved'; oldPath: string; newPath: string }
@@ -53,20 +57,24 @@ function groupId(window: WorkspaceWindowDefinition): string {
   return window.tabGroupId ?? window.id
 }
 
-function authoritativeWindowPath(window: WorkspaceWindowDefinition): string | null | undefined {
-  if (window.type === 'browser') {
-    return typeof window.initialState.dir === 'string' ? window.initialState.dir : ''
-  }
-  if (window.type === 'viewer') {
-    if (typeof window.initialState.viewing === 'string' && window.initialState.viewing.length > 0) {
-      return window.initialState.viewing
-    }
-    if (typeof window.initialState.playing === 'string' && window.initialState.playing.length > 0) {
-      return window.initialState.playing
-    }
-    return undefined
-  }
-  return null
+function primaryPath(instance: ContentInstance): string | null {
+  const key =
+    instance.type === 'explorer'
+      ? instance.location
+      : instance.type === 'resource'
+        ? instance.resource
+        : null
+  return key ? (filesystemResourceAddress(key)?.path ?? null) : null
+}
+
+function movedKey(
+  key: { provider: string; id: string },
+  oldPath: string,
+  newPath: string,
+): { provider: string; id: string } {
+  const address = filesystemResourceAddress(key)
+  if (!address || !pathIsWithin(address.path, oldPath)) return key
+  return filesystemResourceKey(address.rootId, movePath(address.path, oldPath, newPath))
 }
 
 function moveWindow(
@@ -74,28 +82,22 @@ function moveWindow(
   oldPath: string,
   newPath: string,
 ): WorkspaceWindowDefinition {
-  let changed = false
-  const initialState = { ...window.initialState }
-  for (const key of ['dir', 'viewing', 'playing'] as const) {
-    const path = initialState[key]
-    if (typeof path !== 'string' || !pathIsWithin(path, oldPath)) continue
-    initialState[key] = movePath(path, oldPath, newPath)
-    changed = true
+  const instance = liveContentInstance(window)
+  if (!instance || instance.type === 'integration') return window
+  if (instance.type === 'explorer') {
+    const location = movedKey(instance.location, oldPath, newPath)
+    return location === instance.location
+      ? window
+      : { ...window, content: undefined, contentInstance: { ...instance, location } }
   }
-
-  let iconPath = window.iconPath
-  if (typeof iconPath === 'string' && pathIsWithin(iconPath, oldPath)) {
-    iconPath = movePath(iconPath, oldPath, newPath)
-    changed = true
+  const resource = movedKey(instance.resource, oldPath, newPath)
+  const context = instance.context ? movedKey(instance.context, oldPath, newPath) : undefined
+  if (resource === instance.resource && context === instance.context) return window
+  return {
+    ...window,
+    content: undefined,
+    contentInstance: { ...instance, resource, ...(context ? { context } : {}) },
   }
-
-  let source = window.source
-  if (typeof source.rootPath === 'string' && pathIsWithin(source.rootPath, oldPath)) {
-    source = { ...source, rootPath: movePath(source.rootPath, oldPath, newPath) }
-    changed = true
-  }
-
-  return changed ? { ...window, source, iconPath, initialState } : window
 }
 
 export function applyWorkspaceWindowPathMutation(
@@ -103,12 +105,14 @@ export function applyWorkspaceWindowPathMutation(
   mutation: WorkspacePathMutation,
 ): WorkspaceWindowDefinition | null {
   if (mutation.type === 'path-moved') return moveWindow(window, mutation.oldPath, mutation.newPath)
-  const authoritativePath = authoritativeWindowPath(window)
-  const shouldRemove =
-    authoritativePath === undefined
-      ? typeof window.iconPath === 'string' && pathIsWithin(window.iconPath, mutation.path)
-      : authoritativePath !== null && pathIsWithin(authoritativePath, mutation.path)
-  return shouldRemove ? null : clearRemovedSecondaryPaths(window, mutation.path)
+  const instance = liveContentInstance(window)
+  const path = instance ? primaryPath(instance) : null
+  if (path !== null && pathIsWithin(path, mutation.path)) return null
+  if (instance?.type !== 'resource' || !instance.context) return window
+  const context = filesystemResourceAddress(instance.context)
+  if (!context || !pathIsWithin(context.path, mutation.path)) return window
+  const { context: _context, ...withoutContext } = instance
+  return { ...window, content: undefined, contentInstance: withoutContext }
 }
 
 export function applyCanvasPathMutation(
@@ -131,34 +135,6 @@ export function applyCanvasPathMutation(
     ? state.maximizedWindowId
     : null
   return { ...state, windows, maximizedWindowId }
-}
-
-function clearRemovedSecondaryPaths(
-  window: WorkspaceWindowDefinition,
-  removedPath: string,
-): WorkspaceWindowDefinition {
-  let changed = false
-  const initialState = { ...window.initialState }
-  for (const key of ['dir', 'viewing', 'playing'] as const) {
-    const path = initialState[key]
-    if (typeof path !== 'string' || !pathIsWithin(path, removedPath)) continue
-    initialState[key] = null
-    changed = true
-  }
-
-  let iconPath = window.iconPath
-  if (typeof iconPath === 'string' && pathIsWithin(iconPath, removedPath)) {
-    iconPath = null
-    changed = true
-  }
-
-  let source = window.source
-  if (typeof source.rootPath === 'string' && pathIsWithin(source.rootPath, removedPath)) {
-    source = { ...source, rootPath: null }
-    changed = true
-  }
-
-  return changed ? { ...window, source, iconPath, initialState } : window
 }
 
 function sanitizeSplits(
@@ -235,9 +211,18 @@ export function applyWorkspacePathMutation(
       return next
     })
     const pinnedTaskbarItems = state.pinnedTaskbarItems.map((pin) => {
-      if (!pathIsWithin(pin.path, mutation.oldPath)) return pin
+      const path = workspaceTaskbarPinPath(pin)
+      if (path === null || !pathIsWithin(path, mutation.oldPath)) return pin
+      const address = filesystemResourceAddress(pin.resource)
+      if (!address) return pin
       changed = true
-      return { ...pin, path: movePath(pin.path, mutation.oldPath, mutation.newPath) }
+      return {
+        ...pin,
+        resource: filesystemResourceKey(
+          address.rootId,
+          movePath(path, mutation.oldPath, mutation.newPath),
+        ),
+      }
     })
     return changed ? { ...state, windows, pinnedTaskbarItems } : state
   }
@@ -256,7 +241,8 @@ export function applyWorkspacePathMutation(
   })
 
   const pinnedTaskbarItems = state.pinnedTaskbarItems.filter((pin) => {
-    const remove = pathIsWithin(pin.path, mutation.path)
+    const path = workspaceTaskbarPinPath(pin)
+    const remove = path !== null && pathIsWithin(path, mutation.path)
     if (remove) changed = true
     return !remove
   })

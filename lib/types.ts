@@ -1,4 +1,4 @@
-import type { AutoSaveSettingDto, FileItemDto } from './generated/api-contracts'
+import type { AutoSaveSettingDto } from './generated/api-contracts'
 
 export const MediaType = {
   VIDEO: 'video',
@@ -12,7 +12,5 @@ export const MediaType = {
 } as const
 
 export type MediaType = (typeof MediaType)[keyof typeof MediaType]
-
-export type FileItem = FileItemDto
 
 export type AutoSaveSettings = AutoSaveSettingDto

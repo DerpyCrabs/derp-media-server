@@ -26,19 +26,9 @@ const MAX_PENDING_DIRECTORIES: usize = 2_048;
 const WATCH_DEBOUNCE: Duration = Duration::from_millis(200);
 
 enum Request {
-    Reindex {
-        mode: String,
-        root_id: Option<String>,
-    },
     ChangeLogical(String),
-    ChangeRoot {
-        root_id: String,
-        directory: String,
-    },
-    WatchFailed {
-        root_id: String,
-        error: String,
-    },
+    ChangeRoot { root_id: String, directory: String },
+    WatchFailed { root_id: String, error: String },
     ReconcileAll(Option<tokio::sync::oneshot::Sender<()>>),
 }
 
@@ -117,64 +107,6 @@ impl FileSearch {
         }
     }
 
-    pub async fn reindex(
-        self: &Arc<Self>,
-        mode: &str,
-        root_id: Option<String>,
-    ) -> AppResult<Value> {
-        let _permit = self
-            .requests
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| AppError::internal("File search queue is busy"))?;
-        if !self.config.enabled {
-            return Err(AppError::internal("File search is disabled"));
-        }
-        if self.init_error.lock().map_or(true, |error| error.is_some()) {
-            return Err(AppError::internal(
-                self.init_error
-                    .lock()
-                    .ok()
-                    .and_then(|e| e.clone())
-                    .unwrap_or_else(|| "File search unavailable".into()),
-            ));
-        }
-        if let Some(id) = &root_id
-            && !self.roots.read().await.iter().any(|root| &root.id == id)
-        {
-            return Err(AppError::bad(format!("Unknown file search root: {id}")));
-        }
-        self.sender
-            .send(Request::Reindex {
-                mode: mode.into(),
-                root_id,
-            })
-            .map_err(|_| AppError::internal("File search unavailable"))?;
-        Ok(json!({"accepted":true}))
-    }
-
-    pub async fn status(self: &Arc<Self>) -> AppResult<Value> {
-        let _permit = self
-            .requests
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| AppError::internal("File search queue is busy"))?;
-        if !self.config.enabled {
-            return Ok(serde_json::to_value(self.current_status())
-                .unwrap_or_else(|_| json!({"state":"disabled","stale":false})));
-        }
-        if let Some(error) = self.init_error.lock().ok().and_then(|error| error.clone()) {
-            return Err(AppError::internal(error));
-        }
-        let service = self.clone();
-        tokio::task::spawn_blocking(move || {
-            serde_json::to_value(service.read_status())
-                .map_err(|error| AppError::internal(error.to_string()))
-        })
-        .await
-        .map_err(|error| AppError::internal(error.to_string()))?
-    }
-
     pub async fn search(self: &Arc<Self>, query_raw: &str, limit: usize) -> AppResult<Value> {
         let _permit = self
             .requests
@@ -183,6 +115,9 @@ impl FileSearch {
             .map_err(|_| AppError::internal("File search queue is busy"))?;
         if !self.config.enabled {
             return Err(AppError::internal("File search is disabled"));
+        }
+        if let Some(error) = self.init_error.lock().ok().and_then(|error| error.clone()) {
+            return Err(AppError::internal(error));
         }
         let query = normalize(query_raw);
         let roots = self.roots.read().await.clone();
@@ -303,10 +238,6 @@ impl FileSearch {
             .unwrap_or_else(|| error_status("File search unavailable".into()))
     }
 
-    fn read_status(&self) -> Status {
-        self.current_status()
-    }
-
     async fn run(
         self: Arc<Self>,
         mut receiver: mpsc::UnboundedReceiver<Request>,
@@ -396,25 +327,6 @@ impl FileSearch {
 
     fn handle(&self, request: Request) {
         match request {
-            Request::Reindex { mode, root_id } => {
-                let roots = self.roots.blocking_read().clone();
-                for root in roots
-                    .iter()
-                    .filter(|root| root_id.as_ref().is_none_or(|id| &root.id == id))
-                {
-                    if mode == "full" {
-                        self.close_watcher(&root.id);
-                    }
-                    let _ = self.with_db(|db| {
-                        if mode == "full" {
-                            indexer::full_scan(db, root)
-                        } else {
-                            self.reconcile_one(db, root)
-                        }
-                    });
-                }
-                self.refresh_watchers();
-            }
             Request::ReconcileAll(complete) => {
                 let roots = self.roots.blocking_read().clone();
                 for root in &roots {
@@ -754,9 +666,6 @@ pub(super) fn normalize(value: &str) -> String {
         .into()
 }
 
-pub(crate) fn normalized_length(value: &str) -> usize {
-    normalize(value).chars().count()
-}
 pub(super) fn normalize_relative(value: &str) -> String {
     let mut parts = Vec::new();
     for component in Path::new(&value.replace('\\', "/")).components() {
@@ -889,23 +798,15 @@ mod tests {
         });
         locked_receiver.recv().unwrap();
 
-        let status = tokio::time::timeout(Duration::from_millis(500), service.status()).await;
         let search =
             tokio::time::timeout(Duration::from_millis(500), service.search("needle", 50)).await;
-        let reindex = tokio::time::timeout(
-            Duration::from_millis(500),
-            service.reindex("reconcile", None),
-        )
-        .await;
         release_sender.send(()).unwrap();
         writer_thread.join().unwrap();
 
-        assert_eq!(status.unwrap().unwrap()["state"], "ready");
         assert_eq!(
             search.unwrap().unwrap()["results"][0]["name"],
             "Visible Needle.txt"
         );
-        assert_eq!(reindex.unwrap().unwrap()["accepted"], true);
         drop(service);
         std::fs::remove_dir_all(base).unwrap();
     }

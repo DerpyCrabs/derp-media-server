@@ -6,16 +6,16 @@ export type ExplorerActionDialogState<TPayload> = Readonly<{
   item?: ExplorerItem<TPayload>
 }>
 
-function operation(action: ExplorerActionDescriptor): string {
-  return action.id.split(/[.:/]/).at(-1)?.toLowerCase() ?? action.id.toLowerCase()
+function actionOperation(action: ExplorerActionDescriptor): string {
+  return action.operation
 }
 
 function isCreateFile(action: ExplorerActionDescriptor): boolean {
-  return operation(action) === 'createfile'
+  return actionOperation(action) === 'createFile'
 }
 
 function isCreateFolder(action: ExplorerActionDescriptor): boolean {
-  return operation(action) === 'createfolder'
+  return actionOperation(action) === 'createFolder'
 }
 
 function dialogTitle(action: ExplorerActionDescriptor): string {
@@ -29,7 +29,7 @@ function submitLabel(action: ExplorerActionDescriptor): string {
   if (action.form) return action.form.submitLabel
   if (isCreateFile(action) || isCreateFolder(action)) return 'Create'
   if (action.interaction === 'destination') {
-    return operation(action) === 'copy' ? 'Copy' : 'Move here'
+    return actionOperation(action) === 'copy' ? 'Copy' : 'Move here'
   }
   return action.label
 }
@@ -182,7 +182,7 @@ export function ExplorerActionDialog<TPayload>(props: {
                           ? 'Destination folder'
                           : interaction() === 'appearance'
                             ? 'Icon name'
-                            : operation(props.state.action) === 'rename'
+                            : actionOperation(props.state.action) === 'rename'
                               ? 'New name'
                               : undefined
                 }

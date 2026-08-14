@@ -1,11 +1,8 @@
 import { useQueries, useQuery } from '@tanstack/solid-query'
 import type { ContentInstance, ResourceContentInstance } from '@/lib/domain/content'
 import { queryKeys } from '@/lib/query-keys'
-import { filesQueryOptions } from '@/lib/query-options'
-import { fileDownloadHref } from '@/lib/download-urls'
-import { getMediaTypeFromPath } from '@/lib/media-utils'
-import type { FileItem } from '@/lib/types'
 import { MediaType } from '@/lib/types'
+import type { ResourceSummary } from '@/lib/domain/resource'
 import Download from 'lucide-solid/icons/download'
 import Headphones from 'lucide-solid/icons/headphones'
 import LoaderCircle from 'lucide-solid/icons/loader-circle'
@@ -26,16 +23,9 @@ import {
   onCleanup,
   type JSX,
 } from 'solid-js'
-import { buildAdminMediaUrl, buildAudioMetadataUrl } from '../../lib/build-media-url'
 import { ContentRuntimeView } from '../content/ContentRuntimeView'
 import type { ContentRuntime } from '../content/runtime'
-import {
-  audioPlaybackQueueFromFiles,
-  createFilesystemPlaybackItem,
-  playbackItemKey,
-  type PlaybackItem,
-  type PlaybackMedia,
-} from '../playback'
+import { playbackItemKey, type PlaybackItem, type PlaybackMedia } from '../playback'
 import {
   usePlaybackMediaHost,
   usePlaybackSession,
@@ -59,7 +49,21 @@ export type ResourceViewerContentProps = {
   showListenOnly?: boolean
   onAudioActivate?: () => void
   onClose?: () => void
+  resources: Accessor<readonly ResourceSummary[]>
+  adapter: ResourceViewerAdapter
 }
+
+export type ResourceViewerAdapter = Readonly<{
+  mediaType(path: string): MediaType
+  downloadHref(path: string): string
+  mediaUrl(path: string): string
+  audioMetadataUrl(path: string): string
+  resourcePath(resource: ResourceSummary): string | null
+  resourceMediaType(resource: ResourceSummary): MediaType
+  createPlaybackItem(path: string, media: PlaybackMedia): PlaybackItem
+  playbackItemPath(item: PlaybackItem): string | null
+  audioQueue(resources: readonly ResourceSummary[], current?: PlaybackItem | null): PlaybackItem[]
+}>
 
 type AudioMetadata = {
   title?: string
@@ -86,31 +90,25 @@ function normalizedPlaybackPath(path: string): string {
   return path.replace(/\\/g, '/')
 }
 
-function playbackPathMatches(item: PlaybackItem | null, path: string): boolean {
-  return !!item && normalizedPlaybackPath(item.locator) === normalizedPlaybackPath(path)
-}
-
-function playbackItemForPath(path: string, media: PlaybackMedia): PlaybackItem {
-  return createFilesystemPlaybackItem({
-    locator: path,
-    name: path.split(/[/\\]/).pop() ?? path,
-    media,
-  })
-}
-
 export function ResourceViewerContent(props: ResourceViewerContentProps) {
   const playbackSession = usePlaybackSession()
   const playback = usePlaybackSnapshot()
   const playbackMediaHost = usePlaybackMediaHost()
   const viewingPath = createMemo(() => props.viewingPath())
   const readerKind = createMemo(() => props.readerKind?.() ?? null)
+  const playbackPathMatches = (item: PlaybackItem | null, path: string) => {
+    const itemPath = item ? props.adapter.playbackItemPath(item) : null
+    return itemPath !== null && normalizedPlaybackPath(itemPath) === normalizedPlaybackPath(path)
+  }
+  const playbackItemForPath = (path: string, media: PlaybackMedia) =>
+    props.adapter.createPlaybackItem(path, media)
 
-  const mediaType = createMemo(() => getMediaTypeFromPath(viewingPath()))
+  const mediaType = createMemo(() => props.adapter.mediaType(viewingPath()))
 
   const downloadHref = createMemo(() => {
     const path = viewingPath()
     if (!path) return '#'
-    return fileDownloadHref(path)
+    return props.adapter.downloadHref(path)
   })
 
   const directory = createMemo(() => props.directory?.() ?? '')
@@ -219,21 +217,14 @@ export function ResourceViewerContent(props: ResourceViewerContentProps) {
     })
   })
 
-  const listDirForFiles = createMemo(() => directory())
-
-  const filesQuery = useQuery(() => {
-    return {
-      ...filesQueryOptions({ dir: listDirForFiles() }),
-      enabled: mediaType() === MediaType.AUDIO && Boolean(viewingPath()),
-    }
-  })
-
-  const folderAudioFiles = createMemo(() =>
-    (filesQuery.data?.files ?? []).filter((file) => file.type === MediaType.AUDIO),
+  const folderAudioResources = createMemo(() =>
+    props
+      .resources()
+      .filter((resource) => props.adapter.resourceMediaType(resource) === MediaType.AUDIO),
   )
 
   const audioQueue = createMemo(() => {
-    const queue = audioPlaybackQueueFromFiles(folderAudioFiles())
+    const queue = props.adapter.audioQueue(folderAudioResources())
     const path = viewingPath()
     if (!path || mediaType() !== MediaType.AUDIO) return queue
     if (queue.some((item) => playbackPathMatches(item, path))) return queue
@@ -299,13 +290,15 @@ export function ResourceViewerContent(props: ResourceViewerContentProps) {
     playbackSession.dispatch({ type: 'setMuted', muted: !playback().muted })
   }
 
-  function selectAudioFile(file: FileItem) {
+  function selectAudioResource(resource: ResourceSummary) {
+    const path = props.adapter.resourcePath(resource)
+    if (path === null) return
     const controlledCurrent = audioPlaybackActive()
     props.onAudioActivate?.()
-    updateViewing(file.path)
+    updateViewing(path)
     if (controlledCurrent) {
-      const queue = audioPlaybackQueueFromFiles(folderAudioFiles())
-      const item = queue.find((candidate) => playbackPathMatches(candidate, file.path))
+      const queue = props.adapter.audioQueue(folderAudioResources())
+      const item = queue.find((candidate) => playbackPathMatches(candidate, path))
       if (item) {
         playbackSession.dispatch({
           type: 'load',
@@ -346,7 +339,6 @@ export function ResourceViewerContent(props: ResourceViewerContentProps) {
         return (
           !!candidate &&
           playbackItemKey(item) === playbackItemKey(candidate) &&
-          item.locator === candidate.locator &&
           item.name === candidate.name &&
           item.media === candidate.media
         )
@@ -391,7 +383,7 @@ export function ResourceViewerContent(props: ResourceViewerContentProps) {
   const audioMetadataUrl = createMemo(() => {
     const path = viewingPath()
     if (!path || mediaType() !== MediaType.AUDIO) return ''
-    return buildAudioMetadataUrl(path)
+    return props.adapter.audioMetadataUrl(path)
   })
 
   const audioMetadataQuery = useQuery(() => ({
@@ -402,10 +394,11 @@ export function ResourceViewerContent(props: ResourceViewerContentProps) {
   }))
 
   const playlistMetadataQueries = useQueries(() => ({
-    queries: folderAudioFiles().map((file) => {
-      const url = buildAudioMetadataUrl(file.path)
+    queries: folderAudioResources().map((resource) => {
+      const path = props.adapter.resourcePath(resource) ?? ''
+      const url = props.adapter.audioMetadataUrl(path)
       return {
-        queryKey: queryKeys.audioMetadata(file.path),
+        queryKey: queryKeys.audioMetadata(path),
         queryFn: () => fetchAudioMetadata(url),
         enabled: mediaType() === MediaType.AUDIO && audioLayout() === 'expanded',
         refetchOnWindowFocus: false,
@@ -414,13 +407,13 @@ export function ResourceViewerContent(props: ResourceViewerContentProps) {
   }))
 
   const folderCoverUrl = createMemo(() => {
-    const cover = (filesQuery.data?.files ?? []).find((file) => {
-      if (file.type !== MediaType.IMAGE) return false
-      const stem = file.name.toLowerCase().replace(/\.[^.]+$/, '')
+    const cover = props.resources().find((resource) => {
+      if (props.adapter.resourceMediaType(resource) !== MediaType.IMAGE) return false
+      const stem = resource.name.toLowerCase().replace(/\.[^.]+$/, '')
       return stem === 'cover' || stem === 'folder'
     })
-    if (!cover) return null
-    return buildAdminMediaUrl(cover.path)
+    const path = cover ? props.adapter.resourcePath(cover) : null
+    return path ? props.adapter.mediaUrl(path) : null
   })
 
   const audioArtworkUrl = createMemo(() => audioMetadataQuery.data?.coverArt || folderCoverUrl())
@@ -584,22 +577,23 @@ export function ResourceViewerContent(props: ResourceViewerContentProps) {
           <p class='truncate text-[11px] text-muted-foreground'>{directory()}</p>
         </div>
         <div class='min-h-0 flex-1 overflow-auto p-1.5'>
-          <For each={folderAudioFiles()}>
-            {(file, index) => {
-              const active = () => file.path === viewingPath()
+          <For each={folderAudioResources()}>
+            {(resource, index) => {
+              const path = () => props.adapter.resourcePath(resource) ?? ''
+              const active = () => path() === viewingPath()
               const label = () => {
                 const metadata = playlistMetadataQueries[index()]?.data as AudioMetadata | undefined
-                const title = metadata?.title?.trim() || file.name
+                const title = metadata?.title?.trim() || resource.name
                 const artist = metadata?.artist?.trim()
                 return artist ? `${artist} — ${title}` : title
               }
               return (
                 <button
                   type='button'
-                  data-audio-playlist-path={file.path}
+                  data-audio-playlist-path={path()}
                   class='flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted'
                   classList={{ 'bg-primary/10 text-primary': active() }}
-                  onClick={() => selectAudioFile(file)}
+                  onClick={() => selectAudioResource(resource)}
                 >
                   <Music2 class='size-3.5 shrink-0' />
                   <span class='min-w-0 flex-1 truncate text-xs' title={label()}>

@@ -1,3 +1,6 @@
+#[cfg(test)]
+use crate::integrations::hermes::config::HermesFilesystemMode;
+use crate::integrations::hermes::config::{HermesConfig, RawHermesConfig, parse as hermes_config};
 use serde::{Deserialize, Serialize};
 use std::{
     env, fs,
@@ -51,51 +54,6 @@ struct RawConfig {
     hermes: Option<RawHermesConfig>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct RawHermesConfig {
-    gateway_url: String,
-    token: Option<String>,
-    token_env: Option<String>,
-    profile: Option<String>,
-    filesystem_mode: Option<HermesFilesystemMode>,
-    #[serde(default)]
-    auto_start: bool,
-    home: Option<PathBuf>,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum HermesFilesystemMode {
-    Upload,
-    Shared,
-}
-
-#[derive(Clone)]
-pub struct HermesConfig {
-    pub gateway_url: url::Url,
-    pub token: Option<String>,
-    pub profile: Option<String>,
-    #[allow(dead_code)]
-    pub filesystem_mode: HermesFilesystemMode,
-    pub auto_start: bool,
-    pub home: Option<PathBuf>,
-}
-
-impl std::fmt::Debug for HermesConfig {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("HermesConfig")
-            .field("gateway_url", &self.gateway_url)
-            .field("token", &self.token.as_ref().map(|_| "[redacted]"))
-            .field("profile", &self.profile)
-            .field("filesystem_mode", &self.filesystem_mode)
-            .field("auto_start", &self.auto_start)
-            .field("home", &self.home)
-            .finish()
-    }
-}
-
 #[derive(Clone, Debug)]
 pub struct ImageOptimizationConfig {
     pub enabled: bool,
@@ -134,39 +92,6 @@ pub struct Config {
     pub file_search: FileSearchConfig,
     pub image_optimization: ImageOptimizationConfig,
     pub hermes: Option<HermesConfig>,
-}
-
-fn hermes_config(raw: Option<RawHermesConfig>) -> Result<Option<HermesConfig>, String> {
-    let Some(raw) = raw else { return Ok(None) };
-    if raw.token.is_some() && raw.token_env.is_some() {
-        return Err("hermes.token and hermes.tokenEnv cannot both be configured".into());
-    }
-    let mut gateway_url = url::Url::parse(raw.gateway_url.trim())
-        .map_err(|_| "hermes.gatewayUrl must be a valid HTTP URL".to_string())?;
-    if gateway_url.scheme() != "http" || gateway_url.host_str().is_none() {
-        return Err("hermes.gatewayUrl must be a valid HTTP URL".into());
-    }
-    gateway_url.set_query(None);
-    gateway_url.set_fragment(None);
-    if !gateway_url.path().ends_with('/') {
-        gateway_url.set_path(&format!("{}/", gateway_url.path()));
-    }
-    let token = match raw.token_env {
-        Some(name) => Some(
-            env::var(&name)
-                .map_err(|_| format!("Hermes token environment variable {name} is not set"))?,
-        ),
-        None => raw.token,
-    }
-    .filter(|value| !value.is_empty());
-    Ok(Some(HermesConfig {
-        gateway_url,
-        token,
-        profile: raw.profile.filter(|value| !value.trim().is_empty()),
-        filesystem_mode: raw.filesystem_mode.unwrap_or(HermesFilesystemMode::Upload),
-        auto_start: raw.auto_start,
-        home: raw.home,
-    }))
 }
 
 fn parse_cache_size(value: &str) -> Result<u64, String> {
@@ -408,92 +333,6 @@ fn clamped_integer(
     (number as i64).clamp(minimum as i64, maximum as i64) as u32
 }
 
-const DURABLE_DATA: [&str; 3] = ["settings.json", "stats.json", "canvases.json"];
-const REBUILDABLE_DATA: [(&str, &str); 3] = [
-    (".search-index", "search-index"),
-    (".thumbnails", "thumbnails"),
-    (".image-variants", "image-variants"),
-];
-
-fn migrate_legacy_data(
-    config_dir: &Path,
-    working_dir: &Path,
-    data_path: &Path,
-) -> Result<(), String> {
-    fs::create_dir_all(data_path).map_err(|error| {
-        format!(
-            "Failed to create app data directory {}: {error}",
-            data_path.display()
-        )
-    })?;
-
-    for name in DURABLE_DATA {
-        let source = config_dir.join(name);
-        let destination = data_path.join(name);
-        if source.exists() && destination.exists() {
-            return Err(format!(
-                "Cannot migrate {}: both {} and {} exist",
-                name,
-                source.display(),
-                destination.display()
-            ));
-        }
-    }
-    for name in DURABLE_DATA {
-        let source = config_dir.join(name);
-        if !source.exists() {
-            continue;
-        }
-        let destination = data_path.join(name);
-        fs::rename(&source, &destination).map_err(|error| {
-            format!(
-                "Failed to migrate {} to {}: {error}",
-                source.display(),
-                destination.display()
-            )
-        })?;
-        println!(
-            "Migrated app data from {} to {}",
-            source.display(),
-            destination.display()
-        );
-    }
-
-    for (legacy_name, destination_name) in REBUILDABLE_DATA {
-        let source_dir = if legacy_name == ".search-index" {
-            config_dir
-        } else {
-            working_dir
-        };
-        let source = source_dir.join(legacy_name);
-        if !source.exists() {
-            continue;
-        }
-        let destination = data_path.join(destination_name);
-        if destination.exists() {
-            eprintln!(
-                "Warning: not migrating rebuildable data from {} because {} already exists",
-                source.display(),
-                destination.display()
-            );
-            continue;
-        }
-        match fs::rename(&source, &destination) {
-            Ok(()) => println!(
-                "Migrated app data from {} to {}",
-                source.display(),
-                destination.display()
-            ),
-            Err(error) => eprintln!(
-                "Warning: failed to migrate rebuildable data from {} to {}: {error}",
-                source.display(),
-                destination.display()
-            ),
-        }
-    }
-    Ok(())
-}
-
 impl Config {
     pub fn load() -> Result<Self, String> {
         let cwd = env::current_dir().map_err(|e| e.to_string())?;
@@ -513,14 +352,6 @@ impl Config {
             });
         if config_path.is_relative() {
             config_path = cwd.join(config_path);
-        }
-        if !config_path.exists()
-            && config_path.file_name().and_then(|x| x.to_str()) == Some("config.jsonc")
-        {
-            let fallback = config_path.with_file_name("config.json");
-            if fallback.exists() {
-                config_path = fallback;
-            }
         }
         let raw: RawConfig = if config_path.exists() {
             json5::from_str(&fs::read_to_string(&config_path).map_err(|e| e.to_string())?)
@@ -627,7 +458,6 @@ impl Config {
         for root in &mut roots {
             root.path = std::path::absolute(&root.path).map_err(|error| error.to_string())?;
         }
-        let uses_default_data_path = raw.data_path.is_none();
         let data_path = raw
             .data_path
             .map(|p| {
@@ -638,16 +468,12 @@ impl Config {
                 }
             })
             .unwrap_or_else(|| config_dir.join("app-data"));
-        if uses_default_data_path {
-            migrate_legacy_data(config_dir, &cwd, &data_path)?;
-        } else {
-            fs::create_dir_all(&data_path).map_err(|error| {
-                format!(
-                    "Failed to create app data directory {}: {error}",
-                    data_path.display()
-                )
-            })?;
-        }
+        fs::create_dir_all(&data_path).map_err(|error| {
+            format!(
+                "Failed to create app data directory {}: {error}",
+                data_path.display()
+            )
+        })?;
         let image_optimization = image_optimization(raw.image_optimization)?;
         let raw_search = raw.file_search.unwrap_or_default();
         let file_search = FileSearchConfig {
@@ -764,67 +590,5 @@ mod tests {
         assert!(image_optimization(Some(serde_json::json!({"quality":0}))).is_err());
         assert!(image_optimization(Some(serde_json::json!({"maxCacheSize":"10TB"}))).is_err());
         assert!(image_optimization(Some(serde_json::json!({"maxBytes":"10GiB"}))).is_err());
-    }
-
-    #[test]
-    fn migrates_legacy_app_data() {
-        let base =
-            std::env::temp_dir().join(format!("derp-data-migration-{}", uuid::Uuid::new_v4()));
-        let config_dir = base.join("config");
-        let working_dir = base.join("working");
-        let data_path = config_dir.join("app-data");
-        fs::create_dir_all(&config_dir).unwrap();
-        fs::create_dir_all(&working_dir).unwrap();
-        for name in DURABLE_DATA {
-            fs::write(config_dir.join(name), name).unwrap();
-        }
-        fs::create_dir(config_dir.join(".search-index")).unwrap();
-        fs::create_dir(working_dir.join(".thumbnails")).unwrap();
-        fs::create_dir(working_dir.join(".image-variants")).unwrap();
-
-        migrate_legacy_data(&config_dir, &working_dir, &data_path).unwrap();
-
-        for name in DURABLE_DATA {
-            assert!(!config_dir.join(name).exists());
-            assert_eq!(fs::read_to_string(data_path.join(name)).unwrap(), name);
-        }
-        for name in ["search-index", "thumbnails", "image-variants"] {
-            assert!(data_path.join(name).is_dir());
-        }
-        fs::remove_dir_all(base).unwrap();
-    }
-
-    #[test]
-    fn durable_migration_conflict_stops_before_moving_files() {
-        let base =
-            std::env::temp_dir().join(format!("derp-data-conflict-{}", uuid::Uuid::new_v4()));
-        let data_path = base.join("app-data");
-        fs::create_dir_all(&data_path).unwrap();
-        fs::write(base.join("settings.json"), "legacy").unwrap();
-        fs::write(data_path.join("settings.json"), "current").unwrap();
-        fs::write(base.join("stats.json"), "legacy stats").unwrap();
-
-        let error = migrate_legacy_data(&base, &base, &data_path).unwrap_err();
-
-        assert!(error.contains("both"));
-        assert!(base.join("settings.json").exists());
-        assert!(base.join("stats.json").exists());
-        assert!(!data_path.join("stats.json").exists());
-        fs::remove_dir_all(base).unwrap();
-    }
-
-    #[test]
-    fn rebuildable_migration_conflict_keeps_both_directories() {
-        let base =
-            std::env::temp_dir().join(format!("derp-cache-conflict-{}", uuid::Uuid::new_v4()));
-        let data_path = base.join("app-data");
-        fs::create_dir_all(base.join(".search-index")).unwrap();
-        fs::create_dir_all(data_path.join("search-index")).unwrap();
-
-        migrate_legacy_data(&base, &base, &data_path).unwrap();
-
-        assert!(base.join(".search-index").is_dir());
-        assert!(data_path.join("search-index").is_dir());
-        fs::remove_dir_all(base).unwrap();
     }
 }

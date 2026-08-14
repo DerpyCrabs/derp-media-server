@@ -1,5 +1,4 @@
 import { createEffect, createMemo, createSignal, onCleanup, onMount } from 'solid-js'
-import { navigateSearchParams } from '@/src/browser-history'
 import { usePlaybackMediaHost, usePlaybackSession, usePlaybackSnapshot } from './PlaybackProvider'
 
 const MEDIA_SESSION_ACTIONS = [
@@ -80,28 +79,6 @@ export function PlaybackMediaHost() {
       state.phase === 'playing' ? 'playing' : state.currentItem ? 'paused' : 'none'
     const item = state.currentItem
     navigator.mediaSession.metadata = item ? new MediaMetadata({ title: item.name }) : null
-  })
-
-  let observedItem = ''
-  createEffect(() => {
-    const state = snapshot()
-    const item = state.currentItem
-    if (!item || typeof window === 'undefined' || window.location.pathname !== '/') return
-    const signature = `${item.resource.provider}\0${item.resource.id}\0${state.mode}`
-    if (signature === observedItem) return
-    observedItem = signature
-    const params = new URLSearchParams(window.location.search)
-    if (!params.has('playing')) return
-    const audioOnly = item.media === 'video' && state.mode === 'audio'
-    if (
-      params.get('playing') !== item.locator ||
-      (params.get('audioOnly') === 'true') !== audioOnly
-    ) {
-      navigateSearchParams(
-        { playing: item.locator, audioOnly: audioOnly ? 'true' : null },
-        'replace',
-      )
-    }
   })
 
   return (

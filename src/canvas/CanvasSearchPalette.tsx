@@ -1,25 +1,21 @@
-import { apiEndpoints } from '@/lib/api-endpoints'
-import {
-  FILE_SEARCH_DEFAULT_LIMIT,
-  FILE_SEARCH_MIN_QUERY_LENGTH,
-  fileSearchCodePointLength,
-  fileSearchResultToFileItem,
-  normalizeFileSearchText,
-  type FileSearchResult,
-} from '@/lib/file-search'
 import type { CanvasWindow } from '@/lib/infinite-canvas'
-import { queryKeys } from '@/lib/query-keys'
-import { fileItemIcon, type FileIconContext } from '@/src/lib/use-file-icon'
-import { useQuery } from '@tanstack/solid-query'
+import { createSearchCoordinator } from '@/src/features/search/coordinator'
+import {
+  SEARCH_DEFAULT_LIMIT,
+  SEARCH_MIN_QUERY_LENGTH,
+  type SearchContributor,
+  type SearchHit,
+} from '@/src/features/search/contracts'
+import { createSearchController } from '@/src/features/search/solid-controller'
+import { applicationSearchCoordinator } from '@/src/integrations/search'
+import { resourceSummaryIcon, type FileIconContext } from '@/src/lib/use-file-icon'
 import Search from 'lucide-solid/icons/search'
 import SquareStack from 'lucide-solid/icons/square-stack'
 import X from 'lucide-solid/icons/x'
-import { For, Show, createEffect, createMemo, createSignal, onCleanup, type JSX } from 'solid-js'
+import { For, Show, createEffect, createSignal, onCleanup } from 'solid-js'
 import { Portal } from 'solid-js/web'
-
-type CanvasSearchItem =
-  | { kind: 'window'; id: string; title: string; detail: string }
-  | { kind: 'file'; result: FileSearchResult; title: string; detail: string }
+import { contentWindowKind } from '@/lib/content-window'
+import { contentWindowFilesystemPath } from '@/src/integrations/current-window-content'
 
 type SearchScope = 'all' | 'canvas' | 'library'
 
@@ -28,93 +24,64 @@ type Props = {
   fileIconContext: FileIconContext
   onClose: () => void
   onWindow: (id: string) => void
-  onFile: (result: FileSearchResult) => void
+  onResult: (result: SearchHit) => void
 }
 
 function windowDetail(window: CanvasWindow): string {
-  return window.definition.type === 'browser'
-    ? (window.definition.initialState.dir ?? 'Library root')
-    : (window.definition.initialState.viewing ?? '')
-}
-
-function libraryResultIcon(item: CanvasSearchItem, context: FileIconContext): JSX.Element | null {
-  if (item.kind !== 'file') return null
-  return fileItemIcon(fileSearchResultToFileItem(item.result), context)
+  return (
+    contentWindowFilesystemPath(window.definition) ??
+    (contentWindowKind(window.definition) === 'browser' ? 'Library root' : '')
+  )
 }
 
 export function CanvasSearchPalette(props: Props) {
-  const [query, setQuery] = createSignal('')
-  const [debounced, setDebounced] = createSignal('')
-  const [activeIndex, setActiveIndex] = createSignal(0)
   const [scope, setScope] = createSignal<SearchScope>('all')
+  const libraryContributorIds = () =>
+    applicationSearchCoordinator.contributors.map((contributor) => contributor.id)
+  const canvasContributor: SearchContributor = {
+    id: 'canvas.windows',
+    label: 'Open windows',
+    async search(request) {
+      const query = request.query.toLowerCase()
+      return {
+        results: props.windows.flatMap((window) => {
+          const detail = windowDetail(window)
+          if (!`${window.definition.title} ${detail}`.toLowerCase().includes(query)) return []
+          return [
+            {
+              id: window.id,
+              title: window.definition.title,
+              detail,
+              group: 'Open windows',
+              metadata: { windowId: window.id },
+            },
+          ]
+        }),
+      }
+    },
+    execute(result) {
+      const windowId = result.metadata?.windowId
+      if (typeof windowId === 'string') props.onWindow(windowId)
+    },
+  }
+  const coordinator = createSearchCoordinator(() => [
+    ...applicationSearchCoordinator.contributors,
+    canvasContributor,
+  ])
+  const controller = createSearchController({
+    coordinator,
+    minimumQueryLength: 1,
+    limit: SEARCH_DEFAULT_LIMIT,
+    contributorIds: () =>
+      scope() === 'canvas'
+        ? [canvasContributor.id]
+        : scope() === 'library'
+          ? libraryContributorIds()
+          : undefined,
+  })
   let inputEl: HTMLInputElement | undefined
   let dialogEl: HTMLDivElement | undefined
   const previousFocus = document.activeElement as HTMLElement | null
-
-  createEffect(() => {
-    const value = query()
-    const timer = window.setTimeout(() => setDebounced(value.trim()), 120)
-    onCleanup(() => window.clearTimeout(timer))
-  })
-
-  const normalized = createMemo(() => normalizeFileSearchText(debounced()))
-  const localMatches = createMemo(() => {
-    const needle = normalized()
-    if (!needle) return [] as CanvasSearchItem[]
-    const windows: CanvasSearchItem[] =
-      scope() === 'library'
-        ? []
-        : props.windows
-            .filter((window) =>
-              normalizeFileSearchText(
-                `${window.definition.title} ${windowDetail(window)}`,
-              ).includes(needle),
-            )
-            .map((window) => ({
-              kind: 'window',
-              id: window.id,
-              title: window.definition.title,
-              detail: windowDetail(window),
-            }))
-    return windows
-  })
-
-  const canSearchFiles = createMemo(
-    () =>
-      scope() !== 'canvas' &&
-      fileSearchCodePointLength(normalized()) >= FILE_SEARCH_MIN_QUERY_LENGTH,
-  )
-  const fileQuery = useQuery(() => ({
-    queryKey: queryKeys.fileSearch(normalized()),
-    queryFn: ({ signal }: { signal: AbortSignal }) =>
-      apiEndpoints.fileSearch.search(debounced(), FILE_SEARCH_DEFAULT_LIMIT, signal),
-    enabled: canSearchFiles(),
-    staleTime: 0,
-    gcTime: 30_000,
-  }))
-  const fileMatches = createMemo((): CanvasSearchItem[] => {
-    const needle = normalized()
-    return [...(fileQuery.data?.results ?? [])]
-      .sort((a, b) => {
-        const aName = normalizeFileSearchText(a.name)
-        const bName = normalizeFileSearchText(b.name)
-        const score = (name: string) =>
-          name === needle ? 0 : name.startsWith(needle) ? 1 : name.includes(needle) ? 2 : 3
-        return score(aName) - score(bName) || a.path.split('/').length - b.path.split('/').length
-      })
-      .map((result) => ({
-        kind: 'file',
-        result,
-        title: result.name,
-        detail: result.parentPath || result.rootName,
-      }))
-  })
-  const items = createMemo(() => [...localMatches(), ...fileMatches()])
-
-  createEffect(() => {
-    void normalized()
-    setActiveIndex(0)
-  })
 
   createEffect(() => {
     const oldOverflow = document.body.style.overflow
@@ -149,26 +116,15 @@ export function CanvasSearchPalette(props: Props) {
     })
   })
 
-  function choose(item: CanvasSearchItem) {
-    if (item.kind === 'window') props.onWindow(item.id)
-    else props.onFile(item.result)
+  function choose(item: SearchHit) {
+    if (item.resource) props.onResult(item)
+    else void coordinator.execute(item)
     props.onClose()
   }
 
-  function onKeyDown(event: KeyboardEvent) {
-    const all = items()
-    if (event.key === 'ArrowDown') {
-      event.preventDefault()
-      if (all.length) setActiveIndex((index) => (index + 1) % all.length)
-    } else if (event.key === 'ArrowUp') {
-      event.preventDefault()
-      if (all.length) setActiveIndex((index) => (index - 1 + all.length) % all.length)
-    } else if (event.key === 'Enter') {
-      const item = all[activeIndex()]
-      if (!item) return
-      event.preventDefault()
-      choose(item)
-    }
+  function resultPath(item: SearchHit): string | undefined {
+    const path = item.resource?.metadata?.logicalPath
+    return typeof path === 'string' ? path : undefined
   }
 
   return (
@@ -193,9 +149,9 @@ export function CanvasSearchPalette(props: Props) {
               aria-label='Search canvas and library'
               class='h-11 min-w-0 flex-1 bg-transparent text-base outline-none'
               placeholder='Search windows, files and folders…'
-              value={query()}
-              onInput={(event) => setQuery(event.currentTarget.value)}
-              onKeyDown={onKeyDown}
+              value={controller.query()}
+              onInput={(event) => controller.setQuery(event.currentTarget.value)}
+              onKeyDown={(event) => controller.onKeyDown(event, choose)}
             />
             <button
               type='button'
@@ -229,55 +185,74 @@ export function CanvasSearchPalette(props: Props) {
             </For>
           </div>
           <div class='min-h-52 flex-1 overflow-y-auto p-2'>
-            <Show when={!normalized()}>
+            <Show when={!controller.query().trim()}>
               <p class='flex min-h-48 items-center justify-center text-sm text-muted-foreground'>
-                Search current canvas immediately. Type {FILE_SEARCH_MIN_QUERY_LENGTH} characters
-                for library results.
+                Search current canvas immediately. Type {SEARCH_MIN_QUERY_LENGTH} characters for
+                library results.
               </p>
             </Show>
-            <Show when={normalized() && items().length === 0 && !fileQuery.isFetching}>
+            <Show
+              when={
+                controller.query().trim() &&
+                controller.results().length === 0 &&
+                !controller.loading()
+              }
+            >
               <p class='flex min-h-48 items-center justify-center text-sm text-muted-foreground'>
                 No matches.
               </p>
             </Show>
-            <For each={items()}>
-              {(item, index) => (
-                <>
-                  <Show when={index() === 0 || items()[index() - 1]?.kind !== item.kind}>
-                    <p class='px-3 pt-3 pb-1 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase'>
-                      {item.kind === 'window' ? 'Open windows' : 'Library'}
-                    </p>
-                  </Show>
-                  <button
-                    type='button'
-                    data-search-result-kind={item.kind}
-                    data-search-result-path={item.kind === 'file' ? item.result.path : undefined}
-                    class={`flex min-h-12 w-full items-center gap-3 rounded-lg px-3 py-2 text-left ${
-                      index() === activeIndex()
-                        ? 'bg-accent text-accent-foreground'
-                        : 'hover:bg-muted'
-                    }`}
-                    onPointerMove={() => setActiveIndex(index())}
-                    onClick={() => choose(item)}
-                  >
-                    <Show when={item.kind === 'window'}>
-                      <SquareStack class='size-5 shrink-0' />
+            <For each={controller.results()}>
+              {(item, index) => {
+                const group = () => item.group ?? item.contributorLabel
+                return (
+                  <>
+                    <Show
+                      when={
+                        index() === 0 ||
+                        (controller.results()[index() - 1]?.group ??
+                          controller.results()[index() - 1]?.contributorLabel) !== group()
+                      }
+                    >
+                      <p class='px-3 pt-3 pb-1 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase'>
+                        {group()}
+                      </p>
                     </Show>
-                    <Show when={item.kind === 'file'}>
-                      <span class='shrink-0'>{libraryResultIcon(item, props.fileIconContext)}</span>
-                    </Show>
-                    <span class='min-w-0'>
-                      <span class='block truncate text-sm font-medium'>{item.title}</span>
-                      <span class='block truncate text-xs text-muted-foreground'>
-                        {item.detail}
+                    <button
+                      type='button'
+                      data-search-result-kind={item.resource ? 'file' : 'window'}
+                      data-search-result-path={resultPath(item)}
+                      class={`flex min-h-12 w-full items-center gap-3 rounded-lg px-3 py-2 text-left ${
+                        index() === controller.activeIndex()
+                          ? 'bg-accent text-accent-foreground'
+                          : 'hover:bg-muted'
+                      }`}
+                      onPointerMove={() => controller.setActiveIndex(index())}
+                      onClick={() => choose(item)}
+                    >
+                      <Show when={!item.resource}>
+                        <SquareStack class='size-5 shrink-0' />
+                      </Show>
+                      <Show when={item.resource}>
+                        {(resource) => (
+                          <span class='shrink-0'>
+                            {resourceSummaryIcon(resource(), props.fileIconContext)}
+                          </span>
+                        )}
+                      </Show>
+                      <span class='min-w-0'>
+                        <span class='block truncate text-sm font-medium'>{item.title}</span>
+                        <span class='block truncate text-xs text-muted-foreground'>
+                          {item.detail ?? item.snippet ?? ''}
+                        </span>
                       </span>
-                    </span>
-                  </button>
-                </>
-              )}
+                    </button>
+                  </>
+                )
+              }}
             </For>
-            <Show when={fileQuery.isFetching}>
-              <p class='px-3 py-3 text-xs text-muted-foreground'>Searching library…</p>
+            <Show when={controller.loading()}>
+              <p class='px-3 py-3 text-xs text-muted-foreground'>Searching…</p>
             </Show>
           </div>
         </div>

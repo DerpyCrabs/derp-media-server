@@ -204,6 +204,34 @@ impl FileCommandService {
         Ok(())
     }
 
+    pub async fn copy_path(&self, source_path: &str, destination_dir: &str) -> AppResult<String> {
+        let _operation = self.operations.lock().await;
+        require_path(source_path)?;
+        let source = media::resolve(&self.config, source_path)?.full;
+        let name = source
+            .file_name()
+            .ok_or_else(|| AppError::bad("Invalid source path"))?
+            .to_owned();
+        let logical = if destination_dir.is_empty() {
+            name.to_string_lossy().into_owned()
+        } else {
+            format!("{destination_dir}/{}", name.to_string_lossy())
+        };
+        require_editable(
+            &self.config,
+            &logical,
+            "Cannot copy: Destination is not in an editable folder",
+        )?;
+        let destination = media::resolve(&self.config, &logical)?.full;
+        if metadata_optional(&destination).await?.is_some() {
+            return Err(AppError::conflict(
+                "Destination file or directory already exists",
+            ));
+        }
+        copy_recursive(&source, &destination).await?;
+        Ok(logical)
+    }
+
     pub async fn delete(&self, path: &str) -> AppResult<DeleteOutcome> {
         let _operation = self.operations.lock().await;
         require_path(path)?;
@@ -469,6 +497,25 @@ impl FileCommandService {
         }
         Ok(())
     }
+}
+
+fn copy_recursive<'a>(source: &'a Path, destination: &'a Path) -> BoxFuture<'a, AppResult<()>> {
+    Box::pin(async move {
+        let metadata = fs::symlink_metadata(source).await.map_err(AppError::io)?;
+        reject_symlink(&metadata)?;
+        if metadata.is_file() {
+            fs::copy(source, destination).await.map_err(AppError::io)?;
+            return Ok(());
+        }
+        fs::create_dir_all(destination)
+            .await
+            .map_err(AppError::io)?;
+        let mut directory = fs::read_dir(source).await.map_err(AppError::io)?;
+        while let Some(entry) = directory.next_entry().await.map_err(AppError::io)? {
+            copy_recursive(&entry.path(), &destination.join(entry.file_name())).await?;
+        }
+        Ok(())
+    })
 }
 
 struct PreparedReplacement {

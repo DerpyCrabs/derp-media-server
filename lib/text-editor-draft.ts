@@ -1,17 +1,24 @@
+import type { ResourceKey } from './domain/resource'
+
 const PREFIX = 'text-editor-draft-v1:'
+
+type DraftStorage = Pick<Storage, 'getItem'>
 
 export type TextEditorDraft = {
   content: string
   updatedAt: number
 }
 
-export function textEditorDraftKey(scope: string, path: string): string {
-  return `${PREFIX}${encodeURIComponent(scope)}:${encodeURIComponent(path)}`
+export function textEditorDraftKey(resource: ResourceKey): string {
+  return `${PREFIX}${encodeURIComponent(resource.provider)}:${encodeURIComponent(resource.id)}`
 }
 
-export function readTextEditorDraft(key: string): TextEditorDraft | null {
+export function readTextEditorDraft(
+  key: string,
+  storage: DraftStorage = localStorage,
+): TextEditorDraft | null {
   try {
-    const value = JSON.parse(localStorage.getItem(key) ?? 'null') as Partial<TextEditorDraft> | null
+    const value = JSON.parse(storage.getItem(key) ?? 'null') as Partial<TextEditorDraft> | null
     if (!value || typeof value.content !== 'string' || typeof value.updatedAt !== 'number')
       return null
     return { content: value.content, updatedAt: value.updatedAt }

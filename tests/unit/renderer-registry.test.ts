@@ -1,11 +1,13 @@
 import { describe, expect, test } from 'bun:test'
 import { resourceKey, type ResourceSummary } from '@/lib/domain/resource'
 import {
-  BUILT_IN_RENDERER_ID,
-  builtInRendererDescriptors,
   createRendererRegistry,
   type RendererDescriptor,
 } from '@/src/features/open/renderer-registry'
+import {
+  FILESYSTEM_RENDERER_ID,
+  filesystemRendererDescriptors,
+} from '@/src/integrations/filesystem/renderers'
 
 function resource(overrides: Partial<ResourceSummary> = {}): ResourceSummary {
   return {
@@ -19,17 +21,17 @@ function resource(overrides: Partial<ResourceSummary> = {}): ResourceSummary {
 }
 
 describe('renderer registry', () => {
-  const registry = createRendererRegistry(builtInRendererDescriptors)
+  const registry = createRendererRegistry(filesystemRendererDescriptors)
   const cases = [
-    ['video/mp4', 'unsupported', 'default', BUILT_IN_RENDERER_ID.video],
-    ['audio/mpeg', 'unsupported', 'play', BUILT_IN_RENDERER_ID.audio],
-    ['image/jpeg', 'unsupported', 'view', BUILT_IN_RENDERER_ID.image],
-    ['text/markdown; charset=utf-8', 'unsupported', 'default', BUILT_IN_RENDERER_ID.text],
-    ['application/pdf', 'unsupported', 'read', BUILT_IN_RENDERER_ID.pdf],
-    ['application/epub+zip', 'unsupported', 'read', BUILT_IN_RENDERER_ID.book],
-    ['application/zip', 'book', 'default', BUILT_IN_RENDERER_ID.book],
-    [undefined, 'text', 'default', BUILT_IN_RENDERER_ID.text],
-    [undefined, 'unsupported', 'view', BUILT_IN_RENDERER_ID.unsupported],
+    ['video/mp4', 'unsupported', 'default', FILESYSTEM_RENDERER_ID.video],
+    ['audio/mpeg', 'unsupported', 'play', FILESYSTEM_RENDERER_ID.audio],
+    ['image/jpeg', 'unsupported', 'view', FILESYSTEM_RENDERER_ID.image],
+    ['text/markdown; charset=utf-8', 'unsupported', 'default', FILESYSTEM_RENDERER_ID.text],
+    ['application/pdf', 'unsupported', 'read', FILESYSTEM_RENDERER_ID.pdf],
+    ['application/epub+zip', 'unsupported', 'read', FILESYSTEM_RENDERER_ID.book],
+    ['application/zip', 'book', 'default', FILESYSTEM_RENDERER_ID.book],
+    [undefined, 'text', 'default', FILESYSTEM_RENDERER_ID.text],
+    [undefined, 'unsupported', 'view', FILESYSTEM_RENDERER_ID.unsupported],
   ] as const
 
   for (const [mime, presentation, intent, expected] of cases) {
@@ -38,12 +40,12 @@ describe('renderer registry', () => {
     })
   }
 
-  test('keeps ambiguous OGG video-first compatibility', () => {
+  test('classifies ambiguous OGG MIME types by media prefix', () => {
     expect(
       registry.resolve(resource({ mime: 'video/ogg', presentation: 'audio' }), 'default')?.id,
-    ).toBe(BUILT_IN_RENDERER_ID.video)
+    ).toBe(FILESYSTEM_RENDERER_ID.video)
     expect(registry.resolve(resource({ mime: 'audio/ogg' }), 'default')?.id).toBe(
-      BUILT_IN_RENDERER_ID.audio,
+      FILESYSTEM_RENDERER_ID.audio,
     )
   })
 
@@ -53,7 +55,7 @@ describe('renderer registry', () => {
         resource({ kind: 'folder', presentation: 'browse', mime: undefined }),
         'read',
       )?.id,
-    ).toBe(BUILT_IN_RENDERER_ID.folderReader)
+    ).toBe(FILESYSTEM_RENDERER_ID.folderReader)
     expect(
       registry.resolve(
         resource({
@@ -64,7 +66,7 @@ describe('renderer registry', () => {
         }),
         'default',
       )?.id,
-    ).toBe(BUILT_IN_RENDERER_ID.unsupported)
+    ).toBe(FILESYSTEM_RENDERER_ID.unsupported)
   })
 
   test('does not invoke lazy factories during registration or lookup', async () => {

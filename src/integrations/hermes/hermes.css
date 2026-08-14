@@ -1,0 +1,32 @@
+.hermes-markdown .markdown-document,
+.hermes-markdown .markdown-document .cm-editor,
+.hermes-markdown .markdown-document .cm-scroller,
+.hermes-markdown .markdown-document .cm-content {
+  height: auto;
+  min-height: 0;
+}
+
+.hermes-markdown .markdown-document .cm-scroller {
+  overflow: visible;
+  font-size: 13px;
+  line-height: 1.42;
+}
+
+.hermes-markdown .markdown-document-compact .cm-content {
+  padding: 0;
+  font-size: 13px;
+  line-height: 1.42;
+}
+
+.hermes-markdown .cm-line:has(> br:only-child) {
+  min-height: 0.4rem;
+  height: 0.4rem;
+  line-height: 0.4rem;
+}
+
+.hermes-markdown .cm-md-heading-1,
+.hermes-markdown .cm-md-heading-2,
+.hermes-markdown .cm-md-heading-3 {
+  font-size: 1.08em;
+  padding-top: 0.2em !important;
+}

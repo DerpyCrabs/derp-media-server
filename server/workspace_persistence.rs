@@ -1,12 +1,9 @@
-use chrono::{SecondsFormat, Utc};
-use serde_json::{Map, Value};
+use crate::contracts::{WorkspaceLayoutPresetDto, WorkspaceTaskbarPinDto};
+use chrono::DateTime;
+use serde_json::Value;
 
 fn has_dot_dot(path: &str) -> bool {
     path.split(['/', '\\']).any(|segment| segment == "..")
-}
-
-fn valid_source(source: &Value) -> bool {
-    source.get("kind").and_then(Value::as_str) == Some("local")
 }
 
 fn valid_content(content: &Value) -> bool {
@@ -27,40 +24,32 @@ fn valid_content(content: &Value) -> bool {
         && content.get("payload").is_some()
 }
 
-fn has_legacy_window_fields(window: &Value) -> bool {
-    [
-        "type",
-        "source",
-        "initialState",
-        "hermes",
-        "iconPath",
-        "iconType",
-        "iconIsVirtual",
-    ]
-    .iter()
-    .any(|key| window.get(*key).is_some())
+fn has_only_keys(value: &Value, allowed: &[&str]) -> bool {
+    value
+        .as_object()
+        .is_some_and(|object| object.keys().all(|key| allowed.contains(&key.as_str())))
 }
 
-fn valid_pin(pin: &Value) -> bool {
-    pin.get("id").and_then(Value::as_str).is_some()
-        && pin.get("path").and_then(Value::as_str).is_some()
-        && pin.get("isDirectory").and_then(Value::as_bool).is_some()
-        && pin.get("title").and_then(Value::as_str).is_some()
-        && pin.get("source").is_some_and(valid_source)
+fn canonical_pin(pin: &Value) -> Option<Value> {
+    let parsed = serde_json::from_value::<WorkspaceTaskbarPinDto>(pin.clone()).ok()?;
+    if parsed.id.trim().is_empty()
+        || parsed.title.trim().is_empty()
+        || parsed.resource.provider.trim().is_empty()
+        || parsed.resource.id.trim().is_empty()
+        || parsed.resource.provider.contains(['\0', '\n', '\r', '\\'])
+        || parsed.resource.id.contains(['\0', '\n', '\r', '\\'])
+    {
+        return None;
+    }
+    serde_json::to_value(parsed).ok()
 }
 
-pub fn admin_pins(raw: &Value) -> Value {
+pub fn workspace_pins(raw: &Value) -> Value {
     Value::Array(
         raw.as_array()
             .into_iter()
             .flatten()
-            .filter(|pin| {
-                valid_pin(pin)
-                    && pin["path"]
-                        .as_str()
-                        .is_some_and(|path| !path.is_empty() && !has_dot_dot(path))
-            })
-            .cloned()
+            .filter_map(canonical_pin)
             .collect(),
     )
 }
@@ -93,7 +82,21 @@ fn valid_snapshot(snapshot: &Value) -> bool {
             .get("id")
             .and_then(Value::as_str)
             .is_none_or(str::is_empty)
-            || has_legacy_window_fields(window)
+            || !has_only_keys(
+                window,
+                &[
+                    "id",
+                    "title",
+                    "iconName",
+                    "content",
+                    "tabGroupId",
+                    "openedFromWindowId",
+                    "tabPinned",
+                    "layout",
+                    "fileOpenTargetWindowId",
+                ],
+            )
+            || window.get("title").and_then(Value::as_str).is_none()
             || !window.get("content").is_some_and(valid_content)
         {
             return false;
@@ -106,55 +109,38 @@ fn valid_snapshot(snapshot: &Value) -> bool {
         }
     }
     let raw_pins = snapshot.get("pinnedTaskbarItems").unwrap_or(&Value::Null);
-    let parsed_count = raw_pins
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|pin| valid_pin(pin))
-        .count();
-    let filtered = admin_pins(raw_pins);
+    let raw_count = raw_pins.as_array().map_or(0, Vec::len);
+    let filtered = workspace_pins(raw_pins);
     filtered
         .as_array()
-        .is_some_and(|pins| pins.len() == parsed_count)
+        .is_some_and(|pins| pins.len() == raw_count)
 }
 
 pub fn presets(raw: &Value) -> Value {
     let mut out = Vec::new();
     for item in raw.as_array().into_iter().flatten() {
-        let (Some(id), Some(name), Some(scope), Some(snapshot)) = (
-            item.get("id").and_then(Value::as_str),
-            item.get("name").and_then(Value::as_str),
-            item.get("scope").and_then(Value::as_str),
-            item.get("snapshot"),
-        ) else {
+        let Ok(mut preset) = serde_json::from_value::<WorkspaceLayoutPresetDto>(item.clone())
+        else {
             continue;
         };
-        let raw_name = name;
-        let name = raw_name.trim();
-        if name.is_empty() || raw_name.encode_utf16().count() > 120 {
+        let name = preset.name.trim();
+        if preset.id.trim().is_empty()
+            || name.is_empty()
+            || preset.name.encode_utf16().count() > 120
+            || DateTime::parse_from_rfc3339(&preset.created_at).is_err()
+            || preset
+                .updated_at
+                .as_deref()
+                .is_some_and(|value| DateTime::parse_from_rfc3339(value).is_err())
+            || !valid_snapshot(&preset.snapshot)
+        {
             continue;
         }
-        if scope != "admin" || !valid_snapshot(snapshot) {
+        preset.name = name.to_string();
+        let Ok(value) = serde_json::to_value(preset) else {
             continue;
-        }
-        let mut value = Map::new();
-        value.insert("id".into(), Value::String(id.into()));
-        value.insert("name".into(), Value::String(name.into()));
-        value.insert("scope".into(), Value::String(scope.into()));
-        value.insert("snapshot".into(), snapshot.clone());
-        value.insert(
-            "createdAt".into(),
-            item.get("createdAt")
-                .and_then(Value::as_str)
-                .map(|x| Value::String(x.into()))
-                .unwrap_or_else(|| {
-                    Value::String(Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true))
-                }),
-        );
-        if let Some(updated) = item.get("updatedAt").and_then(Value::as_str) {
-            value.insert("updatedAt".into(), Value::String(updated.into()));
-        }
-        out.push(Value::Object(value));
+        };
+        out.push(value);
         if out.len() == 32 {
             break;
         }
@@ -168,7 +154,7 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn accepts_new_content_windows_and_rejects_unsafe_filesystem_paths() {
+    fn accepts_current_content_windows_and_rejects_nondurable_or_unsafe_fields() {
         let snapshot = json!({
             "windows":[{
                 "id":"viewer-1",
@@ -189,6 +175,11 @@ mod tests {
         });
         assert!(valid_snapshot(&snapshot));
 
+        let mut nondurable_snapshot = snapshot.clone();
+        nondurable_snapshot["windows"][0]["contentInstance"] =
+            json!({"id":"viewer-1","type":"resource"});
+        assert!(!valid_snapshot(&nondurable_snapshot));
+
         let mut unsafe_snapshot = snapshot;
         unsafe_snapshot["windows"][0]["content"]["payload"]["address"]["path"] =
             json!("../outside");
@@ -200,6 +191,7 @@ mod tests {
         let snapshot = json!({
             "windows":[{
                 "id":"future-1",
+                "title":"Future",
                 "content":{
                     "schemaVersion":1,
                     "codec":"future.content",
@@ -213,37 +205,52 @@ mod tests {
     }
 
     #[test]
-    fn rejects_legacy_and_dual_window_schemas() {
-        let legacy = json!({
-            "windows":[{
-                "id":"browser-1",
-                "type":"browser",
-                "source":{"kind":"local"},
-                "initialState":{"dir":"Books"}
-            }],
-            "pinnedTaskbarItems":[]
-        });
-        assert!(!valid_snapshot(&legacy));
+    fn taskbar_pins_require_valid_resource_keys() {
+        let pins = json!([
+            {
+                "id":"filesystem",
+                "resource":{"provider":"filesystem","id":"v1:18:configured-defaultBooks/chapter.pdf"},
+                "title":"Chapter"
+            },
+            {
+                "id":"provider",
+                "resource":{"provider":"hermes","id":"v1:7:sessionabc"},
+                "title":"Session"
+            },
+            {
+                "id":"bad-resource",
+                "resource":{"provider":"","id":"opaque"},
+                "title":"Bad"
+            }
+        ]);
 
-        let dual = json!({
+        let parsed = workspace_pins(&pins);
+        assert_eq!(parsed.as_array().unwrap().len(), 2);
+        assert_eq!(parsed[1]["resource"]["provider"], "hermes");
+    }
+
+    #[test]
+    fn presets_store_current_schema() {
+        let snapshot = json!({
             "windows":[{
-                "id":"browser-1",
-                "type":"browser",
-                "source":{"kind":"local"},
-                "initialState":{"dir":"Books"},
+                "id":"future-1",
+                "title":"Future",
                 "content":{
                     "schemaVersion":1,
-                    "codec":"filesystem.content",
+                    "codec":"future.content",
                     "codecVersion":1,
-                    "payload":{
-                        "kind":"explorer",
-                        "id":"browser-1",
-                        "address":{"rootId":"configured-default","path":"Books"}
-                    }
+                    "payload":{}
                 }
             }],
             "pinnedTaskbarItems":[]
         });
-        assert!(!valid_snapshot(&dual));
+        let parsed = presets(&json!([
+            {"id":"current","name":"Current","snapshot":snapshot,"createdAt":"2026-08-14T00:00:00Z"}
+        ]));
+
+        let parsed = parsed.as_array().unwrap();
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0]["id"], "current");
+        assert!(parsed.iter().all(|preset| preset.get("scope").is_none()));
     }
 }

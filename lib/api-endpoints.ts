@@ -1,78 +1,31 @@
 import { api, post } from './api'
 import type {
   AutoSaveRequest,
-  CopyFileRequest,
-  CreateFileRequest,
   CustomIconRequest,
-  EditFileRequest,
-  FileListResponse,
-  FileMutationResponse,
-  FilePathRequest,
   FileSettingRequest,
   RemoveCustomIconRequest,
-  RenameFileRequest,
   ServerConfigDto,
   SettingsDto,
   SettingsMutationResponse,
-  UploadResponse,
   ViewModeRequest,
   WorkspaceLayoutPresetsRequest,
   WorkspaceTaskbarPinsRequest,
 } from './generated/api-contracts'
 import { apiRoutes } from './generated/api-contracts'
-import type { FileSearchResponse, FileSearchStatus } from './file-search'
-
-const FILE_SEARCH_PATH = '/api/files/search'
 const STATS_PATH = '/api/stats/views'
+const READER_STATE_PATH = '/api/reader-state'
+const READER_PREFERENCES_PATH = '/api/reader-preferences'
 
 export type StatsResponse = { views: Record<string, number> }
 export type AddViewResponse = { success: boolean; viewCount: number }
 
-export type FileListParameters = {
-  dir: string
-  surface?: 'library' | 'workspace' | 'canvas'
-  offset?: number
-}
-
-export function fileListUrl(parameters: FileListParameters): string {
-  const search = new URLSearchParams()
-  if (parameters.surface && (parameters.surface !== 'library' || (parameters.offset ?? 0) > 0)) {
-    search.set('surface', parameters.surface)
-  }
-  search.set('dir', parameters.dir)
-  if (parameters.offset) search.set('offset', String(parameters.offset))
-  return `${apiRoutes.files}?${search.toString()}`
-}
-
-export function fileDownloadUrl(path: string): string {
-  return `${apiRoutes.filesDownload}?path=${encodeURIComponent(path)}`
-}
-
-export function fileSearchUrl(query: string, limit: number): string {
-  const search = new URLSearchParams({ q: query, limit: String(limit) })
-  return `${FILE_SEARCH_PATH}?${search.toString()}`
+export function readerStateUrl(path: string): string {
+  return `${READER_STATE_PATH}?${new URLSearchParams({ path })}`
 }
 
 export const apiEndpoints = {
   config: {
     get: () => api<ServerConfigDto>(apiRoutes.config),
-  },
-  files: {
-    list: (parameters: FileListParameters, signal?: AbortSignal) =>
-      api<FileListResponse>(fileListUrl(parameters), { signal }),
-    create: (body: CreateFileRequest, signal?: AbortSignal) =>
-      post<FileMutationResponse>(apiRoutes.filesCreate, body, signal),
-    edit: (body: EditFileRequest, signal?: AbortSignal) =>
-      post<FileMutationResponse>(apiRoutes.filesEdit, body, signal),
-    delete: (body: FilePathRequest, signal?: AbortSignal) =>
-      post<FileMutationResponse>(apiRoutes.filesDelete, body, signal),
-    rename: (body: RenameFileRequest, signal?: AbortSignal) =>
-      post<FileMutationResponse>(apiRoutes.filesRename, body, signal),
-    copy: (body: CopyFileRequest, signal?: AbortSignal) =>
-      post<FileMutationResponse>(apiRoutes.filesCopy, body, signal),
-    upload: (body: FormData, signal?: AbortSignal) =>
-      api<UploadResponse>(apiRoutes.filesUpload, { method: 'POST', body, signal }),
-    downloadUrl: fileDownloadUrl,
   },
   settings: {
     get: () => api<SettingsDto>(apiRoutes.settings),
@@ -93,12 +46,11 @@ export const apiEndpoints = {
     setWorkspaceLayoutPresets: (body: WorkspaceLayoutPresetsRequest) =>
       post<SettingsMutationResponse>(apiRoutes.settingsLayoutPresets, body),
   },
-  fileSearch: {
-    search: (query: string, limit: number, signal?: AbortSignal) =>
-      api<FileSearchResponse>(fileSearchUrl(query, limit), { signal }),
-    status: () => api<FileSearchStatus>(`${FILE_SEARCH_PATH}/status`),
-    reindex: (mode: 'reconcile' | 'full') =>
-      post<{ accepted: true }>(`${FILE_SEARCH_PATH}/reindex`, { mode }),
+  reader: {
+    loadState: <T>(path: string) => api<T>(readerStateUrl(path)),
+    saveState: <T>(body: unknown) => post<T>(READER_STATE_PATH, body),
+    loadPreferences: <T>() => api<T>(READER_PREFERENCES_PATH),
+    savePreferences: <T>(body: unknown) => post<T>(READER_PREFERENCES_PATH, body),
   },
   stats: {
     get: () => api<StatsResponse>(STATS_PATH),

@@ -1,13 +1,14 @@
 use crate::{
-    app::{AppState, Shared, default_settings, emit_admin, settings_path},
+    app::{AppState, Shared, default_settings, emit_application_event},
     application_queries,
     contracts::{
         API_SETTINGS_AUTO_SAVE_PATH, API_SETTINGS_FAVORITE_PATH, API_SETTINGS_ICON_PATH,
         API_SETTINGS_ICON_REMOVE_PATH, API_SETTINGS_KNOWLEDGE_BASE_PATH,
         API_SETTINGS_LAYOUT_PRESETS_PATH, API_SETTINGS_PATH, API_SETTINGS_TASKBAR_PINS_PATH,
-        API_SETTINGS_VIEW_MODE_PATH, AppEvent, AutoSaveRequest, CustomIconRequest,
-        FileSettingRequest, RemoveCustomIconRequest, SettingsDto, SettingsMutationResponse,
-        ViewModeRequest, WorkspaceLayoutPresetsRequest, WorkspaceTaskbarPinsRequest,
+        API_SETTINGS_VIEW_MODE_PATH, AppEvent, AutoSaveRequest, AutoSaveSettingDto,
+        CustomIconRequest, FileSettingRequest, RemoveCustomIconRequest, SettingsDto,
+        SettingsMutationResponse, ViewModeRequest, WorkspaceLayoutPresetDto,
+        WorkspaceLayoutPresetsRequest, WorkspaceTaskbarPinDto, WorkspaceTaskbarPinsRequest,
     },
     error::{AppError, AppResult},
     extractors::ApiJson,
@@ -20,6 +21,7 @@ use axum::{
 };
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
+use std::collections::HashMap;
 
 async fn get_settings(State(state): State<Shared>) -> AppResult<Json<SettingsDto>> {
     Ok(Json(application_queries::settings(&state)?))
@@ -31,23 +33,20 @@ fn typed<T: DeserializeOwned>(value: Value, field: &str) -> AppResult<T> {
 }
 
 fn success() -> SettingsMutationResponse {
-    SettingsMutationResponse {
-        success: true,
-        ..Default::default()
-    }
+    SettingsMutationResponse { success: true }
 }
 
 async fn mutate(
     state: &AppState,
     update: impl FnOnce(&mut Value) -> AppResult<SettingsMutationResponse>,
 ) -> AppResult<Json<SettingsMutationResponse>> {
-    let result = store::mutate_section(
-        &settings_path(state),
-        &state.config.library_key,
+    let result = store::update(
+        &state.config,
+        store::StateDocument::SettingsV1,
         default_settings(),
         update,
     )?;
-    emit_admin(
+    emit_application_event(
         state,
         AppEvent::SettingsChanged {
             timestamp: crate::app::timestamp_ms(),
@@ -87,12 +86,8 @@ async fn favorite(
         } else {
             items.push(json!(body.file_path));
         }
-        Ok(SettingsMutationResponse {
-            success: true,
-            is_favorite: Some(index.is_none()),
-            favorites: Some(typed(Value::Array(items.clone()), "favorites")?),
-            ..Default::default()
-        })
+        typed::<Vec<String>>(Value::Array(items.clone()), "favorites")?;
+        Ok(success())
     })
     .await
 }
@@ -117,12 +112,8 @@ async fn knowledge_base(
         } else {
             items.push(json!(body.file_path));
         }
-        Ok(SettingsMutationResponse {
-            success: true,
-            is_knowledge_base: Some(index.is_none()),
-            knowledge_bases: Some(typed(Value::Array(items.clone()), "knowledge base")?),
-            ..Default::default()
-        })
+        typed::<Vec<String>>(Value::Array(items.clone()), "knowledge base")?;
+        Ok(success())
     })
     .await
 }
@@ -139,11 +130,8 @@ async fn icon(
             value["customIcons"] = json!({});
         }
         value["customIcons"][body.path] = json!(body.icon_name);
-        Ok(SettingsMutationResponse {
-            success: true,
-            custom_icons: Some(typed(value["customIcons"].clone(), "custom icon")?),
-            ..Default::default()
-        })
+        typed::<HashMap<String, String>>(value["customIcons"].clone(), "custom icon")?;
+        Ok(success())
     })
     .await
 }
@@ -159,11 +147,8 @@ async fn remove_icon(
         if let Some(items) = value["customIcons"].as_object_mut() {
             items.remove(&body.path);
         }
-        Ok(SettingsMutationResponse {
-            success: true,
-            custom_icons: Some(typed(value["customIcons"].clone(), "custom icon")?),
-            ..Default::default()
-        })
+        typed::<HashMap<String, String>>(value["customIcons"].clone(), "custom icon")?;
+        Ok(success())
     })
     .await
 }
@@ -184,11 +169,8 @@ async fn auto_save(
             setting["readOnly"] = json!(read_only);
         }
         value["autoSave"][body.file_path] = setting;
-        Ok(SettingsMutationResponse {
-            success: true,
-            auto_save: Some(typed(value["autoSave"].clone(), "auto-save")?),
-            ..Default::default()
-        })
+        typed::<HashMap<String, AutoSaveSettingDto>>(value["autoSave"].clone(), "auto-save")?;
+        Ok(success())
     })
     .await
 }
@@ -200,15 +182,12 @@ async fn taskbar_pins(
     mutate(&state, |value| {
         let raw = serde_json::to_value(body.items)
             .map_err(|error| AppError::internal(error.to_string()))?;
-        value["workspaceTaskbarPins"] = workspace_persistence::admin_pins(&raw);
-        Ok(SettingsMutationResponse {
-            success: true,
-            workspace_taskbar_pins: Some(typed(
-                value["workspaceTaskbarPins"].clone(),
-                "workspace taskbar pin",
-            )?),
-            ..Default::default()
-        })
+        value["workspaceTaskbarPins"] = workspace_persistence::workspace_pins(&raw);
+        typed::<Vec<WorkspaceTaskbarPinDto>>(
+            value["workspaceTaskbarPins"].clone(),
+            "workspace taskbar pin",
+        )?;
+        Ok(success())
     })
     .await
 }
@@ -221,14 +200,11 @@ async fn layout_presets(
         let raw = serde_json::to_value(body.presets)
             .map_err(|error| AppError::internal(error.to_string()))?;
         value["workspaceLayoutPresets"] = workspace_persistence::presets(&raw);
-        Ok(SettingsMutationResponse {
-            success: true,
-            workspace_layout_presets: Some(typed(
-                value["workspaceLayoutPresets"].clone(),
-                "workspace layout preset",
-            )?),
-            ..Default::default()
-        })
+        typed::<Vec<WorkspaceLayoutPresetDto>>(
+            value["workspaceLayoutPresets"].clone(),
+            "workspace layout preset",
+        )?;
+        Ok(success())
     })
     .await
 }
@@ -254,4 +230,17 @@ pub fn router() -> Router<Shared> {
         .route(API_SETTINGS_AUTO_SAVE_PATH, post(auto_save))
         .route(API_SETTINGS_TASKBAR_PINS_PATH, post(taskbar_pins))
         .route(API_SETTINGS_LAYOUT_PRESETS_PATH, post(layout_presets))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mutation_response_contains_only_success() {
+        assert_eq!(
+            serde_json::to_value(success()).unwrap(),
+            json!({"success": true})
+        );
+    }
 }

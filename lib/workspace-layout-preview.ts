@@ -5,7 +5,7 @@ import {
   type PersistedWorkspaceState,
   type WorkspaceWindowDefinition,
 } from '@/lib/use-workspace'
-import { orderedAllGroupIds, tabsInGroup } from '@/src/workspace/tab-group-ops'
+import { orderedAllGroupIds, tabsInGroup } from '@/lib/workspace-tab-groups'
 
 const TAB_LABEL_MAX = 22
 

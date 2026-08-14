@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import { computeSnappedResizeWindows } from '@/lib/workspace-session-store'
-import type { SnapZone, WorkspaceWindowDefinition } from '@/lib/use-workspace'
+import type { SnapZone } from '@/lib/use-workspace'
 import { SNAP_SIBLING_MAP } from '@/lib/workspace-geometry'
+import { workspaceWindow } from './workspace-window-fixture'
 
 /**
  * Pure function that computes new sibling bounds when a neighbor is resized.
@@ -85,23 +86,18 @@ describe('computeSnappedResizeWindows (extracted from session store)', () => {
     const halfH = Math.round(viewportHeight / 2)
     const delta = 80
 
-    const topLeft: WorkspaceWindowDefinition = {
+    const topLeft = workspaceWindow({
       id: 'tl',
-      type: 'browser',
       title: 'TL',
-      source: { kind: 'local', rootPath: null },
-      initialState: {},
       layout: {
         snapZone: 'top-left',
         bounds: { x: 0, y: 0, width: halfW, height: halfH },
       },
-    }
-    const bottomRightMisTagged: WorkspaceWindowDefinition = {
+    })
+    const bottomRightMisTagged = workspaceWindow({
       id: 'br',
-      type: 'viewer',
       title: 'BR',
-      source: { kind: 'local', rootPath: null },
-      initialState: {},
+      contentKind: 'resource',
       layout: {
         snapZone: 'bottom-left',
         bounds: {
@@ -111,7 +107,7 @@ describe('computeSnappedResizeWindows (extracted from session store)', () => {
           height: viewportHeight - halfH,
         },
       },
-    }
+    })
 
     const targetNew = { x: 0, y: 0, width: halfW + delta, height: halfH }
     const next = computeSnappedResizeWindows(
@@ -132,39 +128,30 @@ describe('computeSnappedResizeWindows (extracted from session store)', () => {
     const halfH = Math.round(vh / 2)
     const delta = 80
 
-    const left: WorkspaceWindowDefinition = {
+    const left = workspaceWindow({
       id: 'l',
-      type: 'browser',
       title: 'L',
-      source: { kind: 'local', rootPath: null },
-      initialState: {},
       layout: {
         snapZone: 'left',
         bounds: { x: 0, y: 0, width: halfW, height: vh },
       },
-    }
-    const topRight: WorkspaceWindowDefinition = {
+    })
+    const topRight = workspaceWindow({
       id: 't',
-      type: 'browser',
       title: 'T',
-      source: { kind: 'local', rootPath: null },
-      initialState: {},
       layout: {
         snapZone: 'top-right',
         bounds: { x: halfW, y: 0, width: vw - halfW, height: halfH },
       },
-    }
-    const bottomRight: WorkspaceWindowDefinition = {
+    })
+    const bottomRight = workspaceWindow({
       id: 'b',
-      type: 'browser',
       title: 'B',
-      source: { kind: 'local', rootPath: null },
-      initialState: {},
       layout: {
         snapZone: 'bottom-right',
         bounds: { x: halfW, y: halfH, width: vw - halfW, height: vh - halfH },
       },
-    }
+    })
 
     const newLeft = { x: 0, y: 0, width: halfW + delta, height: vh }
     const next = computeSnappedResizeWindows([left, topRight, bottomRight], 'l', newLeft, 'right')
@@ -183,28 +170,22 @@ describe('computeSnappedResizeWindows (extracted from session store)', () => {
     const halfH = Math.round(viewportHeight / 2)
     const delta = 80
 
-    const wA: WorkspaceWindowDefinition = {
+    const wA = workspaceWindow({
       id: 'a',
-      type: 'browser',
       title: 'A',
-      source: { kind: 'local', rootPath: null },
-      initialState: {},
       layout: {
         snapZone: 'top-left-third',
         bounds: { x: 0, y: 0, width: thirdW, height: halfH },
       },
-    }
-    const wB: WorkspaceWindowDefinition = {
+    })
+    const wB = workspaceWindow({
       id: 'b',
-      type: 'browser',
       title: 'B',
-      source: { kind: 'local', rootPath: null },
-      initialState: {},
       layout: {
         snapZone: 'top-center-third',
         bounds: { x: thirdW, y: 0, width: thirdW, height: halfH },
       },
-    }
+    })
 
     const targetNew = { x: 0, y: 0, width: thirdW + delta, height: halfH }
     const next = computeSnappedResizeWindows([wA, wB], 'a', targetNew, 'right')

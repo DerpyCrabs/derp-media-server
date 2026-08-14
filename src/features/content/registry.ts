@@ -9,33 +9,52 @@ import type { ResourceKey, ResourceSummary } from '@/lib/domain/resource'
 import { createRendererRegistry, type RendererRegistry } from '../open/renderer-registry'
 import type {
   BrowseProvider,
+  AssistantProvider,
   ContentCodecDescriptor,
   ContentDecodeResult,
   ContentLifecycleDescriptor,
+  ContentLiveStatus,
   ContentPresentation,
   ContentPresentationDescriptor,
   ContentRendererDescriptor,
   ContentSanitizerDescriptor,
   IntegrationModule,
+  InspectProvider,
+  PaneContribution,
   ResourceActionProvider,
 } from './contracts'
+import type { SearchContributor } from '../search/contracts'
 
 export type ContentRegistry = Readonly<{
   modules: readonly IntegrationModule[]
   rendererRegistry: RendererRegistry
   module(id: string): IntegrationModule | null
   browse(location: ResourceKey): BrowseProvider | null
+  inspect(resource: ResourceKey): InspectProvider | null
   actions(resource: ResourceSummary): ResourceActionProvider | null
+  roots(): readonly ResourceSummary[]
+  searches(): readonly SearchContributor[]
+  assistants(): readonly AssistantProvider[]
+  panes(kind?: string): readonly PaneContribution[]
   renderer(instance: ContentInstance): ContentRendererDescriptor | null
   codec(id: string): ContentCodecDescriptor | null
+  isDurable(instance: ContentInstance): boolean
+  preservesRuntime(instance: ContentInstance): boolean
   sanitize(instance: ContentInstance): ContentInstance | null
   presentation(instance: ContentInstance): ContentPresentation | null
+  liveStatus(instance: ContentInstance): ContentLiveStatus | null
   lifecycle(instance: ContentInstance): ContentLifecycleDescriptor | null
   encode(instance: ContentInstance, codecId?: string): PersistedContentEnvelope
   decode(value: unknown): ContentDecodeResult
 }>
 
 type Owned<T> = Readonly<{ moduleId: string; descriptor: T }>
+type IntegrationLiveCapability =
+  | keyof Pick<
+      IntegrationModule,
+      'browse' | 'inspect' | 'actions' | 'search' | 'assistant' | 'panes'
+    >
+  | 'events'
 
 function requireId(id: string, label: string): string {
   if (!id.trim()) throw new Error(`${label} id must not be empty`)
@@ -79,7 +98,15 @@ function uniqueDescriptors<T extends { id: string }>(
   return result
 }
 
-export function createContentRegistry(modules: readonly IntegrationModule[]): ContentRegistry {
+export function createContentRegistry(
+  modules: readonly IntegrationModule[],
+  options: Readonly<{
+    enabled?: (moduleId: string, capability: IntegrationLiveCapability) => boolean
+    root?: (moduleId: string, staticRoot: ResourceSummary | undefined) => ResourceSummary | null
+  }> = {},
+): ContentRegistry {
+  const moduleEnabled = options.enabled ?? (() => true)
+  const moduleRoot = options.root ?? ((_, root) => root ?? null)
   const byModule = new Map<string, IntegrationModule>()
   for (const module of modules) {
     requireId(module.id, 'Integration')
@@ -137,6 +164,18 @@ export function createContentRegistry(modules: readonly IntegrationModule[]): Co
   }
 
   const frozenModules = Object.freeze([...modules])
+  const searches = uniqueDescriptors(
+    modules.flatMap((module) =>
+      (module.search ?? []).map((descriptor) => ({ moduleId: module.id, descriptor })),
+    ),
+    'search contributor',
+  )
+  const panes = uniqueDescriptors(
+    modules.flatMap((module) =>
+      (module.panes ?? []).map((descriptor) => ({ moduleId: module.id, descriptor })),
+    ),
+    'pane contribution',
+  )
   const registry: ContentRegistry = Object.freeze({
     modules: frozenModules,
     rendererRegistry,
@@ -144,10 +183,42 @@ export function createContentRegistry(modules: readonly IntegrationModule[]): Co
       return byModule.get(id) ?? null
     },
     browse(location) {
-      return byModule.get(location.provider)?.browse ?? null
+      return moduleEnabled(location.provider, 'browse')
+        ? (byModule.get(location.provider)?.browse ?? null)
+        : null
+    },
+    inspect(resource) {
+      return moduleEnabled(resource.provider, 'inspect')
+        ? (byModule.get(resource.provider)?.inspect ?? null)
+        : null
     },
     actions(resource) {
-      return byModule.get(resource.key.provider)?.actions ?? null
+      return moduleEnabled(resource.key.provider, 'actions')
+        ? (byModule.get(resource.key.provider)?.actions ?? null)
+        : null
+    },
+    roots() {
+      return frozenModules.flatMap((module) => {
+        if (!moduleEnabled(module.id, 'browse')) return []
+        const root = moduleRoot(module.id, module.root)
+        return root ? [root] : []
+      })
+    },
+    searches() {
+      return [...searches.values()]
+        .filter((value) => moduleEnabled(value.moduleId, 'search'))
+        .map((value) => value.descriptor)
+    },
+    assistants() {
+      return frozenModules.flatMap((module) =>
+        moduleEnabled(module.id, 'assistant') && module.assistant ? [module.assistant] : [],
+      )
+    },
+    panes(kind) {
+      const values = [...panes.values()]
+        .filter((value) => moduleEnabled(value.moduleId, 'panes'))
+        .map((value) => value.descriptor)
+      return kind === undefined ? values : values.filter((pane) => pane.kind === kind)
     },
     renderer(instance) {
       if (instance.type === 'resource') {
@@ -168,6 +239,18 @@ export function createContentRegistry(modules: readonly IntegrationModule[]): Co
     codec(id) {
       return codecs.get(id)?.descriptor ?? null
     },
+    isDurable(instance) {
+      const codec = [...codecs.values()].find(({ moduleId, descriptor }) =>
+        descriptorAcceptsInstance(moduleId, descriptor, instance),
+      )
+      return !!codec && (codec.descriptor.durable?.(instance) ?? true)
+    },
+    preservesRuntime(instance) {
+      const codec = [...codecs.values()].find(({ moduleId, descriptor }) =>
+        descriptorAcceptsInstance(moduleId, descriptor, instance),
+      )
+      return !!codec && (codec.descriptor.preserveRuntime?.(instance) ?? false)
+    },
     sanitize(instance) {
       let current: ContentInstance | null = instance
       for (const { moduleId, descriptor } of sanitizers.values()) {
@@ -186,6 +269,15 @@ export function createContentRegistry(modules: readonly IntegrationModule[]): Co
       for (const { moduleId, descriptor } of presentations.values()) {
         if (!moduleOwnsInstance(moduleId, instance)) continue
         const value = descriptor.describe(instance)
+        if (value) return value
+      }
+      return null
+    },
+    liveStatus(instance) {
+      for (const module of frozenModules) {
+        if (!moduleEnabled(module.id, 'events') || !moduleOwnsInstance(module.id, instance))
+          continue
+        const value = module.status?.describe(instance)
         if (value) return value
       }
       return null

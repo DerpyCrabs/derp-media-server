@@ -79,7 +79,6 @@ export function WorkspaceNamedLayoutMenu(props: Props) {
     const next: WorkspaceLayoutPreset = {
       id,
       name,
-      scope: 'admin',
       snapshot,
       createdAt: now,
       updatedAt: now,

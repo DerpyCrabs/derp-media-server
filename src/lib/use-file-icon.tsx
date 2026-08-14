@@ -1,14 +1,12 @@
-import { buildThumbnailUrl } from './build-media-url'
+import { buildThumbnailUrl } from '@/lib/api-media-urls'
 import { thumbnailLoadQueue, type ThumbnailLoadTicket } from './thumbnail-load-queue'
-import { VIRTUAL_FOLDERS } from '@/lib/constants'
 import { getMediaType } from '@/lib/media-utils'
 import { getSolidIconComponent } from './solid-available-icons'
-import type { FileItem } from '@/lib/types'
 import { MediaType } from '@/lib/types'
 import type { WorkspaceWindowDefinition } from '@/lib/use-workspace'
+import { liveContentInstance } from '@/lib/content-window'
 import Book from 'lucide-solid/icons/book'
 import BookOpen from 'lucide-solid/icons/book-open'
-import Eye from 'lucide-solid/icons/eye'
 import FileQuestion from 'lucide-solid/icons/file-question-mark'
 import FileText from 'lucide-solid/icons/file-text'
 import Folder from 'lucide-solid/icons/folder'
@@ -16,16 +14,22 @@ import ImageIcon from 'lucide-solid/icons/image'
 import Music from 'lucide-solid/icons/music'
 import Pause from 'lucide-solid/icons/pause'
 import Play from 'lucide-solid/icons/play'
-import Star from 'lucide-solid/icons/star'
 import Video from 'lucide-solid/icons/video'
 import { Show, createEffect, createSignal, onCleanup, type JSX } from 'solid-js'
 import type { WorkspaceTaskbarPin } from '@/lib/workspace-taskbar-pins'
-import { virtualAppearanceForPath, type VirtualAppearance } from '@/lib/virtual-directory'
+import { workspaceTaskbarPinPath } from '@/lib/workspace-taskbar-pins'
 import Archive from 'lucide-solid/icons/archive'
 import Bot from 'lucide-solid/icons/bot'
 import FolderKanban from 'lucide-solid/icons/folder-kanban'
 import MessageSquare from 'lucide-solid/icons/message-square'
 import { applicationContentRegistry } from '@/src/integrations/registry'
+import {
+  filesystemResourceAddress,
+  type ResourceAppearance,
+  type ResourceSummary,
+} from '@/lib/domain/resource'
+import { filesystemPathForResourceKey } from '@/src/integrations/filesystem/resource'
+import { FILESYSTEM_RENDERER_ID } from '@/src/integrations/filesystem/renderers'
 
 export type FileIconContext = {
   customIcons: Record<string, string>
@@ -76,7 +80,7 @@ function colorClass(mediaType: MediaType): string {
   }
 }
 
-function virtualAppearanceIcon(appearance: VirtualAppearance, size: IconSize): JSX.Element {
+function resourceAppearanceIcon(appearance: ResourceAppearance, size: IconSize): JSX.Element {
   const { cls, sz, sw } = sizeProps(size)
   const color = appearance.color
     ? ''
@@ -86,7 +90,7 @@ function virtualAppearanceIcon(appearance: VirtualAppearance, size: IconSize): J
         ? 'text-indigo-500'
         : 'text-muted-foreground'
   const Icon =
-    getSolidIconComponent(appearance.icon) ??
+    getSolidIconComponent(appearance.icon ?? '') ??
     (appearance.icon === 'agent-directory'
       ? Bot
       : appearance.icon === 'agent-session'
@@ -111,7 +115,6 @@ function renderFileIcon(
   filePath: string,
   isAudioFile: boolean,
   isVideoFile: boolean,
-  isVirtual: boolean,
   ctx: FileIconContext,
   size: IconSize = 'md',
 ): JSX.Element {
@@ -120,26 +123,6 @@ function renderFileIcon(
   const { customIcons, knowledgeBases, playingPath, currentFile, mediaPlayerIsPlaying, mediaType } =
     ctx
 
-  if (isVirtual && fp === norm(VIRTUAL_FOLDERS.MOST_PLAYED)) {
-    const customIconName = customIcons[filePath] ?? customIcons[fp]
-    if (customIconName) {
-      const CustomIcon = getSolidIconComponent(customIconName)
-      if (CustomIcon) {
-        return <CustomIcon class={`${cls} text-blue-500`} size={sz} />
-      }
-    }
-    return <Eye class={`${cls} text-blue-500`} size={sz} stroke-width={sw} />
-  }
-  if (isVirtual && fp === norm(VIRTUAL_FOLDERS.FAVORITES)) {
-    const customIconName = customIcons[filePath] ?? customIcons[fp]
-    if (customIconName) {
-      const CustomIcon = getSolidIconComponent(customIconName)
-      if (CustomIcon) {
-        return <CustomIcon class={`${cls} text-blue-500`} size={sz} />
-      }
-    }
-    return <Star class={`${cls} text-blue-500`} size={sz} stroke-width={sw} />
-  }
   const customIconName = customIcons[filePath] ?? customIcons[fp]
   if (customIconName) {
     const CustomIcon = getSolidIconComponent(customIconName)
@@ -166,7 +149,7 @@ function renderFileIcon(
     )
   }
 
-  if (!isVirtual && type === MediaType.FOLDER && knowledgeBases.some((kb) => norm(kb) === fp)) {
+  if (type === MediaType.FOLDER && knowledgeBases.some((kb) => norm(kb) === fp)) {
     return <BookOpen class={`${cls} text-primary`} size={sz} stroke-width={sw} />
   }
 
@@ -191,43 +174,91 @@ function renderFileIcon(
   }
 }
 
-export function fileItemIcon(
-  file: FileItem,
-  ctx: FileIconContext,
-  size: IconSize = 'md',
-  appearance?: VirtualAppearance,
-): JSX.Element {
-  if (appearance) return virtualAppearanceIcon(appearance, size)
-  return renderFileIcon(
-    file.type,
-    file.path,
-    file.type === MediaType.AUDIO,
-    file.type === MediaType.VIDEO,
-    file.isVirtual ?? false,
-    ctx,
-    size,
-  )
+function resourceFallbackType(resource: ResourceSummary): MediaType {
+  const metadataType = resource.metadata?.fileType
+  if (Object.values(MediaType).includes(metadataType as MediaType)) return metadataType as MediaType
+  if (
+    resource.capabilities.includes('browse') ||
+    resource.presentation === 'browse' ||
+    resource.kind === 'folder' ||
+    resource.kind === 'root' ||
+    resource.kind === 'collection'
+  ) {
+    return MediaType.FOLDER
+  }
+  switch (resource.presentation) {
+    case 'audio':
+      return MediaType.AUDIO
+    case 'video':
+      return MediaType.VIDEO
+    case 'image':
+      return MediaType.IMAGE
+    case 'text':
+      return MediaType.TEXT
+    case 'pdf':
+      return MediaType.PDF
+    case 'book':
+      return MediaType.BOOK
+    default:
+      return MediaType.OTHER
+  }
 }
 
-/** Standalone file browser without settings or player context. */
-export function fileIcon(file: FileItem): JSX.Element {
-  return fileItemIcon(file, EMPTY_FILE_ICON_CONTEXT)
+function resourceIconContext(
+  resource: ResourceSummary,
+  path: string,
+  ctx: FileIconContext,
+): FileIconContext {
+  const metadata = resource.metadata ?? {}
+  return {
+    ...ctx,
+    customIcons:
+      typeof metadata.customIcon === 'string'
+        ? { ...ctx.customIcons, [path]: metadata.customIcon }
+        : ctx.customIcons,
+    knowledgeBases:
+      metadata.knowledgeBase === true && !ctx.knowledgeBases.includes(path)
+        ? [...ctx.knowledgeBases, path]
+        : ctx.knowledgeBases,
+  }
+}
+
+export function resourceSummaryIcon(
+  resource: ResourceSummary,
+  ctx: FileIconContext = EMPTY_FILE_ICON_CONTEXT,
+  size: IconSize = 'md',
+): JSX.Element {
+  if (resource.appearance?.icon?.trim()) {
+    return resourceAppearanceIcon(resource.appearance, size)
+  }
+  const path = filesystemPathForResourceKey(resource.key) ?? ''
+  const type = resourceFallbackType(resource)
+  return renderFileIcon(
+    type,
+    path,
+    type === MediaType.AUDIO,
+    type === MediaType.VIDEO,
+    resourceIconContext(resource, path, ctx),
+    size,
+  )
 }
 
 function gridHeroIconScaleWrap(inner: JSX.Element): JSX.Element {
   return <div class='scale-[2.5] [&_svg]:h-6 [&_svg]:w-6'>{inner}</div>
 }
 
-function GridMediaThumbnail(props: { file: FileItem; ctx: FileIconContext }): JSX.Element {
+function GridMediaThumbnail(props: {
+  path: string
+  type: MediaType
+  thumbnailGenerated: boolean
+}): JSX.Element {
   let containerEl: HTMLDivElement | undefined
   let loadTicket: ThumbnailLoadTicket | undefined
   const [imgFailed, setImgFailed] = createSignal(false)
   const [queuedSrc, setQueuedSrc] = createSignal<string | undefined>()
-  const src = () => buildThumbnailUrl(props.file.path)
+  const src = () => buildThumbnailUrl(props.path)
   const testId = () =>
-    props.file.type === MediaType.IMAGE
-      ? 'file-browser-image-thumbnail'
-      : 'file-browser-video-thumbnail'
+    props.type === MediaType.IMAGE ? 'file-browser-image-thumbnail' : 'file-browser-video-thumbnail'
 
   function releaseLoadSlot() {
     loadTicket?.release()
@@ -242,7 +273,7 @@ function GridMediaThumbnail(props: { file: FileItem; ctx: FileIconContext }): JS
 
   createEffect(() => {
     const url = src()
-    const isGenerated = props.file.thumbnailGenerated === true
+    const isGenerated = props.thumbnailGenerated
     const target = containerEl
     let visible = false
     let settleTimer: number | undefined
@@ -333,35 +364,40 @@ function GridMediaThumbnail(props: { file: FileItem; ctx: FileIconContext }): JS
   )
 }
 
-export function gridHeroIcon(
-  file: FileItem,
+export function gridResourceSummaryIcon(
+  resource: ResourceSummary,
   ctx: FileIconContext = EMPTY_FILE_ICON_CONTEXT,
-  appearance?: VirtualAppearance,
 ): JSX.Element {
-  if (appearance) return gridHeroIconScaleWrap(virtualAppearanceIcon(appearance, 'md'))
-  const fp = norm(file.path)
-  const customIconName = ctx.customIcons[file.path] ?? ctx.customIcons[fp]
+  const path = filesystemPathForResourceKey(resource.key)
+  const type = resourceFallbackType(resource)
+  if (path !== null && (type === MediaType.VIDEO || type === MediaType.IMAGE)) {
+    return (
+      <GridMediaThumbnail
+        path={path}
+        type={type}
+        thumbnailGenerated={resource.metadata?.thumbnailGenerated === true}
+      />
+    )
+  }
+  if (resource.appearance?.icon?.trim()) {
+    return gridHeroIconScaleWrap(resourceAppearanceIcon(resource.appearance, 'md'))
+  }
+  const iconContext = resourceIconContext(resource, path ?? '', ctx)
+  const normalizedPath = norm(path ?? '')
+  const customIconName =
+    iconContext.customIcons[path ?? ''] ?? iconContext.customIcons[normalizedPath]
   if (customIconName && getSolidIconComponent(customIconName)) {
-    return gridHeroIconScaleWrap(fileItemIcon(file, ctx))
+    return gridHeroIconScaleWrap(resourceSummaryIcon(resource, iconContext))
   }
-
-  if (
-    (file.type === MediaType.VIDEO || file.type === MediaType.IMAGE) &&
-    !file.isDirectory &&
-    !file.isVirtual
-  ) {
-    return <GridMediaThumbnail file={file} ctx={ctx} />
-  }
-
-  return gridHeroIconScaleWrap(fileItemIcon(file, ctx))
+  return gridHeroIconScaleWrap(resourceSummaryIcon(resource, iconContext))
 }
 
 function registeredContentIcon(tab: WorkspaceWindowDefinition, size: IconSize): JSX.Element | null {
-  const instance = tab.runtimeContent
+  const instance = liveContentInstance(tab)
   if (!instance) return null
   const presentation = applicationContentRegistry.presentation(instance)
   if (!presentation?.icon) return null
-  return virtualAppearanceIcon(
+  return resourceAppearanceIcon(
     {
       icon: presentation.icon,
       tone: presentation.icon === 'project' ? 'indigo' : 'violet',
@@ -370,27 +406,63 @@ function registeredContentIcon(tab: WorkspaceWindowDefinition, size: IconSize): 
   )
 }
 
+function windowIconDetails(tab: WorkspaceWindowDefinition): {
+  path: string
+  type: MediaType
+  reader: boolean
+} {
+  const instance = liveContentInstance(tab)
+  if (instance?.type === 'explorer') {
+    return {
+      path: filesystemResourceAddress(instance.location)?.path ?? '',
+      type: MediaType.FOLDER,
+      reader: false,
+    }
+  }
+  if (instance?.type === 'resource') {
+    const path = filesystemResourceAddress(instance.resource)?.path ?? ''
+    const reader =
+      instance.renderer === FILESYSTEM_RENDERER_ID.folderReader ||
+      instance.renderer === FILESYSTEM_RENDERER_ID.pdf ||
+      instance.renderer === FILESYSTEM_RENDERER_ID.book
+    const type =
+      instance.renderer === FILESYSTEM_RENDERER_ID.video
+        ? MediaType.VIDEO
+        : instance.renderer === FILESYSTEM_RENDERER_ID.audio
+          ? MediaType.AUDIO
+          : instance.renderer === FILESYSTEM_RENDERER_ID.image
+            ? MediaType.IMAGE
+            : instance.renderer === FILESYSTEM_RENDERER_ID.text
+              ? MediaType.TEXT
+              : instance.renderer === FILESYSTEM_RENDERER_ID.pdf
+                ? MediaType.PDF
+                : instance.renderer === FILESYSTEM_RENDERER_ID.book
+                  ? MediaType.BOOK
+                  : instance.renderer === FILESYSTEM_RENDERER_ID.folderReader
+                    ? MediaType.FOLDER
+                    : getMediaType(path.split('.').pop() ?? '')
+    return { path, type, reader }
+  }
+  return { path: '', type: MediaType.OTHER, reader: false }
+}
+
 export function workspaceTabIcon(
   tab: WorkspaceWindowDefinition,
   ctx: FileIconContext,
   size: IconSize = 'sm',
 ): JSX.Element {
-  if (tab.initialState.readerKind) {
+  const details = windowIconDetails(tab)
+  if (details.reader) {
     const { cls, sz, sw } = sizeProps(size)
     return <BookOpen class={`${cls} text-orange-500`} size={sz} stroke-width={sw} />
   }
   const contentIcon = registeredContentIcon(tab, size)
   if (contentIcon) return contentIcon
-  const virtualAppearance = virtualAppearanceForPath(tab.iconPath ?? '')
-  if (virtualAppearance) return virtualAppearanceIcon(virtualAppearance, size)
-  const iconType = tab.iconType ?? (tab.type === 'browser' ? MediaType.FOLDER : MediaType.OTHER)
-  const iconPath = tab.iconPath ?? (tab.type === 'browser' ? (tab.initialState.dir ?? '') : '')
   return renderFileIcon(
-    iconType,
-    iconPath,
-    iconType === MediaType.AUDIO,
-    iconType === MediaType.VIDEO,
-    tab.iconIsVirtual ?? false,
+    details.type,
+    details.path,
+    details.type === MediaType.AUDIO,
+    details.type === MediaType.VIDEO,
     ctx,
     size,
   )
@@ -402,51 +474,39 @@ export function workspaceTaskbarRowIcon(
   playbackPath: string | null,
   size: IconSize = 'sm',
 ): JSX.Element {
-  if (tab.initialState.readerKind) {
+  const details = windowIconDetails(tab)
+  if (details.reader) {
     const { cls, sz, sw } = sizeProps(size)
     return <BookOpen class={`${cls} text-orange-500`} size={sz} stroke-width={sw} />
   }
   const contentIcon = registeredContentIcon(tab, size)
   if (contentIcon) return contentIcon
-  const virtualAppearance = virtualAppearanceForPath(tab.iconPath ?? '')
-  if (virtualAppearance) return virtualAppearanceIcon(virtualAppearance, size)
-  const path =
-    tab.iconPath ??
-    (tab.type === 'browser'
-      ? (tab.initialState.dir ?? '')
-      : (tab.initialState.viewing ?? tab.initialState.playing ?? playbackPath ?? ''))
-  const iconType =
-    tab.iconType ??
-    (tab.type === 'browser'
-      ? MediaType.FOLDER
-      : tab.initialState.viewing || tab.initialState.playing
-        ? getMediaType(
-            (tab.initialState.viewing ?? tab.initialState.playing ?? '').split('.').pop() ?? '',
-          )
-        : MediaType.OTHER)
+  const path = details.path || playbackPath || ''
   return renderFileIcon(
-    iconType,
+    details.type,
     path,
-    iconType === MediaType.AUDIO,
-    iconType === MediaType.VIDEO,
-    tab.iconIsVirtual ?? false,
+    details.type === MediaType.AUDIO,
+    details.type === MediaType.VIDEO,
     ctx,
     size,
   )
 }
 
 export function pinnedShellIcon(
-  pin: Pick<WorkspaceTaskbarPin, 'path' | 'isDirectory' | 'customIconName'>,
+  pin: WorkspaceTaskbarPin,
+  resource: ResourceSummary | undefined,
   settingsCustomIcons: Record<string, string>,
   ctx: FileIconContext,
 ): JSX.Element {
-  const virtualAppearance = virtualAppearanceForPath(pin.path)
-  if (virtualAppearance) return virtualAppearanceIcon(virtualAppearance, 'md')
-  const p = norm(pin.path)
-  const customName = pin.customIconName ?? settingsCustomIcons[pin.path] ?? settingsCustomIcons[p]
-  const mediaType = pin.isDirectory
-    ? MediaType.FOLDER
-    : getMediaType(pin.path.split('.').pop() ?? '')
+  const path = workspaceTaskbarPinPath(pin)
+  const p = path === null ? null : norm(path)
+  const customName =
+    pin.customIconName ??
+    (path === null ? undefined : (settingsCustomIcons[path] ?? settingsCustomIcons[p!]))
+  const iconPath = path ?? pin.title
+  const mediaType = resource
+    ? resourceFallbackType(resource)
+    : getMediaType(iconPath.split('.').pop() ?? '')
   if (customName) {
     const C = getSolidIconComponent(customName)
     if (C) {
@@ -455,10 +515,9 @@ export function pinnedShellIcon(
   }
   return renderFileIcon(
     mediaType,
-    pin.path,
+    iconPath,
     mediaType === MediaType.AUDIO,
     mediaType === MediaType.VIDEO,
-    false,
     ctx,
   )
 }

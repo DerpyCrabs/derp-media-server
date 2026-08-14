@@ -1,41 +1,30 @@
 use crate::{
-    app::{Shared, canvases_path},
-    canvas_persistence,
+    app::Shared,
+    canvas_persistence::{self, CanvasDocument, SaveCanvasDocument},
     error::AppResult,
-    store,
+    extractors::ApiJson,
+    state_db,
 };
-use axum::{
-    Json, Router,
-    extract::State,
-    routing::{get, post},
-};
-use serde_json::{Value, json};
+use axum::{Json, Router, extract::State, routing::get};
 
-fn read(state: &Shared) -> Value {
-    store::section(&canvases_path(state), &state.config.library_key, json!([]))
-}
-
-async fn list(State(state): State<Shared>) -> Json<Value> {
-    Json(json!({"canvases":canvas_persistence::merge(&json!([]), &read(&state))}))
-}
-
-async fn sync(State(state): State<Shared>, Json(body): Json<Value>) -> AppResult<Json<Value>> {
-    let incoming = body.get("canvases").unwrap_or(&Value::Null);
-    let merged = store::mutate_section(
-        &canvases_path(&state),
+async fn list(State(state): State<Shared>) -> AppResult<Json<CanvasDocument>> {
+    Ok(Json(canvas_persistence::load(
+        &state_db::database(&state.config),
         &state.config.library_key,
-        json!([]),
-        |current| {
-            let merged = canvas_persistence::merge(current, incoming);
-            *current = merged.clone();
-            Ok(merged)
-        },
-    )?;
-    Ok(Json(json!({"canvases":merged})))
+    )?))
+}
+
+async fn save(
+    State(state): State<Shared>,
+    ApiJson(body): ApiJson<SaveCanvasDocument>,
+) -> AppResult<Json<CanvasDocument>> {
+    Ok(Json(canvas_persistence::save(
+        &state_db::database(&state.config),
+        &state.config.library_key,
+        body,
+    )?))
 }
 
 pub fn router() -> Router<Shared> {
-    Router::new()
-        .route("/api/canvases", get(list))
-        .route("/api/canvases/sync", post(sync))
+    Router::new().route("/api/canvases", get(list).put(save))
 }

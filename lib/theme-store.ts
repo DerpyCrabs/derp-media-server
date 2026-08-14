@@ -4,9 +4,6 @@ import { createStoreListeners, readPersistedState, writePersistedState } from '.
 export type ThemePalette = 'default' | 'caffeine' | 'cosmic-night'
 export type ThemeMode = 'light' | 'dark' | 'system'
 
-const LEGACY_PALETTE = 'theme-palette'
-const LEGACY_MODE = 'theme-mode'
-
 const THEME_PERSIST_KEY = 'app-theme'
 
 function isPalette(v: unknown): v is ThemePalette {
@@ -17,19 +14,7 @@ function isMode(v: unknown): v is ThemeMode {
   return v === 'light' || v === 'dark' || v === 'system'
 }
 
-function readLegacyPaletteMode(): { palette: ThemePalette; mode: ThemeMode } {
-  if (typeof window === 'undefined') {
-    return { palette: 'default', mode: 'dark' }
-  }
-  const storedP = localStorage.getItem(LEGACY_PALETTE)
-  const palette: ThemePalette =
-    storedP === 'caffeine' || storedP === 'cosmic-night' ? storedP : 'default'
-  const storedM = localStorage.getItem(LEGACY_MODE)
-  const mode: ThemeMode = storedM === 'light' || storedM === 'system' ? storedM : 'dark'
-  return { palette, mode }
-}
-
-/** Sync read for boot (persist blob or legacy keys). Exported for initTheme. */
+/** Sync read for boot. Exported for initTheme. */
 export function readSyncedPaletteMode(): { palette: ThemePalette; mode: ThemeMode } {
   if (typeof window === 'undefined') {
     return { palette: 'default', mode: 'dark' }
@@ -40,7 +25,7 @@ export function readSyncedPaletteMode(): { palette: ThemePalette; mode: ThemeMod
     const m = fromBlob.mode
     if (isPalette(p) && isMode(m)) return { palette: p, mode: m }
   }
-  return readLegacyPaletteMode()
+  return { palette: 'default', mode: 'dark' }
 }
 
 const initialSync = readSyncedPaletteMode()

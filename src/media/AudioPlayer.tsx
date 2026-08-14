@@ -1,6 +1,10 @@
 import { apiEndpoints } from '@/lib/api-endpoints'
 import { queryKeys } from '@/lib/query-keys'
-import { filesQueryOptions } from '@/lib/query-options'
+import { filesystemResourcesQueryOptions } from '@/src/integrations/filesystem/query-options'
+import {
+  filesystemPathForResourceKey,
+  filesystemResourceMediaType,
+} from '@/src/integrations/filesystem/resource'
 import { MediaType } from '@/lib/types'
 import { useQuery } from '@tanstack/solid-query'
 import Monitor from 'lucide-solid/icons/monitor'
@@ -12,14 +16,13 @@ import StepForward from 'lucide-solid/icons/step-forward'
 import Volume2 from 'lucide-solid/icons/volume-2'
 import VolumeX from 'lucide-solid/icons/volume-x'
 import { Show, createEffect, createMemo } from 'solid-js'
-import { createUrlSearchParamsMemo, useBrowserHistory } from '../browser-history'
+import { playbackItemKey, type PlaybackItem } from '../features/playback'
 import {
-  audioPlaybackQueueFromFiles,
-  playbackItemKey,
-  type PlaybackItem,
-} from '../features/playback'
+  filesystemAudioPlaybackQueue,
+  filesystemPlaybackItemPath,
+} from '../integrations/filesystem/playback'
 import { usePlaybackSession, usePlaybackSnapshot } from '../features/playback/PlaybackProvider'
-import { buildAudioMetadataUrl, buildMediaUrl, buildThumbnailUrl } from '../lib/build-media-url'
+import { buildAudioMetadataUrl, buildMediaUrl, buildThumbnailUrl } from '@/lib/api-media-urls'
 import { setAudioOnly } from '../lib/url-state-actions'
 
 type AudioMetadata = {
@@ -44,7 +47,6 @@ function sameQueue(left: readonly PlaybackItem[], right: readonly PlaybackItem[]
       return (
         candidate !== undefined &&
         playbackItemKey(item) === playbackItemKey(candidate) &&
-        item.locator === candidate.locator &&
         item.name === candidate.name &&
         item.media === candidate.media
       )
@@ -64,29 +66,30 @@ function formatTime(time: number) {
 }
 
 export function AudioPlayer() {
-  const history = useBrowserHistory()
-  const urlSearchParams = createUrlSearchParamsMemo(history)
   const session = usePlaybackSession()
   const snapshot = usePlaybackSnapshot()
 
   const currentItem = createMemo(() => snapshot().currentItem)
   const playbackMode = createMemo(() => snapshot().mode)
   const shouldHandleAudio = createMemo(() => !!currentItem() && playbackMode() === 'audio')
-  const playingPath = createMemo(() => currentItem()?.locator ?? '')
-  const currentDir = createMemo(() => urlSearchParams().get('dir') || parentPath(playingPath()))
+  const playingPath = createMemo(() => {
+    const item = currentItem()
+    return item ? (filesystemPlaybackItemPath(item) ?? '') : ''
+  })
+  const currentDir = createMemo(() => parentPath(playingPath()))
   const fileName = createMemo(() => currentItem()?.name ?? '')
   const isVideoFile = createMemo(() => currentItem()?.media === 'video')
 
   const filesQuery = useQuery(() => ({
-    ...filesQueryOptions({ dir: currentDir() }),
+    ...filesystemResourcesQueryOptions({ dir: currentDir() }),
     enabled: shouldHandleAudio(),
   }))
-  const allFiles = createMemo(() => filesQuery.data?.files ?? [])
+  const resources = createMemo(() => filesQuery.data?.resources ?? [])
 
   createEffect(() => {
     const current = currentItem()
     if (!current || playbackMode() !== 'audio') return
-    const queue = audioPlaybackQueueFromFiles(allFiles(), {}, current)
+    const queue = filesystemAudioPlaybackQueue(resources(), current)
     const state = session.getSnapshot()
     if (!sameQueue(state.queue, queue)) {
       session.dispatch({ type: 'setQueue', queue, current })
@@ -94,11 +97,12 @@ export function AudioPlayer() {
   })
 
   const coverArtUrl = createMemo(() => {
-    const coverFile = allFiles().find((file) => {
-      if (file.type !== MediaType.IMAGE) return false
-      return file.name.toLowerCase().replace(/\.[^.]+$/, '') === 'cover'
+    const coverResource = resources().find((resource) => {
+      if (filesystemResourceMediaType(resource) !== MediaType.IMAGE) return false
+      return resource.name.toLowerCase().replace(/\.[^.]+$/, '') === 'cover'
     })
-    return coverFile ? buildMediaUrl(coverFile.path) : null
+    const path = coverResource ? filesystemPathForResourceKey(coverResource.key) : null
+    return path ? buildMediaUrl(path) : null
   })
 
   const metadataUrl = createMemo(() => {
@@ -136,7 +140,8 @@ export function AudioPlayer() {
   })
 
   function incrementView(item: PlaybackItem | undefined) {
-    if (item) void apiEndpoints.stats.addView(item.locator).catch(() => undefined)
+    const path = item ? filesystemPlaybackItemPath(item) : null
+    if (path) void apiEndpoints.stats.addView(path).catch(() => undefined)
   }
 
   function playPrevious() {

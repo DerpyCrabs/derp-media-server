@@ -1,27 +1,49 @@
 import { describe, expect, test } from 'bun:test'
-import { parseWorkspaceTaskbarPins, type WorkspaceTaskbarPin } from '@/lib/workspace-taskbar-pins'
+import { filesystemResourceKey } from '@/lib/domain/resource'
+import {
+  parseWorkspaceTaskbarPins,
+  serializeWorkspaceTaskbarPins,
+  workspaceTaskbarPinPath,
+  type WorkspaceTaskbarPin,
+} from '@/lib/workspace-taskbar-pins'
+import { hermesResourceKey } from '@/src/integrations/hermes/module'
 
-const validLocal: WorkspaceTaskbarPin = {
+const validFilesystem: WorkspaceTaskbarPin = {
   id: '1',
-  path: '/Docs',
-  isDirectory: true,
+  resource: filesystemResourceKey('media', 'Docs'),
   title: 'Docs',
-  source: { kind: 'local' },
 }
 
 describe('workspace taskbar pins', () => {
-  test('returns empty for non-array input', () => {
-    expect(parseWorkspaceTaskbarPins(null)).toEqual([])
-    expect(parseWorkspaceTaskbarPins({})).toEqual([])
+  test('accepts canonical ResourceKey pins and derives filesystem presentation path', () => {
+    expect(parseWorkspaceTaskbarPins([validFilesystem])).toEqual([validFilesystem])
+    expect(workspaceTaskbarPinPath(validFilesystem)).toBe('Docs')
+    expect(serializeWorkspaceTaskbarPins([validFilesystem])).toEqual([validFilesystem])
   })
 
-  test('parses local pins and rejects malformed sources', () => {
+  test('accepts opaque provider resources without fabricated paths', () => {
+    const pin: WorkspaceTaskbarPin = {
+      id: 'session',
+      resource: hermesResourceKey('session', 'session-1'),
+      title: 'Session one',
+    }
+    expect(parseWorkspaceTaskbarPins([pin])).toEqual([pin])
+    expect(workspaceTaskbarPinPath(pin)).toBeNull()
+    expect(JSON.stringify(serializeWorkspaceTaskbarPins([pin]))).not.toContain('/session/')
+  })
+
+  test('rejects absent, path-based, and malformed identities', () => {
+    expect(parseWorkspaceTaskbarPins(null)).toEqual([])
     expect(
       parseWorkspaceTaskbarPins([
-        validLocal,
-        { id: 'x', path: '/p', title: 't', source: { kind: 'remote' } },
-        { id: 'y', path: '/p', isDirectory: true, title: 't', source: {} },
+        { id: 'path', path: 'Docs', title: 'Docs' },
+        { id: 'missing', title: 'Docs' },
+        {
+          id: 'bad-resource',
+          resource: { provider: '', id: 'opaque' },
+          title: 'Bad',
+        },
       ]),
-    ).toEqual([validLocal])
+    ).toEqual([])
   })
 })

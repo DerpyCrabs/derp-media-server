@@ -1,8 +1,9 @@
 import { test, expect } from '@playwright/test'
+import { libraryUrl } from './canonical-urls'
 
 test.describe('Editable Folders', () => {
   test('creates a new folder via dialog', async ({ page }) => {
-    await page.goto('/?dir=Notes')
+    await page.goto(libraryUrl('Notes'))
     await page.locator('button[title="Create new folder"]').click()
     await page.locator('input[placeholder="Folder name"]').fill('test-folder')
     await page.getByRole('button', { name: 'Create' }).click()
@@ -10,7 +11,7 @@ test.describe('Editable Folders', () => {
   })
 
   test('creates a new file via dialog', async ({ page }) => {
-    await page.goto('/?dir=Notes')
+    await page.goto(libraryUrl('Notes'))
     await page.locator('button[title="Create new file"]').click()
     await page.locator('input[placeholder*="File name"]').fill('test-note.md')
     await page.getByRole('button', { name: 'Create' }).click()
@@ -20,7 +21,7 @@ test.describe('Editable Folders', () => {
   })
 
   test('renames a file via context menu', async ({ page }) => {
-    await page.goto('/?dir=Notes')
+    await page.goto(libraryUrl('Notes'))
     await page.locator('button[title="Create new file"]').click()
     await page.locator('input[placeholder*="File name"]').fill('rename-me.md')
     await page.getByRole('button', { name: 'Create' }).click()
@@ -36,7 +37,10 @@ test.describe('Editable Folders', () => {
     await nameInput.fill('renamed-file.md')
     await Promise.all([
       page.waitForResponse(
-        (resp) => resp.url().includes('/api/files/rename') && resp.status() === 200,
+        (resp) =>
+          resp.url().includes('/api/integrations/filesystem/actions') &&
+          resp.request().postDataJSON()?.action === 'filesystem.rename' &&
+          resp.status() === 200,
       ),
       page.getByRole('dialog').getByRole('button', { name: 'Rename', exact: true }).click(),
     ])
@@ -46,7 +50,7 @@ test.describe('Editable Folders', () => {
   })
 
   test('renames a folder via context menu', async ({ page }) => {
-    await page.goto('/?dir=Notes')
+    await page.goto(libraryUrl('Notes'))
     await page.locator('table tr').filter({ hasText: 'test-folder' }).click({ button: 'right' })
     await page.locator('[data-slot="context-menu-item"]').getByText('Rename').click()
 
@@ -59,25 +63,25 @@ test.describe('Editable Folders', () => {
   })
 
   test('deletes a file via context menu', async ({ page }) => {
-    await page.goto('/?dir=Notes')
+    await page.goto(libraryUrl('Notes'))
     await page.locator('table tr').filter({ hasText: 'renamed-file.md' }).click({ button: 'right' })
     await page.locator('[data-slot="context-menu-item"]').getByText('Delete').click()
 
-    await page.getByRole('button', { name: /Delete/i }).click()
+    await page.getByRole('alertdialog').getByRole('button', { name: 'Delete', exact: true }).click()
     await expect(page.locator('table').getByText('renamed-file.md')).not.toBeVisible()
   })
 
   test('deletes a folder via context menu', async ({ page }) => {
-    await page.goto('/?dir=Notes')
+    await page.goto(libraryUrl('Notes'))
     await page.locator('table tr').filter({ hasText: 'renamed-folder' }).click({ button: 'right' })
     await page.locator('[data-slot="context-menu-item"]').getByText('Delete').click()
 
-    await page.getByRole('button', { name: /Delete/i }).click()
+    await page.getByRole('alertdialog').getByRole('button', { name: 'Delete', exact: true }).click()
     await expect(page.locator('table').getByText('renamed-folder')).not.toBeVisible()
   })
 
   test('moves a file via context menu', async ({ page }) => {
-    await page.goto('/?dir=MediaContent')
+    await page.goto(libraryUrl('MediaContent'))
     await page.locator('button[title="Create new file"]').click()
     await page.locator('input[placeholder*="File name"]').fill('move-me.txt')
     await page.getByRole('button', { name: 'Create' }).click()
@@ -98,7 +102,7 @@ test.describe('Editable Folders', () => {
   })
 
   test('copies a file via context menu', async ({ page }) => {
-    await page.goto('/?dir=MediaContent')
+    await page.goto(libraryUrl('MediaContent'))
     await page.locator('table tr').filter({ hasText: 'public-doc.txt' }).click({ button: 'right' })
     const copyItem = page.locator('[data-slot="context-menu-item"]').getByText('Copy to...')
     await expect(copyItem).toBeVisible()
@@ -106,7 +110,7 @@ test.describe('Editable Folders', () => {
 
     await expect(page.locator('[role="dialog"]')).toBeVisible()
     await page.locator('[role="dialog"]').getByText('subfolder').click()
-    await page.getByRole('button', { name: /Copy/i }).click()
+    await page.getByRole('dialog').getByRole('button', { name: 'Copy here', exact: true }).click()
 
     await expect(page.locator('table').getByText('public-doc.txt')).toBeVisible()
 
@@ -115,7 +119,7 @@ test.describe('Editable Folders', () => {
   })
 
   test('does not show edit options in non-editable folders', async ({ page }) => {
-    await page.goto('/?dir=Documents')
+    await page.goto(libraryUrl('Documents'))
     await expect(page.locator('button[title="Create new folder"]')).not.toBeVisible()
     await expect(page.locator('button[title="Create new file"]')).not.toBeVisible()
 

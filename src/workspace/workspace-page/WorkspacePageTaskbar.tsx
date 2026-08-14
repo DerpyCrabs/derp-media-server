@@ -1,19 +1,25 @@
 import { setFileDragData, type FileDragData } from '@/lib/file-drag-data'
 import { FLOATING_Z_PIN_MENU } from '@/lib/floating-z-index'
 import type { PinnedTaskbarItem } from '@/lib/use-workspace'
+import { workspaceTaskbarPinPath } from '@/lib/workspace-taskbar-pins'
+import { applicationContentRegistry } from '@/src/integrations/registry'
 import { isWorkspaceTabIconColorKey } from '@/lib/workspace-tab-icon-colors'
 import type { WorkspaceLayoutPreset } from '@/lib/workspace-layout-presets'
 import FolderOpen from 'lucide-solid/icons/folder-open'
-import { For, Show, type JSX } from 'solid-js'
+import { For, Show, createResource, type JSX } from 'solid-js'
 import { FloatingContextMenu } from '@/src/file-browser/FloatingContextMenu'
 import { pinnedShellIcon } from '@/src/lib/use-file-icon'
-import type { GlobalSettings } from '@/lib/use-settings'
+import type { SettingsDto } from '@/lib/generated/api-contracts'
 import { WorkspaceNamedLayoutMenu } from '@/src/workspace/WorkspaceNamedLayoutMenu'
 import { WorkspaceTaskbarAudio } from '@/src/workspace/WorkspaceTaskbarAudio'
 import { WorkspaceTaskbarSettings } from '@/src/workspace/WorkspaceTaskbarSettings'
-import type { PersistedWorkspaceState, WorkspaceSource } from '@/lib/use-workspace'
+import type { PersistedWorkspaceState } from '@/lib/use-workspace'
 import { FileSearchButton } from '@/src/FileSearchPalette'
-import type { FileSearchResult } from '@/lib/file-search'
+import type { SearchHit } from '@/src/features/search/contracts'
+import { contentWindowKind } from '@/lib/content-window'
+import { contentWindowFilesystemPath } from '@/src/integrations/current-window-content'
+import type { ResourceSummary } from '@/lib/domain/resource'
+import { filesystemPathForResourceKey } from '@/src/integrations/filesystem/resource'
 
 export type WorkspacePageTaskbarProps = {
   onOpenBrowser: () => void
@@ -22,12 +28,11 @@ export type WorkspacePageTaskbarProps = {
   taskbarGroupIds: () => string[]
   taskbarWindowRows: () => JSX.Element
   storageSessionKey: () => string
-  browserSource: () => WorkspaceSource
   workspace: () => PersistedWorkspaceState | null
   setWorkspace: (
     fn: (prev: PersistedWorkspaceState | null) => PersistedWorkspaceState | null,
   ) => void
-  settingsData: () => GlobalSettings | undefined
+  settingsData: () => SettingsDto | undefined
   serverLayoutPresets: () => WorkspaceLayoutPreset[]
   presetsReady: () => boolean
   collectLayoutSnapshot: () => PersistedWorkspaceState
@@ -47,9 +52,9 @@ export type WorkspacePageTaskbarProps = {
   setPinMenu: (v: { x: number; y: number; pinId: string } | null) => void
   focusWindow: (id: string) => void
   stopWorkspacePlaybackFromTaskbar: () => void
-  requestPlay: (source: WorkspaceSource, path: string, dir?: string) => void
+  requestPlay: (resource: ResourceSummary) => void
   suppressTaskbarAudioChrome?: () => boolean
-  onOpenSearchResult: (result: FileSearchResult) => void
+  onOpenSearchResult: (result: SearchHit) => void
 }
 
 export function WorkspacePageTaskbar(props: WorkspacePageTaskbarProps) {
@@ -73,18 +78,28 @@ export function WorkspacePageTaskbar(props: WorkspacePageTaskbarProps) {
                 <div class='flex shrink-0 items-center gap-2'>
                   <For each={props.pinnedItems()}>
                     {(pin) => {
-                      const tooltip = `${pin.isDirectory ? 'Folder' : 'File'}: ${pin.path}`
+                      const path = workspaceTaskbarPinPath(pin)
+                      const [resource] = createResource(
+                        () => pin.resource,
+                        async (key) => applicationContentRegistry.inspect(key)?.inspect(key),
+                      )
+                      const isDirectory = () =>
+                        resource()?.capabilities.includes('browse') === true ||
+                        resource()?.presentation === 'browse'
+                      const tooltip = () =>
+                        `${isDirectory() ? 'Folder' : 'File'}: ${path ?? pin.title}`
                       return (
                         <div
                           class='flex shrink-0 items-center justify-center py-1 px-0.5'
                           data-taskbar-pin
-                          draggable='true'
+                          draggable={path !== null}
                           on:dragstart={(e: DragEvent) => {
+                            if (path === null) return
                             const dt = e.dataTransfer
                             if (!dt) return
                             const d: FileDragData = {
-                              path: pin.path,
-                              isDirectory: pin.isDirectory,
+                              path,
+                              isDirectory: isDirectory(),
                               sourceKind: 'local',
                             }
                             setFileDragData(dt, d)
@@ -94,8 +109,8 @@ export function WorkspacePageTaskbar(props: WorkspacePageTaskbarProps) {
                           <div
                             role='button'
                             tabindex={0}
-                            title={tooltip}
-                            aria-label={tooltip}
+                            title={tooltip()}
+                            aria-label={tooltip()}
                             class='flex h-7 w-7 shrink-0 cursor-default items-center justify-center rounded-none text-muted-foreground hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring [&_svg]:pointer-events-none'
                             onClick={() => props.selectPinned(pin)}
                             onKeyDown={(e) => {
@@ -111,6 +126,7 @@ export function WorkspacePageTaskbar(props: WorkspacePageTaskbarProps) {
                           >
                             {pinnedShellIcon(
                               pin,
+                              resource(),
                               props.settingsData()?.customIcons ?? {},
                               props.workspaceFileIconContext(),
                             )}
@@ -144,17 +160,21 @@ export function WorkspacePageTaskbar(props: WorkspacePageTaskbarProps) {
             />
             <WorkspaceTaskbarAudio
               suppressTaskbarAudioChrome={props.suppressTaskbarAudioChrome}
-              onShowVideo={(path, dir) => {
-                if (!path) return
+              onShowVideo={async (key) => {
+                const path = filesystemPathForResourceKey(key)
+                if (path === null) return
                 const w = props.workspace()
                 const viewerWin = w?.windows.find(
-                  (win) => win.type === 'viewer' && win.initialState?.viewing === path,
+                  (win) =>
+                    contentWindowKind(win) === 'viewer' &&
+                    contentWindowFilesystemPath(win) === path,
                 )
                 if (viewerWin) {
                   props.focusWindow(viewerWin.id)
                   return
                 }
-                props.requestPlay(props.browserSource(), path, dir)
+                const inspector = applicationContentRegistry.inspect(key)
+                if (inspector) props.requestPlay(await inspector.inspect(key))
               }}
               onStopPlayback={props.stopWorkspacePlaybackFromTaskbar}
             />

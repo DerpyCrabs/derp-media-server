@@ -1,20 +1,14 @@
 import { mutationOptions, queryOptions, type QueryClient } from '@tanstack/solid-query'
-import { apiEndpoints, type FileListParameters } from './api-endpoints'
+import { apiEndpoints } from './api-endpoints'
 import type {
   AutoSaveRequest,
-  CopyFileRequest,
-  CreateFileRequest,
   CustomIconRequest,
-  EditFileRequest,
   FileSettingRequest,
-  FilePathRequest,
   RemoveCustomIconRequest,
-  RenameFileRequest,
   ViewModeRequest,
   WorkspaceLayoutPresetsRequest,
   WorkspaceTaskbarPinsRequest,
 } from './generated/api-contracts'
-import { VIRTUAL_FOLDERS } from './constants'
 import { queryKeys } from './query-keys'
 import { persistViewMode } from './view-mode-persistence'
 
@@ -34,13 +28,6 @@ export function settingsQueryOptions() {
   })
 }
 
-export function filesQueryOptions(parameters: FileListParameters) {
-  return queryOptions({
-    queryKey: queryKeys.filesPage(parameters.dir, parameters.surface, parameters.offset),
-    queryFn: ({ signal }) => apiEndpoints.files.list(parameters, signal),
-  })
-}
-
 export function statsQueryOptions() {
   return queryOptions({
     queryKey: queryKeys.stats(),
@@ -51,7 +38,7 @@ export function statsQueryOptions() {
 export function invalidateFileQueries(queryClient: QueryClient) {
   return Promise.all([
     queryClient.invalidateQueries({ queryKey: queryKeys.files() }),
-    queryClient.invalidateQueries({ queryKey: queryKeys.adminContent() }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.applicationContent() }),
   ])
 }
 
@@ -62,42 +49,9 @@ export function invalidateSettingsQueries(queryClient: QueryClient) {
 export function invalidateFavoriteQueries(queryClient: QueryClient) {
   return Promise.all([
     invalidateSettingsQueries(queryClient),
-    queryClient.invalidateQueries({ queryKey: queryKeys.files(VIRTUAL_FOLDERS.FAVORITES) }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.files() }),
   ])
 }
-
-export const fileMutationOptions = {
-  create: (queryClient: QueryClient) =>
-    mutationOptions({
-      mutationFn: (body: CreateFileRequest) => apiEndpoints.files.create(body),
-      onSettled: () => invalidateFileQueries(queryClient),
-    }),
-  edit: (queryClient: QueryClient) =>
-    mutationOptions({
-      mutationFn: (body: EditFileRequest) => apiEndpoints.files.edit(body),
-      onSettled: () => invalidateFileQueries(queryClient),
-    }),
-  delete: (queryClient: QueryClient) =>
-    mutationOptions({
-      mutationFn: (body: FilePathRequest) => apiEndpoints.files.delete(body),
-      onSettled: () => invalidateFileQueries(queryClient),
-    }),
-  rename: (queryClient: QueryClient) =>
-    mutationOptions({
-      mutationFn: (body: RenameFileRequest) => apiEndpoints.files.rename(body),
-      onSettled: () => invalidateFileQueries(queryClient),
-    }),
-  copy: (queryClient: QueryClient) =>
-    mutationOptions({
-      mutationFn: (body: CopyFileRequest) => apiEndpoints.files.copy(body),
-      onSettled: () => invalidateFileQueries(queryClient),
-    }),
-  upload: (queryClient: QueryClient) =>
-    mutationOptions({
-      mutationFn: (body: FormData) => apiEndpoints.files.upload(body),
-      onSettled: () => invalidateFileQueries(queryClient),
-    }),
-} as const
 
 export const settingsMutationOptions = {
   viewMode: (queryClient: QueryClient) =>

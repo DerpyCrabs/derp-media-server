@@ -70,10 +70,6 @@ impl Thumbnailer {
         }
     }
 
-    pub fn cached(&self, file: &Path, modified: std::time::SystemTime) -> bool {
-        self.cache_path(file, modified).exists()
-    }
-
     fn cache_path(&self, file: &Path, modified: std::time::SystemTime) -> PathBuf {
         let mtime = modified
             .duration_since(UNIX_EPOCH)
@@ -499,7 +495,7 @@ mod tests {
         cancelled.abort();
         active.await.unwrap().unwrap();
         tokio::time::sleep(Duration::from_millis(30)).await;
-        assert!(!thumbnails.cached(&second_path, modified));
+        assert!(!thumbnails.cache_path(&second_path, modified).exists());
         assert_eq!(TEST_GENERATIONS.load(Ordering::SeqCst), 2);
 
         TEST_GENERATIONS.store(0, Ordering::SeqCst);

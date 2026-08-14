@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
 import path from 'path'
 import fs from 'fs'
+import { libraryUrl } from './canonical-urls'
 
 const batchId = process.env.BATCH_ID
 const mediaDir = batchId ? `test-media-${batchId}` : 'test-media'
@@ -8,24 +9,24 @@ const UPLOAD_DIR = 'MediaContent'
 
 test.describe('File Upload', () => {
   test('upload button is visible in editable folders', async ({ page }) => {
-    await page.goto(`/?dir=${UPLOAD_DIR}`)
+    await page.goto(libraryUrl(UPLOAD_DIR))
     await expect(page.locator('button[title="Upload"]')).toBeVisible()
   })
 
   test('upload button is hidden in non-editable folders', async ({ page }) => {
-    await page.goto('/?dir=Documents')
+    await page.goto(libraryUrl('Documents'))
     await expect(page.locator('button[title="Upload"]')).not.toBeVisible()
   })
 
   test('upload menu shows file and folder options', async ({ page }) => {
-    await page.goto(`/?dir=${UPLOAD_DIR}`)
+    await page.goto(libraryUrl(UPLOAD_DIR))
     await page.locator('button[title="Upload"]').click()
     await expect(page.getByText('Upload files')).toBeVisible()
     await expect(page.getByText('Upload folder')).toBeVisible()
   })
 
   test('uploads a file via file picker', async ({ page }) => {
-    await page.goto(`/?dir=${UPLOAD_DIR}`)
+    await page.goto(libraryUrl(UPLOAD_DIR))
 
     const tmpFile = path.resolve(mediaDir, 'upload-test-file.txt')
     fs.writeFileSync(tmpFile, 'uploaded content for testing')
@@ -45,7 +46,7 @@ test.describe('File Upload', () => {
   })
 
   test('uploaded file appears in file list', async ({ page }) => {
-    await page.goto(`/?dir=${UPLOAD_DIR}`)
+    await page.goto(libraryUrl(UPLOAD_DIR))
     await expect(page.locator('table').getByText('upload-test-file.txt')).toBeVisible()
 
     // Cleanup: delete the uploaded file via context menu
@@ -61,7 +62,7 @@ test.describe('File Upload', () => {
   })
 
   test('shows uploading progress toast', async ({ page }) => {
-    await page.goto(`/?dir=${UPLOAD_DIR}`)
+    await page.goto(libraryUrl(UPLOAD_DIR))
 
     const tmpFile = path.resolve(mediaDir, 'progress-test.txt')
     fs.writeFileSync(tmpFile, 'testing progress indicator')
@@ -88,7 +89,10 @@ test.describe('File Upload', () => {
         .filter({ hasText: 'progress-test.txt' })
         .click({ button: 'right' })
       await page.locator('[data-slot="context-menu-item"]').getByText('Delete').click()
-      await page.getByRole('button', { name: /Delete/i }).click()
+      await page
+        .getByRole('alertdialog')
+        .getByRole('button', { name: 'Delete', exact: true })
+        .click()
     } finally {
       fs.rmSync(tmpFile, { force: true })
     }

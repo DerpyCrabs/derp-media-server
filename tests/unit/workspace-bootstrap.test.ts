@@ -1,19 +1,17 @@
 import { describe, expect, test } from 'bun:test'
-import { MediaType } from '@/lib/types'
+import '@/src/integrations/current-window-content'
+import { filesystemResourceAddress, filesystemResourceKey } from '@/lib/domain/resource'
 import {
   normalizePersistedWorkspaceState,
   serializeWorkspacePersistedState,
   type PersistedWorkspaceState,
-  type WorkspaceSource,
 } from '@/lib/use-workspace'
 import {
-  buildWorkspaceFromDirParam,
+  buildWorkspaceFromResource,
   resolveWorkspaceDeferredPresetApply,
   resolveWorkspaceInitialHydration,
 } from '@/lib/workspace-bootstrap'
 import type { WorkspaceLayoutPreset } from '@/lib/workspace-layout-presets'
-
-const localSource: WorkspaceSource = { kind: 'local', rootPath: null }
 
 function minimalPreset(
   id: string,
@@ -29,24 +27,22 @@ function minimalPreset(
   return {
     id,
     name: id,
-    scope: 'admin',
     snapshot: JSON.parse(serializeWorkspacePersistedState(snap)) as PersistedWorkspaceState,
     createdAt: '',
   }
 }
 
-function oneBrowserWin(id: string, source: WorkspaceSource): PersistedWorkspaceState['windows'] {
+function oneBrowserWin(id: string): PersistedWorkspaceState['windows'] {
   return [
     {
       id,
-      type: 'browser',
       title: id,
       iconName: null,
-      iconPath: '',
-      iconType: MediaType.FOLDER,
-      iconIsVirtual: false,
-      source,
-      initialState: { dir: '/x' },
+      contentInstance: {
+        id,
+        type: 'explorer',
+        location: filesystemResourceKey('configured-default', 'x'),
+      },
       tabGroupId: null,
       layout: { minimized: false, zIndex: 1 },
     },
@@ -54,38 +50,39 @@ function oneBrowserWin(id: string, source: WorkspaceSource): PersistedWorkspaceS
 }
 
 describe('workspace-bootstrap', () => {
-  test('initial: dir param opens folder window and strips preset from URL when preset also present', () => {
+  test('initial: route resource opens folder window and strips preset when also present', () => {
     const r = resolveWorkspaceInitialHydration({
-      dirParam: '/foo/bar',
+      resource: filesystemResourceKey('configured-default', 'foo/bar'),
       presetParam: 'p1',
       loaded: null,
       presetsReadyNow: true,
       presetsList: [],
-      source: localSource,
     })
     expect(r.kind).toBe('set-workspace')
     if (r.kind !== 'set-workspace') return
     expect(r.workspace.windows).toHaveLength(1)
-    expect(r.workspace.windows[0]?.initialState.dir).toBe('/foo/bar')
+    const content = r.workspace.windows[0]?.contentInstance
+    expect(
+      content?.type === 'explorer' ? filesystemResourceAddress(content.location)?.path : null,
+    ).toBe('foo/bar')
     expect(r.baselinePresetId).toBeNull()
     expect(r.stripPresetFromUrl).toBe(true)
   })
 
   test('initial: prefers localStorage draft over preset id in URL', () => {
     const loaded: PersistedWorkspaceState = {
-      windows: oneBrowserWin('w-draft', localSource),
+      windows: oneBrowserWin('w-draft'),
       activeWindowId: 'w-draft',
       activeTabMap: {},
       nextWindowId: 3,
       pinnedTaskbarItems: [],
     }
     const r = resolveWorkspaceInitialHydration({
-      dirParam: null,
+      resource: null,
       presetParam: 'p1',
       loaded,
       presetsReadyNow: true,
-      presetsList: [minimalPreset('p1', oneBrowserWin('w-preset', localSource))],
-      source: localSource,
+      presetsList: [minimalPreset('p1', oneBrowserWin('w-preset'))],
     })
     expect(r.kind).toBe('set-workspace')
     if (r.kind !== 'set-workspace') return
@@ -94,14 +91,13 @@ describe('workspace-bootstrap', () => {
   })
 
   test('initial: applies preset when no draft and presets ready', () => {
-    const presetsList = [minimalPreset('p1', oneBrowserWin('from-preset', localSource))]
+    const presetsList = [minimalPreset('p1', oneBrowserWin('from-preset'))]
     const r = resolveWorkspaceInitialHydration({
-      dirParam: null,
+      resource: null,
       presetParam: 'p1',
       loaded: null,
       presetsReadyNow: true,
       presetsList,
-      source: localSource,
     })
     expect(r.kind).toBe('set-workspace')
     if (r.kind !== 'set-workspace') return
@@ -115,12 +111,11 @@ describe('workspace-bootstrap', () => {
 
   test('initial: invalid preset falls back to default workspace', () => {
     const r = resolveWorkspaceInitialHydration({
-      dirParam: null,
+      resource: null,
       presetParam: 'missing',
       loaded: null,
       presetsReadyNow: true,
-      presetsList: [minimalPreset('p1', oneBrowserWin('x', localSource))],
-      source: localSource,
+      presetsList: [minimalPreset('p1', oneBrowserWin('x'))],
     })
     expect(r.kind).toBe('set-workspace')
     if (r.kind !== 'set-workspace') return
@@ -130,12 +125,11 @@ describe('workspace-bootstrap', () => {
 
   test('initial: preset in URL but settings not ready defers', () => {
     const r = resolveWorkspaceInitialHydration({
-      dirParam: null,
+      resource: null,
       presetParam: 'p1',
       loaded: null,
       presetsReadyNow: false,
       presetsList: [],
-      source: localSource,
     })
     expect(r).toEqual({ kind: 'defer-preset' })
   })
@@ -145,7 +139,7 @@ describe('workspace-bootstrap', () => {
       presetParam: 'p1',
       presetsReadyNow: true,
       hasPersistedDraft: false,
-      presetsList: [minimalPreset('p1', oneBrowserWin('late', localSource))],
+      presetsList: [minimalPreset('p1', oneBrowserWin('late'))],
     })
     expect(d?.kind).toBe('apply')
     if (!d || d.kind !== 'apply') return
@@ -159,7 +153,7 @@ describe('workspace-bootstrap', () => {
         presetParam: 'p1',
         presetsReadyNow: true,
         hasPersistedDraft: true,
-        presetsList: [minimalPreset('p1', oneBrowserWin('late', localSource))],
+        presetsList: [minimalPreset('p1', oneBrowserWin('late'))],
       }),
     ).toBeNull()
   })
@@ -169,24 +163,28 @@ describe('workspace-bootstrap', () => {
       presetParam: 'bad',
       presetsReadyNow: true,
       hasPersistedDraft: false,
-      presetsList: [minimalPreset('p1', oneBrowserWin('late', localSource))],
+      presetsList: [minimalPreset('p1', oneBrowserWin('late'))],
     })
     expect(d).toEqual({ kind: 'noop', stripPresetFromUrl: true })
   })
 
-  test('buildWorkspaceFromDirParam sets virtual flag from path', () => {
-    const w = buildWorkspaceFromDirParam('Favorites', localSource)
-    expect(w.windows[0]?.iconIsVirtual).toBe(true)
+  test('buildWorkspaceFromResource creates an authoritative Explorer location', () => {
+    const w = buildWorkspaceFromResource(
+      filesystemResourceKey('application-collections', 'favorites'),
+    )
+    const content = w.windows[0]?.contentInstance
+    expect(content?.type === 'explorer' ? content.location : null).toEqual(
+      filesystemResourceKey('application-collections', 'favorites'),
+    )
   })
 
   test('fresh default workspace writes and restores current content envelopes', () => {
     const result = resolveWorkspaceInitialHydration({
-      dirParam: null,
+      resource: null,
       presetParam: null,
       loaded: null,
       presetsReadyNow: true,
       presetsList: [],
-      source: localSource,
     })
     expect(result.kind).toBe('set-workspace')
     if (result.kind !== 'set-workspace') return

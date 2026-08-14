@@ -1,6 +1,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import fs from 'fs'
 import path from 'path'
+import { browseFilesystem } from './filesystem-actions'
 
 const batchId = process.env.BATCH_ID
 const mediaDirName = batchId ? `test-media-${batchId}` : 'test-media'
@@ -15,15 +16,45 @@ type PersistedCanvasState = {
 }
 
 async function persistedActiveCanvasState(page: Page): Promise<PersistedCanvasState | null> {
-  return page.evaluate(() => {
-    const raw = localStorage.getItem('infinite-canvases-v1')
-    if (!raw) return null
-    const collection = JSON.parse(raw) as {
+  return page.evaluate(async () => {
+    const collection = (await fetch('/api/canvases').then((response) => response.json())) as {
       activeId?: string
       canvases?: Array<{ id?: string; state?: PersistedCanvasState }>
     }
     return collection.canvases?.find((canvas) => canvas.id === collection.activeId)?.state ?? null
   })
+}
+
+async function renameCanvas(page: Page, currentName: string, nextName: string) {
+  await page.getByTestId('canvas-name-trigger').click()
+  await page.getByTestId('canvas-list-item').filter({ hasText: currentName }).hover()
+  await page.getByLabel(`Rename ${currentName}`).click()
+  await page.getByLabel('Name').fill(nextName)
+  await page.getByRole('button', { name: 'Save' }).click()
+}
+
+function canvasDocumentFixture(name: string, revision: number, id = `canvas-${Date.now()}`) {
+  return {
+    schemaVersion: 2 as const,
+    revision,
+    activeId: id,
+    canvases: [
+      {
+        id,
+        name,
+        updatedAt: Date.now(),
+        state: {
+          version: 1,
+          windows: [],
+          maximizedWindowId: null,
+          camera: { x: 0, y: 0, zoom: 1 },
+          windowSizeByType: {},
+          nextItemId: 1,
+          nextZIndex: 1,
+        },
+      },
+    ],
+  }
 }
 
 function canvasAudioWindow(page: Page, title: string) {
@@ -69,18 +100,38 @@ async function waitForReaderScrollToSettle(page: Page) {
 }
 
 test.beforeEach(async ({ page }) => {
+  let document: {
+    schemaVersion: 2
+    revision: number
+    activeId: string | null
+    canvases: any[]
+  } = { schemaVersion: 2, revision: 0, activeId: null, canvases: [] }
   await page.route('**/api/canvases**', async (route) => {
-    const body =
-      route.request().method() === 'POST'
-        ? (route.request().postDataJSON() as { canvases?: unknown[] })
-        : null
-    await route.fulfill({ json: { canvases: body?.canvases ?? [] } })
+    if (route.request().method() === 'GET') {
+      await route.fulfill({ json: document })
+      return
+    }
+    const body = route.request().postDataJSON() as {
+      expectedRevision?: number
+      activeId?: string | null
+      canvases?: any[]
+    }
+    if (body.expectedRevision !== document.revision) {
+      await route.fulfill({ status: 409, json: { error: 'revision conflict' } })
+      return
+    }
+    document = {
+      schemaVersion: 2,
+      revision: document.revision + 1,
+      activeId: body.activeId ?? null,
+      canvases: (body.canvases ?? []).map((canvas) => ({ ...canvas, updatedAt: Date.now() })),
+    }
+    await route.fulfill({ json: document })
   })
   await page.addInitScript(() => {
     if (sessionStorage.getItem('canvas-test-initialized')) return
     sessionStorage.setItem('canvas-test-initialized', '1')
-    localStorage.removeItem('infinite-canvas-state-v1')
-    localStorage.removeItem('infinite-canvases-v1')
+    localStorage.removeItem('infinite-canvas-crash-draft-v1')
     localStorage.setItem('workspace-state-test-sentinel', 'untouched')
   })
   await page.goto('/canvas')
@@ -215,18 +266,29 @@ test('keeps primary and zoom controls reachable on narrow screens', async ({ pag
 
 test('shows only actionable canvas sync errors', async ({ page }) => {
   let failSync = true
+  let revision = 0
   await page.unroute('**/api/canvases**')
   await page.route('**/api/canvases**', async (route) => {
-    if (route.request().method() !== 'POST') {
-      await route.fulfill({ json: { canvases: [] } })
+    if (route.request().method() === 'GET') {
+      await route.fulfill({
+        json: { schemaVersion: 2, revision, activeId: null, canvases: [] },
+      })
       return
     }
     if (failSync) {
       await route.fulfill({ status: 500, json: { error: 'sync failed' } })
       return
     }
-    const body = route.request().postDataJSON() as { canvases?: unknown[] }
-    await route.fulfill({ json: { canvases: body.canvases ?? [] } })
+    const body = route.request().postDataJSON() as { activeId?: string; canvases?: unknown[] }
+    revision += 1
+    await route.fulfill({
+      json: {
+        schemaVersion: 2,
+        revision,
+        activeId: body.activeId ?? null,
+        canvases: body.canvases ?? [],
+      },
+    })
   })
 
   await page.reload()
@@ -239,16 +301,465 @@ test('shows only actionable canvas sync errors', async ({ page }) => {
   await expect(retry).toHaveCount(0)
 })
 
-test('does not replace a live Hermes pane with stale sync content', async ({ page }) => {
-  let syncResponses = 0
+test('resolves real revision conflicts by loading server or explicitly keeping local', async ({
+  page,
+  request,
+}) => {
+  const initialResponse = await request.get('/api/canvases')
+  expect(initialResponse.ok()).toBe(true)
+  const initial = (await initialResponse.json()) as {
+    schemaVersion: 2
+    revision: number
+    activeId: string | null
+    canvases: any[]
+  }
+  const canvasId = `conflict-${Date.now()}`
+  const controlled = {
+    id: canvasId,
+    name: 'Conflict base',
+    updatedAt: Date.now(),
+    state: {
+      version: 1,
+      windows: [],
+      maximizedWindowId: null,
+      camera: { x: 0, y: 0, zoom: 1 },
+      windowSizeByType: {},
+      nextItemId: 1,
+      nextZIndex: 1,
+    },
+  }
+  const seededResponse = await request.put('/api/canvases', {
+    data: {
+      schemaVersion: 2,
+      expectedRevision: initial.revision,
+      activeId: canvasId,
+      canvases: [...initial.canvases.filter((canvas) => canvas.id !== canvasId), controlled],
+    },
+  })
+  expect(seededResponse.ok()).toBe(true)
+  let remote = (await seededResponse.json()) as typeof initial
+
   await page.unroute('**/api/canvases**')
+  await page.evaluate(() => localStorage.removeItem('infinite-canvas-crash-draft-v1'))
+  await page.reload()
+  await expect(page.getByTestId('canvas-name-trigger')).toHaveText('Conflict base')
+
+  const firstExternal = await request.put('/api/canvases', {
+    data: {
+      schemaVersion: 2,
+      expectedRevision: remote.revision,
+      activeId: canvasId,
+      canvases: remote.canvases.map((canvas) =>
+        canvas.id === canvasId
+          ? { ...canvas, name: 'External version', updatedAt: Date.now() }
+          : canvas,
+      ),
+    },
+  })
+  expect(firstExternal.ok()).toBe(true)
+  remote = (await firstExternal.json()) as typeof initial
+
+  await renameCanvas(page, 'Conflict base', 'Discarded local version')
+  const conflict = page.getByTestId('canvas-sync-conflict')
+  await expect(conflict).toBeVisible()
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem('infinite-canvas-crash-draft-v1')))
+    .not.toBeNull()
+  await conflict.getByRole('button', { name: 'Load server' }).click()
+  await expect(page.getByTestId('canvas-name-trigger')).toHaveText('External version')
+  await expect(conflict).toHaveCount(0)
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem('infinite-canvas-crash-draft-v1')))
+    .toBeNull()
+
+  const secondExternal = await request.put('/api/canvases', {
+    data: {
+      schemaVersion: 2,
+      expectedRevision: remote.revision,
+      activeId: canvasId,
+      canvases: remote.canvases.map((canvas) =>
+        canvas.id === canvasId
+          ? { ...canvas, name: 'Second external version', updatedAt: Date.now() }
+          : canvas,
+      ),
+    },
+  })
+  expect(secondExternal.ok()).toBe(true)
+  remote = (await secondExternal.json()) as typeof initial
+
+  await renameCanvas(page, 'External version', 'Kept local version')
+  await expect(conflict).toBeVisible()
+  await conflict.getByRole('button', { name: 'Keep local' }).click()
+  await expect(page.getByTestId('canvas-name-trigger')).toHaveText('Kept local version')
+  await expect(conflict).toHaveCount(0)
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem('infinite-canvas-crash-draft-v1')))
+    .toBeNull()
+
+  const loadedResponse = await request.get('/api/canvases')
+  const loaded = (await loadedResponse.json()) as typeof initial
+  expect(loaded.revision).toBeGreaterThan(remote.revision)
+  expect(loaded.canvases.find((canvas) => canvas.id === canvasId)?.name).toBe('Kept local version')
+})
+
+test('keeps edits made while Keep local fetches and survives a second revision race', async ({
+  page,
+}) => {
+  await page.unroute('**/api/canvases**')
+  let document = canvasDocumentFixture('Conflict base', 1, `keep-race-${Date.now()}`)
+  let delayNextGet = false
+  let raceNextPut = false
+  let releaseGet = () => {}
+  let reportGetStarted = () => {}
+  let getGate = Promise.resolve()
+  let getStarted = Promise.resolve()
+
   await page.route('**/api/canvases**', async (route) => {
-    if (route.request().method() !== 'POST') {
-      await route.fulfill({ json: { canvases: [] } })
+    if (route.request().method() === 'GET') {
+      if (delayNextGet) {
+        delayNextGet = false
+        reportGetStarted()
+        await getGate
+      }
+      await route.fulfill({ json: document })
       return
     }
-    const body = route.request().postDataJSON() as { canvases: any[] }
+    const body = route.request().postDataJSON() as {
+      expectedRevision: number
+      activeId: string | null
+      canvases: typeof document.canvases
+    }
+    if (raceNextPut) {
+      raceNextPut = false
+      document = {
+        ...document,
+        revision: document.revision + 1,
+        canvases: document.canvases.map((canvas) => ({
+          ...canvas,
+          name: 'External write during resolution',
+        })),
+      }
+    }
+    if (body.expectedRevision !== document.revision) {
+      await route.fulfill({ status: 409, json: { error: 'revision conflict' } })
+      return
+    }
+    document = {
+      schemaVersion: 2,
+      revision: document.revision + 1,
+      activeId: body.activeId!,
+      canvases: body.canvases,
+    }
+    await route.fulfill({ json: document })
+  })
+
+  await page.evaluate(() => localStorage.removeItem('infinite-canvas-crash-draft-v1'))
+  await page.reload()
+  await expect(page.getByTestId('canvas-name-trigger')).toHaveText('Conflict base')
+  document = {
+    ...document,
+    revision: 2,
+    canvases: document.canvases.map((canvas) => ({ ...canvas, name: 'External version' })),
+  }
+
+  await renameCanvas(page, 'Conflict base', 'Local before resolution')
+  const conflict = page.getByTestId('canvas-sync-conflict')
+  await expect(conflict).toBeVisible()
+
+  getGate = new Promise<void>((resolve) => {
+    releaseGet = resolve
+  })
+  getStarted = new Promise<void>((resolve) => {
+    reportGetStarted = resolve
+  })
+  delayNextGet = true
+  raceNextPut = true
+  await conflict.getByRole('button', { name: 'Keep local' }).click()
+  await getStarted
+  await renameCanvas(page, 'Local before resolution', 'Local during resolution')
+  releaseGet()
+
+  await expect(conflict).toBeVisible()
+  await expect(page.getByTestId('canvas-name-trigger')).toHaveText('Local during resolution')
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem('infinite-canvas-crash-draft-v1')))
+    .not.toBeNull()
+
+  await conflict.getByRole('button', { name: 'Keep local' }).click()
+  await expect(conflict).toHaveCount(0)
+  await expect.poll(() => document.canvases[0]?.name).toBe('Local during resolution')
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem('infinite-canvas-crash-draft-v1')))
+    .toBeNull()
+})
+
+test('does not discard edits made while Load server is in flight', async ({ page }) => {
+  await page.unroute('**/api/canvases**')
+  let document = canvasDocumentFixture('Conflict base', 1, `load-race-${Date.now()}`)
+  let delayNextGet = false
+  let writes = 0
+  let releaseGet = () => {}
+  let reportGetStarted = () => {}
+  let getGate = Promise.resolve()
+  let getStarted = Promise.resolve()
+
+  await page.route('**/api/canvases**', async (route) => {
+    if (route.request().method() === 'GET') {
+      if (delayNextGet) {
+        delayNextGet = false
+        reportGetStarted()
+        await getGate
+      }
+      await route.fulfill({ json: document })
+      return
+    }
+    writes += 1
+    const body = route.request().postDataJSON() as {
+      expectedRevision: number
+      activeId: string | null
+      canvases: typeof document.canvases
+    }
+    if (body.expectedRevision !== document.revision) {
+      await route.fulfill({ status: 409, json: { error: 'revision conflict' } })
+      return
+    }
+    document = {
+      schemaVersion: 2,
+      revision: document.revision + 1,
+      activeId: body.activeId!,
+      canvases: body.canvases,
+    }
+    await route.fulfill({ json: document })
+  })
+
+  await page.evaluate(() => localStorage.removeItem('infinite-canvas-crash-draft-v1'))
+  await page.reload()
+  await expect(page.getByTestId('canvas-name-trigger')).toHaveText('Conflict base')
+  document = {
+    ...document,
+    revision: 2,
+    canvases: document.canvases.map((canvas) => ({ ...canvas, name: 'External version' })),
+  }
+  await renameCanvas(page, 'Conflict base', 'Local before resolution')
+  const conflict = page.getByTestId('canvas-sync-conflict')
+  await expect(conflict).toBeVisible()
+  const writesBeforeResolution = writes
+
+  getGate = new Promise<void>((resolve) => {
+    releaseGet = resolve
+  })
+  getStarted = new Promise<void>((resolve) => {
+    reportGetStarted = resolve
+  })
+  delayNextGet = true
+  await conflict.getByRole('button', { name: 'Load server' }).click()
+  await getStarted
+  await renameCanvas(page, 'Local before resolution', 'Local while loading server')
+  releaseGet()
+
+  await expect(conflict).toBeVisible()
+  await expect(page.getByTestId('canvas-name-trigger')).toHaveText('Local while loading server')
+  expect(writes).toBe(writesBeforeResolution)
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem('infinite-canvas-crash-draft-v1')))
+    .not.toBeNull()
+
+  await conflict.getByRole('button', { name: 'Load server' }).click()
+  await expect(page.getByTestId('canvas-name-trigger')).toHaveText('External version')
+  await expect(conflict).toHaveCount(0)
+  expect(writes).toBe(writesBeforeResolution)
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem('infinite-canvas-crash-draft-v1')))
+    .toBeNull()
+})
+
+test('preserves, downloads, and explicitly discards a corrupt crash draft', async ({ page }) => {
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const document = (await fetch('/api/canvases').then((response) => response.json())) as {
+          canvases?: unknown[]
+        }
+        return document.canvases?.length ?? 0
+      }),
+    )
+    .toBeGreaterThan(0)
+  const current = await page.evaluate(() =>
+    fetch('/api/canvases').then((response) => response.json()),
+  )
+  let document = current as {
+    schemaVersion: 2
+    revision: number
+    activeId: string | null
+    canvases: any[]
+  }
+  let writes = 0
+  await page.unroute('**/api/canvases**')
+  await page.route('**/api/canvases**', async (route) => {
+    if (route.request().method() === 'GET') {
+      await route.fulfill({ json: document })
+      return
+    }
+    writes += 1
+    const body = route.request().postDataJSON() as {
+      activeId: string | null
+      canvases: any[]
+    }
+    document = {
+      schemaVersion: 2,
+      revision: document.revision + 1,
+      activeId: body.activeId,
+      canvases: body.canvases,
+    }
+    await route.fulfill({ json: document })
+  })
+
+  const raw = '{"schemaVersion":1,"broken":'
+  await page.evaluate((value) => {
+    localStorage.setItem('infinite-canvas-crash-draft-v1', value)
+  }, raw)
+  await page.reload()
+
+  const recovery = page.getByTestId('canvas-corrupt-draft')
+  await expect(recovery).toBeVisible()
+  expect(await page.evaluate(() => localStorage.getItem('infinite-canvas-crash-draft-v1'))).toBe(
+    raw,
+  )
+  expect(writes).toBe(0)
+
+  const downloadPromise = page.waitForEvent('download')
+  await recovery.getByRole('button', { name: 'Download draft' }).click()
+  const download = await downloadPromise
+  expect(download.suggestedFilename()).toBe('canvas-crash-draft.json')
+  const downloadedPath = await download.path()
+  expect(downloadedPath).not.toBeNull()
+  expect(fs.readFileSync(downloadedPath!, 'utf8')).toBe(raw)
+
+  await recovery.getByRole('button', { name: 'Discard draft' }).click()
+  await expect(recovery).toHaveCount(0)
+  expect(
+    await page.evaluate(() => localStorage.getItem('infinite-canvas-crash-draft-v1')),
+  ).toBeNull()
+  expect(writes).toBe(0)
+
+  await page.getByTestId('canvas-name-trigger').click()
+  await page.getByRole('button', { name: 'New canvas' }).click()
+  await page.getByLabel('Name').fill('After recovery')
+  await page.getByRole('button', { name: 'Save' }).click()
+  await expect.poll(() => writes).toBeGreaterThan(0)
+})
+
+test('never overwrites a malformed server Canvas document', async ({ page }) => {
+  let reads = 0
+  let writes = 0
+  let malformed = true
+  const serverDocument = canvasDocumentFixture('Server version', 4, `malformed-${Date.now()}`)
+  await page.unroute('**/api/canvases**')
+  await page.route('**/api/canvases**', async (route) => {
+    if (route.request().method() === 'GET') {
+      reads += 1
+      if (malformed) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: '{"schemaVersion":2,"revision":4,"canvases":',
+        })
+      } else {
+        await route.fulfill({ json: serverDocument })
+      }
+      return
+    }
+    writes += 1
+    await route.fulfill({ status: 500, json: { error: 'unexpected write' } })
+  })
+  await page.evaluate(() => localStorage.removeItem('infinite-canvas-crash-draft-v1'))
+  await page.reload()
+
+  const retry = page.getByTestId('canvas-sync-error')
+  await expect(retry).toBeVisible()
+  await expect(retry).toHaveAttribute(
+    'title',
+    'Canvas server state could not be loaded; no overwrite was attempted',
+  )
+  await retry.click()
+  await expect.poll(() => reads).toBeGreaterThanOrEqual(2)
+  expect(writes).toBe(0)
+  expect(
+    await page.evaluate(() => localStorage.getItem('infinite-canvas-crash-draft-v1')),
+  ).toBeNull()
+
+  await renameCanvas(page, 'Untitled canvas', 'Local during server outage')
+  await expect(retry).toBeVisible()
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const raw = localStorage.getItem('infinite-canvas-crash-draft-v1')
+        return raw ? JSON.parse(raw).canvases?.[0]?.name : null
+      }),
+    )
+    .toBe('Local during server outage')
+
+  malformed = false
+  await retry.click()
+  await expect(page.getByTestId('canvas-sync-conflict')).toBeVisible()
+  await expect(page.getByTestId('canvas-name-trigger')).toHaveText('Local during server outage')
+  expect(writes).toBe(0)
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem('infinite-canvas-crash-draft-v1')))
+    .not.toBeNull()
+})
+
+test('keeps corrupt-draft recovery available while server Canvas JSON is malformed', async ({
+  page,
+}) => {
+  let reads = 0
+  let writes = 0
+  await page.unroute('**/api/canvases**')
+  await page.route('**/api/canvases**', async (route) => {
+    if (route.request().method() === 'GET') {
+      reads += 1
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: '{"schemaVersion":2,"revision":4,"canvases":',
+      })
+      return
+    }
+    writes += 1
+    await route.fulfill({ status: 500, json: { error: 'unexpected write' } })
+  })
+  const raw = '{"schemaVersion":1,"broken":'
+  await page.evaluate((value) => {
+    localStorage.setItem('infinite-canvas-crash-draft-v1', value)
+  }, raw)
+  await page.reload()
+
+  const recovery = page.getByTestId('canvas-corrupt-draft')
+  await expect(recovery).toBeVisible()
+  await expect(page.getByTestId('canvas-sync-error')).toBeVisible()
+  await recovery.getByRole('button', { name: 'Retry server' }).click()
+  await expect.poll(() => reads).toBeGreaterThanOrEqual(2)
+  expect(writes).toBe(0)
+  expect(await page.evaluate(() => localStorage.getItem('infinite-canvas-crash-draft-v1'))).toBe(
+    raw,
+  )
+  await expect(recovery).toBeVisible()
+})
+
+test('does not replace a live Hermes pane with stale sync content', async ({ page }) => {
+  let syncResponses = 0
+  let revision = 0
+  await page.unroute('**/api/canvases**')
+  await page.route('**/api/canvases**', async (route) => {
+    if (route.request().method() === 'GET') {
+      await route.fulfill({
+        json: { schemaVersion: 2, revision, activeId: null, canvases: [] },
+      })
+      return
+    }
+    const body = route.request().postDataJSON() as { activeId: string; canvases: any[] }
     syncResponses += 1
+    revision += 1
     const stale = body.canvases.map((canvas) => ({
       ...canvas,
       updatedAt: canvas.updatedAt + 1,
@@ -263,7 +774,9 @@ test('does not replace a live Hermes pane with stale sync content', async ({ pag
         })),
       },
     }))
-    await route.fulfill({ json: { canvases: stale } })
+    await route.fulfill({
+      json: { schemaVersion: 2, revision, activeId: body.activeId, canvases: stale },
+    })
   })
 
   await page.getByTestId('canvas-add-trigger').click()
@@ -278,24 +791,37 @@ test('does not replace a live Hermes pane with stale sync content', async ({ pag
   await expect(page.getByText('Stale remote chat', { exact: true })).toHaveCount(0)
 })
 
-test('persists canvas records through server sync API', async ({ request }) => {
+test('persists canvas records through revisioned server API', async ({ request }) => {
   const id = `canvas-e2e-${Date.now()}`
   const record = {
     id,
     name: 'Server canvas',
     updatedAt: Date.now(),
-    writerId: 'playwright',
-    deleted: false,
     state: {
       version: 1,
       windows: [],
+      maximizedWindowId: null,
       camera: { x: 0, y: 0, zoom: 1 },
       windowSizeByType: {},
       nextItemId: 1,
       nextZIndex: 1,
     },
   }
-  const saved = await request.post('/api/canvases/sync', { data: { canvases: [record] } })
+  const initial = await request.get('/api/canvases')
+  expect(initial.ok()).toBe(true)
+  const current = (await initial.json()) as {
+    revision: number
+    activeId: string | null
+    canvases: (typeof record)[]
+  }
+  const saved = await request.put('/api/canvases', {
+    data: {
+      schemaVersion: 2,
+      expectedRevision: current.revision,
+      activeId: id,
+      canvases: [...current.canvases.filter((canvas) => canvas.id !== id), record],
+    },
+  })
   expect(saved.ok()).toBe(true)
 
   const loaded = await request.get('/api/canvases')
@@ -303,9 +829,23 @@ test('persists canvas records through server sync API', async ({ request }) => {
   const body = (await loaded.json()) as { canvases: Array<{ id: string; name: string }> }
   expect(body.canvases).toContainEqual(expect.objectContaining({ id, name: 'Server canvas' }))
 
-  const deleted = await request.post('/api/canvases/sync', {
+  const savedBody = (await saved.json()) as { revision: number; canvases: (typeof record)[] }
+  const stale = await request.put('/api/canvases', {
     data: {
-      canvases: [{ ...record, state: null, deleted: true, updatedAt: record.updatedAt + 1 }],
+      schemaVersion: 2,
+      expectedRevision: current.revision,
+      activeId: id,
+      canvases: savedBody.canvases,
+    },
+  })
+  expect(stale.status()).toBe(409)
+
+  const deleted = await request.put('/api/canvases', {
+    data: {
+      schemaVersion: 2,
+      expectedRevision: savedBody.revision,
+      activeId: savedBody.canvases.find((canvas) => canvas.id !== id)?.id ?? null,
+      canvases: savedBody.canvases.filter((canvas) => canvas.id !== id),
     },
   })
   expect(deleted.ok()).toBe(true)
@@ -339,28 +879,32 @@ test('opens unified search with Ctrl+P and overrides print', async ({ page }) =>
 
 test('keeps populated search compact on tall displays', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 1800 })
-  await page.route('**/api/files/search?*', async (route) => {
+  await page.route('**/api/search?*', async (route) => {
     await route.fulfill({
       json: {
+        schemaVersion: 1,
         results: Array.from({ length: 40 }, (_, index) => ({
-          name: `media-${index}.md`,
-          path: `Notes/media-${index}.md`,
-          parentPath: 'Notes',
-          rootId: 'media',
-          rootName: 'Media',
-          isDirectory: false,
-          extension: 'md',
-          type: 'text',
+          id: `filesystem.filename:media:Notes/media-${index}.md`,
+          contributor: 'filesystem.filename',
+          resource: {
+            key: { provider: 'filesystem', id: `v1:5:mediaNotes/media-${index}.md` },
+            name: `media-${index}.md`,
+            kind: 'file',
+            mime: 'text/markdown',
+            capabilities: ['read'],
+            metadata: {
+              logicalPath: `Notes/media-${index}.md`,
+              parentPath: 'Notes',
+              rootId: 'media',
+              fileType: 'text',
+            },
+          },
+          title: `media-${index}.md`,
+          detail: 'Notes',
+          score: 1 / (index + 1),
         })),
         truncated: false,
-        status: {
-          state: 'ready',
-          stale: false,
-          indexedEntries: 40,
-          scannedDirectories: 1,
-          watcherCount: 1,
-          roots: [],
-        },
+        failures: [],
       },
     })
   })
@@ -434,7 +978,7 @@ test('preserves window shape across semantic zoom levels', async ({ page }) => {
   if (!before) throw new Error('Canvas window not laid out')
 
   await page.getByRole('slider', { name: 'Canvas zoom' }).fill('45')
-  await expect(window.getByText('File browser', { exact: true })).toBeVisible()
+  await expect(window.getByText('Library', { exact: true })).toBeVisible()
   await expect(window).toHaveCSS('border-top-width', '0px')
   await expect(titlebar).toHaveCSS('border-bottom-width', '0px')
   const zoomedTitlebarBounds = await titlebar.boundingBox()
@@ -458,7 +1002,7 @@ test('preserves window shape across semantic zoom levels', async ({ page }) => {
   const summary = page.getByTestId('canvas-window-summary')
   await expect(summary).toBeVisible()
   await expect(summary).toHaveCSS('border-top-width', '0px')
-  await expect(summary.getByText('File browser', { exact: true })).toBeVisible()
+  await expect(summary.getByText('Library', { exact: true })).toBeVisible()
 })
 
 test('keeps browser panes mounted through every zoom level', async ({ page }) => {
@@ -672,7 +1216,7 @@ test('previews exact window bounds while dragging a file onto canvas', async ({ 
     const transfer = new DataTransfer()
     transfer.setData(
       'application/x-derp-file-drag',
-      JSON.stringify({ path: 'preview.md', isDirectory: false, sourceKind: 'local' }),
+      JSON.stringify({ path: 'Notes/welcome.md', isDirectory: false, sourceKind: 'local' }),
     )
     element.dispatchEvent(
       new DragEvent('dragover', {
@@ -699,7 +1243,7 @@ test('previews exact window bounds while dragging a file onto canvas', async ({ 
     const transfer = new DataTransfer()
     transfer.setData(
       'application/x-derp-file-drag',
-      JSON.stringify({ path: 'preview.md', isDirectory: false, sourceKind: 'local' }),
+      JSON.stringify({ path: 'Notes/welcome.md', isDirectory: false, sourceKind: 'local' }),
     )
     element.dispatchEvent(
       new DragEvent('dragover', {
@@ -717,7 +1261,7 @@ test('previews exact window bounds while dragging a file onto canvas', async ({ 
     const transfer = new DataTransfer()
     transfer.setData(
       'application/x-derp-file-drag',
-      JSON.stringify({ path: 'preview.md', isDirectory: false, sourceKind: 'local' }),
+      JSON.stringify({ path: 'Notes/welcome.md', isDirectory: false, sourceKind: 'local' }),
     )
     element.dispatchEvent(
       new DragEvent('drop', {
@@ -1073,15 +1617,16 @@ test('creates dotted knowledge-base note names with md extension', async ({ page
   await page.getByPlaceholder('File name (e.g. notes.md)').fill(stem)
   const created = page.waitForResponse(
     (response) =>
-      response.url().includes('/api/files/create') && response.request().method() === 'POST',
+      response.url().includes('/api/integrations/filesystem/actions') &&
+      response.request().postDataJSON()?.action === 'filesystem.createFile',
   )
   await page.getByPlaceholder('File name (e.g. notes.md)').press('Enter')
   expect((await created).ok()).toBe(true)
 
-  const listing = await page.request.get('/api/files?dir=Notes')
-  const body = (await listing.json()) as { files: Array<{ name: string }> }
-  expect(body.files.some((file) => file.name === `${stem}.md`)).toBe(true)
-  expect(body.files.some((file) => file.name === stem)).toBe(false)
+  const listing = await browseFilesystem(page.request, 'Notes')
+  const body = (await listing.json()) as { items: Array<{ name: string }> }
+  expect(body.items.some((file) => file.name === `${stem}.md`)).toBe(true)
+  expect(body.items.some((file) => file.name === stem)).toBe(false)
 })
 
 test('loads large virtualized directories inside canvas browser', async ({ page }) => {
@@ -1152,7 +1697,7 @@ test('keeps delayed directory loads alive after canvas browser clicks', async ({
   const folderPath = path.resolve(mediaDirName, folderName)
   fs.mkdirSync(folderPath, { recursive: true })
   fs.writeFileSync(path.join(folderPath, 'loaded.txt'), 'loaded')
-  await page.route(`**/api/files?dir=${folderName}`, async (route) => {
+  await page.route('**/api/integrations/filesystem/browse?*', async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 500))
     await route.continue()
   })

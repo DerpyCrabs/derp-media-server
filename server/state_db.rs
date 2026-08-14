@@ -2,7 +2,7 @@ use crate::{
     config::Config,
     error::{AppError, AppResult},
 };
-use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde_json::Value;
 use std::{
     fs,
@@ -10,7 +10,24 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-const LEGACY_FILES: [&str; 3] = ["settings.json", "stats.json", "canvases.json"];
+const CURRENT_SCHEMA_VERSION: i64 = 1;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StateDocument {
+    SettingsV1,
+    PlaybackStatsV1,
+    CanvasV2,
+}
+
+impl StateDocument {
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::SettingsV1 => "settings.v1",
+            Self::PlaybackStatsV1 => "playback-stats.v1",
+            Self::CanvasV2 => "canvas.v2",
+        }
+    }
+}
 
 pub fn database(config: &Config) -> PathBuf {
     config.data_path.join("app.sqlite3")
@@ -37,97 +54,81 @@ pub fn connection(path: &Path) -> AppResult<Connection> {
 pub fn initialize(config: &Config) -> Result<(), String> {
     let path = database(config);
     let mut connection = connection(&path).map_err(|error| error.1)?;
-    connection
-        .execute_batch(
-            "PRAGMA journal_mode=WAL;
-             CREATE TABLE IF NOT EXISTS schema_migrations (
-               version INTEGER PRIMARY KEY,
-               applied_at INTEGER NOT NULL
-             );",
+    let has_schema = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='state_schema')",
+            [],
+            |row| row.get::<_, bool>(0),
         )
         .map_err(|error| error.to_string())?;
-    let version: i64 = connection
+
+    if has_schema {
+        let version: i64 = connection
+            .query_row("SELECT version FROM state_schema WHERE id=1", [], |row| {
+                row.get(0)
+            })
+            .map_err(|error| error.to_string())?;
+        if version != CURRENT_SCHEMA_VERSION {
+            return Err(format!(
+                "Unsupported application state schema {version}; expected {CURRENT_SCHEMA_VERSION}"
+            ));
+        }
+        return Ok(());
+    }
+
+    let table_count: i64 = connection
         .query_row(
-            "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
             [],
             |row| row.get(0),
         )
         .map_err(|error| error.to_string())?;
-    if version < 1 {
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(|error| error.to_string())?;
-        transaction
-            .execute_batch(
-                "CREATE TABLE IF NOT EXISTS state_documents (
-                   kind TEXT NOT NULL,
-                   library_key TEXT NOT NULL,
-                   value_json TEXT NOT NULL,
-                   updated_at INTEGER NOT NULL,
-                   PRIMARY KEY(kind, library_key)
-                 );
-                 CREATE TABLE IF NOT EXISTS legacy_state_import (
-                   version INTEGER PRIMARY KEY,
-                   imported_at INTEGER NOT NULL
-                 );
-                 CREATE TABLE IF NOT EXISTS reader_state (
-                   scope TEXT NOT NULL,
-                   path TEXT NOT NULL,
-                   state_json TEXT NOT NULL,
-                   fingerprint TEXT NOT NULL,
-                   revision INTEGER NOT NULL,
-                   updated_at INTEGER NOT NULL,
-                   PRIMARY KEY(scope, path)
-                 );
-                 CREATE TABLE IF NOT EXISTS app_preferences (
-                   scope TEXT PRIMARY KEY,
-                   state_json TEXT NOT NULL,
-                   revision INTEGER NOT NULL,
-                   updated_at INTEGER NOT NULL
-                 );",
-            )
-            .map_err(|error| error.to_string())?;
-        transaction
-            .execute(
-                "INSERT INTO schema_migrations(version, applied_at) VALUES(1, ?1)",
-                [now_ms()],
-            )
-            .map_err(|error| error.to_string())?;
-        transaction.commit().map_err(|error| error.to_string())?;
+    if table_count != 0 {
+        return Err("Unsupported unversioned application state database".into());
     }
-    if version < 2 {
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(|error| error.to_string())?;
-        transaction
-            .execute_batch("DROP TABLE IF EXISTS shares;")
-            .map_err(|error| error.to_string())?;
-        transaction
-            .execute(
-                "INSERT INTO schema_migrations(version, applied_at) VALUES(2, ?1)",
-                [now_ms()],
-            )
-            .map_err(|error| error.to_string())?;
-        transaction.commit().map_err(|error| error.to_string())?;
-    }
-    if version < 3 {
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(|error| error.to_string())?;
-        transaction
-            .execute_batch("DROP TABLE IF EXISTS mounts;")
-            .map_err(|error| error.to_string())?;
-        transaction
-            .execute(
-                "INSERT INTO schema_migrations(version, applied_at) VALUES(3, ?1)",
-                [now_ms()],
-            )
-            .map_err(|error| error.to_string())?;
-        transaction.commit().map_err(|error| error.to_string())?;
-    }
-    let _ = fs::remove_file(config.data_path.join("shares.json"));
-    import_legacy(config, &mut connection)?;
-    Ok(())
+
+    connection
+        .execute_batch("PRAGMA journal_mode=WAL;")
+        .map_err(|error| error.to_string())?;
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|error| error.to_string())?;
+    transaction
+        .execute_batch(
+            "CREATE TABLE state_schema (
+               id INTEGER PRIMARY KEY CHECK(id=1),
+               version INTEGER NOT NULL,
+               applied_at INTEGER NOT NULL
+             );
+             CREATE TABLE state_documents (
+               kind TEXT NOT NULL,
+               library_key TEXT NOT NULL,
+               value_json TEXT NOT NULL,
+               updated_at INTEGER NOT NULL,
+               PRIMARY KEY(kind, library_key)
+             );
+             CREATE TABLE reader_state (
+               path TEXT PRIMARY KEY,
+               state_json TEXT NOT NULL,
+               fingerprint TEXT NOT NULL,
+               revision INTEGER NOT NULL,
+               updated_at INTEGER NOT NULL
+             );
+             CREATE TABLE app_preferences (
+               id INTEGER PRIMARY KEY CHECK(id=1),
+               state_json TEXT NOT NULL,
+               revision INTEGER NOT NULL,
+               updated_at INTEGER NOT NULL
+             );",
+        )
+        .map_err(|error| error.to_string())?;
+    transaction
+        .execute(
+            "INSERT INTO state_schema(id, version, applied_at) VALUES(1, ?1, ?2)",
+            params![CURRENT_SCHEMA_VERSION, now_ms()],
+        )
+        .map_err(|error| error.to_string())?;
+    transaction.commit().map_err(|error| error.to_string())
 }
 
 fn now_ms() -> i64 {
@@ -137,178 +138,9 @@ fn now_ms() -> i64 {
         .as_millis() as i64
 }
 
-fn read_legacy(path: &Path) -> Result<Option<Value>, String> {
-    if !path.exists() {
-        return Ok(None);
-    }
-    let raw = fs::read_to_string(path)
-        .map_err(|error| format!("Failed to read {}: {error}", path.display()))?;
-    serde_json::from_str(&raw)
-        .map(Some)
-        .map_err(|error| format!("Invalid {}: {error}", path.display()))
-}
-
-fn object<'a>(path: &Path, value: &'a Value) -> Result<&'a serde_json::Map<String, Value>, String> {
-    value
-        .as_object()
-        .ok_or_else(|| format!("Invalid {}: expected object", path.display()))
-}
-
-fn import_legacy(config: &Config, connection: &mut Connection) -> Result<(), String> {
-    let imported = connection
-        .query_row(
-            "SELECT 1 FROM legacy_state_import WHERE version=1",
-            [],
-            |_| Ok(()),
-        )
-        .optional()
-        .map_err(|error| error.to_string())?
-        .is_some();
-    if imported {
-        return Ok(());
-    }
-
-    let loaded = LEGACY_FILES
-        .iter()
-        .map(|name| {
-            let path = config.data_path.join(name);
-            read_legacy(&path).map(|value| (path, value))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(|error| error.to_string())?;
-    let populated: i64 = transaction
-        .query_row("SELECT COUNT(*) FROM state_documents", [], |row| row.get(0))
-        .map_err(|error| error.to_string())?;
-    if populated != 0 {
-        return Err("Cannot import legacy JSON: SQLite state tables are not empty".into());
-    }
-
-    for (path, value) in &loaded {
-        let Some(value) = value else { continue };
-        match path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("")
-        {
-            "settings.json" => import_documents(&transaction, path, "settings", value)?,
-            "stats.json" => import_documents(&transaction, path, "stats", value)?,
-            "canvases.json" => import_documents(&transaction, path, "canvases", value)?,
-            _ => {}
-        }
-    }
-    transaction
-        .execute(
-            "INSERT INTO legacy_state_import(version, imported_at) VALUES(1, ?1)",
-            [now_ms()],
-        )
-        .map_err(|error| error.to_string())?;
-    transaction.commit().map_err(|error| error.to_string())?;
-    archive_legacy(&config.data_path, &loaded);
-    Ok(())
-}
-
-fn import_documents(
-    transaction: &Transaction<'_>,
-    path: &Path,
-    kind: &str,
-    value: &Value,
-) -> Result<(), String> {
-    for (library_key, document) in object(path, value)? {
-        validate_document(path, kind, library_key, document)?;
-        let serialized = serde_json::to_string(document).map_err(|error| error.to_string())?;
-        transaction
-            .execute(
-                "INSERT INTO state_documents(kind, library_key, value_json, updated_at)
-                 VALUES(?1, ?2, ?3, ?4)",
-                params![kind, library_key, serialized, now_ms()],
-            )
-            .map_err(|error| {
-                format!("Invalid {} section {library_key}: {error}", path.display())
-            })?;
-    }
-    Ok(())
-}
-
-fn validate_document(
-    path: &Path,
-    kind: &str,
-    library_key: &str,
-    document: &Value,
-) -> Result<(), String> {
-    let invalid = || {
-        format!(
-            "Invalid {} section {library_key}: invalid {kind} structure",
-            path.display()
-        )
-    };
-    match kind {
-        "canvases" if !document.is_array() => Err(invalid()),
-        "settings" => {
-            let value = document.as_object().ok_or_else(invalid)?;
-            for key in ["viewModes", "customIcons", "autoSave"] {
-                if value.get(key).is_some_and(|field| !field.is_object()) {
-                    return Err(invalid());
-                }
-            }
-            for key in [
-                "favorites",
-                "knowledgeBases",
-                "workspaceTaskbarPins",
-                "workspaceLayoutPresets",
-            ] {
-                if value.get(key).is_some_and(|field| !field.is_array()) {
-                    return Err(invalid());
-                }
-            }
-            Ok(())
-        }
-        "stats" => {
-            let value = document.as_object().ok_or_else(invalid)?;
-            if ["views"]
-                .iter()
-                .any(|key| value.get(*key).is_some_and(|field| !field.is_object()))
-            {
-                Err(invalid())
-            } else {
-                Ok(())
-            }
-        }
-        _ => Ok(()),
-    }
-}
-
-fn archive_legacy(data_path: &Path, loaded: &[(PathBuf, Option<Value>)]) {
-    let existing = loaded
-        .iter()
-        .filter(|(_, value)| value.is_some())
-        .collect::<Vec<_>>();
-    if existing.is_empty() {
-        return;
-    }
-    let backup = data_path
-        .join("legacy-json-backup")
-        .join(now_ms().to_string());
-    if let Err(error) = fs::create_dir_all(&backup) {
-        eprintln!("Warning: failed to create legacy JSON backup: {error}");
-        return;
-    }
-    for (source, _) in existing {
-        let destination = backup.join(source.file_name().unwrap_or_default());
-        if let Err(error) = fs::rename(source, &destination) {
-            eprintln!(
-                "Warning: failed to archive {} to {}: {error}",
-                source.display(),
-                destination.display()
-            );
-        }
-    }
-}
-
 pub fn document(
     database: &Path,
-    kind: &str,
+    document_name: StateDocument,
     library_key: &str,
     default: Value,
 ) -> AppResult<Value> {
@@ -316,7 +148,7 @@ pub fn document(
     let raw: Option<String> = connection
         .query_row(
             "SELECT value_json FROM state_documents WHERE kind=?1 AND library_key=?2",
-            params![kind, library_key],
+            params![document_name.name(), library_key],
             |row| row.get(0),
         )
         .optional()
@@ -328,7 +160,7 @@ pub fn document(
 
 pub fn update_document<T>(
     database: &Path,
-    kind: &str,
+    document_name: StateDocument,
     library_key: &str,
     default: Value,
     update: impl FnOnce(&mut Value) -> AppResult<T>,
@@ -340,7 +172,7 @@ pub fn update_document<T>(
     let raw: Option<String> = transaction
         .query_row(
             "SELECT value_json FROM state_documents WHERE kind=?1 AND library_key=?2",
-            params![kind, library_key],
+            params![document_name.name(), library_key],
             |row| row.get(0),
         )
         .optional()
@@ -357,7 +189,7 @@ pub fn update_document<T>(
              VALUES(?1, ?2, ?3, ?4)
              ON CONFLICT(kind, library_key) DO UPDATE SET
                value_json=excluded.value_json, updated_at=excluded.updated_at",
-            params![kind, library_key, serialized, now_ms()],
+            params![document_name.name(), library_key, serialized, now_ms()],
         )
         .map_err(error)?;
     transaction.commit().map_err(error)?;
@@ -393,111 +225,142 @@ mod tests {
     }
 
     #[test]
-    fn imports_and_archives_legacy_state() {
-        let data_path = temp_data("import");
-        fs::create_dir_all(&data_path).unwrap();
-        fs::write(
-            data_path.join("settings.json"),
-            r#"{"library":{"favorites":["one.jpg"],"future":true}}"#,
-        )
-        .unwrap();
-        fs::write(
-            data_path.join("stats.json"),
-            r#"{"library":{"views":{"one.jpg":3}}}"#,
-        )
-        .unwrap();
-        fs::write(data_path.join("canvases.json"), r#"{"library":[]}"#).unwrap();
+    fn initializes_current_schema_idempotently() {
+        let data_path = temp_data("current");
         let config = test_config(data_path.clone());
 
         initialize(&config).unwrap();
+        initialize(&config).unwrap();
 
-        assert_eq!(
-            document(&database(&config), "settings", "library", Value::Null).unwrap()["future"],
-            true
-        );
-        for name in LEGACY_FILES {
-            assert!(!data_path.join(name).exists());
+        let connection = connection(&database(&config)).unwrap();
+        let version: i64 = connection
+            .query_row("SELECT version FROM state_schema WHERE id=1", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(version, CURRENT_SCHEMA_VERSION);
+        let tables = connection
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        for table in [
+            "app_preferences",
+            "reader_state",
+            "state_schema",
+            "state_documents",
+        ] {
+            assert!(tables.iter().any(|name| name == table));
         }
-        assert!(
-            fs::read_dir(data_path.join("legacy-json-backup"))
-                .unwrap()
-                .next()
-                .is_some()
-        );
         fs::remove_dir_all(data_path).unwrap();
     }
 
     #[test]
-    fn imports_persisted_settings_fixture() {
-        let data_path = temp_data("persisted-fixture");
+    fn rejects_noncurrent_schema_without_mutating_it() {
+        let data_path = temp_data("unsupported");
         fs::create_dir_all(&data_path).unwrap();
-        fs::write(
-            data_path.join("settings.json"),
-            include_str!("../tests/fixtures/persisted-state/reference/settings.json"),
-        )
-        .unwrap();
-        let config = test_config(data_path.clone());
-
-        initialize(&config).unwrap();
-
-        let settings = document(
-            &database(&config),
-            "settings",
-            "reference-library",
-            Value::Null,
-        )
-        .unwrap();
-        assert_eq!(settings["knowledgeBases"], serde_json::json!(["Notes"]));
-        assert_eq!(
-            settings["workspaceLayoutPresets"][0]["snapshot"]["windows"][2]["hermes"]["sessionId"],
-            "reference-session"
-        );
-        fs::remove_dir_all(data_path).unwrap();
-    }
-
-    #[test]
-    fn malformed_json_rolls_back_import() {
-        let data_path = temp_data("malformed");
-        fs::create_dir_all(&data_path).unwrap();
-        fs::write(data_path.join("settings.json"), "{bad").unwrap();
+        let database = data_path.join("app.sqlite3");
+        let connection = Connection::open(&database).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE state_schema (id INTEGER PRIMARY KEY, version INTEGER NOT NULL, applied_at INTEGER NOT NULL);
+                 INSERT INTO state_schema VALUES(1, 3, 1);
+                 CREATE TABLE sentinel (value TEXT NOT NULL);
+                 INSERT INTO sentinel VALUES('unchanged');",
+            )
+            .unwrap();
+        drop(connection);
         let config = test_config(data_path.clone());
 
         let error = initialize(&config).unwrap_err();
 
-        assert!(error.contains("settings.json"));
-        assert!(data_path.join("settings.json").exists());
-        let connection = connection(&database(&config)).unwrap();
-        let imported: i64 = connection
-            .query_row("SELECT COUNT(*) FROM legacy_state_import", [], |row| {
-                row.get(0)
-            })
+        assert!(error.contains("Unsupported application state schema 3"));
+        let connection = Connection::open(database).unwrap();
+        let value: String = connection
+            .query_row("SELECT value FROM sentinel", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(imported, 0);
-        drop(connection);
+        assert_eq!(value, "unchanged");
         fs::remove_dir_all(data_path).unwrap();
     }
 
     #[test]
-    fn restart_does_not_reimport_new_legacy_file() {
-        let data_path = temp_data("restart");
+    fn rejects_unversioned_database_without_claiming_it() {
+        let data_path = temp_data("unversioned");
         fs::create_dir_all(&data_path).unwrap();
-        fs::write(
-            data_path.join("settings.json"),
-            r#"{"library":{"favorites":["original"]}}"#,
-        )
-        .unwrap();
+        let database = data_path.join("app.sqlite3");
+        Connection::open(&database)
+            .unwrap()
+            .execute_batch("CREATE TABLE unknown_state (value TEXT NOT NULL);")
+            .unwrap();
+        let config = test_config(data_path.clone());
+
+        let error = initialize(&config).unwrap_err();
+
+        assert!(error.contains("Unsupported unversioned application state database"));
+        let connection = Connection::open(database).unwrap();
+        let has_schema: bool = connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='state_schema')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(!has_schema);
+        fs::remove_dir_all(data_path).unwrap();
+    }
+
+    #[test]
+    fn current_documents_round_trip_and_preserve_corrupt_bytes() {
+        let data_path = temp_data("documents");
         let config = test_config(data_path.clone());
         initialize(&config).unwrap();
-        fs::write(
-            data_path.join("settings.json"),
-            r#"{"library":{"favorites":["replacement"]}}"#,
+        let database = database(&config);
+
+        update_document(
+            &database,
+            StateDocument::SettingsV1,
+            "library",
+            serde_json::json!({}),
+            |value| {
+                value["favorites"] = serde_json::json!(["one.jpg"]);
+                Ok(())
+            },
         )
         .unwrap();
+        assert_eq!(
+            document(&database, StateDocument::SettingsV1, "library", Value::Null,).unwrap()["favorites"],
+            serde_json::json!(["one.jpg"])
+        );
 
-        initialize(&config).unwrap();
-
-        let settings = document(&database(&config), "settings", "library", Value::Null).unwrap();
-        assert_eq!(settings["favorites"], serde_json::json!(["original"]));
+        let corrupt = "{preserve exact invalid bytes  \n";
+        connection(&database)
+            .unwrap()
+            .execute(
+                "UPDATE state_documents SET value_json=?1 WHERE kind=?2 AND library_key='library'",
+                params![corrupt, StateDocument::SettingsV1.name()],
+            )
+            .unwrap();
+        assert!(
+            update_document(
+                &database,
+                StateDocument::SettingsV1,
+                "library",
+                serde_json::json!({}),
+                |_| Ok(()),
+            )
+            .is_err()
+        );
+        let stored: String = connection(&database)
+            .unwrap()
+            .query_row(
+                "SELECT value_json FROM state_documents WHERE kind=?1 AND library_key='library'",
+                [StateDocument::SettingsV1.name()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(stored, corrupt);
         fs::remove_dir_all(data_path).unwrap();
     }
 }

@@ -1,5 +1,5 @@
 use crate::{
-    app::{AppState, Shared, knowledge_base_root, timestamp_ms},
+    app::{AppState, Shared, timestamp_ms},
     application_queries, media,
     routes::media as media_routes,
 };
@@ -31,13 +31,6 @@ fn query(key: Value, data: Value) -> Value {
     json!({"dehydratedAt":now,"queryKey":key,"queryHash":serde_json::to_string(&key).unwrap(),"state":{"data":data,"dataUpdateCount":1,"dataUpdatedAt":now,"error":null,"errorUpdateCount":0,"errorUpdatedAt":0,"fetchFailureCount":0,"fetchFailureReason":null,"fetchMeta":null,"isInvalidated":false,"status":"success","fetchStatus":"idle"}})
 }
 
-fn parent(path: &str) -> String {
-    path.replace('\\', "/")
-        .rsplit_once('/')
-        .map(|(parent, _)| parent.to_string())
-        .unwrap_or_default()
-}
-
 pub(crate) async fn dehydrated(state: &AppState, uri: &axum::http::Uri) -> Value {
     let path = uri.path();
     let params = url::form_urlencoded::parse(uri.query().unwrap_or("").as_bytes())
@@ -45,37 +38,23 @@ pub(crate) async fn dehydrated(state: &AppState, uri: &axum::http::Uri) -> Value
         .collect::<HashMap<_, _>>();
     let mut queries = Vec::new();
     if path == "/" || path == "/workspace" || path == "/canvas" {
-        let dir = params.get("dir").cloned().unwrap_or_default();
-        if path == "/"
-            && let Ok(listing) = application_queries::file_listing(state, &dir, 0).await
-        {
-            queries.push(query(
-                application_queries::files_query_key(&dir, None, 0),
-                json!(listing),
-            ));
-        }
         if let Ok(settings) = application_queries::settings(state) {
             queries.push(query(
                 application_queries::settings_query_key(),
                 json!(settings),
             ));
         }
-        queries.push(query(
-            application_queries::stats_query_key(),
-            application_queries::stats(state),
-        ));
+        if let Ok(stats) = application_queries::stats(state) {
+            queries.push(query(application_queries::stats_query_key(), stats));
+        }
         queries.push(query(
             application_queries::server_config_query_key(),
             json!(application_queries::server_config(state)),
         ));
-        if path == "/" && knowledge_base_root(state, &dir).is_some() {
-            if let Ok(recent) = application_queries::kb_recent(state, &dir) {
-                queries.push(query(
-                    application_queries::kb_recent_query_key(&dir),
-                    recent,
-                ));
-            }
-        }
+        queries.push(query(
+            application_queries::integrations_query_key(),
+            json!(application_queries::integrations(state)),
+        ));
         if let Some(viewing) = params.get("viewing") {
             let extension = Path::new(viewing)
                 .extension()
@@ -86,17 +65,6 @@ pub(crate) async fn dehydrated(state: &AppState, uri: &axum::http::Uri) -> Value
                     queries.push(query(
                         application_queries::text_content_query_key(viewing),
                         json!(content),
-                    ));
-                }
-            } else if media::media_type(&extension) != "pdf" {
-                let listing = params
-                    .get("dir")
-                    .cloned()
-                    .unwrap_or_else(|| parent(viewing));
-                if let Ok(files) = application_queries::file_listing(state, &listing, 0).await {
-                    queries.push(query(
-                        application_queries::files_query_key(&listing, None, 0),
-                        json!(files),
                     ));
                 }
             }
@@ -115,18 +83,6 @@ pub(crate) async fn dehydrated(state: &AppState, uri: &axum::http::Uri) -> Value
                     application_queries::audio_metadata_query_key(playing),
                     metadata.0,
                 ));
-            }
-            if matches!(kind, "audio" | "video") {
-                let listing = params
-                    .get("dir")
-                    .cloned()
-                    .unwrap_or_else(|| parent(playing));
-                if let Ok(files) = application_queries::file_listing(state, &listing, 0).await {
-                    queries.push(query(
-                        application_queries::files_query_key(&listing, None, 0),
-                        json!(files),
-                    ));
-                }
             }
         }
     }

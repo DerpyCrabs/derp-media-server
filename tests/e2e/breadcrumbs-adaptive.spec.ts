@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
+import { libraryUrl } from './canonical-urls'
 
 const DEEP_DIR = 'Notes/seg-a/seg-b/seg-c/breadcrumb-deep'
 
@@ -40,7 +41,8 @@ test.describe('Breadcrumbs', () => {
   })
 
   test('deep path: full inline trail when wide; no path ellipsis', async ({ page }) => {
-    await page.goto(`/?dir=${encodeURIComponent(DEEP_DIR)}`)
+    await page.setViewportSize({ width: 1600, height: 900 })
+    await page.goto(libraryUrl(DEEP_DIR))
     await expect(page.locator('table').getByText('chain-readme.txt')).toBeVisible()
 
     const bar = page.getByTestId('breadcrumb-bar')
@@ -54,7 +56,7 @@ test.describe('Breadcrumbs', () => {
 
   test('deep path does not make a short mobile directory scroll sideways', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
-    await page.goto(`/?dir=${encodeURIComponent(DEEP_DIR)}`)
+    await page.goto(libraryUrl(DEEP_DIR))
     await expect(page.locator('table').getByText('chain-readme.txt')).toBeVisible()
 
     const pageOverflow = await page.evaluate(() => {
@@ -70,7 +72,7 @@ test.describe('Breadcrumbs', () => {
   })
 
   test('deep path: narrower inline keeps Home + … + parent + current', async ({ page }) => {
-    await page.goto(`/?dir=${encodeURIComponent(DEEP_DIR)}`)
+    await page.goto(libraryUrl(DEEP_DIR))
     await expect(page.locator('table').getByText('chain-readme.txt')).toBeVisible()
 
     await narrowBreadcrumbSlot(page, 520)
@@ -87,7 +89,7 @@ test.describe('Breadcrumbs', () => {
   })
 
   test('path ellipsis opens portaled path menu (like compact)', async ({ page }) => {
-    await page.goto(`/?dir=${encodeURIComponent(DEEP_DIR)}`)
+    await page.goto(libraryUrl(DEEP_DIR))
     await expect(page.locator('table').getByText('chain-readme.txt')).toBeVisible()
 
     await narrowBreadcrumbSlot(page, 520)
@@ -110,7 +112,7 @@ test.describe('Breadcrumbs', () => {
   test('tighter inline: Home + … + current only (parent reachable via ellipsis menu)', async ({
     page,
   }) => {
-    await page.goto(`/?dir=${encodeURIComponent(DEEP_DIR)}`)
+    await page.goto(libraryUrl(DEEP_DIR))
     await expect(page.locator('table').getByText('chain-readme.txt')).toBeVisible()
 
     await narrowBreadcrumbSlot(page, 340)
@@ -125,7 +127,7 @@ test.describe('Breadcrumbs', () => {
   test('very narrow: compact trigger is muted (not primary) and opens portaled menu', async ({
     page,
   }) => {
-    await page.goto(`/?dir=${encodeURIComponent(DEEP_DIR)}`)
+    await page.goto(libraryUrl(DEEP_DIR))
     await expect(page.locator('table').getByText('chain-readme.txt')).toBeVisible()
 
     await narrowBreadcrumbSlot(page, 120)
@@ -146,7 +148,7 @@ test.describe('Breadcrumbs', () => {
   })
 
   test('compact menu navigates to an ancestor', async ({ page }) => {
-    await page.goto(`/?dir=${encodeURIComponent(DEEP_DIR)}`)
+    await page.goto(libraryUrl(DEEP_DIR))
     await expect(page.locator('table').getByText('chain-readme.txt')).toBeVisible()
 
     await narrowBreadcrumbSlot(page, 120)
@@ -156,14 +158,14 @@ test.describe('Breadcrumbs', () => {
       .click()
     await page.getByTestId('breadcrumb-path-menu').locator('[data-breadcrumb-path="Notes"]').click()
 
-    await page.waitForURL(/dir=Notes(?:&|$)/)
+    await page.waitForURL(libraryUrl('Notes'))
     await expect(page.locator('table').getByText('welcome.md')).toBeVisible()
   })
 
   test('three-segment path: wide enough slot shows Home + both folders inline', async ({
     page,
   }) => {
-    await page.goto(`/?dir=${encodeURIComponent('Notes/subfolder')}`)
+    await page.goto(libraryUrl('Notes/subfolder'))
     await expect(page.locator('table').getByText('nested-note.md')).toBeVisible()
 
     await narrowBreadcrumbSlot(page, 420)
@@ -176,7 +178,7 @@ test.describe('Breadcrumbs', () => {
   })
 
   test('three-segment path: narrow slot uses compact', async ({ page }) => {
-    await page.goto(`/?dir=${encodeURIComponent('Notes/subfolder')}`)
+    await page.goto(libraryUrl('Notes/subfolder'))
     await expect(page.locator('table').getByText('nested-note.md')).toBeVisible()
 
     await narrowBreadcrumbSlot(page, 200)
@@ -186,7 +188,7 @@ test.describe('Breadcrumbs', () => {
   })
 
   test('two-segment path: compact when slot too small', async ({ page }) => {
-    await page.goto(`/?dir=${encodeURIComponent('Notes')}`)
+    await page.goto(libraryUrl('Notes'))
     await expect(page.locator('table').getByText('welcome.md')).toBeVisible()
 
     await narrowBreadcrumbSlot(page, 56)
@@ -196,7 +198,7 @@ test.describe('Breadcrumbs', () => {
   })
 
   test('clicking outside closes compact path menu', async ({ page }) => {
-    await page.goto(`/?dir=${encodeURIComponent(DEEP_DIR)}`)
+    await page.goto(libraryUrl(DEEP_DIR))
     await expect(page.locator('table').getByText('chain-readme.txt')).toBeVisible()
 
     await narrowBreadcrumbSlot(page, 120)
@@ -211,7 +213,7 @@ test.describe('Breadcrumbs', () => {
   })
 
   test('compact path menu: crumb context menu stacks above path menu', async ({ page }) => {
-    await page.goto(`/?dir=${encodeURIComponent(DEEP_DIR)}`)
+    await page.goto(libraryUrl(DEEP_DIR))
     await expect(page.locator('table').getByText('chain-readme.txt')).toBeVisible()
 
     await narrowBreadcrumbSlot(page, 120)

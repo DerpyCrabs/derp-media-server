@@ -1,3 +1,5 @@
+import type { ResourceAppearanceDto } from '@/lib/generated/api-contracts'
+
 export const RESOURCE_CAPABILITY = {
   browse: 'browse',
   search: 'search',
@@ -33,10 +35,13 @@ export const RESOURCE_PRESENTATION = {
 } as const
 
 export const FILESYSTEM_PROVIDER = 'filesystem'
+export const DEFAULT_FILESYSTEM_ROOT_ID = 'configured-default'
 
 export type ResourceCapability = string
 export type ResourceKind = string
 export type ResourcePresentation = string
+
+export type ResourceAppearance = Readonly<ResourceAppearanceDto>
 
 export type ResourceKey = Readonly<{
   provider: string
@@ -50,6 +55,7 @@ export type ResourceSummary = Readonly<{
   mime?: string
   capabilities: readonly ResourceCapability[]
   presentation?: ResourcePresentation
+  appearance?: ResourceAppearance
   size?: number
   metadata?: Readonly<Record<string, unknown>>
 }>
@@ -60,6 +66,7 @@ export type ResourcePage = Readonly<{
   locationSummary?: ResourceSummary
   breadcrumbs?: readonly ResourceSummary[]
   items: readonly ResourceSummary[]
+  recentItems?: readonly ResourceSummary[]
   nextCursor?: string
   total: number
 }>
@@ -85,6 +92,8 @@ export type FilesystemResourceAddress = Readonly<{
 }>
 
 const FILESYSTEM_KEY_PREFIX = 'v1:'
+const utf8Encoder = new TextEncoder()
+const utf8Decoder = new TextDecoder('utf-8', { fatal: true })
 const resourceErrorCodes = new Set<ResourceErrorCode>([
   'badRequest',
   'notFound',
@@ -120,9 +129,10 @@ export function normalizeLogicalResourcePath(path: string): string {
 export function filesystemResourceKey(rootId: string, path: string): ResourceKey {
   const root = requireIdentifier(rootId, 'Filesystem root id')
   const normalizedPath = normalizeLogicalResourcePath(path)
+  const rootLength = utf8Encoder.encode(root).length
   return resourceKey(
     FILESYSTEM_PROVIDER,
-    `${FILESYSTEM_KEY_PREFIX}${root.length}:${root}${normalizedPath}`,
+    `${FILESYSTEM_KEY_PREFIX}${rootLength}:${root}${normalizedPath}`,
   )
 }
 
@@ -135,9 +145,19 @@ export function filesystemResourceAddress(key: ResourceKey): FilesystemResourceA
   if (!/^\d+$/.test(rootLengthText)) return null
   const rootLength = Number(rootLengthText)
   const value = encoded.slice(separator + 1)
-  if (!Number.isSafeInteger(rootLength) || rootLength <= 0 || rootLength > value.length) return null
-  const rootId = value.slice(0, rootLength)
-  const path = value.slice(rootLength)
+  const valueBytes = utf8Encoder.encode(value)
+  if (!Number.isSafeInteger(rootLength) || rootLength <= 0 || rootLength > valueBytes.length) {
+    return null
+  }
+  let rootId: string
+  let path: string
+  try {
+    rootId = utf8Decoder.decode(valueBytes.slice(0, rootLength))
+    path = utf8Decoder.decode(valueBytes.slice(rootLength))
+  } catch {
+    return null
+  }
+  if (`${rootId}${path}` !== value) return null
   try {
     requireIdentifier(rootId, 'Filesystem root id')
     if (normalizeLogicalResourcePath(path) !== path) return null
@@ -166,6 +186,16 @@ export function isResourceKey(value: unknown): value is ResourceKey {
   )
 }
 
+export function isResourceAppearance(value: unknown): value is ResourceAppearance {
+  const appearance = record(value)
+  return !!(
+    appearance &&
+    (appearance.icon === undefined || typeof appearance.icon === 'string') &&
+    (appearance.tone === undefined || typeof appearance.tone === 'string') &&
+    (appearance.color === undefined || typeof appearance.color === 'string')
+  )
+}
+
 export function isResourceSummary(value: unknown): value is ResourceSummary {
   const summary = record(value)
   return !!(
@@ -178,6 +208,7 @@ export function isResourceSummary(value: unknown): value is ResourceSummary {
     Array.isArray(summary.capabilities) &&
     summary.capabilities.every((capability) => typeof capability === 'string') &&
     (summary.presentation === undefined || typeof summary.presentation === 'string') &&
+    (summary.appearance === undefined || isResourceAppearance(summary.appearance)) &&
     (summary.size === undefined ||
       (typeof summary.size === 'number' && Number.isFinite(summary.size) && summary.size >= 0)) &&
     (summary.metadata === undefined || record(summary.metadata) !== null)
@@ -195,6 +226,8 @@ export function isResourcePage(value: unknown): value is ResourcePage {
       (Array.isArray(page.breadcrumbs) && page.breadcrumbs.every(isResourceSummary))) &&
     Array.isArray(page.items) &&
     page.items.every(isResourceSummary) &&
+    (page.recentItems === undefined ||
+      (Array.isArray(page.recentItems) && page.recentItems.every(isResourceSummary))) &&
     (page.nextCursor === undefined || typeof page.nextCursor === 'string') &&
     typeof page.total === 'number' &&
     Number.isSafeInteger(page.total) &&

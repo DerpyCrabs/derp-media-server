@@ -7,10 +7,9 @@ mod error;
 mod extractors;
 mod file_commands;
 mod file_search;
-mod hermes;
-mod hermes_process;
 mod html;
 mod image_variants;
+mod integrations;
 mod media;
 mod path_metadata;
 mod reader_state;
@@ -19,7 +18,6 @@ mod server;
 mod state_db;
 mod store;
 mod thumbnails;
-mod virtual_directory;
 mod workspace_persistence;
 
 #[tokio::main]

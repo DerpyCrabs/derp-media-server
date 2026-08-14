@@ -1,5 +1,4 @@
 import { describe, expect, test } from 'bun:test'
-import { MediaType } from '@/lib/types'
 import type { PersistedWorkspaceState, WorkspaceWindowDefinition } from '@/lib/use-workspace'
 import {
   clampTabInsertIndex,
@@ -8,26 +7,20 @@ import {
   setTabPinnedAndReorderState,
   tabsInGroup,
 } from '@/src/workspace/tab-group-ops'
+import { workspaceContent, workspaceWindow } from './workspace-window-fixture'
 
 function browserTab(
   id: string,
   opts?: { tabGroupId?: string | null; tabPinned?: boolean },
 ): WorkspaceWindowDefinition {
   const gid = opts?.tabGroupId ?? 'g1'
-  return {
+  return workspaceWindow({
     id,
-    type: 'browser',
     title: id,
-    iconName: null,
-    iconPath: '',
-    iconType: MediaType.FOLDER,
-    iconIsVirtual: false,
-    source: { kind: 'local', rootPath: null },
-    initialState: { dir: '/' },
     tabGroupId: gid,
     layout: { minimized: false, zIndex: 1 },
     ...(opts?.tabPinned ? { tabPinned: true } : {}),
-  }
+  })
 }
 
 function baseState(windows: WorkspaceWindowDefinition[]): PersistedWorkspaceState {
@@ -69,7 +62,13 @@ describe('workspace tab pin ops', () => {
       browserTab('b', { tabPinned: true }),
       browserTab('c'),
     ])
-    const next = openInNewTabInGroupState(state, 'c', { path: '/x', isDirectory: true }, '/', 0)
+    const next = openInNewTabInGroupState(
+      state,
+      'c',
+      workspaceContent('pending', 'explorer', 'x'),
+      'x',
+      0,
+    )
     const order = tabsInGroup(next.windows, 'g1').map((w) => w.id)
     expect(order).toEqual(['a', 'b', 'workspace-window-10', 'c'])
   })

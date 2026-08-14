@@ -1,11 +1,16 @@
-import type { IntegrationContentInstance } from '@/lib/domain/content'
+import type { IntegrationContentInstance, ResourceContentInstance } from '@/lib/domain/content'
 import type {
   ContentRendererModule,
   ContentRendererMountContext,
 } from '@/src/features/open/renderer-registry'
 import { createComponent, type JSX } from 'solid-js'
 import type { HermesChatPaneProps } from './HermesChatPane'
-import { HERMES_PROVIDER, normalizeHermesContentState, type HermesContentState } from './module'
+import {
+  HERMES_PROVIDER,
+  hermesResourceAddress,
+  normalizeHermesContentState,
+  type HermesContentState,
+} from './module'
 
 type HermesChatComponent = (props: HermesChatPaneProps) => JSX.Element
 
@@ -15,20 +20,32 @@ function chatComponent(value: unknown): HermesChatComponent | null {
   return typeof component === 'function' ? (component as HermesChatComponent) : null
 }
 
-function chatInstance(context: ContentRendererMountContext): IntegrationContentInstance {
+function chatInstance(
+  context: ContentRendererMountContext,
+): IntegrationContentInstance | ResourceContentInstance {
   const instance = context.instance()
-  if (
-    instance.type !== 'integration' ||
-    instance.integration !== HERMES_PROVIDER ||
-    instance.view !== 'chat'
-  ) {
-    throw new Error('Hermes renderer requires Hermes chat content')
+  if (instance.type === 'resource' && instance.renderer === 'hermes.chat') {
+    const address = hermesResourceAddress(instance.resource)
+    if (address?.kind === 'session') return instance
   }
-  return instance
+  if (
+    instance.type === 'integration' &&
+    instance.integration === HERMES_PROVIDER &&
+    instance.view === 'chat'
+  )
+    return instance
+  throw new Error('Hermes renderer requires Hermes chat content')
 }
 
 function chatState(context: ContentRendererMountContext): HermesContentState {
-  const state = normalizeHermesContentState(chatInstance(context).state)
+  const instance = chatInstance(context)
+  const state =
+    instance.type === 'resource'
+      ? (() => {
+          const address = hermesResourceAddress(instance.resource)
+          return address?.kind === 'session' ? { sessionId: address.id } : null
+        })()
+      : normalizeHermesContentState(instance.state)
   if (!state) throw new Error('Hermes renderer received invalid chat state')
   return state
 }
@@ -38,7 +55,18 @@ function replaceState(
   update: (state: HermesContentState) => HermesContentState,
 ) {
   const instance = chatInstance(context)
-  context.replace({ ...instance, state: update(chatState(context)) })
+  const state = update(chatState(context))
+  context.replace(
+    instance.type === 'integration'
+      ? { ...instance, state }
+      : ({
+          id: instance.id,
+          type: 'integration',
+          integration: HERMES_PROVIDER,
+          view: 'chat',
+          state,
+        } satisfies IntegrationContentInstance),
+  )
 }
 
 export function createHermesChatRendererModule(value: unknown): ContentRendererModule {

@@ -1,7 +1,6 @@
 import type { PlaybackPersistence } from './types'
 
-export const OWNER_PLAYBACK_STORAGE_KEY = 'derp-playback-session-owner-v1'
-export const LEGACY_VIDEO_PROGRESS_STORAGE_KEY = 'video-playback-times'
+export const OWNER_PLAYBACK_STORAGE_KEY = 'derp-playback-session-owner-v2'
 
 export interface PlaybackStorage {
   getItem(key: string): string | null
@@ -11,7 +10,6 @@ export interface PlaybackStorage {
 
 export type BrowserPlaybackPersistenceOptions = Readonly<{
   key?: string
-  legacyProgressKey?: string
   storage?: PlaybackStorage | null
 }>
 
@@ -33,11 +31,11 @@ function readJson(storage: PlaybackStorage | null, key: string): unknown {
   }
 }
 
-function unwrapState(value: unknown): unknown {
-  if (value && typeof value === 'object' && 'state' in value) {
-    return (value as { state?: unknown }).state ?? null
-  }
-  return value
+function readEnvelope(storage: PlaybackStorage | null, key: string): unknown {
+  const value = readJson(storage, key)
+  if (!value || typeof value !== 'object') return null
+  const envelope = value as { state?: unknown; version?: unknown }
+  return envelope.version === 2 && 'state' in envelope ? (envelope.state ?? null) : null
 }
 
 export function createBrowserPlaybackPersistence(
@@ -45,31 +43,17 @@ export function createBrowserPlaybackPersistence(
 ): PlaybackPersistence {
   const storage = options.storage === undefined ? defaultStorage() : options.storage
   const key = options.key ?? OWNER_PLAYBACK_STORAGE_KEY
-  const legacyProgressKey = options.legacyProgressKey ?? LEGACY_VIDEO_PROGRESS_STORAGE_KEY
 
   return {
     load() {
-      return unwrapState(readJson(storage, key))
+      return readEnvelope(storage, key)
     },
     save(state) {
       if (!storage) return
-      storage.setItem(key, JSON.stringify({ state, version: 1 }))
+      storage.setItem(key, JSON.stringify({ state, version: 2 }))
     },
     clear() {
       storage?.removeItem(key)
-    },
-    legacyPosition(locator) {
-      const value = unwrapState(readJson(storage, legacyProgressKey))
-      if (!value || typeof value !== 'object' || !('playbackTimes' in value)) return null
-      const playbackTimes = (value as { playbackTimes?: unknown }).playbackTimes
-      if (!playbackTimes || typeof playbackTimes !== 'object') return null
-      const times = playbackTimes as Record<string, unknown>
-      const time =
-        times[locator] ??
-        Object.entries(times).find(
-          ([legacyLocator]) => legacyLocator.replace(/\\/g, '/') === locator.replace(/\\/g, '/'),
-        )?.[1]
-      return typeof time === 'number' && Number.isFinite(time) && time >= 0 ? time : null
     },
   }
 }

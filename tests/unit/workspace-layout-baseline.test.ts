@@ -1,18 +1,11 @@
 import { describe, expect, test } from 'bun:test'
 import { createRoot, createSignal } from 'solid-js'
-import { MediaType } from '@/lib/types'
 import type { PersistedWorkspaceState, WorkspaceWindowDefinition } from '@/lib/use-workspace'
 import { useWorkspacePageLayoutBaseline } from '@/src/workspace/workspace-page/use-workspace-page-layout-baseline'
+import { workspaceWindow } from './workspace-window-fixture'
 
 function browserWindow(id: string, path: string): WorkspaceWindowDefinition {
-  return {
-    id,
-    type: 'browser',
-    title: path,
-    iconType: MediaType.FOLDER,
-    source: { kind: 'local' },
-    initialState: { dir: path },
-  }
+  return workspaceWindow({ id, title: path, path })
 }
 
 function workspace(windows: WorkspaceWindowDefinition[]): PersistedWorkspaceState {
@@ -40,8 +33,7 @@ describe('workspace layout baseline', () => {
 
       expect(state()?.windows.map((window) => window.id)).toEqual(['browser-1'])
       expect(state()?.windows[0]).toMatchObject({
-        type: 'browser',
-        initialState: { dir: 'Pictures' },
+        contentInstance: { type: 'explorer' },
       })
       dispose()
     })

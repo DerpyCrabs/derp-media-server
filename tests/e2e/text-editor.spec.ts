@@ -1,4 +1,10 @@
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test'
+import {
+  createFilesystemFile,
+  deleteFilesystemResource,
+  editFilesystemFile,
+} from './filesystem-actions'
+import { libraryUrl } from './canonical-urls'
 
 const TODO_PATH = 'Notes/markdown-editor-e2e.md'
 const TODO_SOURCE = '# Todo List\n\n- [ ] First task\n- [ ] Second task\n- [x] Done task\n'
@@ -16,16 +22,12 @@ function markdownEditor(page: Page) {
 }
 
 async function writeFile(request: APIRequestContext, path: string, content: string) {
-  const response = await request.post('/api/files/edit', {
-    data: { path, content },
-  })
+  const response = await editFilesystemFile(request, path, content)
   expect(response.ok()).toBe(true)
 }
 
 async function createFile(request: APIRequestContext, path: string, content: string) {
-  const response = await request.post('/api/files/create', {
-    data: { path, content },
-  })
+  const response = await createFilesystemFile(request, path, content)
   expect(response.ok()).toBe(true)
 }
 
@@ -45,7 +47,9 @@ async function replaceMarkdown(page: Page, content: string) {
 async function saveMarkdown(page: Page) {
   await Promise.all([
     page.waitForResponse(
-      (response) => response.url().includes('/api/files/edit') && response.status() === 200,
+      (response) =>
+        response.url().includes('/api/integrations/filesystem/actions') &&
+        response.status() === 200,
     ),
     page.getByRole('button', { name: 'Save', exact: true }).click(),
   ])
@@ -84,7 +88,7 @@ test.describe('Text Editor', () => {
   })
 
   test('opens text viewer when clicking a text file', async ({ page }) => {
-    await page.goto('/?dir=Documents')
+    await page.goto(libraryUrl('Documents'))
     await page.locator('table').getByText('readme.txt').click()
     await page.waitForURL(/viewing=/)
     await expect(page.getByTestId('text-viewer-content')).toBeVisible()
@@ -92,7 +96,7 @@ test.describe('Text Editor', () => {
   })
 
   test('opens Markdown editor and switches between read and edit modes', async ({ page }) => {
-    await page.goto(`/?dir=Notes&viewing=${encodeURIComponent(AUTOSAVE_PATH)}`)
+    await page.goto(libraryUrl('Notes', { viewing: AUTOSAVE_PATH }))
     await expect(page.locator('textarea')).toBeVisible()
 
     await page.locator('button[title="Close"]').click()
@@ -128,7 +132,7 @@ test.describe('Text Editor', () => {
         expect(settingsResponse.ok()).toBe(true)
       }
 
-      await page.goto(`/?dir=Notes&viewing=${encodeURIComponent(secondPath)}`)
+      await page.goto(libraryUrl('Notes', { viewing: secondPath }))
       await expect(markdownEditor(page)).toHaveAttribute(
         'aria-label',
         `${secondPath.split('/').at(-1)} Markdown editor`,
@@ -165,7 +169,7 @@ test.describe('Text Editor', () => {
       expect(await readFile(request, secondPath)).toBe(source)
     } finally {
       for (const filePath of [firstPath, secondPath]) {
-        await request.post('/api/files/delete', { data: { path: filePath } }).catch(() => {})
+        await deleteFilesystemResource(request, filePath).catch(() => {})
       }
     }
   })
@@ -213,7 +217,7 @@ test.describe('Text Editor', () => {
     })
     expect(settingsResponse.ok()).toBe(true)
 
-    await page.goto(`/?dir=Notes&viewing=${encodeURIComponent(TODO_PATH)}`)
+    await page.goto(libraryUrl('Notes', { viewing: TODO_PATH }))
     const document = markdownDocument(page, 'read')
     const reader = document.getByRole('document', {
       name: 'markdown-editor-e2e.md Markdown document',
@@ -258,7 +262,7 @@ test.describe('Text Editor', () => {
   })
 
   test('markdown image click opens fullscreen overlay', async ({ page }) => {
-    await page.goto(`/?dir=Documents&viewing=${encodeURIComponent('Documents/image-note.md')}`)
+    await page.goto(libraryUrl('Documents', { viewing: 'Documents/image-note.md' }))
     const img = markdownDocument(page, 'read').locator('img.cm-md-image[alt="photo"]')
     await expect(img).toBeVisible()
     await img.click()
@@ -267,7 +271,7 @@ test.describe('Text Editor', () => {
   })
 
   test('does not show edit button for non-editable folders', async ({ page }) => {
-    await page.goto(`/?dir=Documents&viewing=${encodeURIComponent('Documents/readme.txt')}`)
+    await page.goto(libraryUrl('Documents', { viewing: 'Documents/readme.txt' }))
     await expect(page.getByText('This is a test readme file')).toBeVisible()
     await expect(page.getByRole('button', { name: 'Edit', exact: true })).not.toBeVisible()
   })
@@ -275,7 +279,7 @@ test.describe('Text Editor', () => {
   test('auto-enters Markdown edit mode and preserves one editor across mode switches', async ({
     page,
   }) => {
-    await page.goto(`/?dir=Notes&viewing=${encodeURIComponent(TODO_PATH)}`)
+    await page.goto(libraryUrl('Notes', { viewing: TODO_PATH }))
     const editDocument = markdownDocument(page, 'edit')
     const editor = markdownEditor(page)
 
@@ -331,7 +335,7 @@ test.describe('Text Editor', () => {
     })
     expect(settingsResponse.ok()).toBe(true)
 
-    await page.goto(`/?dir=MediaContent&viewing=${encodeURIComponent(path)}`)
+    await page.goto(libraryUrl('MediaContent', { viewing: path }))
     const document = markdownDocument(page, 'edit')
     await expect(document.getByRole('textbox')).toBeVisible()
     await expect(document.locator('.cm-md-heading-1')).toContainText('Outside KB')
@@ -386,7 +390,7 @@ test.describe('Text Editor', () => {
       expect(settingsResponse.ok()).toBe(true)
 
       await timed('initial open', LARGE_MARKDOWN_OPEN_THRESHOLD_MS, async () => {
-        await page.goto(`/?dir=MediaContent&viewing=${encodeURIComponent(path)}`)
+        await page.goto(libraryUrl('MediaContent', { viewing: path }))
         await expect(markdownEditor(page)).toBeVisible()
         await expect(markdownDocument(page, 'edit').locator('.cm-line').first()).toContainText(
           'Large Markdown Fixture',
@@ -485,16 +489,22 @@ test.describe('Text Editor', () => {
         ),
         contentType: 'application/json',
       })
-      await request.post('/api/files/delete', { data: { path } }).catch(() => {})
+      await deleteFilesystemResource(request, path).catch(() => {})
     }
   })
 
   test('reveals active Markdown syntax without changing source', async ({ page, request }) => {
     let editRequests = 0
     page.on('request', (req) => {
-      if (req.method() === 'POST' && req.url().includes('/api/files/edit')) editRequests += 1
+      if (
+        req.method() === 'POST' &&
+        req.url().includes('/api/integrations/filesystem/actions') &&
+        req.postDataJSON()?.action === 'filesystem.edit'
+      ) {
+        editRequests += 1
+      }
     })
-    await page.goto(`/?dir=Notes&viewing=${encodeURIComponent(TODO_PATH)}`)
+    await page.goto(libraryUrl('Notes', { viewing: TODO_PATH }))
     const editor = markdownEditor(page)
     const heading = markdownDocument(page, 'edit').locator('.cm-line').first()
 
@@ -515,7 +525,7 @@ test.describe('Text Editor', () => {
     page,
     request,
   }) => {
-    await page.goto(`/?dir=Notes&viewing=${encodeURIComponent(TODO_PATH)}`)
+    await page.goto(libraryUrl('Notes', { viewing: TODO_PATH }))
     const editor = markdownEditor(page)
     await editor.click()
     await page.keyboard.press('Control+Home')
@@ -531,7 +541,7 @@ test.describe('Text Editor', () => {
 
   test('bold and italic shortcuts wrap and toggle selections', async ({ page, request }) => {
     await writeFile(request, TODO_PATH, 'alpha beta\n')
-    await page.goto(`/?dir=Notes&viewing=${encodeURIComponent(TODO_PATH)}`)
+    await page.goto(libraryUrl('Notes', { viewing: TODO_PATH }))
     const editor = markdownEditor(page)
     const line = markdownDocument(page, 'edit').locator('.cm-line').first()
 
@@ -560,7 +570,7 @@ test.describe('Text Editor', () => {
     request,
   }) => {
     await writeFile(request, TODO_PATH, '- bullet\n1. ordered\n- [ ] task\n\noutside\n')
-    await page.goto(`/?dir=Notes&viewing=${encodeURIComponent(TODO_PATH)}`)
+    await page.goto(libraryUrl('Notes', { viewing: TODO_PATH }))
     const document = markdownDocument(page, 'edit')
 
     await document.locator('.cm-line').filter({ hasText: 'bullet' }).click()
@@ -605,7 +615,7 @@ test.describe('Text Editor', () => {
   }) => {
     const source = '# Tasks\n\n- [ ] open\n- [X] upper\n  - [ ] nested\n'
     await writeFile(request, TODO_PATH, source)
-    await page.goto(`/?dir=Notes&viewing=${encodeURIComponent(TODO_PATH)}`)
+    await page.goto(libraryUrl('Notes', { viewing: TODO_PATH }))
     const document = markdownDocument(page, 'edit')
     const tasks = document.locator('.cm-md-task-checkbox')
     await expect(tasks).toHaveCount(3)
@@ -637,7 +647,7 @@ test.describe('Text Editor', () => {
 
   test('structured HTML and plain clipboard text paste as Markdown', async ({ page, request }) => {
     await writeFile(request, TODO_PATH, 'replace me\n')
-    await page.goto(`/?dir=Notes&viewing=${encodeURIComponent(TODO_PATH)}`)
+    await page.goto(libraryUrl('Notes', { viewing: TODO_PATH }))
     const editor = markdownEditor(page)
     await editor.click()
     await page.keyboard.press('Control+a')
@@ -685,12 +695,14 @@ test.describe('Text Editor', () => {
     page,
     request,
   }) => {
-    await page.goto(`/?dir=Notes&viewing=${encodeURIComponent(TODO_PATH)}`)
+    await page.goto(libraryUrl('Notes', { viewing: TODO_PATH }))
     const updated = '# Updated Todo\n\n- Brand new item\n'
     await replaceMarkdown(page, updated)
     await Promise.all([
       page.waitForResponse(
-        (response) => response.url().includes('/api/files/edit') && response.status() === 200,
+        (response) =>
+          response.url().includes('/api/integrations/filesystem/actions') &&
+          response.status() === 200,
       ),
       markdownEditor(page).press('Control+s'),
     ])
@@ -704,7 +716,7 @@ test.describe('Text Editor', () => {
   })
 
   test('closes text viewer returns to file list', async ({ page }) => {
-    await page.goto(`/?dir=Documents&viewing=${encodeURIComponent('Documents/readme.txt')}`)
+    await page.goto(libraryUrl('Documents', { viewing: 'Documents/readme.txt' }))
     await expect(page.getByText('This is a test readme file')).toBeVisible()
     await page.locator('button[title="Close"]').click()
     await expect(page).not.toHaveURL(/viewing=/)
@@ -712,7 +724,7 @@ test.describe('Text Editor', () => {
   })
 
   test('displays JSON files', async ({ page }) => {
-    await page.goto(`/?dir=Documents&viewing=${encodeURIComponent('Documents/data.json')}`)
+    await page.goto(libraryUrl('Documents', { viewing: 'Documents/data.json' }))
     await expect(page).toHaveURL(/viewing=.*data\.json/)
     await expect(page.locator('button[title="Close"]')).toBeVisible()
     await expect(page.getByText('"name"')).toBeVisible()
@@ -720,19 +732,24 @@ test.describe('Text Editor', () => {
   })
 
   test('copy-to-clipboard button exists', async ({ page }) => {
-    await page.goto(`/?dir=Documents&viewing=${encodeURIComponent('Documents/readme.txt')}`)
+    await page.goto(libraryUrl('Documents', { viewing: 'Documents/readme.txt' }))
     await expect(page.locator('button[title="Copy to clipboard"]')).toBeVisible()
   })
 
   test('with auto-save off, blur does not persist ordinary text edits', async ({ page }) => {
-    const pathEnc = encodeURIComponent(AUTOSAVE_PATH)
-    await page.goto(`/?dir=Notes&viewing=${pathEnc}`)
+    await page.goto(libraryUrl('Notes', { viewing: AUTOSAVE_PATH }))
     const textarea = page.locator('textarea')
     await expect(textarea).toBeVisible()
 
     let editResponses = 0
     page.on('response', (resp) => {
-      if (resp.url().includes('/api/files/edit') && resp.status() === 200) editResponses += 1
+      if (
+        resp.url().includes('/api/integrations/filesystem/actions') &&
+        resp.request().postDataJSON()?.action === 'filesystem.edit' &&
+        resp.status() === 200
+      ) {
+        editResponses += 1
+      }
     })
 
     await Promise.all([
@@ -754,7 +771,8 @@ test.describe('Text Editor', () => {
     await textarea.fill(AUTOSAVE_SOURCE)
     await Promise.all([
       page.waitForResponse(
-        (resp) => resp.url().includes('/api/files/edit') && resp.status() === 200,
+        (resp) =>
+          resp.url().includes('/api/integrations/filesystem/actions') && resp.status() === 200,
       ),
       page.getByRole('button', { name: 'Save', exact: true }).click(),
     ])
@@ -764,15 +782,14 @@ test.describe('Text Editor', () => {
     page,
   }) => {
     const draft = 'recovered local draft after failed autosave\n'
-    const pathEnc = encodeURIComponent(AUTOSAVE_PATH)
-    await page.route('**/api/files/edit', (route) =>
+    await page.route('**/api/integrations/filesystem/actions', (route) =>
       route.fulfill({
         status: 503,
         contentType: 'application/json',
         body: '{"error":"Unavailable"}',
       }),
     )
-    await page.goto(`/?dir=Notes&viewing=${pathEnc}`)
+    await page.goto(libraryUrl('Notes', { viewing: AUTOSAVE_PATH }))
 
     const textarea = page.locator('textarea')
     await expect(textarea).toBeVisible()
@@ -786,7 +803,7 @@ test.describe('Text Editor', () => {
     await page.reload()
     await expect(textarea).toHaveValue(draft)
 
-    await page.unroute('**/api/files/edit')
+    await page.unroute('**/api/integrations/filesystem/actions')
     await textarea.fill(AUTOSAVE_SOURCE)
     await page.locator('button[title="Close"]').click()
     await expect(page).not.toHaveURL(/viewing=/)

@@ -18,7 +18,7 @@ Self-hosted media library with a **Solid.js** + Vite web UI and a **Rust/Axum** 
 bun install
 ```
 
-Create `config.jsonc` (JSON with comments; falls back to `config.json`):
+Create `config.jsonc` (JSON with comments):
 
 ```jsonc
 {
@@ -39,7 +39,7 @@ Path: `CONFIG_PATH` or `--config-path=...`. Options can also be set via environm
 
 | Config              | Env                | Purpose                                                                     |
 | ------------------- | ------------------ | --------------------------------------------------------------------------- |
-| `mediaDir`          | `MEDIA_DIR`        | Media root for legacy/single-root configs                                   |
+| `mediaDir`          | `MEDIA_DIR`        | Media root for single-root configs                                          |
 | `port`              | `PORT`             | App port; Workspace is served at `/workspace` (default `3000`)              |
 | `mediaDirs`         |                    | Multiple named media roots, each with optional editable folders             |
 | `editableFolders`   | `EDITABLE_FOLDERS` | Comma-separated paths under single-root `mediaDir` where writes are allowed |
@@ -49,9 +49,6 @@ Path: `CONFIG_PATH` or `--config-path=...`. Options can also be set via environm
 
 `dataPath` is config-file only and contains app-created settings, stats, search index,
 thumbnails, and optimized image variants. It defaults to `app-data` next to the config file.
-On first startup with the default path, legacy data beside the config and legacy caches in the
-working directory are migrated automatically.
-
 File search is enabled by default and stores its rebuildable SQLite index under
 `<dataPath>/search-index`. The index uses bounded background reconciliation on every platform and
 best-effort recursive watchers on local Windows/macOS roots. Linux and network roots use polling so
@@ -131,6 +128,10 @@ Listens on `0.0.0.0` by default.
 - Lint: `bun run lint-errors`
 - E2E: `bun run test` (single worker) or `bun run test:batch` (CI-style batches)
 - Unit: `bun run test:unit`
+- Routine validation: `bun run check`
+- Fast verification: `bun run verify:fast`
+- Full verification: `bun run verify`
+- Integration authoring: [`docs/integrations.md`](docs/integrations.md)
 
 ## Stack
 

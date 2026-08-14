@@ -1,11 +1,12 @@
 import { expect, test, type Page } from '@playwright/test'
 import { READER_PDF } from '../fixtures/generate-media'
+import { libraryUrl } from './canonical-urls'
 
 async function openSamplePdf(page: Page) {
   await page.context().route('**/api/media/Documents/reader.pdf', async (route) => {
     await route.fulfill({ body: READER_PDF, contentType: 'application/pdf' })
   })
-  await page.goto('/?dir=Documents&viewing=Documents%2Freader.pdf')
+  await page.goto(libraryUrl('Documents', { viewing: 'Documents/reader.pdf' }))
   await expect(page.getByTestId('pdf-text-layer').first()).toBeVisible()
   await expect(page.getByTestId('reader-page-indicator')).toBeVisible()
   await page.getByTestId('reader-page-indicator').click()
@@ -108,7 +109,7 @@ async function selectBookText(page: Page, phrase: string) {
 
 test.describe('Reader', () => {
   test('opens PDFs directly and restores server-synced position settings', async ({ page }) => {
-    await page.goto('/?dir=Documents')
+    await page.goto(libraryUrl('Documents'))
     await page.locator('tr', { hasText: 'sample.pdf' }).click()
 
     await expect(page.getByTestId('reader-dialog')).toBeVisible()
@@ -125,7 +126,7 @@ test.describe('Reader', () => {
   })
 
   test('reads EPUB and FB2 as reflowable books with outlines', async ({ page }) => {
-    await page.goto('/?dir=Documents')
+    await page.goto(libraryUrl('Documents'))
     await page.locator('tr', { hasText: 'reader.epub' }).click()
     await expect(page.getByTestId('reader-book')).toContainText('Selectable EPUB text begins here.')
     await expect(page.getByTestId('reader-book').locator('script, form')).toHaveCount(0)
@@ -181,7 +182,7 @@ test.describe('Reader', () => {
 
   test('keeps book settings separate from chapter controls in narrow readers', async ({ page }) => {
     await page.setViewportSize({ width: 500, height: 720 })
-    await page.goto('/?dir=Documents&viewing=Documents%2Freader.epub')
+    await page.goto(libraryUrl('Documents', { viewing: 'Documents/reader.epub' }))
     await expect(page.getByTestId('reader-book')).toBeVisible()
     const next = await page.getByRole('button', { name: 'Next chapter' }).boundingBox()
     const settings = await page.getByTestId('reader-settings-button').boundingBox()
@@ -198,7 +199,7 @@ test.describe('Reader', () => {
   })
 
   test('clamps and immediately persists reader-controlled book appearance', async ({ page }) => {
-    await page.goto('/?dir=Documents&viewing=Documents%2Freader.epub')
+    await page.goto(libraryUrl('Documents', { viewing: 'Documents/reader.epub' }))
     const book = page.getByTestId('reader-book')
     await expect(book).toBeVisible()
     await page.getByTestId('reader-settings-button').click()
@@ -286,7 +287,7 @@ test.describe('Reader', () => {
       }
       await route.continue()
     })
-    await page.goto('/?dir=Documents&viewing=Documents%2Freader-switch.epub')
+    await page.goto(libraryUrl('Documents', { viewing: 'Documents/reader-switch.epub' }))
     await expect(page.getByTestId('reader-book')).toBeVisible()
     if (!(await page.getByTestId('reader-outline').isVisible())) {
       await page.getByTestId('reader-outline-button').click()
@@ -307,10 +308,13 @@ test.describe('Reader', () => {
       )
       .toBeGreaterThan(0.1)
     const savedTop = await viewport.evaluate((element) => element.scrollTop)
-    await page.getByTestId('reader-dialog').evaluate((element) => {
-      element.setAttribute('data-reader-instance', 'old')
-      history.pushState(null, '', '/?dir=Documents&viewing=Documents%2Freader.fb2')
-    })
+    await page.getByTestId('reader-dialog').evaluate(
+      (element, nextUrl) => {
+        element.setAttribute('data-reader-instance', 'old')
+        history.pushState(null, '', nextUrl)
+      },
+      libraryUrl('Documents', { viewing: 'Documents/reader.fb2' }),
+    )
     await expect(page.getByTestId('reader-book')).toContainText('Selectable FB2 text begins here.')
     await expect(page.getByTestId('reader-dialog')).toHaveAttribute('data-reader-instance', 'old')
     await expect.poll(() => epubSaves.at(-1)?.state?.chapterProgress ?? 0).toBeGreaterThan(0.1)
@@ -325,9 +329,10 @@ test.describe('Reader', () => {
       })
       .toBeGreaterThan(0.1)
 
-    await page.evaluate(() => {
-      history.pushState(null, '', '/?dir=Documents&viewing=Documents%2Freader-switch.epub')
-    })
+    await page.evaluate(
+      (nextUrl) => history.pushState(null, '', nextUrl),
+      libraryUrl('Documents', { viewing: 'Documents/reader-switch.epub' }),
+    )
     await expect(page.getByTestId('reader-book-progress')).toContainText('Opening')
     await expect
       .poll(() => viewport.evaluate((element) => element.scrollTop))
@@ -335,7 +340,7 @@ test.describe('Reader', () => {
   })
 
   test('restores exact EPUB position inside a chapter', async ({ page }) => {
-    await page.goto('/?dir=Documents&viewing=Documents%2Freader-position.epub')
+    await page.goto(libraryUrl('Documents', { viewing: 'Documents/reader-position.epub' }))
     await expect(page.getByTestId('reader-book')).toBeVisible()
     if (!(await page.getByTestId('reader-outline').isVisible())) {
       await page.getByTestId('reader-outline-button').click()
@@ -385,7 +390,7 @@ test.describe('Reader', () => {
     await expect(page.getByTestId('open-with-browser')).toBeVisible()
     await expect(page.getByTestId('open-with-reader')).toBeVisible()
     await page.getByTestId('open-with-browser').click()
-    await expect(page).toHaveURL(/dir=Images/)
+    await expect(page).toHaveURL(libraryUrl('Images'))
     await expect(page.getByTestId('reader-dialog')).toHaveCount(0)
 
     await page.goto('/')
@@ -480,7 +485,7 @@ test.describe('Reader', () => {
       return viewport.scrollTop
     })
     await page.getByLabel('Close reader').click()
-    await page.goto('/?dir=Documents&viewing=Documents%2Freader.pdf')
+    await page.goto(libraryUrl('Documents', { viewing: 'Documents/reader.pdf' }))
     await expect(page.getByTestId('pdf-canvas').first()).toBeVisible()
     await expect
       .poll(() => page.getByTestId('reader-viewport').evaluate((viewport) => viewport.scrollTop))

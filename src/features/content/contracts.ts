@@ -7,6 +7,7 @@ import {
 import type { ContentInstance } from '@/lib/domain/content'
 import type { OpenDisposition, OpenReadyPlan, OpenSurface } from '@/src/features/open/open-resource'
 import type { RendererDescriptor } from '@/src/features/open/renderer-registry'
+import type { SearchContributor } from '@/src/features/search/contracts'
 
 export {
   CONTENT_ENVELOPE_SCHEMA_VERSION,
@@ -29,8 +30,10 @@ export type ContentCodecDescriptor = Readonly<{
   id: string
   version: number
   supports?: (instance: ContentInstance) => boolean
+  durable?: (instance: ContentInstance) => boolean
+  preserveRuntime?: (instance: ContentInstance) => boolean
   encode(instance: ContentInstance): unknown
-  decode(value: unknown, encodedVersion?: number): ContentDecodeResult
+  decode(value: unknown, encodedVersion: number): ContentDecodeResult
 }>
 
 export type ContentSanitizerDescriptor = Readonly<{
@@ -45,6 +48,17 @@ export type ContentPresentation = Readonly<{
   subtitle?: string
   status?: Readonly<{ label: string; tone?: string }>
   preferredSize?: Readonly<{ width: number; height: number }>
+}>
+
+export type ContentLiveStatus = Readonly<{
+  needsInput: boolean
+  working: boolean
+  failed: boolean
+  unread: boolean
+}>
+
+export type ContentStatusDescriptor = Readonly<{
+  describe(instance: ContentInstance): ContentLiveStatus | null
 }>
 
 export type ContentPresentationDescriptor = Readonly<{
@@ -100,13 +114,39 @@ export interface BrowseProvider {
   browse(request: BrowseRequest): Promise<ResourcePage>
 }
 
+export interface InspectProvider {
+  inspect(resource: ResourceKey, signal?: AbortSignal): Promise<ResourceSummary>
+}
+
+export type ResourceActionForm =
+  | Readonly<{
+      kind: 'choice'
+      title: string
+      submitLabel: string
+      choices: readonly Readonly<{ label: string; value: string }>[]
+    }>
+  | Readonly<{
+      kind: 'project'
+      title: string
+      submitLabel: string
+    }>
+  | Readonly<{
+      kind: 'appearance'
+      title: string
+      submitLabel: string
+      icons: readonly string[]
+    }>
+
 export type ResourceActionDescriptor = Readonly<{
   id: string
+  operation: string
   label: string
   capability: string
   icon?: string
   dangerous?: boolean
-  interaction?: 'immediate' | 'name' | 'destination' | 'upload' | 'paste' | 'text' | 'appearance'
+  optimisticEffect?: 'rename' | 'delete'
+  interaction: 'immediate' | 'name' | 'destination' | 'upload' | 'paste' | 'text' | 'appearance'
+  form?: ResourceActionForm
 }>
 
 export type ResourceActionRequest = Readonly<{
@@ -126,15 +166,46 @@ export interface ResourceActionProvider {
   run(request: ResourceActionRequest): Promise<ResourceActionOutcome>
 }
 
+export type AssistantAttachment = Readonly<{
+  name: string
+  mimeType: string
+  contentBase64: string
+}>
+
+export type AssistantCompletionRequest = Readonly<{
+  prompt: string
+  attachments?: readonly AssistantAttachment[]
+  timeoutMs?: number
+}>
+
+export interface AssistantProvider {
+  available(): Promise<boolean>
+  complete(request: AssistantCompletionRequest): Promise<string>
+}
+
+export type PaneContribution = Readonly<{
+  id: string
+  kind: string
+  label: string
+  create(instanceId: string): ContentInstance
+}>
+
 export interface IntegrationModule {
   readonly id: string
+  readonly name?: string
+  readonly root?: ResourceSummary
   readonly browse?: BrowseProvider
+  readonly inspect?: InspectProvider
   readonly actions?: ResourceActionProvider
   readonly content?: readonly ContentRendererDescriptor[]
   readonly codecs?: readonly ContentCodecDescriptor[]
   readonly sanitizers?: readonly ContentSanitizerDescriptor[]
   readonly presentations?: readonly ContentPresentationDescriptor[]
+  readonly status?: ContentStatusDescriptor
   readonly lifecycles?: readonly ContentLifecycleDescriptor[]
+  readonly search?: readonly SearchContributor[]
+  readonly assistant?: AssistantProvider
+  readonly panes?: readonly PaneContribution[]
 }
 
 export function defineIntegrationModule<const T extends IntegrationModule>(module: T): T {

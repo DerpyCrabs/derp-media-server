@@ -13,53 +13,20 @@ export type RegistryExplorerPayload = Readonly<{
   resource: ResourceSummary
 }>
 
-function actionEffect(id: string): 'rename' | 'delete' | undefined {
-  const operation = id.split(/[.:/]/).at(-1)?.toLowerCase()
-  if (operation === 'rename') return 'rename'
-  if (
-    operation === 'delete' ||
-    operation === 'deletepermanently' ||
-    operation === 'deleteproject'
-  ) {
-    return 'delete'
-  }
-  return undefined
-}
-
-function inferredActionInteraction(id: string): ExplorerActionDescriptor['interaction'] {
-  const operation = id.split(/[.:/]/).at(-1)?.toLowerCase()
-  if (operation === 'createfile' || operation === 'createfolder' || operation === 'rename') {
-    return 'name'
-  }
-  if (operation === 'move' || operation === 'copy' || operation === 'movetoproject') {
-    return 'destination'
-  }
-  if (operation === 'upload') return 'upload'
-  if (operation === 'paste') return 'paste'
-  if (
-    operation === 'addprojectfolder' ||
-    operation === 'removeprojectfolder' ||
-    operation === 'setprimaryfolder'
-  ) {
-    return 'text'
-  }
-  if (operation === 'setappearance') return 'appearance'
-  return 'immediate'
-}
-
 function explorerAction(
   action: ResourceActionDescriptor,
   scope: 'resource' | 'location',
 ): ExplorerActionDescriptor {
-  const optimisticEffect = actionEffect(action.id)
   return {
     id: action.id,
+    operation: action.operation,
     label: action.label,
     capability: action.capability,
     scope,
-    interaction: action.interaction ?? inferredActionInteraction(action.id),
+    interaction: action.interaction,
+    ...(action.form ? { form: action.form } : {}),
     ...(action.dangerous ? { destructive: true } : {}),
-    ...(optimisticEffect ? { optimisticEffect } : {}),
+    ...(action.optimisticEffect ? { optimisticEffect: action.optimisticEffect } : {}),
   }
 }
 
@@ -105,6 +72,21 @@ export function createRegistryExplorerDataSource(
           presentation: 'browse',
         } satisfies ResourceSummary)
       const locationItem = registryExplorerItem(registry, locationResource, 'location')
+      const moduleRoot = registry.module(page.location.provider)?.root
+      const atModuleRoot =
+        moduleRoot?.key.provider === page.location.provider &&
+        moduleRoot.key.id === page.location.id
+      const contributedRoots = atModuleRoot
+        ? registry.roots().filter((root) => root.key.provider !== page.location.provider)
+        : []
+      const resources = [...contributedRoots, ...page.items].filter(
+        (resource, index, all) =>
+          all.findIndex(
+            (candidate) =>
+              candidate.key.provider === resource.key.provider &&
+              candidate.key.id === resource.key.id,
+          ) === index,
+      )
       return {
         location: registryExplorerLocation(page.location),
         locationItem,
@@ -114,10 +96,20 @@ export function createRegistryExplorerDataSource(
           capabilities: resource.capabilities,
           item: registryExplorerItem(registry, resource, 'resource'),
         })),
-        items: page.items.map((resource) => registryExplorerItem(registry, resource, 'resource')),
+        items: resources.map((resource) => registryExplorerItem(registry, resource, 'resource')),
+        ...(page.recentItems
+          ? {
+              recentItems: page.recentItems.map((resource) => ({
+                item: registryExplorerItem(registry, resource, 'resource'),
+                ...(typeof resource.metadata?.modifiedAt === 'string'
+                  ? { modifiedAt: resource.metadata.modifiedAt }
+                  : {}),
+              })),
+            }
+          : {}),
         actions: locationItem.actions,
         ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
-        total: page.total,
+        total: page.total + contributedRoots.length,
       }
     },
     async execute(command, signal) {

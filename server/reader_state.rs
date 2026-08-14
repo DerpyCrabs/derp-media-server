@@ -26,12 +26,12 @@ fn connection(path: &Path) -> AppResult<Connection> {
     state_db::connection(path)
 }
 
-pub fn get(database: &Path, scope: &str, path: &str) -> AppResult<Option<ReaderState>> {
+pub fn get(database: &Path, path: &str) -> AppResult<Option<ReaderState>> {
     let connection = connection(database)?;
     connection
         .query_row(
-            "SELECT state_json, fingerprint, revision FROM reader_state WHERE scope=?1 AND path=?2",
-            params![scope, path],
+            "SELECT state_json, fingerprint, revision FROM reader_state WHERE path=?1",
+            params![path],
             |row| {
                 let raw: String = row.get(0)?;
                 Ok(ReaderState {
@@ -47,7 +47,6 @@ pub fn get(database: &Path, scope: &str, path: &str) -> AppResult<Option<ReaderS
 
 pub fn put(
     database: &Path,
-    scope: &str,
     path: &str,
     value: &Value,
     fingerprint: &str,
@@ -65,8 +64,8 @@ pub fn put(
         .map_err(|error| AppError::internal(error.to_string()))?;
     let current: Option<i64> = transaction
         .query_row(
-            "SELECT revision FROM reader_state WHERE scope=?1 AND path=?2",
-            params![scope, path],
+            "SELECT revision FROM reader_state WHERE path=?1",
+            params![path],
             |row| row.get(0),
         )
         .optional()
@@ -77,21 +76,14 @@ pub fn put(
     let revision = base_revision + 1;
     transaction
         .execute(
-            "INSERT INTO reader_state(scope,path,state_json,fingerprint,revision,updated_at)
-             VALUES(?1,?2,?3,?4,?5,?6)
-             ON CONFLICT(scope,path) DO UPDATE SET
+            "INSERT INTO reader_state(path,state_json,fingerprint,revision,updated_at)
+             VALUES(?1,?2,?3,?4,?5)
+             ON CONFLICT(path) DO UPDATE SET
                state_json=excluded.state_json,
                fingerprint=excluded.fingerprint,
                revision=excluded.revision,
                updated_at=excluded.updated_at",
-            params![
-                scope,
-                path,
-                serialized,
-                fingerprint,
-                revision,
-                updated_at as i64
-            ],
+            params![path, serialized, fingerprint, revision, updated_at as i64],
         )
         .map_err(|error| AppError::internal(error.to_string()))?;
     transaction
@@ -100,36 +92,19 @@ pub fn put(
     Ok(revision)
 }
 
-pub fn remove_prefix(database: &Path, scope: Option<&str>, path: &str) -> AppResult<()> {
+pub fn remove_prefix(database: &Path, path: &str) -> AppResult<()> {
     let connection = connection(database)?;
     let like = like_prefix(path);
-    if let Some(scope) = scope {
-        connection.execute(
-            "DELETE FROM reader_state WHERE scope=?1 AND (path=?2 OR path LIKE ?3 ESCAPE '\\')",
-            params![scope, path, like],
-        )
-    } else {
-        connection.execute(
-            "DELETE FROM reader_state WHERE path=?1 OR path LIKE ?2 ESCAPE '\\'",
-            params![path, like],
-        )
-    }
-    .map_err(|error| AppError::internal(error.to_string()))?;
-    Ok(())
-}
-
-pub fn remove_exact(database: &Path, scope: &str, path: &str) -> AppResult<()> {
-    let connection = connection(database)?;
     connection
         .execute(
-            "DELETE FROM reader_state WHERE scope=?1 AND path=?2",
-            params![scope, path],
+            "DELETE FROM reader_state WHERE path=?1 OR path LIKE ?2 ESCAPE '\\'",
+            params![path, like],
         )
         .map_err(|error| AppError::internal(error.to_string()))?;
     Ok(())
 }
 
-pub fn remove_exact_all(database: &Path, path: &str) -> AppResult<()> {
+pub fn remove_exact(database: &Path, path: &str) -> AppResult<()> {
     let connection = connection(database)?;
     connection
         .execute("DELETE FROM reader_state WHERE path=?1", params![path])
@@ -163,12 +138,12 @@ pub fn move_prefix(database: &Path, old_path: &str, new_path: &str) -> AppResult
     Ok(())
 }
 
-pub fn preferences(database: &Path, scope: &str) -> AppResult<(Value, i64)> {
+pub fn preferences(database: &Path) -> AppResult<(Value, i64)> {
     let connection = connection(database)?;
     connection
         .query_row(
-            "SELECT state_json, revision FROM app_preferences WHERE scope=?1",
-            params![scope],
+            "SELECT state_json, revision FROM app_preferences WHERE id=1",
+            [],
             |row| {
                 let raw: String = row.get(0)?;
                 Ok((
@@ -184,7 +159,6 @@ pub fn preferences(database: &Path, scope: &str) -> AppResult<(Value, i64)> {
 
 pub fn put_preferences(
     database: &Path,
-    scope: &str,
     value: &Value,
     base_revision: i64,
     updated_at: u128,
@@ -200,8 +174,8 @@ pub fn put_preferences(
         .map_err(|error| AppError::internal(error.to_string()))?;
     let current: Option<i64> = transaction
         .query_row(
-            "SELECT revision FROM app_preferences WHERE scope=?1",
-            params![scope],
+            "SELECT revision FROM app_preferences WHERE id=1",
+            [],
             |row| row.get(0),
         )
         .optional()
@@ -212,10 +186,10 @@ pub fn put_preferences(
     let revision = base_revision + 1;
     transaction
         .execute(
-            "INSERT INTO app_preferences(scope,state_json,revision,updated_at) VALUES(?1,?2,?3,?4)
-             ON CONFLICT(scope) DO UPDATE SET state_json=excluded.state_json,
+            "INSERT INTO app_preferences(id,state_json,revision,updated_at) VALUES(1,?1,?2,?3)
+             ON CONFLICT(id) DO UPDATE SET state_json=excluded.state_json,
                revision=excluded.revision, updated_at=excluded.updated_at",
-            params![scope, serialized, revision, updated_at as i64],
+            params![serialized, revision, updated_at as i64],
         )
         .map_err(|error| AppError::internal(error.to_string()))?;
     transaction
@@ -243,12 +217,11 @@ mod tests {
         connection
             .execute_batch(
                 "CREATE TABLE reader_state (
-                   scope TEXT NOT NULL, path TEXT NOT NULL, state_json TEXT NOT NULL,
-                   fingerprint TEXT NOT NULL, revision INTEGER NOT NULL, updated_at INTEGER NOT NULL,
-                   PRIMARY KEY(scope, path)
+                   path TEXT PRIMARY KEY, state_json TEXT NOT NULL,
+                   fingerprint TEXT NOT NULL, revision INTEGER NOT NULL, updated_at INTEGER NOT NULL
                  );
                  CREATE TABLE app_preferences (
-                   scope TEXT PRIMARY KEY, state_json TEXT NOT NULL,
+                   id INTEGER PRIMARY KEY CHECK(id=1), state_json TEXT NOT NULL,
                    revision INTEGER NOT NULL, updated_at INTEGER NOT NULL
                  );",
             )
@@ -259,26 +232,13 @@ mod tests {
     #[test]
     fn exact_removal_preserves_descendant_documents() {
         let database = database();
-        put(&database, "admin", "Books", &json!({"page":1}), "a", 0, 1).unwrap();
-        put(
-            &database,
-            "admin",
-            "Books/novel.epub",
-            &json!({"page":9}),
-            "b",
-            0,
-            1,
-        )
-        .unwrap();
+        put(&database, "Books", &json!({"page":1}), "a", 0, 1).unwrap();
+        put(&database, "Books/novel.epub", &json!({"page":9}), "b", 0, 1).unwrap();
 
-        remove_exact(&database, "admin", "Books").unwrap();
+        remove_exact(&database, "Books").unwrap();
 
-        assert!(get(&database, "admin", "Books").unwrap().is_none());
-        assert!(
-            get(&database, "admin", "Books/novel.epub")
-                .unwrap()
-                .is_some()
-        );
+        assert!(get(&database, "Books").unwrap().is_none());
+        assert!(get(&database, "Books/novel.epub").unwrap().is_some());
         let _ = std::fs::remove_file(database);
     }
 
@@ -286,12 +246,12 @@ mod tests {
     fn preference_writes_require_current_revision() {
         let database = database();
         assert_eq!(
-            put_preferences(&database, "admin", &json!({"theme":"dark"}), 0, 1).unwrap(),
+            put_preferences(&database, &json!({"theme":"dark"}), 0, 1).unwrap(),
             1
         );
-        assert!(put_preferences(&database, "admin", &json!({"theme":"light"}), 0, 2).is_err());
+        assert!(put_preferences(&database, &json!({"theme":"light"}), 0, 2).is_err());
         assert_eq!(
-            put_preferences(&database, "admin", &json!({"theme":"light"}), 1, 3).unwrap(),
+            put_preferences(&database, &json!({"theme":"light"}), 1, 3).unwrap(),
             2
         );
         let _ = std::fs::remove_file(database);

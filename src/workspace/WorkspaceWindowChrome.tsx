@@ -1,4 +1,5 @@
 import type { FileDragData } from '@/lib/file-drag-data'
+import { contentWindowKind } from '@/lib/content-window'
 import type { PersistedWorkspaceState, WorkspaceWindowDefinition } from '@/lib/use-workspace'
 import type { FileIconContext } from '../lib/use-file-icon'
 import { createDefaultBounds } from '@/lib/workspace-geometry'
@@ -132,9 +133,13 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
   })
 
   const win = createMemo(() => props.workspace()?.windows.find((w) => w.id === liveLeaderId()))
-  const b = createMemo(
-    () => win()?.layout?.bounds ?? createDefaultBounds(0, win()?.type ?? 'browser'),
-  )
+  const b = createMemo(() => {
+    const window = win()
+    return (
+      window?.layout?.bounds ??
+      createDefaultBounds(0, window ? contentWindowKind(window) : 'browser')
+    )
+  })
   const isFullscreen = createMemo(() => win()?.layout?.fullscreen ?? false)
   const isMinimized = createMemo(() => win()?.layout?.minimized ?? false)
   const snapZone = createMemo(() => win()?.layout?.snapZone ?? null)

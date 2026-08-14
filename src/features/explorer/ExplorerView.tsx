@@ -68,12 +68,14 @@ function browseable<TPayload>(item: ExplorerItem<TPayload>): boolean {
   return item.resource.capabilities.includes('browse') || item.resource.presentation === 'browse'
 }
 
-function terminalActionId(action: ExplorerActionDescriptor): string {
-  return action.id.split(/[.:/]/).at(-1)?.toLowerCase() ?? action.id.toLowerCase()
+function actionOperation(action: ExplorerActionDescriptor): string {
+  return action.operation
 }
 
+const COMPACT_TOOLBAR_ACTIONS_WIDTH = 560
+
 function isRename(action: ExplorerActionDescriptor): boolean {
-  return action.optimisticEffect === 'rename' || terminalActionId(action) === 'rename'
+  return action.optimisticEffect === 'rename'
 }
 
 function isContentInstance(value: unknown): value is ContentInstance {
@@ -164,6 +166,8 @@ export function ExplorerView<TPayload>(props: ExplorerViewProps<TPayload>) {
   }> | null>(null)
   const [dialog, setDialog] = createSignal<ExplorerActionDialogState<TPayload> | null>(null)
   const [uploadMenuOpen, setUploadMenuOpen] = createSignal(false)
+  const [toolbarActionsOpen, setToolbarActionsOpen] = createSignal(false)
+  const [toolbarWidth, setToolbarWidth] = createSignal(Number.POSITIVE_INFINITY)
   const [uploadStatus, setUploadStatus] = createSignal<
     | Readonly<{ kind: 'hidden' }>
     | Readonly<{ kind: 'uploading'; count: number }>
@@ -184,6 +188,7 @@ export function ExplorerView<TPayload>(props: ExplorerViewProps<TPayload>) {
   let uploadFilesInput: HTMLInputElement | undefined
   let uploadFolderInput: HTMLInputElement | undefined
   let contentSearchInput: HTMLInputElement | undefined
+  let toolbarElement: HTMLDivElement | undefined
   let ownedNavigationKey: string | null = null
 
   const snapshot = (): ExplorerSnapshot<TPayload> => {
@@ -205,6 +210,24 @@ export function ExplorerView<TPayload>(props: ExplorerViewProps<TPayload>) {
     return snapshot().items.find((item) => item.resource.name.toLocaleLowerCase() === name)
   })
   const parentBreadcrumb = createMemo(() => snapshot().breadcrumbs.at(-2))
+  const locationActions = createMemo(() =>
+    snapshot().actions.filter(
+      (action) => action.scope === 'location' && action.interaction !== 'paste',
+    ),
+  )
+  const compactPrimaryLocationActions = createMemo(() =>
+    locationActions().filter((action) => {
+      const operation = actionOperation(action)
+      return operation === 'createFile' || operation === 'createFolder'
+    }),
+  )
+  const compactOverflowLocationActions = createMemo(() =>
+    locationActions().filter((action) => !compactPrimaryLocationActions().includes(action)),
+  )
+  const compactToolbarActions = createMemo(
+    () =>
+      toolbarWidth() < COMPACT_TOOLBAR_ACTIONS_WIDTH && compactOverflowLocationActions().length > 0,
+  )
   const hostActions = (item: ExplorerItem<TPayload>): readonly ExplorerHostAction<TPayload>[] =>
     (props.hostActions?.() ?? []).filter((action) => action.available?.(item) ?? true)
   const longPressHandlers = createLongPressContextMenuHandlers()
@@ -213,6 +236,15 @@ export function ExplorerView<TPayload>(props: ExplorerViewProps<TPayload>) {
 
   const unsubscribe = controller.subscribe(() => setRevision(controller.getSnapshot().revision))
   onMount(() => void controller.dispatch({ type: 'initialize' }))
+  onMount(() => {
+    if (!toolbarElement) return
+    const updateWidth = () =>
+      setToolbarWidth(toolbarElement?.clientWidth ?? Number.POSITIVE_INFINITY)
+    updateWidth()
+    const observer = new ResizeObserver(updateWidth)
+    observer.observe(toolbarElement)
+    onCleanup(() => observer.disconnect())
+  })
   onCleanup(() => {
     unsubscribe()
     controller.dispose()
@@ -338,6 +370,29 @@ export function ExplorerView<TPayload>(props: ExplorerViewProps<TPayload>) {
     if (!menu()) setOpenWithMenu(false)
   })
 
+  createEffect(() => {
+    if (!compactToolbarActions()) setToolbarActionsOpen(false)
+  })
+
+  createEffect(() => {
+    if (!toolbarActionsOpen()) return
+    const dismiss = (event: PointerEvent) => {
+      const target = event.target
+      if (!(target instanceof Element) || !target.closest('[data-explorer-toolbar-actions]')) {
+        setToolbarActionsOpen(false)
+      }
+    }
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setToolbarActionsOpen(false)
+    }
+    document.addEventListener('pointerdown', dismiss, true)
+    document.addEventListener('keydown', escape)
+    onCleanup(() => {
+      document.removeEventListener('pointerdown', dismiss, true)
+      document.removeEventListener('keydown', escape)
+    })
+  })
+
   async function navigate(location: ExplorerLocation) {
     const key = explorerResourceKey(location.key)
     ownedNavigationKey = key
@@ -358,7 +413,7 @@ export function ExplorerView<TPayload>(props: ExplorerViewProps<TPayload>) {
     if (event?.metaKey || event?.ctrlKey || event?.shiftKey) return
     if (browseable(item)) await navigate({ key: item.resource.key })
     else {
-      const providerOpen = item.actions.find((action) => terminalActionId(action) === 'open')
+      const providerOpen = item.actions.find((action) => actionOperation(action) === 'open')
       if (providerOpen) await runAction(providerOpen, item)
       else if (item.resource.presentation === 'unsupported') {
         if (props.onUnsupportedChange) props.onUnsupportedChange(item)
@@ -427,7 +482,7 @@ export function ExplorerView<TPayload>(props: ExplorerViewProps<TPayload>) {
     const result = await runAction(current.action, current.item, input)
     if (result.kind === 'command') {
       setDialog(null)
-      if (terminalActionId(current.action) === 'createfile') {
+      if (actionOperation(current.action) === 'createFile') {
         const name = outcomeRecord(input)?.name
         const created =
           typeof name === 'string'
@@ -537,7 +592,7 @@ export function ExplorerView<TPayload>(props: ExplorerViewProps<TPayload>) {
 
   function dragOverItem(item: ExplorerItem<TPayload>, event: DragEvent) {
     const source = draggedItem()
-    const move = source?.actions.find((action) => terminalActionId(action) === 'move')
+    const move = source?.actions.find((action) => actionOperation(action) === 'move')
     if (source && move && browseable(item) && source.key !== item.key) {
       event.preventDefault()
       if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
@@ -548,7 +603,7 @@ export function ExplorerView<TPayload>(props: ExplorerViewProps<TPayload>) {
 
   function dropOnItem(item: ExplorerItem<TPayload>, event: DragEvent) {
     const source = draggedItem()
-    const move = source?.actions.find((action) => terminalActionId(action) === 'move')
+    const move = source?.actions.find((action) => actionOperation(action) === 'move')
     if (source && move && browseable(item) && source.key !== item.key) {
       event.preventDefault()
       setDraggedItem(null)
@@ -632,7 +687,7 @@ export function ExplorerView<TPayload>(props: ExplorerViewProps<TPayload>) {
       }}
       tabindex={snapshot().focusedKey === item.key ? 0 : -1}
       draggable={
-        !!props.onDragStart || item.actions.some((action) => terminalActionId(action) === 'move')
+        !!props.onDragStart || item.actions.some((action) => actionOperation(action) === 'move')
       }
       onClick={(event) => void openItem(item, event)}
       onContextMenu={(event) => {
@@ -672,7 +727,7 @@ export function ExplorerView<TPayload>(props: ExplorerViewProps<TPayload>) {
         {item.resource.size === undefined ? '' : formatFileSize(item.resource.size)}
       </td>
       <td class='explorer-list-actions p-2'>
-        <Show when={item.actions.find((action) => terminalActionId(action) === 'favorite')} keyed>
+        <Show when={item.actions.find((action) => actionOperation(action) === 'favorite')} keyed>
           {(favoriteAction) => (
             <button
               type='button'
@@ -728,7 +783,7 @@ export function ExplorerView<TPayload>(props: ExplorerViewProps<TPayload>) {
         'ring-2 ring-primary/50': snapshot().focusedKey === item.key,
       }}
       draggable={
-        !!props.onDragStart || item.actions.some((action) => terminalActionId(action) === 'move')
+        !!props.onDragStart || item.actions.some((action) => actionOperation(action) === 'move')
       }
       onClick={(event) => void openItem(item, event)}
       onKeyDown={(event) => {
@@ -748,7 +803,7 @@ export function ExplorerView<TPayload>(props: ExplorerViewProps<TPayload>) {
       onDragOver={(event) => dragOverItem(item, event)}
       onDrop={(event) => dropOnItem(item, event)}
     >
-      <Show when={item.actions.find((action) => terminalActionId(action) === 'favorite')} keyed>
+      <Show when={item.actions.find((action) => actionOperation(action) === 'favorite')} keyed>
         {(favoriteAction) => (
           <button
             type='button'
@@ -826,7 +881,12 @@ export function ExplorerView<TPayload>(props: ExplorerViewProps<TPayload>) {
         if (props.active?.() ?? true) void handlePaste(event)
       }}
     >
-      <div class='flex min-h-9 shrink-0 items-center gap-1 border-b border-border bg-muted/40 px-2'>
+      <div
+        ref={(element) => {
+          toolbarElement = element
+        }}
+        class='flex min-h-9 shrink-0 items-center gap-1 border-b border-border bg-muted/40 px-2'
+      >
         <button
           type='button'
           class='inline-flex h-7 w-7 items-center justify-center rounded hover:bg-muted disabled:opacity-40'
@@ -848,7 +908,9 @@ export function ExplorerView<TPayload>(props: ExplorerViewProps<TPayload>) {
         <div
           data-testid='breadcrumb-slot'
           data-breadcrumb-slot
-          class='relative flex w-0 min-w-0 flex-1 items-center overflow-hidden whitespace-nowrap'
+          class={`relative flex w-0 flex-1 items-center overflow-hidden whitespace-nowrap ${
+            compactToolbarActions() ? 'min-w-24' : 'min-w-0'
+          }`}
         >
           <ExplorerBreadcrumbs
             breadcrumbs={() => snapshot().breadcrumbs}
@@ -881,75 +943,142 @@ export function ExplorerView<TPayload>(props: ExplorerViewProps<TPayload>) {
             <BookOpenText class='h-3.5 w-3.5' />
           </button>
         </Show>
-        <For each={snapshot().actions.filter((action) => action.scope === 'location')}>
+        <For each={compactToolbarActions() ? compactPrimaryLocationActions() : locationActions()}>
           {(action) => (
-            <Show when={action.interaction !== 'paste'}>
-              <div class='relative'>
-                <button
-                  type='button'
-                  class='inline-flex h-7 min-w-7 items-center justify-center rounded px-1.5 text-xs hover:bg-muted disabled:opacity-50'
-                  disabled={snapshot().pendingCommands.length > 0}
-                  aria-label={
-                    terminalActionId(action) === 'createfile'
+            <div class='relative'>
+              <button
+                type='button'
+                class='inline-flex h-7 min-w-7 items-center justify-center rounded px-1.5 text-xs hover:bg-muted disabled:opacity-50'
+                disabled={snapshot().pendingCommands.length > 0}
+                aria-label={
+                  actionOperation(action) === 'createFile'
+                    ? action.label.toLocaleLowerCase().startsWith('create new')
+                      ? 'New file'
+                      : action.label
+                    : actionOperation(action) === 'createFolder'
                       ? action.label.toLocaleLowerCase().startsWith('create new')
-                        ? 'New file'
+                        ? 'New folder'
                         : action.label
-                      : terminalActionId(action) === 'createfolder'
-                        ? action.label.toLocaleLowerCase().startsWith('create new')
-                          ? 'New folder'
-                          : action.label
-                        : action.label
+                      : action.label
+                }
+                title={action.label}
+                aria-expanded={action.interaction === 'upload' ? uploadMenuOpen() : undefined}
+                onClick={() => void invokeAction(action)}
+              >
+                <Show
+                  when={actionOperation(action) === 'createFile'}
+                  fallback={
+                    <Show
+                      when={actionOperation(action) === 'createFolder'}
+                      fallback={
+                        <Show when={action.interaction === 'upload'} fallback={action.label}>
+                          <Upload class='h-3.5 w-3.5' />
+                        </Show>
+                      }
+                    >
+                      <FolderPlus class='h-3.5 w-3.5' />
+                    </Show>
                   }
-                  title={action.label}
-                  aria-expanded={action.interaction === 'upload' ? uploadMenuOpen() : undefined}
-                  onClick={() => void invokeAction(action)}
                 >
-                  <Show
-                    when={terminalActionId(action) === 'createfile'}
-                    fallback={
-                      <Show
-                        when={terminalActionId(action) === 'createfolder'}
-                        fallback={
-                          <Show when={action.interaction === 'upload'} fallback={action.label}>
-                            <Upload class='h-3.5 w-3.5' />
-                          </Show>
-                        }
-                      >
-                        <FolderPlus class='h-3.5 w-3.5' />
-                      </Show>
-                    }
-                  >
-                    <FilePlus class='h-3.5 w-3.5' />
-                  </Show>
-                </button>
-                <Show when={action.interaction === 'upload' && uploadMenuOpen()}>
-                  <div
-                    data-upload-menu
-                    class='absolute top-full right-0 z-50 mt-1 min-w-36 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md'
-                    role='menu'
-                  >
-                    <button
-                      type='button'
-                      role='menuitem'
-                      class='block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-muted'
-                      onClick={() => uploadFilesInput?.click()}
-                    >
-                      Upload files
-                    </button>
-                    <button
-                      type='button'
-                      role='menuitem'
-                      class='block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-muted'
-                      onClick={() => uploadFolderInput?.click()}
-                    >
-                      Upload folder
-                    </button>
-                  </div>
+                  <FilePlus class='h-3.5 w-3.5' />
                 </Show>
-              </div>
-            </Show>
+              </button>
+              <Show when={action.interaction === 'upload' && uploadMenuOpen()}>
+                <div
+                  data-upload-menu
+                  class='absolute top-full right-0 z-50 mt-1 min-w-36 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md'
+                  role='menu'
+                >
+                  <button
+                    type='button'
+                    role='menuitem'
+                    class='block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-muted'
+                    onClick={() => uploadFilesInput?.click()}
+                  >
+                    Upload files
+                  </button>
+                  <button
+                    type='button'
+                    role='menuitem'
+                    class='block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-muted'
+                    onClick={() => uploadFolderInput?.click()}
+                  >
+                    Upload folder
+                  </button>
+                </div>
+              </Show>
+            </div>
           )}
         </For>
+        <Show when={compactToolbarActions()}>
+          <div class='relative shrink-0' data-explorer-toolbar-actions>
+            <button
+              type='button'
+              class='inline-flex h-7 w-7 items-center justify-center rounded hover:bg-muted'
+              aria-label='Location actions'
+              title='Location actions'
+              aria-haspopup='menu'
+              aria-expanded={toolbarActionsOpen()}
+              onClick={() => setToolbarActionsOpen((open) => !open)}
+            >
+              <MoreHorizontal class='h-3.5 w-3.5' />
+            </button>
+            <Show when={toolbarActionsOpen()}>
+              <div
+                data-testid='explorer-location-actions-menu'
+                role='menu'
+                class='absolute top-full right-0 z-[10020] mt-1 max-h-72 min-w-48 overflow-y-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg'
+              >
+                <For each={compactOverflowLocationActions()}>
+                  {(action) => (
+                    <Show
+                      when={action.interaction === 'upload'}
+                      fallback={
+                        <button
+                          type='button'
+                          role='menuitem'
+                          class='block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-muted disabled:opacity-50'
+                          disabled={snapshot().pendingCommands.length > 0}
+                          onClick={() => {
+                            setToolbarActionsOpen(false)
+                            void invokeAction(action)
+                          }}
+                        >
+                          {action.label}
+                        </button>
+                      }
+                    >
+                      <button
+                        type='button'
+                        role='menuitem'
+                        class='block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-muted disabled:opacity-50'
+                        disabled={snapshot().pendingCommands.length > 0}
+                        onClick={() => {
+                          setToolbarActionsOpen(false)
+                          uploadFilesInput?.click()
+                        }}
+                      >
+                        Upload files
+                      </button>
+                      <button
+                        type='button'
+                        role='menuitem'
+                        class='block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-muted disabled:opacity-50'
+                        disabled={snapshot().pendingCommands.length > 0}
+                        onClick={() => {
+                          setToolbarActionsOpen(false)
+                          uploadFolderInput?.click()
+                        }}
+                      >
+                        Upload folder
+                      </button>
+                    </Show>
+                  )}
+                </For>
+              </div>
+            </Show>
+          </div>
+        </Show>
         <input
           ref={(element) => {
             uploadFilesInput = element
@@ -1260,7 +1389,7 @@ export function ExplorerView<TPayload>(props: ExplorerViewProps<TPayload>) {
                   role='menuitem'
                   data-slot='context-menu-item'
                   data-testid={
-                    terminalActionId(action) === 'customicon'
+                    actionOperation(action) === 'customIcon'
                       ? 'breadcrumb-menu-set-icon'
                       : undefined
                   }
@@ -1278,7 +1407,7 @@ export function ExplorerView<TPayload>(props: ExplorerViewProps<TPayload>) {
             </Show>
             <For
               each={hostActions(current.item).filter(
-                (action) => terminalActionId(action.descriptor) !== 'openwithreader',
+                (action) => actionOperation(action.descriptor) !== 'openWithReader',
               )}
             >
               {(action) => (
@@ -1287,11 +1416,11 @@ export function ExplorerView<TPayload>(props: ExplorerViewProps<TPayload>) {
                   role='menuitem'
                   data-slot='context-menu-item'
                   data-testid={
-                    terminalActionId(action.descriptor) === 'openinnewtab'
+                    actionOperation(action.descriptor) === 'openInNewTab'
                       ? 'breadcrumb-menu-open-new-tab'
-                      : terminalActionId(action.descriptor) === 'openinsplitview'
+                      : actionOperation(action.descriptor) === 'openInSplitView'
                         ? 'workspace-file-menu-open-split-view'
-                        : terminalActionId(action.descriptor) === 'openinworkspace'
+                        : actionOperation(action.descriptor) === 'openInWorkspace'
                           ? 'breadcrumb-menu-open-workspace'
                           : undefined
                   }
@@ -1307,7 +1436,7 @@ export function ExplorerView<TPayload>(props: ExplorerViewProps<TPayload>) {
             </For>
             <Show
               when={hostActions(current.item).find(
-                (action) => terminalActionId(action.descriptor) === 'openwithreader',
+                (action) => actionOperation(action.descriptor) === 'openWithReader',
               )}
               keyed
             >
@@ -1382,8 +1511,8 @@ export function ExplorerView<TPayload>(props: ExplorerViewProps<TPayload>) {
           >
             <For
               each={snapshot().actions.filter((action) => {
-                const id = terminalActionId(action)
-                return id === 'createfile' || id === 'createfolder'
+                const operation = actionOperation(action)
+                return operation === 'createFile' || operation === 'createFolder'
               })}
             >
               {(action) => (
@@ -1391,7 +1520,7 @@ export function ExplorerView<TPayload>(props: ExplorerViewProps<TPayload>) {
                   type='button'
                   role='menuitem'
                   data-testid={
-                    terminalActionId(action) === 'createfile'
+                    actionOperation(action) === 'createFile'
                       ? 'directory-bg-menu-new-file'
                       : 'directory-bg-menu-new-folder'
                   }
@@ -1401,7 +1530,7 @@ export function ExplorerView<TPayload>(props: ExplorerViewProps<TPayload>) {
                     void invokeAction(action)
                   }}
                 >
-                  {terminalActionId(action) === 'createfile' ? 'New file' : 'New folder'}
+                  {actionOperation(action) === 'createFile' ? 'New file' : 'New folder'}
                 </button>
               )}
             </For>
@@ -1438,7 +1567,7 @@ export function ExplorerView<TPayload>(props: ExplorerViewProps<TPayload>) {
                 }}
                 onDownload={() => {
                   const action = item.actions.find(
-                    (candidate) => terminalActionId(candidate) === 'download',
+                    (candidate) => actionOperation(candidate) === 'download',
                   )
                   if (action) return runAction(action, item).then(() => undefined)
                 }}
@@ -1619,7 +1748,7 @@ export function ExplorerView<TPayload>(props: ExplorerViewProps<TPayload>) {
                   fileName={current.item?.resource.name ?? ''}
                   filePath={picker.filePath}
                   editableFolders={[...picker.editableFolders]}
-                  mode={terminalActionId(current.action) === 'copy' ? 'copy' : 'move'}
+                  mode={actionOperation(current.action) === 'copy' ? 'copy' : 'move'}
                   isPending={snapshot().pendingCommands.length > 0}
                   error={snapshot().error ? new Error(snapshot().error!.message) : null}
                   onConfirm={(destinationDir) => void submitDialog({ destination: destinationDir })}

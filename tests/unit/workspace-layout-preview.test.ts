@@ -1,16 +1,11 @@
 import { describe, expect, test } from 'bun:test'
-import { MediaType } from '@/lib/types'
+import '@/src/integrations/current-window-content'
 import {
   computeLayoutPreviewDetail,
   computeLayoutPreviewNorm,
 } from '@/lib/workspace-layout-preview'
-import {
-  serializeWorkspacePersistedState,
-  type PersistedWorkspaceState,
-  type WorkspaceSource,
-} from '@/lib/use-workspace'
-
-const localSource: WorkspaceSource = { kind: 'local', rootPath: null }
+import { serializeWorkspacePersistedState, type PersistedWorkspaceState } from '@/lib/use-workspace'
+import { workspaceWindow } from './workspace-window-fixture'
 
 function baseState(windows: PersistedWorkspaceState['windows']): PersistedWorkspaceState {
   return {
@@ -29,32 +24,20 @@ function currentSnapshot(state: PersistedWorkspaceState): PersistedWorkspaceStat
 describe('computeLayoutPreviewDetail', () => {
   test('two snapped groups: one tab strip per window', () => {
     const snap: PersistedWorkspaceState = baseState([
-      {
+      workspaceWindow({
         id: 'a',
-        type: 'browser',
         title: 'First',
-        iconName: null,
-        iconPath: '',
-        iconType: MediaType.FOLDER,
-        iconIsVirtual: false,
-        source: localSource,
-        initialState: { dir: '/a' },
+        path: 'a',
         tabGroupId: null,
         layout: { snapZone: 'left', zIndex: 1, minimized: false },
-      },
-      {
+      }),
+      workspaceWindow({
         id: 'b',
-        type: 'browser',
         title: 'Second',
-        iconName: null,
-        iconPath: '',
-        iconType: MediaType.FOLDER,
-        iconIsVirtual: false,
-        source: localSource,
-        initialState: { dir: '/b' },
+        path: 'b',
         tabGroupId: null,
         layout: { snapZone: 'right', zIndex: 2, minimized: false },
-      },
+      }),
     ])
     const detail = computeLayoutPreviewDetail(currentSnapshot(snap))
     expect(detail).not.toBeNull()
@@ -74,32 +57,20 @@ describe('computeLayoutPreviewDetail', () => {
     const snap: PersistedWorkspaceState = {
       ...baseState([]),
       windows: [
-        {
+        workspaceWindow({
           id: 't1',
-          type: 'browser',
           title: 'Alpha',
-          iconName: null,
-          iconPath: '',
-          iconType: MediaType.FOLDER,
-          iconIsVirtual: false,
-          source: localSource,
-          initialState: { dir: '/a' },
+          path: 'a',
           tabGroupId: 'grp',
           layout: { zIndex: 1, minimized: false },
-        },
-        {
+        }),
+        workspaceWindow({
           id: 't2',
-          type: 'browser',
           title: 'Beta',
-          iconName: null,
-          iconPath: '',
-          iconType: MediaType.FOLDER,
-          iconIsVirtual: false,
-          source: localSource,
-          initialState: { dir: '/b' },
+          path: 'b',
           tabGroupId: 'grp',
           layout: { zIndex: 1, minimized: false },
-        },
+        }),
       ],
       activeWindowId: 't1',
     }
@@ -117,32 +88,22 @@ describe('computeLayoutPreviewDetail', () => {
     const snap: PersistedWorkspaceState = {
       ...baseState([]),
       windows: [
-        {
+        workspaceWindow({
           id: 'left',
-          type: 'browser',
           title: 'Browser',
-          iconName: null,
-          iconPath: '',
-          iconType: MediaType.FOLDER,
-          iconIsVirtual: false,
-          source: localSource,
-          initialState: { dir: '/a' },
+          path: 'a',
           tabGroupId: 'grp',
           layout: { zIndex: 1, minimized: false },
-        },
-        {
+        }),
+        workspaceWindow({
           id: 'right',
-          type: 'viewer',
           title: 'Video',
-          iconName: null,
-          iconPath: '',
-          iconType: MediaType.VIDEO,
-          iconIsVirtual: false,
-          source: localSource,
-          initialState: { dir: '/', viewing: '/video.mp4' },
+          contentKind: 'resource',
+          path: 'video.mp4',
+          renderer: 'filesystem.video',
           tabGroupId: 'grp',
           layout: { zIndex: 1, minimized: false },
-        },
+        }),
       ],
       activeWindowId: 'right',
       tabGroupSplits: {
@@ -165,33 +126,21 @@ describe('computeLayoutPreviewDetail', () => {
     const snap: PersistedWorkspaceState = {
       ...baseState([]),
       windows: [
-        {
+        workspaceWindow({
           id: 't1',
-          type: 'browser',
           title: 'Pinned',
-          iconName: null,
-          iconPath: '',
-          iconType: MediaType.FOLDER,
-          iconIsVirtual: false,
-          source: localSource,
-          initialState: { dir: '/a' },
+          path: 'a',
           tabGroupId: 'grp',
           tabPinned: true,
           layout: { zIndex: 1, minimized: false },
-        },
-        {
+        }),
+        workspaceWindow({
           id: 't2',
-          type: 'browser',
           title: 'Free',
-          iconName: null,
-          iconPath: '',
-          iconType: MediaType.FOLDER,
-          iconIsVirtual: false,
-          source: localSource,
-          initialState: { dir: '/b' },
+          path: 'b',
           tabGroupId: 'grp',
           layout: { zIndex: 1, minimized: false },
-        },
+        }),
       ],
       activeWindowId: 't2',
     }
@@ -207,23 +156,16 @@ describe('computeLayoutPreviewDetail', () => {
 
   test('floating window uses full workspace frame (not stretched to fill preview)', () => {
     const snap: PersistedWorkspaceState = baseState([
-      {
+      workspaceWindow({
         id: 'w1',
-        type: 'browser',
         title: 'Home',
-        iconName: null,
-        iconPath: '',
-        iconType: MediaType.FOLDER,
-        iconIsVirtual: false,
-        source: localSource,
-        initialState: { dir: '/' },
         tabGroupId: null,
         layout: {
           minimized: false,
           zIndex: 1,
           bounds: { x: 220, y: 72, width: 520, height: 340 },
         },
-      },
+      }),
     ])
     const detail = computeLayoutPreviewDetail(currentSnapshot(snap))
     expect(detail).not.toBeNull()
@@ -252,32 +194,20 @@ describe('computeLayoutPreviewDetail', () => {
 describe('computeLayoutPreviewNorm', () => {
   test('matches group bounding boxes', () => {
     const snap: PersistedWorkspaceState = baseState([
-      {
+      workspaceWindow({
         id: 'a',
-        type: 'browser',
         title: 'a',
-        iconName: null,
-        iconPath: '',
-        iconType: MediaType.FOLDER,
-        iconIsVirtual: false,
-        source: localSource,
-        initialState: { dir: '/a' },
+        path: 'a',
         tabGroupId: null,
         layout: { snapZone: 'left', zIndex: 1, minimized: false },
-      },
-      {
+      }),
+      workspaceWindow({
         id: 'b',
-        type: 'browser',
         title: 'b',
-        iconName: null,
-        iconPath: '',
-        iconType: MediaType.FOLDER,
-        iconIsVirtual: false,
-        source: localSource,
-        initialState: { dir: '/b' },
+        path: 'b',
         tabGroupId: null,
         layout: { snapZone: 'right', zIndex: 2, minimized: false },
-      },
+      }),
     ])
     const norm = computeLayoutPreviewNorm(currentSnapshot(snap))
     expect(norm).not.toBeNull()

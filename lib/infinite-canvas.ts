@@ -1,8 +1,8 @@
 import {
+  isRuntimeOnlyPersistedContentWindow,
   persistedContentWindowRecord,
   restorePersistedContentWindow,
 } from './content-window-persistence'
-import { isRuntimeOnlyContentWindow } from '@/src/integrations/current-window-content'
 import type { ContentInstance } from './domain/content'
 import type { ContentWindowDefinition } from './content-window'
 
@@ -56,7 +56,7 @@ export function createEmptyCanvasState(): InfiniteCanvasState {
   }
 }
 
-function cloneRuntimeContent(instance: ContentInstance): ContentInstance {
+function cloneContentInstance(instance: ContentInstance): ContentInstance {
   if (
     instance.type === 'integration' &&
     typeof instance.state === 'object' &&
@@ -68,7 +68,6 @@ function cloneRuntimeContent(instance: ContentInstance): ContentInstance {
   return { ...instance }
 }
 
-/** Clone live canvas state without applying persistence-only filtering. */
 export function cloneInfiniteCanvasState(state: InfiniteCanvasState): InfiniteCanvasState {
   return {
     ...state,
@@ -81,11 +80,9 @@ export function cloneInfiniteCanvasState(state: InfiniteCanvasState): InfiniteCa
       bounds: { ...window.bounds },
       definition: {
         ...window.definition,
-        source: { ...window.definition.source },
-        initialState: { ...window.definition.initialState },
-        ...(window.definition.runtimeContent
+        ...(window.definition.contentInstance
           ? {
-              runtimeContent: cloneRuntimeContent(window.definition.runtimeContent),
+              contentInstance: cloneContentInstance(window.definition.contentInstance),
             }
           : {}),
       },
@@ -93,7 +90,7 @@ export function cloneInfiniteCanvasState(state: InfiniteCanvasState): InfiniteCa
   }
 }
 
-/** Compare live canvas state, including unsaved Hermes drafts. */
+/** Compare live canvas state, including unsaved integration drafts. */
 export function equalInfiniteCanvasState(
   left: InfiniteCanvasState,
   right: InfiniteCanvasState,
@@ -129,7 +126,8 @@ export function reconcileInfiniteCanvasState(
   })
   const incomingIds = new Set(incomingWindows.map((window) => window.id))
   const liveDrafts = current.windows.filter(
-    (window) => isRuntimeOnlyContentWindow(window.definition) && !incomingIds.has(window.id),
+    (window) =>
+      isRuntimeOnlyPersistedContentWindow(window.definition) && !incomingIds.has(window.id),
   )
   const windows = preserveArray(current.windows, [...incomingWindows, ...liveDrafts])
   return {
@@ -215,9 +213,16 @@ function finiteNumber(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback
 }
 
+function hasOnlyKeys(value: object, keys: readonly string[]): boolean {
+  const allowed = new Set(keys)
+  return Object.keys(value).every((key) => allowed.has(key))
+}
+
 function parseRect(value: unknown): CanvasRect | null {
-  if (!value || typeof value !== 'object') return null
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  if (!hasOnlyKeys(value, ['x', 'y', 'width', 'height'])) return null
   const raw = value as Partial<CanvasRect>
+  if (![raw.x, raw.y, raw.width, raw.height].every((part) => typeof part === 'number')) return null
   const width = finiteNumber(raw.width, 0)
   const height = finiteNumber(raw.height, 0)
   if (width <= 0 || height <= 0) return null
@@ -230,7 +235,8 @@ function parseRect(value: unknown): CanvasRect | null {
 }
 
 function parseWindowSize(value: unknown): CanvasWindowSize | undefined {
-  if (!value || typeof value !== 'object') return undefined
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  if (!hasOnlyKeys(value, ['width', 'height'])) return undefined
   const raw = value as Partial<CanvasWindowSize>
   const bounds = snapCanvasRect({
     x: 0,
@@ -248,7 +254,20 @@ function canvasItemNumber(id: string): number {
 }
 
 export function parseInfiniteCanvasState(value: unknown): InfiniteCanvasState | null {
-  if (!value || typeof value !== 'object') return null
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  if (
+    !hasOnlyKeys(value, [
+      'version',
+      'windows',
+      'maximizedWindowId',
+      'camera',
+      'windowSizeByType',
+      'nextItemId',
+      'nextZIndex',
+    ])
+  ) {
+    return null
+  }
   const raw = value as Partial<InfiniteCanvasState>
   if (raw.version !== CANVAS_SCHEMA_VERSION || !Array.isArray(raw.windows)) {
     return null
@@ -256,41 +275,25 @@ export function parseInfiniteCanvasState(value: unknown): InfiniteCanvasState | 
   const itemIds = new Set<string>()
   const windows: CanvasWindow[] = []
   for (const value of raw.windows) {
-    if (!value || typeof value !== 'object') continue
+    if (
+      !value ||
+      typeof value !== 'object' ||
+      Array.isArray(value) ||
+      !hasOnlyKeys(value, ['id', 'definition', 'bounds', 'zIndex'])
+    ) {
+      continue
+    }
     const window = value as Partial<CanvasWindow>
     const bounds = parseRect(window.bounds)
-    const definition = restorePersistedContentWindow(window.definition)
+    const definition = restorePersistedContentWindow(window.definition, [])
     if (!bounds || typeof window.id !== 'string' || itemIds.has(window.id) || !definition) continue
-    if (
-      definition.id !== window.id ||
-      (definition.type !== 'browser' &&
-        definition.type !== 'viewer' &&
-        definition.type !== 'integration')
-    )
-      continue
+    if (definition.id !== window.id) continue
     itemIds.add(window.id)
-    const initialStateRaw =
-      definition.initialState && typeof definition.initialState === 'object'
-        ? definition.initialState
-        : {}
     windows.push({
       id: window.id,
       definition: {
         ...definition,
         title: typeof definition.title === 'string' ? definition.title : window.id,
-        source: { kind: 'local' },
-        initialState: {
-          ...(typeof initialStateRaw.dir === 'string' ? { dir: initialStateRaw.dir } : {}),
-          ...(typeof initialStateRaw.viewing === 'string'
-            ? { viewing: initialStateRaw.viewing }
-            : {}),
-          ...(definition.type === 'viewer' &&
-          (initialStateRaw.readerKind === 'pdf' ||
-            initialStateRaw.readerKind === 'folder' ||
-            initialStateRaw.readerKind === 'book')
-            ? { readerKind: initialStateRaw.readerKind }
-            : {}),
-        },
       },
       bounds,
       zIndex: Math.max(1, Math.floor(finiteNumber(window.zIndex, 1))),
@@ -311,6 +314,18 @@ export function parseInfiniteCanvasState(value: unknown): InfiniteCanvasState | 
     'viewer-pdf',
     'viewer-other',
   ]
+  if (
+    !cameraRaw ||
+    typeof cameraRaw !== 'object' ||
+    Array.isArray(cameraRaw) ||
+    !hasOnlyKeys(cameraRaw, ['x', 'y', 'zoom']) ||
+    !sizesRaw ||
+    typeof sizesRaw !== 'object' ||
+    Array.isArray(sizesRaw) ||
+    !hasOnlyKeys(sizesRaw, sizeKeys)
+  ) {
+    return null
+  }
   const windowSizeByType = Object.fromEntries(
     sizeKeys.flatMap((key) => {
       const size = parseWindowSize(sizesRaw?.[key])

@@ -1,12 +1,46 @@
 import { describe, expect, test } from 'bun:test'
-import { MediaType } from '@/lib/types'
+import '@/src/integrations/current-window-content'
+import { filesystemResourceKey } from '@/lib/domain/resource'
 import {
   normalizePersistedWorkspaceState,
   resolveNewTabAnchorWindowId,
   serializeWorkspacePersistedState,
   type PersistedWorkspaceState,
+  type WorkspaceWindowDefinition,
 } from '@/lib/use-workspace'
-import { DEFAULT_WORKSPACE_SOURCE } from '@/src/workspace/workspace-page-persistence'
+
+function explorerWindow(
+  id: string,
+  extra: Partial<WorkspaceWindowDefinition> = {},
+): WorkspaceWindowDefinition {
+  return {
+    id,
+    title: id,
+    contentInstance: {
+      id,
+      type: 'explorer',
+      location: filesystemResourceKey('configured-default', ''),
+    },
+    tabGroupId: null,
+    layout: {},
+    ...extra,
+  }
+}
+
+function viewerWindow(id: string): WorkspaceWindowDefinition {
+  return {
+    id,
+    title: id,
+    contentInstance: {
+      id,
+      type: 'resource',
+      resource: filesystemResourceKey('configured-default', 'x.mp4'),
+      renderer: 'video-player',
+    },
+    tabGroupId: null,
+    layout: {},
+  }
+}
 
 function minimalState(windows: PersistedWorkspaceState['windows']): PersistedWorkspaceState {
   return {
@@ -18,79 +52,29 @@ function minimalState(windows: PersistedWorkspaceState['windows']): PersistedWor
   }
 }
 
-function currentPersistedState(value: unknown): unknown {
-  return JSON.parse(serializeWorkspacePersistedState(value as PersistedWorkspaceState))
+function currentPersistedState(value: PersistedWorkspaceState): unknown {
+  return JSON.parse(serializeWorkspacePersistedState(value))
 }
 
 describe('resolveNewTabAnchorWindowId', () => {
   test('falls back to browser id when no target', () => {
-    const state = minimalState([
-      {
-        id: 'workspace-window-1',
-        type: 'browser',
-        title: 'A',
-        iconName: null,
-        iconPath: '',
-        iconType: MediaType.FOLDER,
-        iconIsVirtual: false,
-        source: DEFAULT_WORKSPACE_SOURCE,
-        initialState: {},
-        tabGroupId: null,
-        layout: {},
-      },
-    ])
+    const state = minimalState([explorerWindow('workspace-window-1')])
     expect(resolveNewTabAnchorWindowId(state, 'workspace-window-1')).toBe('workspace-window-1')
   })
 
   test('uses fileOpenTargetWindowId when present and valid', () => {
     const state = minimalState([
-      {
-        id: 'workspace-window-1',
-        type: 'browser',
-        title: 'A',
-        iconName: null,
-        iconPath: '',
-        iconType: MediaType.FOLDER,
-        iconIsVirtual: false,
-        source: DEFAULT_WORKSPACE_SOURCE,
-        initialState: {},
-        tabGroupId: null,
-        layout: {},
+      explorerWindow('workspace-window-1', {
         fileOpenTargetWindowId: 'workspace-window-2',
-      },
-      {
-        id: 'workspace-window-2',
-        type: 'viewer',
-        title: 'V',
-        iconName: null,
-        iconPath: '/x',
-        iconType: MediaType.VIDEO,
-        iconIsVirtual: false,
-        source: DEFAULT_WORKSPACE_SOURCE,
-        initialState: { viewing: '/x' },
-        tabGroupId: null,
-        layout: {},
-      },
+      }),
+      viewerWindow('workspace-window-2'),
     ])
     expect(resolveNewTabAnchorWindowId(state, 'workspace-window-1')).toBe('workspace-window-2')
   })
 
   test('falls back when target id missing', () => {
     const state = minimalState([
-      {
-        id: 'workspace-window-1',
-        type: 'browser',
-        title: 'A',
-        iconName: null,
-        iconPath: '',
-        iconType: MediaType.FOLDER,
-        iconIsVirtual: false,
-        source: DEFAULT_WORKSPACE_SOURCE,
-        initialState: {},
-        tabGroupId: null,
-        layout: {},
-        fileOpenTargetWindowId: 'missing',
-      },
+      explorerWindow('workspace-window-1', { fileOpenTargetWindowId: 'missing' }),
     ])
     expect(resolveNewTabAnchorWindowId(state, 'workspace-window-1')).toBe('workspace-window-1')
   })
@@ -98,60 +82,28 @@ describe('resolveNewTabAnchorWindowId', () => {
 
 describe('normalizePersistedWorkspaceState fileOpenTargetWindowId', () => {
   test('strips target equal to browser id', () => {
-    const raw = {
-      windows: [
-        {
-          id: 'workspace-window-1',
-          type: 'browser',
-          title: 'A',
-          iconName: null,
-          iconPath: '',
-          iconType: MediaType.FOLDER,
-          iconIsVirtual: false,
-          source: DEFAULT_WORKSPACE_SOURCE,
-          initialState: {},
-          tabGroupId: null,
-          layout: { bounds: { x: 0, y: 0, width: 400, height: 300 } },
-          fileOpenTargetWindowId: 'workspace-window-1',
-        },
-      ],
-      activeWindowId: 'workspace-window-1',
-      activeTabMap: {},
-      nextWindowId: 2,
-      pinnedTaskbarItems: [],
-    }
-    const n = normalizePersistedWorkspaceState(currentPersistedState(raw), {
+    const state = minimalState([
+      explorerWindow('workspace-window-1', {
+        layout: { bounds: { x: 0, y: 0, width: 400, height: 300 } },
+        fileOpenTargetWindowId: 'workspace-window-1',
+      }),
+    ])
+    const normalized = normalizePersistedWorkspaceState(currentPersistedState(state), {
       reconcileSnapZones: false,
     })
-    expect(n?.windows[0]?.fileOpenTargetWindowId).toBeUndefined()
+    expect(normalized?.windows[0]?.fileOpenTargetWindowId).toBeUndefined()
   })
 
   test('strips target when referenced window missing', () => {
-    const raw = {
-      windows: [
-        {
-          id: 'workspace-window-1',
-          type: 'browser',
-          title: 'A',
-          iconName: null,
-          iconPath: '',
-          iconType: MediaType.FOLDER,
-          iconIsVirtual: false,
-          source: DEFAULT_WORKSPACE_SOURCE,
-          initialState: {},
-          tabGroupId: null,
-          layout: { bounds: { x: 0, y: 0, width: 400, height: 300 } },
-          fileOpenTargetWindowId: 'nope',
-        },
-      ],
-      activeWindowId: 'workspace-window-1',
-      activeTabMap: {},
-      nextWindowId: 2,
-      pinnedTaskbarItems: [],
-    }
-    const n = normalizePersistedWorkspaceState(currentPersistedState(raw), {
+    const state = minimalState([
+      explorerWindow('workspace-window-1', {
+        layout: { bounds: { x: 0, y: 0, width: 400, height: 300 } },
+        fileOpenTargetWindowId: 'nope',
+      }),
+    ])
+    const normalized = normalizePersistedWorkspaceState(currentPersistedState(state), {
       reconcileSnapZones: false,
     })
-    expect(n?.windows[0]?.fileOpenTargetWindowId).toBeUndefined()
+    expect(normalized?.windows[0]?.fileOpenTargetWindowId).toBeUndefined()
   })
 })

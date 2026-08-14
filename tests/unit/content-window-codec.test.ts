@@ -1,33 +1,29 @@
 import { describe, expect, test } from 'bun:test'
-import { MediaType } from '@/lib/types'
+import { filesystemResourceKey } from '@/lib/domain/resource'
 import { hermesResourceKey } from '@/src/integrations/hermes/module'
 import {
   contentInstanceFromCurrentWindow,
-  currentWindowProjectionForContent,
+  contentWindowWithInstance,
   currentWindowFromPersistedContent,
   persistedContentForInstance,
   persistedContentFromCurrentWindow,
-  projectContentOntoCurrentWindow,
 } from '@/src/integrations/current-window-content'
 
-describe('content window host projection', () => {
-  test('encodes live browser and viewer windows as new-only filesystem envelopes', () => {
-    const browser = {
+describe('content window authority', () => {
+  test('encodes and restores filesystem ContentInstance envelopes', () => {
+    const browserInstance = {
       id: 'browser-1',
-      type: 'browser',
-      title: 'Pictures',
-      source: { kind: 'local' },
-      initialState: { dir: 'Pictures' },
+      type: 'explorer' as const,
+      location: filesystemResourceKey('configured-default', 'Pictures'),
     }
-    const viewer = {
+    const viewerInstance = {
       id: 'viewer-1',
-      type: 'viewer',
-      title: 'cover.jpg',
-      source: { kind: 'local' },
-      iconPath: 'Pictures/cover.jpg',
-      iconType: MediaType.IMAGE,
-      initialState: { viewing: 'Pictures/cover.jpg' },
+      type: 'resource' as const,
+      resource: filesystemResourceKey('configured-default', 'Pictures/cover.jpg'),
+      renderer: 'image-viewer',
     }
+    const browser = { id: browserInstance.id, contentInstance: browserInstance }
+    const viewer = { id: viewerInstance.id, contentInstance: viewerInstance }
 
     const browserEnvelope = persistedContentFromCurrentWindow(browser)
     const viewerEnvelope = persistedContentFromCurrentWindow(viewer)
@@ -36,7 +32,7 @@ describe('content window host projection', () => {
       schemaVersion: 1,
       codec: 'filesystem.content',
       codecVersion: 1,
-      payload: { kind: 'explorer', id: 'browser-1' },
+      payload: { kind: 'explorer', id: 'browser-1', address: { path: 'Pictures' } },
     })
     expect(viewerEnvelope).toMatchObject({
       schemaVersion: 1,
@@ -44,94 +40,72 @@ describe('content window host projection', () => {
       codecVersion: 1,
       payload: { kind: 'resource', id: 'viewer-1', renderer: 'image-viewer' },
     })
-    expect(JSON.stringify(browserEnvelope)).not.toContain('initialState')
-    expect(JSON.stringify(viewerEnvelope)).not.toContain('iconPath')
-
-    expect(currentWindowFromPersistedContent(browserEnvelope, browser)).toMatchObject({
+    expect(currentWindowFromPersistedContent(browserEnvelope, browser)).toEqual({
       ok: true,
-      projection: { type: 'browser', initialState: { dir: 'Pictures' } },
+      instance: browserInstance,
     })
-    expect(currentWindowFromPersistedContent(viewerEnvelope, viewer)).toMatchObject({
+    expect(currentWindowFromPersistedContent(viewerEnvelope, viewer)).toEqual({
       ok: true,
-      projection: {
-        type: 'viewer',
-        iconPath: 'Pictures/cover.jpg',
-        iconType: MediaType.IMAGE,
-        initialState: { viewing: 'Pictures/cover.jpg' },
-      },
+      instance: viewerInstance,
     })
   })
 
-  test('encodes durable Hermes identity without persisting fake paths or drafts', () => {
-    const legacy = {
+  test('persists durable Hermes identity without fake paths or draft state', () => {
+    const instance = {
       id: 'hermes-1',
-      type: 'integration',
-      title: 'Session one',
-      source: { kind: 'local' },
-      initialState: {},
-      runtimeContent: {
-        id: 'hermes-1',
-        type: 'integration' as const,
-        integration: 'hermes',
-        view: 'chat',
-        state: {
-          sessionId: 'session-1',
-          draftId: 'runtime-draft',
-          cwd: '/work',
-          readOnly: true,
-        },
+      type: 'integration' as const,
+      integration: 'hermes',
+      view: 'chat',
+      state: {
+        sessionId: 'session-1',
+        draftId: 'runtime-draft',
+        cwd: '/work',
+        readOnly: true,
       },
     }
+    const envelope = persistedContentFromCurrentWindow({
+      id: instance.id,
+      contentInstance: instance,
+    })
 
-    const envelope = persistedContentFromCurrentWindow(legacy)
     expect(envelope).toMatchObject({
       schemaVersion: 1,
       codec: 'hermes.content',
       payload: { kind: 'chat', id: 'hermes-1', sessionId: 'session-1' },
     })
     expect(JSON.stringify(envelope)).not.toMatch(/Hermes Sessions|draftId/)
-    expect(currentWindowFromPersistedContent(envelope, legacy)).toMatchObject({
+    expect(currentWindowFromPersistedContent(envelope, { id: instance.id })).toMatchObject({
       ok: true,
-      projection: {
+      instance: {
         type: 'integration',
-        runtimeContent: {
-          type: 'integration',
-          state: { sessionId: 'session-1', cwd: '/work', readOnly: true },
-        },
+        state: { sessionId: 'session-1', cwd: '/work', readOnly: true },
       },
     })
   })
 
-  test('projects canonical Hermes Explorer content without persisting its compatibility path', () => {
+  test('hosts opaque Hermes Explorer content without a fake path', () => {
     const instance = {
       id: 'hermes-browser',
       type: 'explorer' as const,
       location: hermesResourceKey('project', 'project-1'),
     }
-    const projected = projectContentOntoCurrentWindow(
+    const hosted = contentWindowWithInstance(
       { id: instance.id, title: 'Browser', layout: { zIndex: 4 } },
       instance,
     )
 
-    expect(projected).toMatchObject({
-      id: 'hermes-browser',
-      type: 'browser',
+    expect(hosted).toMatchObject({
+      id: instance.id,
       title: 'project-1',
-      iconPath: 'Hermes Sessions/project/project-1',
-      iconIsVirtual: true,
-      initialState: { dir: 'Hermes Sessions/project/project-1' },
       layout: { zIndex: 4 },
+      contentInstance: instance,
       content: {
         codec: 'hermes.content',
-        payload: {
-          kind: 'explorer',
-          id: 'hermes-browser',
-          location: instance.location,
-        },
+        payload: { kind: 'explorer', id: instance.id, location: instance.location },
       },
     })
-    expect(JSON.stringify(projected?.content)).not.toContain('Hermes Sessions')
-    expect(projected && contentInstanceFromCurrentWindow(projected)).toEqual(instance)
+    expect(JSON.stringify(hosted)).not.toMatch(/Hermes Sessions|initialState|iconPath/)
+    expect(hosted && contentInstanceFromCurrentWindow(hosted)).toEqual(instance)
   })
 
   test('retains unknown envelopes as recoverable content', () => {
@@ -141,33 +115,27 @@ describe('content window host projection', () => {
       codecVersion: 7,
       payload: { opaque: true },
     }
-    const result = currentWindowFromPersistedContent(unknown, {
-      id: 'future-1',
-      title: 'Future pane',
-    })
-
-    expect(result).toEqual({
+    expect(currentWindowFromPersistedContent(unknown, { id: 'future-1' })).toEqual({
       ok: false,
       reason: 'Unknown content codec: future.content',
       recoverable: unknown,
     })
   })
 
-  test('persists live navigation after restoring a content envelope', () => {
-    const original = persistedContentFromCurrentWindow({
+  test('live ContentInstance navigation overrides its previous envelope', () => {
+    const original = persistedContentForInstance({
       id: 'browser-1',
-      type: 'browser',
-      initialState: { dir: 'Docs' },
+      type: 'explorer',
+      location: filesystemResourceKey('configured-default', 'Docs'),
     })!
-    const restored = currentWindowFromPersistedContent(original, { id: 'browser-1' })
-    expect(restored.ok).toBe(true)
-    if (!restored.ok) return
-
     const navigated = persistedContentFromCurrentWindow({
       id: 'browser-1',
-      ...restored.projection,
       content: original,
-      initialState: { ...restored.projection.initialState, dir: 'Photos' },
+      contentInstance: {
+        id: 'browser-1',
+        type: 'explorer',
+        location: filesystemResourceKey('configured-default', 'Photos'),
+      },
     })
 
     expect(navigated).toMatchObject({
@@ -176,47 +144,22 @@ describe('content window host projection', () => {
     })
   })
 
-  test('adapts live windows and runtime replacements without exposing provider logic to hosts', () => {
-    const draft = {
+  test('keeps unsaved integration drafts live but not persisted', () => {
+    const instance = {
       id: 'hermes-draft',
-      type: 'integration',
-      title: 'New session',
-      runtimeContent: {
-        id: 'hermes-draft',
-        type: 'integration' as const,
-        integration: 'hermes',
-        view: 'chat',
-        state: { draftId: 'draft-1', cwd: '/work', readOnly: false },
-      },
-    }
-    const instance = contentInstanceFromCurrentWindow(draft)
-
-    expect(instance).toMatchObject({
-      id: 'hermes-draft',
-      type: 'integration',
+      type: 'integration' as const,
       integration: 'hermes',
-      state: { draftId: 'draft-1', cwd: '/work' },
-    })
-    expect(instance && currentWindowProjectionForContent(instance)).toMatchObject({
-      type: 'integration',
-      runtimeContent: {
-        type: 'integration',
-        state: { draftId: 'draft-1', cwd: '/work', readOnly: false },
-      },
-    })
-    expect(instance && persistedContentForInstance(instance)).toBeNull()
-    const projected = instance
-      ? projectContentOntoCurrentWindow({ ...draft, layout: { zIndex: 7 } }, instance)
-      : null
-    expect(projected).toMatchObject({
-      id: 'hermes-draft',
-      type: 'integration',
-      layout: { zIndex: 7 },
-      runtimeContent: {
-        type: 'integration',
-        state: { draftId: 'draft-1', cwd: '/work', readOnly: false },
-      },
-    })
-    expect(projected?.content).toBeUndefined()
+      view: 'chat',
+      state: { draftId: 'draft-1', cwd: '/work', readOnly: false },
+    }
+    const hosted = contentWindowWithInstance(
+      { id: instance.id, title: 'New session', layout: { zIndex: 7 } },
+      instance,
+    )
+
+    expect(contentInstanceFromCurrentWindow(hosted!)).toEqual(instance)
+    expect(persistedContentForInstance(instance)).toBeNull()
+    expect(hosted).toMatchObject({ contentInstance: instance, layout: { zIndex: 7 } })
+    expect(hosted?.content).toBeUndefined()
   })
 })

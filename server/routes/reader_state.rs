@@ -1,7 +1,7 @@
 use crate::{
     app::{Shared, timestamp_ms},
     error::{AppError, AppResult},
-    media, reader_state,
+    media, reader_state, state_db,
 };
 use axum::{
     Json, Router,
@@ -34,7 +34,7 @@ struct PreferencesBody {
 }
 
 fn database(state: &crate::app::AppState) -> std::path::PathBuf {
-    state.config.data_path.join("app.sqlite3")
+    state_db::database(&state.config)
 }
 
 fn fingerprint(state: &crate::app::AppState, logical: &str) -> AppResult<String> {
@@ -49,14 +49,14 @@ fn fingerprint(state: &crate::app::AppState, logical: &str) -> AppResult<String>
     Ok(format!("{}:{modified}", metadata.len()))
 }
 
-fn response(state: &crate::app::AppState, scope: &str, logical: &str) -> AppResult<Json<Value>> {
+fn response(state: &crate::app::AppState, logical: &str) -> AppResult<Json<Value>> {
     let current_fingerprint = fingerprint(state, logical)?;
-    let stored = reader_state::get(&database(state), scope, logical)?;
+    let stored = reader_state::get(&database(state), logical)?;
     if stored
         .as_ref()
         .is_some_and(|value| value.fingerprint != current_fingerprint)
     {
-        reader_state::remove_exact(&database(state), scope, logical)?;
+        reader_state::remove_exact(&database(state), logical)?;
         return Ok(Json(
             json!({"state":null,"revision":0,"fingerprint":current_fingerprint}),
         ));
@@ -69,19 +69,13 @@ fn response(state: &crate::app::AppState, scope: &str, logical: &str) -> AppResu
     }))
 }
 
-fn save(
-    state: &crate::app::AppState,
-    scope: &str,
-    logical: &str,
-    body: StateBody,
-) -> AppResult<Json<Value>> {
+fn save(state: &crate::app::AppState, logical: &str, body: StateBody) -> AppResult<Json<Value>> {
     let current_fingerprint = fingerprint(state, logical)?;
     if body.fingerprint != current_fingerprint {
         return Err(AppError::conflict("Document changed"));
     }
     let revision = reader_state::put(
         &database(state),
-        scope,
         logical,
         &body.state,
         &current_fingerprint,
@@ -93,26 +87,26 @@ fn save(
     ))
 }
 
-async fn admin_get(
+async fn get_state(
     State(state): State<Shared>,
     Query(query): Query<StateQuery>,
 ) -> AppResult<Json<Value>> {
     let _database = state.reader_state_db.lock().await;
-    response(&state, "admin", &query.path)
+    response(&state, &query.path)
 }
 
-async fn admin_save(
+async fn save_state(
     State(state): State<Shared>,
     Json(body): Json<StateBody>,
 ) -> AppResult<Json<Value>> {
     let logical = body.path.clone();
     let _database = state.reader_state_db.lock().await;
-    save(&state, "admin", &logical, body)
+    save(&state, &logical, body)
 }
 
 async fn preferences_get(State(state): State<Shared>) -> AppResult<Json<Value>> {
     let _database = state.reader_state_db.lock().await;
-    let (preferences, revision) = reader_state::preferences(&database(&state), "admin")?;
+    let (preferences, revision) = reader_state::preferences(&database(&state))?;
     Ok(Json(json!({"preferences":preferences,"revision":revision})))
 }
 
@@ -123,7 +117,6 @@ async fn preferences_save(
     let _database = state.reader_state_db.lock().await;
     let revision = reader_state::put_preferences(
         &database(&state),
-        "admin",
         &body.preferences,
         body.base_revision,
         timestamp_ms().into(),
@@ -133,7 +126,7 @@ async fn preferences_save(
 
 pub fn router() -> Router<Shared> {
     Router::new()
-        .route("/api/reader-state", get(admin_get).post(admin_save))
+        .route("/api/reader-state", get(get_state).post(save_state))
         .route(
             "/api/reader-preferences",
             get(preferences_get).post(preferences_save),

@@ -7,7 +7,7 @@ import {
   rewindTarget,
   unsupportedHermesCommand,
   voiceControlGates,
-} from '../../lib/hermes-chat-parity'
+} from '../../src/integrations/hermes/chat-parity'
 
 describe('Hermes chat parity helpers', () => {
   test('merges client and gateway slash commands while excluding absent shell surfaces', () => {

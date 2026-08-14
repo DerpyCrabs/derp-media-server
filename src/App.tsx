@@ -1,5 +1,4 @@
-import { Match, Show, Suspense, Switch, createMemo, lazy } from 'solid-js'
-import type { ResourceContentInstance } from '@/lib/domain/content'
+import { Match, Show, Suspense, Switch, createMemo, createResource, lazy } from 'solid-js'
 import { getMediaTypeFromPath } from '@/lib/media-utils'
 import { MediaType } from '@/lib/types'
 import { navigateHref, useBrowserHistory } from './browser-history'
@@ -7,9 +6,11 @@ import { FileBrowser } from './FileBrowser'
 import { hrefFor, parseRoute } from './lib/routes'
 import { SurfaceSwitcher } from './SurfaceSwitcher'
 import { ContentRuntimeView } from './features/content/ContentRuntimeView'
-import { legacyFilesystemContentInstance } from './integrations/filesystem/legacy-content'
+import { filesystemContentInstance } from './integrations/filesystem/content'
 import { applicationContentRuntime } from './integrations/registry'
 import { closeReader } from './reader/reader-url'
+import { resourceKey } from '@/lib/domain/resource'
+import { filesystemPathForResourceKey } from './integrations/filesystem/resource'
 
 const WorkspacePage = lazy(() =>
   import('./WorkspacePage').then((module) => ({ default: module.WorkspacePage })),
@@ -69,11 +70,20 @@ export function App() {
   const readerPath = createMemo(() =>
     route().kind === 'notFound' ? null : (route().query.reader ?? null),
   )
-  const readyReaderContent = createMemo<ResourceContentInstance | null>(() => {
+  const readerContextPath = createMemo(() => {
+    const { provider, resource } = route().query
+    if (!provider || !resource) return ''
+    try {
+      return filesystemPathForResourceKey(resourceKey(provider, resource)) ?? ''
+    } catch {
+      return ''
+    }
+  })
+  const readerRequest = createMemo(() => {
     const path = readerPath()
     if (!path) return null
     const folder = route().query.readerKind === 'folder'
-    return legacyFilesystemContentInstance({
+    return {
       id: 'library-reader',
       path,
       readerKind: folder
@@ -83,9 +93,13 @@ export function App() {
           : 'pdf',
       surface: 'library',
       disposition: 'fullscreen',
-      contextPath: route().query.dir ?? '',
-    })
+      contextPath: readerContextPath(),
+    } as const
   })
+  const [readyReaderContent] = createResource(readerRequest, filesystemContentInstance)
+  const visibleReaderContent = createMemo(() =>
+    readerRequest() ? (readyReaderContent() ?? null) : null,
+  )
   const showSurfaceSwitcher = createMemo(() => {
     const current = route()
     return (
@@ -119,11 +133,11 @@ export function App() {
       <Show when={showSurfaceSwitcher()}>
         <SurfaceSwitcher route={route} />
       </Show>
-      <Show when={readyReaderContent()}>
+      <Show when={visibleReaderContent()}>
         <div class='fixed inset-0 z-[70] min-h-0 overflow-hidden bg-neutral-900'>
           <ContentRuntimeView
             runtime={applicationContentRuntime}
-            instance={readyReaderContent}
+            instance={visibleReaderContent}
             onClose={closeReader}
           />
         </div>

@@ -1,4 +1,4 @@
-import type { ContentWindowDefinition, ContentWindowSource } from '@/lib/content-window'
+import { contentWindowKind, type ContentWindowDefinition } from '@/lib/content-window'
 import {
   persistedContentWindowRecord,
   restorePersistedContentWindow,
@@ -9,15 +9,15 @@ import {
   reconcileLayoutBoundsFromSnapZones,
   WORKSPACE_WINDOW_MIN_VISIBLE_PX,
 } from '@/lib/workspace-geometry'
-import { migrateLegacyAssistCustomToTiling } from '@/lib/workspace-tiling-migrate'
 import { isWorkspaceTabIconColorKey } from '@/lib/workspace-tab-icon-colors'
-import { parseWorkspaceTaskbarPins, type WorkspaceTaskbarPin } from '@/lib/workspace-taskbar-pins'
+import {
+  parseWorkspaceTaskbarPins,
+  serializeWorkspaceTaskbarPins,
+  type WorkspaceTaskbarPin,
+} from '@/lib/workspace-taskbar-pins'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-file-open-target'
 
-export type WorkspaceSource = ContentWindowSource
-
 export type SnapZone =
-  | 'assist-custom'
   | 'left'
   | 'right'
   | 'top-left'
@@ -162,7 +162,7 @@ export function serializeWorkspacePersistedState(state: PersistedWorkspaceState)
     activeWindowId,
     activeTabMap: sortTabMapKeys(activeTabMap),
     nextWindowId: state.nextWindowId,
-    pinnedTaskbarItems: state.pinnedTaskbarItems ?? [],
+    pinnedTaskbarItems: serializeWorkspaceTaskbarPins(state.pinnedTaskbarItems ?? []),
     ...(tabGroupSplits ? { tabGroupSplits } : {}),
     ...(state.browserTabTitle ? { browserTabTitle: state.browserTabTitle } : {}),
     ...(state.browserTabIcon ? { browserTabIcon: state.browserTabIcon } : {}),
@@ -182,7 +182,7 @@ export function serializeWorkspaceLayoutState(state: PersistedWorkspaceState): s
     activeWindowId,
     activeTabMap: sortTabMapKeys(activeTabMap),
     nextWindowId: state.nextWindowId,
-    pinnedTaskbarItems: state.pinnedTaskbarItems ?? [],
+    pinnedTaskbarItems: serializeWorkspaceTaskbarPins(state.pinnedTaskbarItems ?? []),
     ...(tabGroupSplits ? { tabGroupSplits } : {}),
     ...(state.fileOpenTarget ? { fileOpenTarget: state.fileOpenTarget } : {}),
   })
@@ -254,7 +254,7 @@ function sanitizeBrowserFileOpenTargets(
 ): WorkspaceWindowDefinition[] {
   const ids = new Set(windows.map((w) => w.id))
   return windows.map((w) => {
-    if (w.type !== 'browser') return w
+    if (contentWindowKind(w) !== 'browser') return w
     const tid = w.fileOpenTargetWindowId
     if (typeof tid === 'string' && tid.length > 0 && tid !== w.id && ids.has(tid)) {
       return w
@@ -273,7 +273,7 @@ export function resolveNewTabAnchorWindowId(
   browserWindowId: string,
 ): string {
   const winDef = state.windows.find((x) => x.id === browserWindowId)
-  if (!winDef || winDef.type !== 'browser') return browserWindowId
+  if (!winDef || contentWindowKind(winDef) !== 'browser') return browserWindowId
   const tid = winDef.fileOpenTargetWindowId
   if (typeof tid !== 'string' || tid.length === 0 || tid === browserWindowId) return browserWindowId
   return state.windows.some((w) => w.id === tid) ? tid : browserWindowId
@@ -402,16 +402,47 @@ export type NormalizePersistedWorkspaceOptions = {
 export function restorePersistedWorkspaceWindowContent(
   value: unknown,
 ): WorkspaceWindowDefinition | null {
-  return restorePersistedContentWindow(value) as WorkspaceWindowDefinition | null
+  return restorePersistedContentWindow(value, [
+    'tabGroupId',
+    'openedFromWindowId',
+    'tabPinned',
+    'layout',
+    'fileOpenTargetWindowId',
+  ]) as WorkspaceWindowDefinition | null
 }
 
 export function normalizePersistedWorkspaceState(
   data: unknown,
   options?: NormalizePersistedWorkspaceOptions,
 ): PersistedWorkspaceState | null {
-  if (!data || typeof data !== 'object') return null
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null
+  const allowedFields = new Set([
+    'windows',
+    'activeWindowId',
+    'activeTabMap',
+    'nextWindowId',
+    'pinnedTaskbarItems',
+    'browserTabTitle',
+    'browserTabIcon',
+    'browserTabIconColor',
+    'tabGroupSplits',
+    'fileOpenTarget',
+  ])
+  if (Object.keys(data).some((field) => !allowedFields.has(field))) return null
   const parsed = data as PersistedWorkspaceState
-  if (!Array.isArray(parsed.windows) || parsed.windows.length === 0) return null
+  if (
+    !Array.isArray(parsed.windows) ||
+    parsed.windows.length === 0 ||
+    (parsed.activeWindowId !== null && typeof parsed.activeWindowId !== 'string') ||
+    !parsed.activeTabMap ||
+    typeof parsed.activeTabMap !== 'object' ||
+    Array.isArray(parsed.activeTabMap) ||
+    !Number.isSafeInteger(parsed.nextWindowId) ||
+    parsed.nextWindowId < 1 ||
+    !Array.isArray(parsed.pinnedTaskbarItems)
+  ) {
+    return null
+  }
 
   const reconcileSnapZones = options?.reconcileSnapZones !== false
   const viewport = getViewportSize()
@@ -419,16 +450,12 @@ export function normalizePersistedWorkspaceState(
     .map(restorePersistedWorkspaceWindowContent)
     .filter(
       (w): w is WorkspaceWindowDefinition =>
-        !!w &&
-        typeof w.id === 'string' &&
-        (w.type === 'browser' || w.type === 'viewer' || w.type === 'integration') &&
-        !!w.source &&
-        isValidSource(w.source),
+        !!w && typeof w.id === 'string' && (!!w.contentInstance || !!w.contentRecoveryReason),
     )
     .map((w, i) => {
       const b = w.layout?.bounds
-      // Keep saved pixel bounds for legacy assist-custom → tiling migration before viewport clamp.
-      const bounds = b ?? createDefaultBounds(i, w.type === 'browser' ? 'browser' : 'viewer')
+      const bounds =
+        b ?? createDefaultBounds(i, contentWindowKind(w) === 'browser' ? 'browser' : 'viewer')
       return {
         ...w,
         layout: {
@@ -441,13 +468,11 @@ export function normalizePersistedWorkspaceState(
 
   if (validatedWindows.length === 0) return null
 
-  // Infer grid from saved bounds (own canvas), then reconcile/clamp to the live viewport.
-  const migratedWindows = migrateLegacyAssistCustomToTiling(validatedWindows)
-  const hasSemanticTiling = migratedWindows.some((w) => w.layout?.tiling)
+  const hasSemanticTiling = validatedWindows.some((w) => w.layout?.tiling)
   const reconciledWindows =
     reconcileSnapZones || hasSemanticTiling
-      ? reconcileLayoutBoundsFromSnapZones(migratedWindows, viewport)
-      : migratedWindows.map((w) => {
+      ? reconcileLayoutBoundsFromSnapZones(validatedWindows, viewport)
+      : validatedWindows.map((w) => {
           const b = w.layout?.bounds
           if (!b) return w
           return {
@@ -461,8 +486,7 @@ export function normalizePersistedWorkspaceState(
 
   const withOpenTargets = sanitizeBrowserFileOpenTargets(reconciledWindows)
 
-  const rawPinned = Array.isArray(parsed.pinnedTaskbarItems) ? parsed.pinnedTaskbarItems : []
-  const pinnedTaskbarItems = rawPinned.filter(isValidPinnedItem)
+  const pinnedTaskbarItems = parseWorkspaceTaskbarPins(parsed.pinnedTaskbarItems)
 
   const browserTabTitle = parseBrowserTabTitle(parsed.browserTabTitle)
   const browserTabIcon = parseBrowserTabIcon(parsed.browserTabIcon)
@@ -480,7 +504,7 @@ export function normalizePersistedWorkspaceState(
     windows: withOpenTargets,
     activeWindowId: focus.activeWindowId,
     activeTabMap: focus.activeTabMap,
-    nextWindowId: parsed.nextWindowId ?? validatedWindows.length + 1,
+    nextWindowId: parsed.nextWindowId,
     pinnedTaskbarItems,
     ...(tabGroupSplits ? { tabGroupSplits } : {}),
     ...(browserTabTitle ? { browserTabTitle } : {}),
@@ -490,21 +514,12 @@ export function normalizePersistedWorkspaceState(
   }
 }
 
-function isValidSource(s: unknown): s is WorkspaceSource {
-  if (!s || typeof s !== 'object' || !('kind' in s)) return false
-  return (s as WorkspaceSource).kind === 'local'
-}
-
-function isValidPinnedItem(p: unknown): p is PinnedTaskbarItem {
-  return parseWorkspaceTaskbarPins([p]).length === 1
-}
-
 export function getWorkspaceWindowTitle(
-  window: Pick<WorkspaceWindowDefinition, 'title' | 'type'>,
+  window: Pick<WorkspaceWindowDefinition, 'id' | 'title' | 'contentInstance'>,
 ): string {
   if (window.title.trim()) {
     return window.title
   }
 
-  return window.type === 'viewer' ? 'Browser Viewer' : 'Browser'
+  return contentWindowKind(window) === 'viewer' ? 'Browser Viewer' : 'Browser'
 }

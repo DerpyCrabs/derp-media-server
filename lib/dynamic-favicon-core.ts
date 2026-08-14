@@ -53,7 +53,7 @@ export function setFaviconHref(href: string) {
 }
 
 export type DynamicFaviconNavState = {
-  dir: string | null
+  directory: string | null
   viewing: string | null
   playing: string | null
 }

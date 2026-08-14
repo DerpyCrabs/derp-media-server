@@ -5,7 +5,6 @@ import {
   type WorkspaceCanvasSize,
 } from '@/lib/workspace-geometry'
 import type { WorkspaceTilingPlacement, WorkspaceWindowDefinition } from '@/lib/use-workspace'
-import { migrateLegacyAssistCustomToTiling } from '@/lib/workspace-tiling-migrate'
 import { SNAP_EDGE_THRESHOLD_PX } from '@/lib/use-snap-zones'
 
 export const ASSIST_GRID_SHAPES = ['3x2', '3x3', '2x2', '2x3'] as const
@@ -282,14 +281,13 @@ export function applyAssistCustomSnapToWindows(
   canvas: WorkspaceCanvasSize,
   options?: { zIndex?: number },
 ): WorkspaceWindowDefinition[] {
-  const migrated = migrateLegacyAssistCustomToTiling(windows, canvas)
-  const target = migrated.find((w) => w.id === windowId)
+  const target = windows.find((w) => w.id === windowId)
   if (!target) return windows
   const groupId = target.tabGroupId ?? target.id
-  const existing = findSharedAssistGridLines(migrated, span)
+  const existing = findSharedAssistGridLines(windows, span)
   const tiling = assistSpanToTilingPlacement(span, existing)
   const bounds = tilingPlacementToBounds(tiling, canvas)
-  return migrated.map((w) => {
+  return windows.map((w) => {
     if ((w.tabGroupId ?? w.id) !== groupId) return w
     return {
       ...w,

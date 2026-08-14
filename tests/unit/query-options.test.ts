@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { QueryClient } from '@tanstack/solid-query'
-import { VIRTUAL_FOLDERS } from '@/lib/constants'
-import { fileMutationOptions, settingsMutationOptions } from '@/lib/query-options'
+import { settingsMutationOptions } from '@/lib/query-options'
 
 function recordingQueryClient() {
   const invalidated: (readonly unknown[])[] = []
@@ -19,28 +18,12 @@ async function runOnSettled(options: { onSettled?: unknown }) {
 }
 
 describe('canonical mutation invalidation', () => {
-  test('file edits invalidate file listings and admin content', async () => {
-    const { invalidated, queryClient } = recordingQueryClient()
-
-    await runOnSettled(fileMutationOptions.edit(queryClient))
-
-    expect(invalidated).toEqual([['files'], ['content', 'admin']])
-  })
-
-  test('file uploads invalidate file listings and admin content', async () => {
-    const { invalidated, queryClient } = recordingQueryClient()
-
-    await runOnSettled(fileMutationOptions.upload(queryClient))
-
-    expect(invalidated).toEqual([['files'], ['content', 'admin']])
-  })
-
-  test('favorite changes invalidate settings and the Favorites listing', async () => {
+  test('favorite changes invalidate settings and resource listings', async () => {
     const { invalidated, queryClient } = recordingQueryClient()
 
     await runOnSettled(settingsMutationOptions.favorite(queryClient))
 
-    expect(invalidated).toEqual([['settings'], ['files', VIRTUAL_FOLDERS.FAVORITES]])
+    expect(invalidated).toEqual([['settings'], ['files']])
   })
 
   test('view mode changes invalidate settings', async () => {

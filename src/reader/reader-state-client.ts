@@ -1,4 +1,5 @@
-import { api, ApiError, post } from '@/lib/api'
+import { ApiError } from '@/lib/api'
+import { apiEndpoints } from '@/lib/api-endpoints'
 import { normalizeReaderPosition, type ReaderPosition } from './reader-position'
 
 export type BookAppearance = {
@@ -76,8 +77,6 @@ function parseSyncedState(value: unknown): ReaderSyncedState | null {
   }
 }
 
-const stateEndpoint = '/api/reader-state'
-
 type ReaderStateSaveResult = { revision: number; fingerprint: string } | null
 const readerStateSaveQueues = new Map<string, Promise<ReaderStateSaveResult>>()
 
@@ -99,7 +98,7 @@ export async function loadSyncedReaderState(path: string): Promise<ReaderStateEn
   const pendingSave = readerStateSaveQueues.get(path.replace(/\\/g, '/'))
   if (pendingSave) await pendingSave.catch(() => null)
   const result = await retryTransient(() =>
-    api<ReaderStateEnvelope>(`${stateEndpoint}?path=${encodeURIComponent(path)}`),
+    apiEndpoints.reader.loadState<ReaderStateEnvelope>(path),
   )
   result.state = parseSyncedState(result.state)
   return result
@@ -113,7 +112,7 @@ async function saveSyncedReaderStateNow(
 ): Promise<ReaderStateSaveResult> {
   try {
     const saved = await retryTransient(() =>
-      post<{ revision: number; fingerprint: string }>(stateEndpoint, {
+      apiEndpoints.reader.saveState<{ revision: number; fingerprint: string }>({
         path,
         state,
         baseRevision: revision,
@@ -178,7 +177,10 @@ function parsePreferences(value: unknown): ReaderPreferences {
 }
 
 export async function loadReaderPreferences(): Promise<ReaderPreferencesEnvelope> {
-  const result = await api<{ preferences: unknown; revision: number }>('/api/reader-preferences')
+  const result = await apiEndpoints.reader.loadPreferences<{
+    preferences: unknown
+    revision: number
+  }>()
   return {
     preferences: parsePreferences(result.preferences),
     revision: Number.isFinite(result.revision) ? result.revision : 0,
@@ -189,7 +191,7 @@ export async function saveReaderPreferences(
   preferences: ReaderPreferences,
   baseRevision: number,
 ): Promise<number> {
-  const result = await post<{ revision: number }>('/api/reader-preferences', {
+  const result = await apiEndpoints.reader.savePreferences<{ revision: number }>({
     preferences,
     baseRevision,
   })

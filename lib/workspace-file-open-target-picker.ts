@@ -1,5 +1,5 @@
 import type { WorkspaceWindowDefinition } from '@/lib/use-workspace'
-import { groupIdForWindow, tabsInGroup } from '@/src/workspace/tab-group-ops'
+import { groupIdForWindow, tabsInGroup } from '@/lib/workspace-tab-groups'
 
 export function pickWorkspaceWindowAtClientPoint(
   windows: WorkspaceWindowDefinition[],

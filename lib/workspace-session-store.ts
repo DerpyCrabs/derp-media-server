@@ -1,6 +1,5 @@
 import type { WorkspaceWindowDefinition, WorkspaceWindowLayout } from '@/lib/use-workspace'
 import { tilingPlacementToBounds, type WorkspaceCanvasSize } from '@/lib/workspace-geometry'
-import { migrateLegacyAssistCustomToTiling } from '@/lib/workspace-tiling-migrate'
 
 function overlap1d(a0: number, a1: number, b0: number, b1: number): number {
   return Math.max(0, Math.min(a1, b1) - Math.max(a0, b0))
@@ -63,7 +62,7 @@ export function computeSnappedResizeWindows(
   direction: string,
   canvas?: WorkspaceCanvasSize | null,
 ): WorkspaceWindowDefinition[] {
-  const windows = migrateLegacyAssistCustomToTiling(current, canvas)
+  const windows = current
   const target = windows.find((w) => w.id === windowId)
   if (!target?.layout?.bounds) {
     return windows.map((w) =>

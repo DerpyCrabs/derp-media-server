@@ -4,6 +4,48 @@ import { createContentRegistry } from '@/src/features/content/registry'
 import { createRegistryExplorerDataSource } from '@/src/features/explorer/registry-data-source'
 
 describe('registry Explorer data source', () => {
+  test('composes registered provider roots without host branches', async () => {
+    const filesystemRoot: ResourceSummary = {
+      key: resourceKey('filesystem', 'root'),
+      name: 'Library',
+      kind: 'root',
+      capabilities: ['browse'],
+      presentation: 'browse',
+    }
+    const fixtureRoot: ResourceSummary = {
+      key: resourceKey('fixture', 'opaque-root'),
+      name: 'Fixture',
+      kind: 'root',
+      capabilities: ['browse'],
+      presentation: 'browse',
+    }
+    const registry = createContentRegistry([
+      {
+        id: 'filesystem',
+        root: filesystemRoot,
+        browse: {
+          async browse() {
+            return {
+              schemaVersion: 1,
+              location: filesystemRoot.key,
+              locationSummary: filesystemRoot,
+              items: [],
+              total: 0,
+            }
+          },
+        },
+      },
+      { id: 'fixture', root: fixtureRoot },
+    ])
+    const page = await createRegistryExplorerDataSource(registry).browse({
+      location: { key: filesystemRoot.key },
+      signal: new AbortController().signal,
+      reason: 'initialize',
+    })
+
+    expect(page.items.map((item) => item.resource)).toEqual([fixtureRoot])
+  })
+
   test('maps provider browse metadata and arbitrary action descriptors', async () => {
     const root: ResourceSummary = {
       key: resourceKey('fixture', 'root'),
@@ -19,6 +61,12 @@ describe('registry Explorer data source', () => {
       capabilities: ['read', 'fixture.branch', 'fixture.remove'],
       presentation: 'text',
     }
+    const recent: ResourceSummary = {
+      ...child,
+      key: resourceKey('fixture', 'recent'),
+      name: 'Recent item',
+      metadata: { modifiedAt: '2026-08-14T12:00:00Z' },
+    }
     const calls: unknown[] = []
     const registry = createContentRegistry([
       {
@@ -32,6 +80,7 @@ describe('registry Explorer data source', () => {
               locationSummary: root,
               breadcrumbs: [root],
               items: [child],
+              recentItems: [recent],
               nextCursor: 'opaque-cursor',
               total: 2,
             }
@@ -44,8 +93,10 @@ describe('registry Explorer data source', () => {
               return [
                 {
                   id: capability,
+                  operation: capability.slice('fixture.'.length),
                   label: capability.slice('fixture.'.length),
                   capability,
+                  interaction: 'immediate' as const,
                   ...(capability === 'fixture.remove' ? { dangerous: true } : {}),
                 },
               ]
@@ -75,9 +126,16 @@ describe('registry Explorer data source', () => {
       signal,
     })
     expect(page.locationItem?.resource).toEqual(root)
+    expect(page.recentItems).toEqual([
+      {
+        item: expect.objectContaining({ resource: recent }),
+        modifiedAt: '2026-08-14T12:00:00Z',
+      },
+    ])
     expect(page.actions).toEqual([
       {
         id: 'fixture.create',
+        operation: 'create',
         label: 'create',
         capability: 'fixture.create',
         scope: 'location',

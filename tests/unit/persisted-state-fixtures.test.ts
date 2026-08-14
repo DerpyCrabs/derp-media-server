@@ -1,21 +1,15 @@
 import { describe, expect, test } from 'bun:test'
+import '@/src/integrations/current-window-content'
 import {
-  CANVAS_COLLECTION_STORAGE_KEY,
-  loadCanvasCollection,
-  parseCanvasRecords,
+  createDefaultCanvasCollection,
+  parseCanvasCollection,
   serializeCanvasCollection,
 } from '@/lib/canvas-persistence'
 import {
   normalizePersistedWorkspaceState,
   serializeWorkspacePersistedState,
 } from '@/lib/use-workspace'
-import canvasFixture from '../fixtures/persisted-state/reference/canvas-collection.json'
-import settingsFixture from '../fixtures/persisted-state/reference/settings.json'
-import workspaceFixture from '../fixtures/persisted-state/reference/workspace-layout.json'
-
-function storage(values: Record<string, string>) {
-  return { getItem: (key: string) => values[key] ?? null }
-}
+import { filesystemResourceAddress } from '@/lib/domain/resource'
 
 const currentExplorerContent = {
   schemaVersion: 1 as const,
@@ -58,9 +52,12 @@ describe('current persisted content schema', () => {
     }
 
     const restored = normalizePersistedWorkspaceState(raw, { reconcileSnapZones: false })
-
     expect(restored?.windows).toHaveLength(2)
-    expect(restored?.windows[0]?.initialState.dir).toBe('Notes')
+    const content = restored?.windows[0]?.contentInstance
+    expect(content?.type).toBe('explorer')
+    expect(
+      content?.type === 'explorer' ? filesystemResourceAddress(content.location)?.path : null,
+    ).toBe('Notes')
     expect(restored?.windows[1]).toMatchObject({
       id: 'future-pane',
       contentRecoveryReason: 'Unknown content codec: future.content',
@@ -74,81 +71,37 @@ describe('current persisted content schema', () => {
     expect(encoded.windows.every((window) => !('initialState' in window))).toBe(true)
   })
 
-  test('restores and rewrites a current canvas collection', () => {
-    const collection = {
-      version: 1 as const,
-      activeId: 'canvas-1',
-      writerId: 'writer-1',
-      lastTimestamp: 1,
-      canvases: [
-        {
-          id: 'canvas-1',
-          name: 'Canvas',
-          updatedAt: 1,
-          writerId: 'writer-1',
-          deleted: false,
-          state: {
-            version: 1 as const,
-            windows: [
-              {
-                id: 'current-browser',
-                definition: {
-                  id: 'current-browser',
-                  title: 'Notes',
-                  content: currentExplorerContent,
-                },
-                bounds: { x: 0, y: 0, width: 480, height: 320 },
-                zIndex: 1,
-              },
-            ],
-            maximizedWindowId: null,
-            camera: { x: 0, y: 0, zoom: 1 },
-            windowSizeByType: {},
-            nextItemId: 2,
-            nextZIndex: 2,
-          },
+  test('round-trips current Canvas v2 document with content envelope', () => {
+    const document = createDefaultCanvasCollection()
+    document.canvases[0]!.state.windows = [
+      {
+        id: 'current-browser',
+        definition: {
+          id: 'current-browser',
+          title: 'Notes',
+          content: currentExplorerContent,
         },
-      ],
-    }
-
-    expect(parseCanvasRecords(collection.canvases)).toHaveLength(1)
-    const restored = loadCanvasCollection(
-      storage({ [CANVAS_COLLECTION_STORAGE_KEY]: JSON.stringify(collection) }),
+        bounds: { x: 0, y: 0, width: 480, height: 320 },
+        zIndex: 1,
+      },
+    ]
+    const encoded = serializeCanvasCollection(document)
+    const parsed = parseCanvasCollection(JSON.parse(encoded))
+    expect(parsed).not.toBeNull()
+    const normalized = serializeCanvasCollection(parsed!)
+    expect(serializeCanvasCollection(parseCanvasCollection(JSON.parse(normalized))!)).toBe(
+      normalized,
     )
-    expect(restored.canvases[0]?.state?.windows[0]?.definition.initialState.dir).toBe('Notes')
-    const encoded = serializeCanvasCollection(restored)
-    const encodedDefinition = JSON.parse(encoded).canvases[0].state.windows[0].definition as Record<
+    const definition = JSON.parse(encoded).canvases[0].state.windows[0].definition as Record<
       string,
       unknown
     >
-    expect(encodedDefinition.content).toEqual(currentExplorerContent)
-    expect(encodedDefinition).not.toHaveProperty('type')
-    expect(encodedDefinition).not.toHaveProperty('source')
-    expect(encodedDefinition).not.toHaveProperty('initialState')
-    const second = loadCanvasCollection(storage({ [CANVAS_COLLECTION_STORAGE_KEY]: encoded }))
-    expect(serializeCanvasCollection(second)).toBe(encoded)
-  })
-})
-
-describe('retired persisted window fixtures', () => {
-  test('keeps unrelated settings data but drops old named-layout panes', () => {
-    const settings = settingsFixture['reference-library']
-
-    expect(settings.viewModes).toEqual({ '': 'grid', Notes: 'list', Pictures: 'grid' })
-    expect(settings.favorites).toEqual(['Pictures/cover.jpg', 'Notes'])
-    expect(settings.knowledgeBases).toEqual(['Notes'])
-    expect(settings.workspaceLayoutPresets).toHaveLength(1)
-    expect(
-      normalizePersistedWorkspaceState(settings.workspaceLayoutPresets[0]?.snapshot),
-    ).toBeNull()
+    expect(definition.content).toEqual(currentExplorerContent)
+    expect(definition).not.toHaveProperty('initialState')
   })
 
-  test('rejects old workspace panes without content envelopes', () => {
-    expect(normalizePersistedWorkspaceState(workspaceFixture)).toBeNull()
-  })
-
-  test('rejects persisted windows that mix content and runtime-only fields', () => {
-    const dual = {
+  test('rejects windows that mix authoritative content with projection fields', () => {
+    const mixed = {
       windows: [
         {
           id: 'current-browser',
@@ -164,36 +117,6 @@ describe('retired persisted window fixtures', () => {
       nextWindowId: 2,
       pinnedTaskbarItems: [],
     }
-    expect(normalizePersistedWorkspaceState(dual)).toBeNull()
-
-    const canvas = {
-      id: 'canvas-1',
-      name: 'Canvas',
-      updatedAt: 1,
-      writerId: 'writer-1',
-      deleted: false,
-      state: {
-        version: 1,
-        windows: [
-          {
-            id: 'current-browser',
-            definition: dual.windows[0],
-            bounds: { x: 0, y: 0, width: 480, height: 320 },
-            zIndex: 1,
-          },
-        ],
-        camera: { x: 0, y: 0, zoom: 1 },
-      },
-    }
-    expect(parseCanvasRecords([canvas])[0]?.state?.windows).toEqual([])
-  })
-
-  test('drops old canvas panes instead of migrating them', () => {
-    expect(parseCanvasRecords(canvasFixture.canvases)[0]?.state?.windows).toEqual([])
-    const loaded = loadCanvasCollection(
-      storage({ [CANVAS_COLLECTION_STORAGE_KEY]: JSON.stringify(canvasFixture) }),
-    )
-    expect(loaded.activeId).toBe('reference-canvas')
-    expect(loaded.canvases[0]?.state?.windows).toEqual([])
+    expect(normalizePersistedWorkspaceState(mixed)).toBeNull()
   })
 })

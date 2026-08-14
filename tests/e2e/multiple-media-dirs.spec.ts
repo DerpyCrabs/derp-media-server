@@ -4,6 +4,7 @@ import fs from 'fs'
 import net from 'net'
 import os from 'os'
 import path from 'path'
+import { createFilesystemFile } from './filesystem-actions'
 
 const WORKSPACE_VISIBLE_WINDOW_GROUP = '[data-window-group]:not([data-workspace-window-minimized])'
 
@@ -146,16 +147,22 @@ test.describe.serial('Multiple media directories', () => {
     await expect(page.locator('table').getByText('movie-note.md')).toBeVisible()
     await expect(page.locator('button[title="Create new file"]')).toBeVisible()
 
-    const createResponse = await page.request.post(`${baseUrl}/api/files/create`, {
-      data: { type: 'file', path: 'Movies/Incoming/api-created.md', content: 'from api' },
-    })
+    const createResponse = await createFilesystemFile(
+      page.request,
+      'Movies/Incoming/api-created.md',
+      'from api',
+      baseUrl,
+    )
     expect(createResponse.ok()).toBe(true)
     expect(fs.existsSync(path.join(moviesDir, 'Incoming', 'api-created.md'))).toBe(true)
     expect(fs.existsSync(path.join(showsDir, 'Incoming', 'api-created.md'))).toBe(false)
 
-    const forbiddenResponse = await page.request.post(`${baseUrl}/api/files/create`, {
-      data: { type: 'file', path: 'Shows/ReadOnly/blocked.md', content: 'blocked' },
-    })
+    const forbiddenResponse = await createFilesystemFile(
+      page.request,
+      'Shows/ReadOnly/blocked.md',
+      'blocked',
+      baseUrl,
+    )
     expect(forbiddenResponse.status()).toBe(403)
     expect(fs.existsSync(path.join(showsDir, 'ReadOnly', 'blocked.md'))).toBe(false)
   })

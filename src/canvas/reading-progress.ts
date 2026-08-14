@@ -5,6 +5,12 @@ type ReadingProgressOptions = {
   retryDelays?: number[]
 }
 
+const CANVAS_READING_POSITION_PREFIX = 'canvas-reading-position-v1'
+
+export function canvasReadingProgressKey(canvasId: string, path: string): string {
+  return `${CANVAS_READING_POSITION_PREFIX}:${canvasId}:${path}`
+}
+
 export function bindReadingProgress(options: ReadingProgressOptions): () => void {
   const storage = options.storage ?? localStorage
   let restoredKey: string | null = null

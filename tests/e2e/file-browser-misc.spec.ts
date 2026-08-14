@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
 import fs from 'fs'
 import path from 'path'
+import { libraryUrl } from './canonical-urls'
 
 const batchId = process.env.BATCH_ID
 const mediaDir = batchId ? `test-media-${batchId}` : 'test-media'
@@ -8,7 +9,7 @@ const UPLOAD_DIR = 'MediaContent'
 
 test.describe('File browser misc', () => {
   test('uploads a folder via upload menu', async ({ page }) => {
-    await page.goto(`/?dir=${UPLOAD_DIR}`)
+    await page.goto(libraryUrl(UPLOAD_DIR))
     const tmpRoot = fs.mkdtempSync(path.join(mediaDir, 'upload-dir-'))
     fs.writeFileSync(path.join(tmpRoot, 'folder-root-file.txt'), 'folder upload content')
     try {
@@ -27,7 +28,7 @@ test.describe('File browser misc', () => {
 
   test('shows drop overlay when dragging files over listing', async ({ page, browserName }) => {
     test.skip(browserName !== 'chromium', 'DataTransfer simulation is validated on Chromium')
-    await page.goto(`/?dir=${UPLOAD_DIR}`)
+    await page.goto(libraryUrl(UPLOAD_DIR))
     await page.evaluate(() => {
       const zone = document.querySelector('[data-testid="upload-drop-zone"]')
       if (!zone) throw new Error('missing upload-drop-zone')
@@ -73,7 +74,7 @@ test.describe('File browser clipboard paste', () => {
   test.use({ permissions: ['clipboard-read', 'clipboard-write'] })
 
   test('opens paste dialog for text clipboard', async ({ page }) => {
-    await page.goto(`/?dir=${UPLOAD_DIR}`)
+    await page.goto(libraryUrl(UPLOAD_DIR))
     await page.getByTestId('file-browser').focus()
     await page.evaluate(async () => {
       await navigator.clipboard.write([
@@ -116,11 +117,14 @@ test.describe('File browser clipboard paste', () => {
     const target = path.join(mediaDir, UPLOAD_DIR, name)
     fs.writeFileSync(target, 'old text')
     try {
-      await page.goto(`/?dir=${UPLOAD_DIR}`)
+      await page.goto(libraryUrl(UPLOAD_DIR))
       await openTextPaste(page, name, 'new text')
       await expect(page.getByTestId('paste-diff')).toContainText('old text')
       const edit = page.waitForResponse(
-        (r) => r.url().includes('/api/files/edit') && r.status() === 200,
+        (r) =>
+          r.url().includes('/api/integrations/filesystem/actions') &&
+          r.request().postDataJSON()?.action === 'filesystem.paste' &&
+          r.status() === 200,
       )
       await page.getByRole('button', { name: 'Replace', exact: true }).click()
       await edit
@@ -137,7 +141,7 @@ test.describe('File browser clipboard paste', () => {
     const copy = path.join(mediaDir, UPLOAD_DIR, renamed)
     fs.writeFileSync(target, 'original')
     try {
-      await page.goto(`/?dir=${UPLOAD_DIR}`)
+      await page.goto(libraryUrl(UPLOAD_DIR))
       await openTextPaste(page, name, 'copy content')
       await page.getByRole('button', { name: 'Save with another name' }).click()
       await page.getByLabel('Filename').fill(renamed)
@@ -155,7 +159,7 @@ test.describe('File browser clipboard paste', () => {
     const target = path.join(mediaDir, UPLOAD_DIR, name)
     fs.writeFileSync(target, 'keep me')
     try {
-      await page.goto(`/?dir=${UPLOAD_DIR}`)
+      await page.goto(libraryUrl(UPLOAD_DIR))
       await openTextPaste(page, name, 'discard me')
       await page.getByRole('button', { name: 'Cancel', exact: true }).click()
       await expect(page.getByRole('heading', { name: /Paste Text/i })).not.toBeVisible()
@@ -170,7 +174,7 @@ test.describe('File browser clipboard paste', () => {
     const target = path.join(mediaDir, UPLOAD_DIR, name)
     fs.writeFileSync(target, 'initial')
     try {
-      await page.goto(`/?dir=${UPLOAD_DIR}`)
+      await page.goto(libraryUrl(UPLOAD_DIR))
       await openTextPaste(page, name, 'clipboard')
       await new Promise((resolve) => setTimeout(resolve, 20))
       fs.writeFileSync(target, 'newer remote content')
@@ -187,7 +191,7 @@ test.describe('File browser clipboard paste', () => {
     const target = path.join(mediaDir, UPLOAD_DIR, name)
     fs.writeFileSync(target, Buffer.from([1, 2, 3]))
     try {
-      await page.goto(`/?dir=${UPLOAD_DIR}`)
+      await page.goto(libraryUrl(UPLOAD_DIR))
       await page.getByTestId('file-browser').focus()
       await page.evaluate(
         ({ name }) => {

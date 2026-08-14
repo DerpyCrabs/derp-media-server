@@ -1,13 +1,24 @@
-import type { FileItem } from '@/lib/types'
+import type { ResourceSummary } from '@/lib/domain/resource'
+import {
+  filesystemPathForResourceKey,
+  filesystemResourceIsDirectory,
+  filesystemResourceMediaType,
+} from '../integrations/filesystem/resource'
 import { navigateSearchParams } from '../browser-history'
 
 export type ReaderSourceKind = 'pdf' | 'folder' | 'book'
 
-export function openInReader(file: Pick<FileItem, 'path' | 'isDirectory' | 'type'>): void {
+export function openInReader(resource: ResourceSummary): void {
+  const path = filesystemPathForResourceKey(resource.key)
+  if (path === null) return
   navigateSearchParams(
     {
-      reader: file.path,
-      readerKind: file.isDirectory ? 'folder' : file.type === 'book' ? 'book' : 'pdf',
+      reader: path,
+      readerKind: filesystemResourceIsDirectory(resource)
+        ? 'folder'
+        : filesystemResourceMediaType(resource) === 'book'
+          ? 'book'
+          : 'pdf',
     },
     'push',
   )

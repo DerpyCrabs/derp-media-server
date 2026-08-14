@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import '@/src/integrations/current-window-content'
 import {
   CANVAS_GRID_SIZE,
   canvasWindowVisualBounds,
@@ -12,17 +13,14 @@ import {
   type CanvasWindow,
   type InfiniteCanvasState,
 } from '@/lib/infinite-canvas'
-import { MediaType } from '@/lib/types'
-import { deletedHermesSessionIds } from '@/lib/hermes-session-store'
+import { filesystemResourceKey } from '@/lib/domain/resource'
+import { deletedHermesSessionIds } from '@/src/integrations/hermes/runtime-state'
 
 function integrationDefinition(id: string, state: Record<string, unknown>) {
   return {
     id,
-    type: 'integration' as const,
     title: 'Hermes',
-    source: { kind: 'local' as const },
-    initialState: {},
-    runtimeContent: {
+    contentInstance: {
       id,
       type: 'integration' as const,
       integration: 'hermes',
@@ -33,7 +31,7 @@ function integrationDefinition(id: string, state: Record<string, unknown>) {
 }
 
 function integrationState(window: CanvasWindow | undefined) {
-  const content = window?.definition.runtimeContent
+  const content = window?.definition.contentInstance
   return content?.type === 'integration' && typeof content.state === 'object'
     ? (content.state as Record<string, unknown>)
     : undefined
@@ -46,11 +44,13 @@ function canvasWindow(id: string, bounds: CanvasWindow['bounds']): CanvasWindow 
     zIndex: 1,
     definition: {
       id,
-      type: 'viewer',
       title: `${id}.md`,
-      iconType: MediaType.TEXT,
-      source: { kind: 'local' },
-      initialState: { viewing: `${id}.md` },
+      contentInstance: {
+        id,
+        type: 'resource',
+        resource: filesystemResourceKey('configured-default', `${id}.md`),
+        renderer: 'text-viewer',
+      },
     },
   }
 }
@@ -146,7 +146,6 @@ describe('infinite canvas persistence', () => {
     })
     expect(integrationState(reconciled.windows.find((window) => window.id === 'durable'))).toEqual({
       sessionId: 'session-1',
-      readOnly: false,
       cwd: 'C:/repo',
     })
   })
@@ -256,9 +255,7 @@ describe('infinite canvas persistence', () => {
       ...canvasWindow('canvas-window-1', { x: 0, y: 0, width: 320, height: 224 }),
       definition: {
         id: 'canvas-window-1',
-        type: 'browser',
-        source: { kind: 'remote' },
-        initialState: { dir: 42, viewing: 'safe.md' },
+        title: 'Missing content',
       },
     } as unknown as CanvasWindow
     const parsed = parseInfiniteCanvasState({
@@ -268,16 +265,18 @@ describe('infinite canvas persistence', () => {
     expect(parsed?.windows).toEqual([])
   })
 
-  test('preserves reader source kind for persisted viewer windows', () => {
+  test('preserves reader renderer identity for persisted resource windows', () => {
     const persisted = canvasWindow('canvas-window-1', {
       x: 0,
       y: 0,
       width: 320,
       height: 224,
     })
-    persisted.definition.initialState = {
-      viewing: 'Images',
-      readerKind: 'folder',
+    persisted.definition.contentInstance = {
+      id: 'canvas-window-1',
+      type: 'resource',
+      resource: filesystemResourceKey('configured-default', 'Images'),
+      renderer: 'folder-reader',
     }
     const parsed = parseInfiniteCanvasState(
       currentPersistedState({
@@ -285,9 +284,9 @@ describe('infinite canvas persistence', () => {
         windows: [persisted],
       }),
     )
-    expect(parsed?.windows[0]?.definition.initialState).toMatchObject({
-      viewing: 'Images',
-      readerKind: 'folder',
+    expect(parsed?.windows[0]?.definition.contentInstance).toMatchObject({
+      resource: filesystemResourceKey('configured-default', 'Images'),
+      renderer: 'folder-reader',
     })
   })
 })

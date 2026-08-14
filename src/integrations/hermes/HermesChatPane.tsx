@@ -1,4 +1,6 @@
+import './hermes.css'
 import type { HermesContentState } from './module'
+import { createTranscriptScrollFollow } from './transcript-scroll-follow'
 import {
   addHermesAttachments,
   addHermesDraggedPath,
@@ -31,7 +33,7 @@ import {
   stopHermesTurn,
   takeOverHermesSession,
   transcribeHermesAudio,
-} from '@/lib/hermes-session-store'
+} from './session-store'
 import {
   For,
   Show,
@@ -54,7 +56,7 @@ import Pencil from 'lucide-solid/icons/pencil'
 import LoaderCircle from 'lucide-solid/icons/loader-circle'
 import { HermesMessageCard } from './HermesMessageCard'
 import { getFileDragData, hasFileDragData } from '@/lib/file-drag-data'
-import { unsupportedHermesCommand, voiceControlGates } from '@/lib/hermes-chat-parity'
+import { unsupportedHermesCommand, voiceControlGates } from './chat-parity'
 
 export type HermesChatPaneProps = {
   instanceId: () => string
@@ -94,19 +96,34 @@ export function HermesChatPane(props: HermesChatPaneProps) {
   let transcriptEl: HTMLDivElement | undefined
   let transcriptContentEl: HTMLDivElement | undefined
   let paneEl: HTMLDivElement | undefined
-  let followLatest = true
+  const followLatest = createTranscriptScrollFollow()
   let scrollFrame: number | undefined
   let disposed = false
   let microphoneRequest = 0
   let paneActive = false
   let activeDecisionKey: string | undefined
 
+  function transcriptAtBottom() {
+    return !!(
+      transcriptEl &&
+      transcriptEl.scrollHeight - transcriptEl.scrollTop - transcriptEl.clientHeight <= 1
+    )
+  }
+
+  function stopFollowingLatest(waitForAway: boolean) {
+    followLatest.stop(waitForAway)
+    if (scrollFrame !== undefined) {
+      cancelAnimationFrame(scrollFrame)
+      scrollFrame = undefined
+    }
+  }
+
   function scrollTranscriptToBottom() {
-    if (!followLatest) return
+    if (!followLatest.shouldFollow()) return
     if (scrollFrame !== undefined) cancelAnimationFrame(scrollFrame)
     scrollFrame = requestAnimationFrame(() => {
       scrollFrame = undefined
-      if (!followLatest || !transcriptEl) return
+      if (!followLatest.shouldFollow() || !transcriptEl) return
       transcriptEl.scrollTop = transcriptEl.scrollHeight
       setAtTranscriptBottom(true)
     })
@@ -386,25 +403,23 @@ export function HermesChatPane(props: HermesChatPaneProps) {
         data-testid='hermes-transcript'
         class='min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-2 pr-4 select-text [overflow-anchor:none]'
         onWheel={(event) => {
-          if (event.deltaY < 0) followLatest = false
-          else if (
-            transcriptEl &&
-            transcriptEl.scrollHeight - transcriptEl.scrollTop - transcriptEl.clientHeight <= 1
-          )
-            followLatest = true
+          if (event.deltaY < 0) {
+            stopFollowingLatest(transcriptAtBottom() && (transcriptEl?.scrollTop ?? 0) > 0)
+          } else if (transcriptAtBottom()) {
+            followLatest.observe(true)
+          }
         }}
         onPointerDown={(event) => {
-          if (event.target === event.currentTarget) followLatest = false
+          if (event.target === event.currentTarget) stopFollowingLatest(false)
         }}
         onTouchStart={() => {
-          followLatest = false
+          stopFollowingLatest(transcriptAtBottom() && (transcriptEl?.scrollTop ?? 0) > 0)
         }}
         onScroll={() => {
           if (!transcriptEl) return
-          const atBottom =
-            transcriptEl.scrollHeight - transcriptEl.scrollTop - transcriptEl.clientHeight <= 1
+          const atBottom = transcriptAtBottom()
           setAtTranscriptBottom(atBottom)
-          if (atBottom) followLatest = true
+          followLatest.observe(atBottom)
         }}
       >
         <div ref={transcriptContentEl} class='space-y-2'>
@@ -498,7 +513,7 @@ export function HermesChatPane(props: HermesChatPaneProps) {
           class='absolute bottom-12 left-1/2 z-20 -translate-x-1/2 rounded-full border border-border bg-popover p-1.5 text-muted-foreground shadow-md hover:text-foreground'
           aria-label='Jump to latest message'
           onClick={() => {
-            followLatest = true
+            followLatest.resume()
             setAtTranscriptBottom(true)
             scrollTranscriptToBottom()
           }}

@@ -12,23 +12,10 @@ import { useStoreSync } from './solid-store-sync'
 
 type Options = {
   rootName?: string | Accessor<string>
-  state?: Accessor<DynamicFaviconNavState>
-  getSearch?: Accessor<string>
+  state: Accessor<DynamicFaviconNavState>
 }
 
-function navFromSearch(search: string): DynamicFaviconNavState {
-  const sp = new URLSearchParams(search)
-  return {
-    dir: sp.get('dir'),
-    viewing: sp.get('viewing'),
-    playing: sp.get('playing'),
-  }
-}
-
-export function useDynamicFavicon(
-  customIcons: Accessor<Record<string, string>>,
-  options?: Options,
-) {
+export function useDynamicFavicon(customIcons: Accessor<Record<string, string>>, options: Options) {
   const themeTick = useStoreSync(useThemeStore)
   const originals = { title: 'Media Server', href: null as string | null }
   let currentFavicon = 'default'
@@ -42,13 +29,9 @@ export function useDynamicFavicon(
   createEffect(() => {
     void themeTick()
     const icons = customIcons()
-    const nav = options?.state
-      ? options.state()
-      : navFromSearch(
-          options?.getSearch?.() ?? (typeof window !== 'undefined' ? window.location.search : ''),
-        )
+    const nav = options.state()
 
-    const currentDir = nav.dir || ''
+    const currentDir = nav.directory || ''
     const playingPath = nav.playing
     const viewingPath = nav.viewing
 

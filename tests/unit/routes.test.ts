@@ -11,14 +11,22 @@ describe('application routes', () => {
   const routeCases: Array<{
     href: string
     kind: AppRouteKind
-    directory?: string
   }> = [
-    { href: '/', kind: 'library', directory: '' },
-    { href: '/?dir=Music', kind: 'library', directory: 'Music' },
-    { href: '/workspace?dir=Documents&ws=desk-1&preset=reading', kind: 'workspace' },
+    { href: '/', kind: 'library' },
+    {
+      href: '/?provider=filesystem&resource=v1%3Aconfigured-default%3AMusic',
+      kind: 'library',
+    },
+    {
+      href: '/workspace?provider=filesystem&resource=v1%3Aconfigured-default%3ADocuments&ws=desk-1&preset=reading',
+      kind: 'workspace',
+    },
     { href: '/canvas', kind: 'canvas' },
     { href: '/workspace/', kind: 'workspace' },
-    { href: '/missing?dir=Music', kind: 'notFound' },
+    {
+      href: '/missing?provider=filesystem&resource=v1%3Aconfigured-default%3AMusic',
+      kind: 'notFound',
+    },
   ]
 
   for (const routeCase of routeCases) {
@@ -27,20 +35,20 @@ describe('application routes', () => {
       const route = parseRoute(url)
 
       expect(route.kind).toBe(routeCase.kind)
-      if (routeCase.directory !== undefined) expect(route.directory).toBe(routeCase.directory)
       expect(hrefFor(route)).toBe(routeCase.href)
     })
   }
 
-  test('parses existing Library viewer, player, and Reader deep links', () => {
+  test('parses canonical Library viewer, player, and Reader deep links', () => {
     const route = parseRoute({
       pathname: '/',
       search:
-        '?dir=Music&viewing=Documents%2Freadme.txt&playing=Music%2Ftrack.mp3&audioOnly=true&reader=Documents%2Freader.epub&readerKind=book',
+        '?provider=filesystem&resource=v1%3Aconfigured-default%3AMusic&viewing=Documents%2Freadme.txt&playing=Music%2Ftrack.mp3&audioOnly=true&reader=Documents%2Freader.epub&readerKind=book',
     })
 
     expect(route.query).toMatchObject({
-      dir: 'Music',
+      provider: 'filesystem',
+      resource: 'v1:configured-default:Music',
       viewing: 'Documents/readme.txt',
       playing: 'Music/track.mp3',
       audioOnly: true,
@@ -54,7 +62,8 @@ describe('application routes', () => {
       hrefFor(
         { kind: 'library' },
         {
-          dir: 'Music & Audio',
+          provider: 'filesystem',
+          resource: 'v1:configured-default:Music & Audio',
           viewing: 'Documents/read me.txt',
           playing: 'Music & Audio/track.mp3',
           audioOnly: true,
@@ -63,15 +72,31 @@ describe('application routes', () => {
         },
       ),
     ).toBe(
-      '/?dir=Music+%26+Audio&viewing=Documents%2Fread+me.txt&playing=Music+%26+Audio%2Ftrack.mp3&audioOnly=true&reader=Documents%2Fbook.epub&readerKind=book',
+      '/?provider=filesystem&resource=v1%3Aconfigured-default%3AMusic+%26+Audio&viewing=Documents%2Fread+me.txt&playing=Music+%26+Audio%2Ftrack.mp3&audioOnly=true&reader=Documents%2Fbook.epub&readerKind=book',
     )
     expect(
-      hrefFor({ kind: 'workspace' }, { dir: 'Documents', ws: 'desk 1', preset: 'Reading & notes' }),
-    ).toBe('/workspace?dir=Documents&ws=desk+1&preset=Reading+%26+notes')
+      hrefFor(
+        { kind: 'workspace' },
+        {
+          provider: 'filesystem',
+          resource: 'v1:configured-default:Documents',
+          ws: 'desk 1',
+          preset: 'Reading & notes',
+        },
+      ),
+    ).toBe(
+      '/workspace?provider=filesystem&resource=v1%3Aconfigured-default%3ADocuments&ws=desk+1&preset=Reading+%26+notes',
+    )
     expect(hrefFor({ kind: 'canvas' })).toBe('/canvas')
+    expect(
+      hrefFor(
+        { kind: 'library' },
+        { provider: 'fixture', resource: 'opaque/value?without-path-semantics' },
+      ),
+    ).toBe('/?provider=fixture&resource=opaque%2Fvalue%3Fwithout-path-semantics')
   })
 
-  test('preserves unknown compatibility parameters and hash on parsed routes', () => {
+  test('preserves unknown query parameters and hash on parsed routes', () => {
     const href = '/workspace?ws=desk-1&future=value&future=again#window-2'
     const route = parseRoute(new URL(href, 'https://media.test'))
 
@@ -88,27 +113,39 @@ describe('application routes', () => {
       updateRouteSearch(
         {
           pathname: '/',
-          search: '?dir=Documents&playing=Music%2Ftrack.mp3&future=kept',
+          search:
+            '?provider=filesystem&resource=v1%3Aconfigured-default%3ADocuments&playing=Music%2Ftrack.mp3&future=kept',
           hash: '#details',
         },
-        { viewing: 'Documents/readme.txt', dir: null },
+        { viewing: 'Documents/readme.txt', playing: null },
       ),
-    ).toBe('/?playing=Music%2Ftrack.mp3&future=kept&viewing=Documents%2Freadme.txt#details')
+    ).toBe(
+      '/?provider=filesystem&resource=v1%3Aconfigured-default%3ADocuments&future=kept&viewing=Documents%2Freadme.txt#details',
+    )
   })
 
-  test('carries folder context only between surfaces that consume it', () => {
-    const library = parseRoute({ pathname: '/', search: '?dir=Music&playing=Music%2Ftrack.mp3' })
+  test('carries resource context only between surfaces that consume it', () => {
+    const library = parseRoute({
+      pathname: '/',
+      search:
+        '?provider=filesystem&resource=v1%3Aconfigured-default%3AMusic&playing=Music%2Ftrack.mp3',
+    })
     const workspace = parseRoute({
       pathname: '/workspace',
-      search: '?dir=Music&ws=desk-1&preset=reading',
+      search: '?provider=fixture&resource=opaque%2Fid&ws=desk-1&preset=reading',
       hash: '#window-2',
     })
 
-    expect(hrefForSurface('library', library)).toBe('/?dir=Music&playing=Music%2Ftrack.mp3')
-    expect(hrefForSurface('workspace', library)).toBe('/workspace?dir=Music')
+    expect(hrefForSurface('library', library)).toBe(
+      '/?provider=filesystem&resource=v1%3Aconfigured-default%3AMusic&playing=Music%2Ftrack.mp3',
+    )
+    expect(hrefForSurface('workspace', library)).toBe(
+      '/workspace?provider=filesystem&resource=v1%3Aconfigured-default%3AMusic',
+    )
     expect(hrefForSurface('canvas', library)).toBe('/canvas')
     expect(hrefForSurface('workspace', workspace)).toBe(
-      '/workspace?dir=Music&ws=desk-1&preset=reading#window-2',
+      '/workspace?provider=fixture&resource=opaque%2Fid&ws=desk-1&preset=reading#window-2',
     )
+    expect(hrefForSurface('library', workspace)).toBe('/?provider=fixture&resource=opaque%2Fid')
   })
 })

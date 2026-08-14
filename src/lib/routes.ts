@@ -3,7 +3,8 @@ export type AppRouteKind = AppSurface | 'notFound'
 export type ReaderKind = 'pdf' | 'folder' | 'book'
 
 export type RouteQuery = {
-  dir?: string
+  provider?: string
+  resource?: string
   viewing?: string
   playing?: string
   audioOnly?: boolean
@@ -15,7 +16,8 @@ export type RouteQuery = {
 }
 
 export type RouteQueryParamKey =
-  | 'dir'
+  | 'provider'
+  | 'resource'
   | 'viewing'
   | 'playing'
   | 'audioOnly'
@@ -35,7 +37,6 @@ export type RouteLocation = {
 type LocatedRoute = {
   location: Required<RouteLocation>
   query: RouteQuery
-  directory: string
 }
 
 export type AppRoute = LocatedRoute &
@@ -60,7 +61,8 @@ const PATH_SURFACES = new Map<string, AppSurface>(
 )
 
 const KNOWN_QUERY_KEYS = new Set<RouteQueryParamKey>([
-  'dir',
+  'provider',
+  'resource',
   'viewing',
   'playing',
   'audioOnly',
@@ -100,7 +102,8 @@ function parseQuery(search: string): RouteQuery {
   )
 
   return {
-    ...(params.has('dir') ? { dir: optionalParam(params, 'dir') } : {}),
+    ...(params.has('provider') ? { provider: optionalParam(params, 'provider') } : {}),
+    ...(params.has('resource') ? { resource: optionalParam(params, 'resource') } : {}),
     ...(params.has('viewing') ? { viewing: optionalParam(params, 'viewing') } : {}),
     ...(params.has('playing') ? { playing: optionalParam(params, 'playing') } : {}),
     ...(params.get('audioOnly') === 'true' ? { audioOnly: true } : {}),
@@ -125,7 +128,6 @@ export function parseRoute(input: RouteLocation): AppRoute {
   const located = {
     location,
     query,
-    directory: query.dir ?? '',
   }
 
   return surface
@@ -134,7 +136,8 @@ export function parseRoute(input: RouteLocation): AppRoute {
 }
 
 function appendQuery(params: URLSearchParams, query: RouteQuery): void {
-  if (query.dir !== undefined) params.set('dir', query.dir)
+  if (query.provider !== undefined) params.set('provider', query.provider)
+  if (query.resource !== undefined) params.set('resource', query.resource)
   if (query.viewing !== undefined) params.set('viewing', query.viewing)
   if (query.playing !== undefined) params.set('playing', query.playing)
   if (query.audioOnly) params.set('audioOnly', 'true')
@@ -157,8 +160,13 @@ export function hrefFor(target: SurfaceRouteTarget | AppRoute, query?: RouteQuer
 
 export function hrefForSurface(surface: AppSurface, current?: AppRoute): string {
   if (current?.kind === surface) return hrefFor(current)
-  const dir = current?.query.dir
-  const query = surface === 'canvas' || dir === undefined ? undefined : { dir }
+  const { provider, resource } = current?.query ?? {}
+  const query =
+    surface === 'canvas'
+      ? undefined
+      : provider !== undefined && resource !== undefined
+        ? { provider, resource }
+        : undefined
   return hrefFor({ kind: surface }, query)
 }
 

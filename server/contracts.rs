@@ -3,15 +3,14 @@ use serde_json::Value;
 use std::{collections::HashMap, path::Path};
 use ts_rs::{Config, TS};
 
+pub(crate) use crate::integrations::contracts::{
+    IntegrationActionOutcomeDto, IntegrationActionRequestDto, IntegrationCapabilityDto,
+    IntegrationDescriptorDto, IntegrationOpenTargetDto, IntegrationSearchFailureDto,
+    IntegrationSearchResponseDto, IntegrationSearchResultDto, ResourceAppearanceDto,
+    ResourceKeyDto, ResourcePageDto, ResourceSummaryDto,
+};
+
 pub(crate) const API_CONFIG_PATH: &str = "/api/config";
-pub(crate) const API_FILES_PATH: &str = "/api/files";
-pub(crate) const API_FILES_CREATE_PATH: &str = "/api/files/create";
-pub(crate) const API_FILES_EDIT_PATH: &str = "/api/files/edit";
-pub(crate) const API_FILES_DELETE_PATH: &str = "/api/files/delete";
-pub(crate) const API_FILES_RENAME_PATH: &str = "/api/files/rename";
-pub(crate) const API_FILES_COPY_PATH: &str = "/api/files/copy";
-pub(crate) const API_FILES_UPLOAD_PATH: &str = "/api/files/upload";
-pub(crate) const API_FILES_DOWNLOAD_PATH: &str = "/api/files/download";
 pub(crate) const API_SETTINGS_PATH: &str = "/api/settings";
 pub(crate) const API_SETTINGS_VIEW_MODE_PATH: &str = "/api/settings/viewMode";
 pub(crate) const API_SETTINGS_FAVORITE_PATH: &str = "/api/settings/favorite";
@@ -29,6 +28,7 @@ pub(crate) const QUERY_SERVER_CONFIG: &str = "server-config";
 pub(crate) const QUERY_STATS: &str = "stats";
 pub(crate) const QUERY_CONTENT: &str = "content";
 pub(crate) const QUERY_AUDIO_METADATA: &str = "audio-metadata";
+pub(crate) const QUERY_INTEGRATIONS: &str = "integrations";
 
 #[derive(Clone, Copy, Debug, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -76,178 +76,6 @@ pub(crate) struct ServerConfigDto {
     pub media_roots: Vec<MediaRootDto>,
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub(crate) enum MediaTypeDto {
-    Video,
-    Audio,
-    Image,
-    Text,
-    Pdf,
-    Book,
-    Folder,
-    Other,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct FileItemDto {
-    pub name: String,
-    pub path: String,
-    #[serde(rename = "type")]
-    pub media_type: MediaTypeDto,
-    pub size: u64,
-    pub extension: String,
-    pub is_directory: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub is_virtual: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub view_count: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub thumbnail_generated: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub version: Option<f64>,
-}
-
-impl From<crate::media::FileItem> for FileItemDto {
-    fn from(value: crate::media::FileItem) -> Self {
-        Self {
-            name: value.name,
-            path: value.path,
-            media_type: match value.media_type.as_str() {
-                "video" => MediaTypeDto::Video,
-                "audio" => MediaTypeDto::Audio,
-                "image" => MediaTypeDto::Image,
-                "text" => MediaTypeDto::Text,
-                "pdf" => MediaTypeDto::Pdf,
-                "book" => MediaTypeDto::Book,
-                "folder" => MediaTypeDto::Folder,
-                _ => MediaTypeDto::Other,
-            },
-            size: value.size,
-            extension: value.extension,
-            is_directory: value.is_directory,
-            is_virtual: value.is_virtual,
-            view_count: value.view_count,
-            thumbnail_generated: value.thumbnail_generated,
-            version: value.version,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub(crate) enum VirtualCapabilityDto {
-    Open,
-    CreateFile,
-    CreateFolder,
-    Rename,
-    Archive,
-    Restore,
-    DeletePermanently,
-    DeleteProject,
-    Download,
-    CopyId,
-    Branch,
-    MoveToProject,
-    AddProjectFolder,
-    RemoveProjectFolder,
-    SetPrimaryFolder,
-    SetAppearance,
-}
-
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub(crate) enum VirtualOpenTargetTypeDto {
-    HermesSession,
-    HermesDraft,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct VirtualOpenTargetDto {
-    #[serde(rename = "type")]
-    pub target_type: VirtualOpenTargetTypeDto,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub session_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional, type = "string | null")]
-    pub project_path: Option<String>,
-    pub read_only: bool,
-}
-
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub(crate) enum VirtualAppearanceToneDto {
-    Violet,
-    Indigo,
-    Muted,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct VirtualAppearanceDto {
-    pub icon: String,
-    pub tone: VirtualAppearanceToneDto,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub color: Option<String>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct VirtualEntryDto {
-    pub provider: String,
-    pub kind: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub archived: Option<bool>,
-    pub capabilities: Vec<VirtualCapabilityDto>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub open_target: Option<VirtualOpenTargetDto>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional, type = "Record<string, unknown>")]
-    pub metadata: Option<HashMap<String, Value>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub appearance: Option<VirtualAppearanceDto>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct VirtualDirectoryDto {
-    pub provider: String,
-    pub kind: String,
-    pub path: String,
-    pub capabilities: Vec<VirtualCapabilityDto>,
-    pub offset: usize,
-    pub page_size: usize,
-    pub total: usize,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub next_offset: Option<usize>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct FileListResponse {
-    pub files: Vec<FileItemDto>,
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub virtual_entries: HashMap<String, VirtualEntryDto>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub virtual_directory: Option<VirtualDirectoryDto>,
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AutoSaveSettingDto {
@@ -257,49 +85,22 @@ pub(crate) struct AutoSaveSettingDto {
     pub read_only: Option<bool>,
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub(crate) enum WorkspaceTaskbarPinSourceKindDto {
-    Local,
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct WorkspaceTaskbarPinSourceDto {
-    pub kind: WorkspaceTaskbarPinSourceKindDto,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional, type = "string | null")]
-    pub root_path: Option<String>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct WorkspaceTaskbarPinDto {
     pub id: String,
-    pub path: String,
-    pub is_directory: bool,
+    pub resource: ResourceKeyDto,
     pub title: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional, type = "string | null")]
     pub custom_icon_name: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub is_virtual: Option<bool>,
-    pub source: WorkspaceTaskbarPinSourceDto,
-}
-
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub(crate) enum WorkspaceLayoutScopeDto {
-    Admin,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct WorkspaceLayoutPresetDto {
     pub id: String,
     pub name: String,
-    pub scope: WorkspaceLayoutScopeDto,
     #[ts(type = "PersistedWorkspaceState")]
     pub snapshot: Value,
     pub created_at: String,
@@ -325,75 +126,6 @@ pub(crate) struct SettingsDto {
     pub auto_save: HashMap<String, AutoSaveSettingDto>,
     pub workspace_taskbar_pins: Vec<WorkspaceTaskbarPinDto>,
     pub workspace_layout_presets: Vec<WorkspaceLayoutPresetDto>,
-}
-
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub(crate) enum CreateFileKindDto {
-    File,
-    Folder,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct CreateFileRequest {
-    #[serde(rename = "type")]
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub kind: Option<CreateFileKindDto>,
-    pub path: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub content: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub base64_content: Option<String>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct EditFileRequest {
-    pub path: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub content: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub base64_content: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub expected_version: Option<f64>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, TS)]
-pub(crate) struct FilePathRequest {
-    pub path: String,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct RenameFileRequest {
-    pub old_path: String,
-    pub new_path: String,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct CopyFileRequest {
-    pub source_path: String,
-    pub destination_dir: String,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, TS)]
-pub(crate) struct FileMutationResponse {
-    pub success: bool,
-    pub message: String,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, TS)]
-pub(crate) struct UploadResponse {
-    pub success: bool,
-    pub uploaded: usize,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
@@ -441,34 +173,10 @@ pub(crate) struct WorkspaceLayoutPresetsRequest {
     pub presets: Vec<WorkspaceLayoutPresetDto>,
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize, TS)]
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SettingsMutationResponse {
     pub success: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub is_favorite: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub is_knowledge_base: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub favorites: Option<Vec<String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub knowledge_bases: Option<Vec<String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub custom_icons: Option<HashMap<String, String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub auto_save: Option<HashMap<String, AutoSaveSettingDto>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub workspace_taskbar_pins: Option<Vec<WorkspaceTaskbarPinDto>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub workspace_layout_presets: Option<Vec<WorkspaceLayoutPresetDto>>,
 }
 
 #[derive(Clone, Debug, Serialize, TS)]
@@ -523,32 +231,23 @@ pub(crate) fn typescript() -> String {
         ApiErrorBody,
         MediaRootDto,
         ServerConfigDto,
-        MediaTypeDto,
-        FileItemDto,
-        VirtualCapabilityDto,
-        VirtualOpenTargetTypeDto,
-        VirtualOpenTargetDto,
-        VirtualAppearanceToneDto,
-        VirtualAppearanceDto,
-        VirtualEntryDto,
-        VirtualDirectoryDto,
-        FileListResponse,
+        ResourceKeyDto,
+        ResourceAppearanceDto,
+        ResourceSummaryDto,
+        ResourcePageDto,
+        IntegrationCapabilityDto,
+        IntegrationDescriptorDto,
+        IntegrationActionRequestDto,
+        IntegrationOpenTargetDto,
+        IntegrationActionOutcomeDto,
+        IntegrationSearchResultDto,
+        IntegrationSearchFailureDto,
+        IntegrationSearchResponseDto,
         AutoSaveSettingDto,
-        WorkspaceTaskbarPinSourceKindDto,
-        WorkspaceTaskbarPinSourceDto,
         WorkspaceTaskbarPinDto,
-        WorkspaceLayoutScopeDto,
         WorkspaceLayoutPresetDto,
         ViewModeDto,
         SettingsDto,
-        CreateFileKindDto,
-        CreateFileRequest,
-        EditFileRequest,
-        FilePathRequest,
-        RenameFileRequest,
-        CopyFileRequest,
-        FileMutationResponse,
-        UploadResponse,
         ViewModeRequest,
         FileSettingRequest,
         CustomIconRequest,
@@ -560,20 +259,11 @@ pub(crate) fn typescript() -> String {
         AppEvent,
     );
     output.push_str(&format!(
-        "export const apiRoutes = {{ config: {}, files: {}, filesCreate: {}, filesEdit: {}, \
-         filesDelete: {}, filesRename: {}, filesCopy: {}, filesUpload: {}, filesDownload: {}, settings: {}, \
+        "export const apiRoutes = {{ config: {}, settings: {}, \
          settingsViewMode: {}, settingsFavorite: {}, settingsKnowledgeBase: {}, settingsIcon: {}, \
          settingsIconRemove: {}, settingsAutoSave: {}, settingsTaskbarPins: {}, \
-         settingsLayoutPresets: {}, events: {} }} as const\n",
+        settingsLayoutPresets: {}, events: {}, integrations: {}, integrationSearch: {} }} as const\n",
         serde_json::to_string(API_CONFIG_PATH).unwrap(),
-        serde_json::to_string(API_FILES_PATH).unwrap(),
-        serde_json::to_string(API_FILES_CREATE_PATH).unwrap(),
-        serde_json::to_string(API_FILES_EDIT_PATH).unwrap(),
-        serde_json::to_string(API_FILES_DELETE_PATH).unwrap(),
-        serde_json::to_string(API_FILES_RENAME_PATH).unwrap(),
-        serde_json::to_string(API_FILES_COPY_PATH).unwrap(),
-        serde_json::to_string(API_FILES_UPLOAD_PATH).unwrap(),
-        serde_json::to_string(API_FILES_DOWNLOAD_PATH).unwrap(),
         serde_json::to_string(API_SETTINGS_PATH).unwrap(),
         serde_json::to_string(API_SETTINGS_VIEW_MODE_PATH).unwrap(),
         serde_json::to_string(API_SETTINGS_FAVORITE_PATH).unwrap(),
@@ -584,15 +274,18 @@ pub(crate) fn typescript() -> String {
         serde_json::to_string(API_SETTINGS_TASKBAR_PINS_PATH).unwrap(),
         serde_json::to_string(API_SETTINGS_LAYOUT_PRESETS_PATH).unwrap(),
         serde_json::to_string(API_EVENTS_PATH).unwrap(),
+        serde_json::to_string(crate::integrations::routes::API_INTEGRATIONS_PATH).unwrap(),
+        serde_json::to_string(crate::integrations::routes::API_INTEGRATION_SEARCH_PATH).unwrap(),
     ));
     output.push_str(&format!(
-        "export const apiQueryRoots = {{ files: {}, settings: {}, serverConfig: {}, stats: {}, content: {}, audioMetadata: {} }} as const\n",
+        "export const apiQueryRoots = {{ files: {}, settings: {}, serverConfig: {}, stats: {}, content: {}, audioMetadata: {}, integrations: {} }} as const\n",
         serde_json::to_string(QUERY_FILES).unwrap(),
         serde_json::to_string(QUERY_SETTINGS).unwrap(),
         serde_json::to_string(QUERY_SERVER_CONFIG).unwrap(),
         serde_json::to_string(QUERY_STATS).unwrap(),
         serde_json::to_string(QUERY_CONTENT).unwrap(),
         serde_json::to_string(QUERY_AUDIO_METADATA).unwrap(),
+        serde_json::to_string(QUERY_INTEGRATIONS).unwrap(),
     ));
     output
 }
@@ -632,11 +325,12 @@ mod tests {
         for name in [
             "ApiErrorBody",
             "AppEvent",
-            "FileListResponse",
+            "ResourcePageDto",
             "ServerConfigDto",
             "SettingsDto",
         ] {
             assert!(output.contains(&format!("type {name} =")), "missing {name}");
         }
+        assert!(output.contains("recentItems?: Array<ResourceSummaryDto>"));
     }
 }

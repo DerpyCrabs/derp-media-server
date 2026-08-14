@@ -1,14 +1,29 @@
-import { filesystemResourceAddress, filesystemResourceKey } from '@/lib/domain/resource'
+import {
+  filesystemResourceAddress,
+  filesystemResourceKey,
+  type ResourceKey,
+} from '@/lib/domain/resource'
 import { serverConfigQueryOptions, settingsQueryOptions } from '@/lib/query-options'
 import type { ResourceContentInstance } from '@/lib/domain/content'
-import { fileDownloadHref } from '@/lib/download-urls'
-import { BUILT_IN_RENDERER_ID } from '@/src/features/open/renderer-registry'
+import { filesystemDownloadHref } from './download'
 import type {
   ContentRendererModule,
   ContentRendererMountContext,
+  RendererDescriptor,
 } from '@/src/features/open/renderer-registry'
 import { useQuery } from '@tanstack/solid-query'
 import { createComponent, type Component, type JSX } from 'solid-js'
+
+export const FILESYSTEM_RENDERER_ID = {
+  audio: 'audio-player',
+  video: 'video-player',
+  image: 'image-viewer',
+  text: 'text-viewer',
+  pdf: 'pdf-reader',
+  book: 'book-reader',
+  folderReader: 'folder-reader',
+  unsupported: 'unsupported-file',
+} as const
 
 function resourceInstance(context: ContentRendererMountContext): ResourceContentInstance {
   const instance = context.instance()
@@ -46,7 +61,7 @@ function contentModule(
 }
 
 export async function loadFilesystemImageRenderer(): Promise<ContentRendererModule> {
-  const { ImageViewerContent } = await import('../../features/viewer/ImageViewerContent')
+  const { ImageViewerContent } = await import('./viewers/ImageViewerContent')
   return contentModule((context) =>
     createComponent(ImageViewerContent, {
       get viewingPath() {
@@ -66,6 +81,7 @@ export async function loadFilesystemImageRenderer(): Promise<ContentRendererModu
 
 type TextContentComponent = Component<{
   contentInstanceId: string
+  resource: ResourceKey
   viewingPath: string
   editableFolders: string[]
   knowledgeBases?: string[]
@@ -90,6 +106,9 @@ function FilesystemTextMount(props: {
     get contentInstanceId() {
       return resourceInstance(props.context).id
     },
+    get resource() {
+      return resourceInstance(props.context).resource
+    },
     get viewingPath() {
       return resourcePath(props.context)
     },
@@ -104,14 +123,14 @@ function FilesystemTextMount(props: {
 }
 
 export async function loadFilesystemTextRenderer(): Promise<ContentRendererModule> {
-  const { TextViewerContent } = await import('../../features/viewer/TextViewerContent')
+  const { TextViewerContent } = await import('./viewers/TextViewerContent')
   return contentModule((context) =>
     createComponent(FilesystemTextMount, { context, Content: TextViewerContent }),
   )
 }
 
 export async function loadFilesystemReaderRenderer(): Promise<ContentRendererModule> {
-  const { ReaderContent } = await import('../../features/reader/ReaderContent')
+  const { ReaderContent } = await import('./viewers/ReaderContent')
   return contentModule((context) =>
     createComponent(FilesystemReaderMount, { context, Content: ReaderContent }),
   )
@@ -123,9 +142,9 @@ function FilesystemReaderMount(props: {
 }) {
   const sourceKind = () => {
     const renderer = resourceInstance(props.context).renderer
-    return renderer === BUILT_IN_RENDERER_ID.folderReader
+    return renderer === FILESYSTEM_RENDERER_ID.folderReader
       ? 'folder'
-      : renderer === BUILT_IN_RENDERER_ID.book
+      : renderer === FILESYSTEM_RENDERER_ID.book
         ? 'book'
         : 'pdf'
   }
@@ -165,28 +184,95 @@ export async function loadFilesystemUnsupportedRenderer(): Promise<ContentRender
         return name.includes('.') ? name.split('.').at(-1) : undefined
       },
       get downloadHref() {
-        return fileDownloadHref(resourcePath(context))
+        return filesystemDownloadHref(resourcePath(context))
       },
       onClose: context.close,
     }),
   )
 }
 
-export function filesystemRendererLoader(
-  rendererId: string,
-): (() => Promise<ContentRendererModule>) | null {
-  switch (rendererId) {
-    case BUILT_IN_RENDERER_ID.image:
-      return loadFilesystemImageRenderer
-    case BUILT_IN_RENDERER_ID.text:
-      return loadFilesystemTextRenderer
-    case BUILT_IN_RENDERER_ID.pdf:
-    case BUILT_IN_RENDERER_ID.book:
-    case BUILT_IN_RENDERER_ID.folderReader:
-      return loadFilesystemReaderRenderer
-    case BUILT_IN_RENDERER_ID.unsupported:
-      return loadFilesystemUnsupportedRenderer
-    default:
-      return null
-  }
-}
+const defaultAndView = ['default', 'view'] as const
+const defaultViewAndRead = ['default', 'view', 'read'] as const
+const defaultViewAndPlay = ['default', 'view', 'play'] as const
+
+export const filesystemRendererDescriptors: readonly RendererDescriptor[] = [
+  {
+    id: FILESYSTEM_RENDERER_ID.folderReader,
+    rules: [{ type: 'kind', value: 'folder', intents: ['read'] }],
+    requiresAnyCapability: ['browse'],
+    load: loadFilesystemReaderRenderer,
+  },
+  {
+    id: FILESYSTEM_RENDERER_ID.video,
+    rules: [
+      { type: 'mime', value: 'video/ogg', intents: defaultViewAndPlay },
+      { type: 'mime', value: 'application/ogg', intents: defaultViewAndPlay },
+      { type: 'mimePrefix', value: 'video/', intents: defaultViewAndPlay },
+      { type: 'presentation', value: 'video', intents: defaultViewAndPlay },
+    ],
+    requiresAnyCapability: ['stream', 'read'],
+    load: async () => {
+      const module = await import('../../media/VideoPlayer')
+      return { kind: 'playback', media: 'video', component: module.VideoPlayer }
+    },
+  },
+  {
+    id: FILESYSTEM_RENDERER_ID.audio,
+    rules: [
+      { type: 'mimePrefix', value: 'audio/', intents: defaultViewAndPlay },
+      { type: 'presentation', value: 'audio', intents: defaultViewAndPlay },
+    ],
+    requiresAnyCapability: ['stream', 'read'],
+    load: async () => {
+      const module = await import('../../media/AudioPlayer')
+      return { kind: 'playback', media: 'audio', component: module.AudioPlayer }
+    },
+  },
+  {
+    id: FILESYSTEM_RENDERER_ID.image,
+    rules: [
+      { type: 'mimePrefix', value: 'image/', intents: defaultAndView },
+      { type: 'presentation', value: 'image', intents: defaultAndView },
+    ],
+    requiresAnyCapability: ['read'],
+    load: loadFilesystemImageRenderer,
+  },
+  {
+    id: FILESYSTEM_RENDERER_ID.text,
+    rules: [
+      { type: 'mimePrefix', value: 'text/', intents: defaultAndView },
+      { type: 'mime', value: 'application/json', intents: defaultAndView },
+      { type: 'mime', value: 'application/xml', intents: defaultAndView },
+      { type: 'mime', value: 'application/javascript', intents: defaultAndView },
+      { type: 'mime', value: 'application/typescript', intents: defaultAndView },
+      { type: 'presentation', value: 'text', intents: defaultAndView },
+    ],
+    requiresAnyCapability: ['read'],
+    load: loadFilesystemTextRenderer,
+  },
+  {
+    id: FILESYSTEM_RENDERER_ID.pdf,
+    rules: [
+      { type: 'mime', value: 'application/pdf', intents: defaultViewAndRead },
+      { type: 'presentation', value: 'pdf', intents: defaultViewAndRead },
+    ],
+    requiresAnyCapability: ['read'],
+    load: loadFilesystemReaderRenderer,
+  },
+  {
+    id: FILESYSTEM_RENDERER_ID.book,
+    rules: [
+      { type: 'mime', value: 'application/epub+zip', intents: defaultViewAndRead },
+      { type: 'mime', value: 'application/x-fictionbook+xml', intents: defaultViewAndRead },
+      { type: 'presentation', value: 'book', intents: defaultViewAndRead },
+    ],
+    requiresAnyCapability: ['read'],
+    load: loadFilesystemReaderRenderer,
+  },
+  {
+    id: FILESYSTEM_RENDERER_ID.unsupported,
+    rules: [{ type: 'fallback', intents: defaultAndView }],
+    requiresAnyCapability: ['read', 'download'],
+    load: loadFilesystemUnsupportedRenderer,
+  },
+]

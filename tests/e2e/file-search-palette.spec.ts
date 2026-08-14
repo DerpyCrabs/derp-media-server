@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
+import { libraryUrl } from './canonical-urls'
 import { WORKSPACE_VISIBLE_WINDOW_GROUP } from './workspace-layout-helpers'
 
 const workspaceContent = (page: Page) =>
@@ -13,9 +14,9 @@ test.describe('File search palette', () => {
     await expect
       .poll(
         async () => {
-          const response = await page.request.get('/api/files/search?q=Videos&limit=20')
-          const payload = (await response.json()) as { results?: Array<{ name: string }> }
-          return payload.results?.map((result) => result.name) ?? []
+          const response = await page.request.get('/api/search?q=Videos&limit=20')
+          const payload = (await response.json()) as { results?: Array<{ title: string }> }
+          return payload.results?.map((result) => result.title) ?? []
         },
         { timeout: 30_000 },
       )
@@ -29,7 +30,7 @@ test.describe('File search palette', () => {
     const result = palette.getByRole('option').filter({ hasText: 'Videos' }).first()
     await expect(result).toBeVisible({ timeout: 15_000 })
     await result.click()
-    await page.waitForURL(/dir=.*Videos/)
+    await page.waitForURL(libraryUrl('Videos'))
     await expect(page.getByText('sample.mp4')).toBeVisible()
   })
 

@@ -57,7 +57,7 @@ describe('content and integration contracts', () => {
     }
     const malformed = { old: 'payload' }
 
-    expect(codec.decode(malformed)).toEqual({
+    expect(codec.decode(malformed, 1)).toEqual({
       ok: false,
       reason: 'invalid fixture content',
       recoverable: malformed,
@@ -82,7 +82,15 @@ describe('content and integration contracts', () => {
       id: 'fixture',
       browse: { browse: async (_request) => page },
       actions: {
-        list: (_resource) => [{ id: 'fixture.pin', label: 'Pin', capability: 'fixture.pin' }],
+        list: (_resource) => [
+          {
+            id: 'fixture.pin',
+            operation: 'pin',
+            label: 'Pin',
+            capability: 'fixture.pin',
+            interaction: 'immediate',
+          },
+        ],
         run: async (_request) => {},
       },
       content: [
@@ -98,7 +106,7 @@ describe('content and integration contracts', () => {
 
     expect(module.id).toBe('fixture')
     expect((await module.browse?.browse({ location: page.location })).items[0]).toEqual(item)
-    expect(module.actions?.list(item)[0].id).toBe('fixture.pin')
+    expect(module.actions!.list(item)[0]?.id).toBe('fixture.pin')
   })
 
   test('host contracts contain placement commands but no geometry', () => {

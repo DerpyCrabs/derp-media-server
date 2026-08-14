@@ -8,6 +8,8 @@ export function getFloatingLayerMount(): HTMLElement {
   if (!layerRoot) {
     layerRoot = document.createElement('div')
     layerRoot.setAttribute('data-floating-layer-root', '')
+    layerRoot.style.setProperty('position', 'relative')
+    layerRoot.style.setProperty('z-index', '400000')
     layerRoot.style.setProperty('isolation', 'isolate')
     document.body.appendChild(layerRoot)
   }

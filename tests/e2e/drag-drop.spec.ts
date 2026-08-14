@@ -1,8 +1,9 @@
 import { test, expect } from '@playwright/test'
+import { libraryUrl } from './canonical-urls'
 
 test.describe('Drag and Drop File Moving', () => {
   test('drags a file into a folder', async ({ page }) => {
-    await page.goto('/?dir=MediaContent')
+    await page.goto(libraryUrl('MediaContent'))
 
     // Create a temp file to drag
     await page.locator('button[title="Create new file"]').click()
@@ -23,12 +24,12 @@ test.describe('Drag and Drop File Moving', () => {
 
     // File should be in the subfolder
     await page.locator('table').getByText('subfolder').first().click()
-    await page.waitForURL(/dir=MediaContent.*subfolder/)
+    await page.waitForURL(libraryUrl('MediaContent/subfolder'))
     await expect(page.locator('table').getByText('drag-test.txt')).toBeVisible()
 
     // Cleanup: delete the file
     await page.locator('table tr').filter({ hasText: 'drag-test.txt' }).click({ button: 'right' })
     await page.locator('[data-slot="context-menu-item"]').getByText('Delete').click()
-    await page.getByRole('button', { name: /Delete/i }).click()
+    await page.getByRole('alertdialog').getByRole('button', { name: 'Delete', exact: true }).click()
   })
 })

@@ -10,34 +10,34 @@ function getDelayMs(retryCount: number): number {
   return Math.min(INITIAL_DELAY_MS * BACKOFF_MULTIPLIER ** retryCount, MAX_DELAY_MS)
 }
 
-type PortState = { admin: number }
+type PortState = { application: number }
 const portStates = new Map<MessagePort, PortState>()
 
 function portState(port: MessagePort): PortState {
   let state = portStates.get(port)
   if (!state) {
-    state = { admin: 0 }
+    state = { application: 0 }
     portStates.set(port, state)
   }
   return state
 }
 
-let adminRefTotal = 0
-let adminSource: EventSource | null = null
-let adminRetry = 0
-let adminReconnectTimer: ReturnType<typeof setTimeout> | null = null
+let applicationReferenceTotal = 0
+let applicationSource: EventSource | null = null
+let applicationRetry = 0
+let applicationReconnectTimer: ReturnType<typeof setTimeout> | null = null
 
-function cancelAdminReconnect() {
-  if (adminReconnectTimer) {
-    clearTimeout(adminReconnectTimer)
-    adminReconnectTimer = null
+function cancelApplicationReconnect() {
+  if (applicationReconnectTimer) {
+    clearTimeout(applicationReconnectTimer)
+    applicationReconnectTimer = null
   }
 }
 
-function broadcastAdmin(data: unknown) {
-  const message = { type: 'admin-sse' as const, data }
+function broadcastApplication(data: unknown) {
+  const message = { type: 'application-sse' as const, data }
   for (const [port, state] of portStates) {
-    if (state.admin <= 0) continue
+    if (state.application <= 0) continue
     try {
       port.postMessage(message)
     } catch {
@@ -46,56 +46,56 @@ function broadcastAdmin(data: unknown) {
   }
 }
 
-function openAdminStream() {
-  cancelAdminReconnect()
-  if (adminSource || adminRefTotal <= 0) return
+function openApplicationStream() {
+  cancelApplicationReconnect()
+  if (applicationSource || applicationReferenceTotal <= 0) return
 
-  adminSource = new EventSource(apiEndpoints.events.streamUrl)
-  adminSource.onmessage = (event) => {
-    adminRetry = 0
+  applicationSource = new EventSource(apiEndpoints.events.streamUrl)
+  applicationSource.onmessage = (event) => {
+    applicationRetry = 0
     try {
-      broadcastAdmin(JSON.parse(event.data))
+      broadcastApplication(JSON.parse(event.data))
     } catch {
       // Ignore malformed events.
     }
   }
-  adminSource.onerror = () => {
-    adminSource?.close()
-    adminSource = null
-    if (adminRefTotal <= 0) return
-    const delay = getDelayMs(adminRetry++)
-    adminReconnectTimer = setTimeout(() => {
-      adminReconnectTimer = null
-      openAdminStream()
+  applicationSource.onerror = () => {
+    applicationSource?.close()
+    applicationSource = null
+    if (applicationReferenceTotal <= 0) return
+    const delay = getDelayMs(applicationRetry++)
+    applicationReconnectTimer = setTimeout(() => {
+      applicationReconnectTimer = null
+      openApplicationStream()
     }, delay)
   }
 }
 
-function closeAdminStreamIfIdle() {
-  cancelAdminReconnect()
-  if (adminRefTotal > 0) return
-  adminRetry = 0
-  adminSource?.close()
-  adminSource = null
+function closeApplicationStreamIfIdle() {
+  cancelApplicationReconnect()
+  if (applicationReferenceTotal > 0) return
+  applicationRetry = 0
+  applicationSource?.close()
+  applicationSource = null
 }
 
 function onPortMessage(port: MessagePort, raw: unknown) {
   if (!raw || typeof raw !== 'object') return
   const message = raw as { type?: string }
-  if (message.type === 'subscribe-admin') {
+  if (message.type === 'subscribe-application') {
     const state = portState(port)
-    state.admin++
-    adminRefTotal++
-    if (adminRefTotal === 1) openAdminStream()
+    state.application++
+    applicationReferenceTotal++
+    if (applicationReferenceTotal === 1) openApplicationStream()
     return
   }
-  if (message.type === 'unsubscribe-admin') {
+  if (message.type === 'unsubscribe-application') {
     const state = portStates.get(port)
-    if (!state || state.admin <= 0) return
-    state.admin--
-    adminRefTotal = Math.max(0, adminRefTotal - 1)
-    if (state.admin === 0) portStates.delete(port)
-    closeAdminStreamIfIdle()
+    if (!state || state.application <= 0) return
+    state.application--
+    applicationReferenceTotal = Math.max(0, applicationReferenceTotal - 1)
+    if (state.application === 0) portStates.delete(port)
+    closeApplicationStreamIfIdle()
   }
 }
 

@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import '@/src/integrations/current-window-content'
 import { reconcileLayoutBoundsFromSnapZones } from '@/lib/workspace-geometry'
 import { createWorkspaceLayoutPresetSnapshot } from '@/lib/workspace-layout-presets'
 import type { PersistedWorkspaceState, WorkspaceWindowDefinition } from '@/lib/use-workspace'
@@ -8,6 +9,7 @@ import {
   serializeWorkspaceLayoutState,
   serializeWorkspacePersistedState,
 } from '@/lib/use-workspace'
+import { workspaceWindow } from './workspace-window-fixture'
 
 function currentPersistedState(value: unknown): unknown {
   return JSON.parse(serializeWorkspacePersistedState(value as PersistedWorkspaceState))
@@ -18,12 +20,9 @@ function win(
   snapZone: NonNullable<WorkspaceWindowDefinition['layout']>['snapZone'],
   bounds: NonNullable<WorkspaceWindowDefinition['layout']>['bounds'],
 ): WorkspaceWindowDefinition {
-  return {
+  return workspaceWindow({
     id,
-    type: 'browser',
     title: id,
-    source: { kind: 'local', rootPath: null },
-    initialState: {},
     layout: {
       snapZone,
       bounds,
@@ -31,7 +30,7 @@ function win(
       minimized: false,
       zIndex: 1,
     },
-  }
+  })
 }
 
 describe('reconcileLayoutBoundsFromSnapZones', () => {
@@ -60,13 +59,11 @@ describe('normalizePersistedWorkspaceState', () => {
   test('named-layout snapshots contain only current persisted content envelopes', () => {
     const state = {
       windows: [
-        {
+        workspaceWindow({
           id: 'browser-1',
-          type: 'browser',
           title: 'Pictures',
-          source: { kind: 'local' },
-          initialState: { dir: 'Pictures' },
-        },
+          path: 'Pictures',
+        }),
       ],
       activeWindowId: 'browser-1',
       activeTabMap: {},
@@ -91,20 +88,16 @@ describe('normalizePersistedWorkspaceState', () => {
     expect(snapshot).not.toHaveProperty('browserTabIcon')
     expect(normalizePersistedWorkspaceState(snapshot)?.windows[0]).toMatchObject({
       id: 'browser-1',
-      type: 'browser',
-      initialState: { dir: 'Pictures' },
+      contentInstance: { id: 'browser-1', type: 'explorer' },
     })
   })
 
   test('session draft (reconcileSnapZones false) keeps saved snapped bounds', () => {
     const raw = {
       windows: [
-        {
+        workspaceWindow({
           id: 'a',
-          type: 'browser',
           title: 'a',
-          source: { kind: 'local', rootPath: null },
-          initialState: {},
           layout: {
             snapZone: 'top-right',
             bounds: { x: 900, y: 10, width: 220, height: 240 },
@@ -112,7 +105,7 @@ describe('normalizePersistedWorkspaceState', () => {
             minimized: false,
             zIndex: 1,
           },
-        },
+        }),
       ],
       activeWindowId: 'a',
       activeTabMap: {},
@@ -135,12 +128,9 @@ describe('normalizePersistedWorkspaceState', () => {
   test('browser tab title and icon parse and serialize', () => {
     const raw = {
       windows: [
-        {
+        workspaceWindow({
           id: 'a',
-          type: 'browser',
           title: 'a',
-          source: { kind: 'local', rootPath: null },
-          initialState: {},
           layout: {
             snapZone: null,
             bounds: { x: 0, y: 0, width: 400, height: 300 },
@@ -148,7 +138,7 @@ describe('normalizePersistedWorkspaceState', () => {
             minimized: false,
             zIndex: 1,
           },
-        },
+        }),
       ],
       activeWindowId: 'a',
       activeTabMap: {},
@@ -169,12 +159,9 @@ describe('normalizePersistedWorkspaceState', () => {
   test('invalid browser tab icon is dropped', () => {
     const raw = {
       windows: [
-        {
+        workspaceWindow({
           id: 'a',
-          type: 'browser',
           title: 'a',
-          source: { kind: 'local', rootPath: null },
-          initialState: {},
           layout: {
             snapZone: null,
             bounds: { x: 0, y: 0, width: 400, height: 300 },
@@ -182,7 +169,7 @@ describe('normalizePersistedWorkspaceState', () => {
             minimized: false,
             zIndex: 1,
           },
-        },
+        }),
       ],
       activeWindowId: 'a',
       activeTabMap: {},
@@ -199,12 +186,9 @@ describe('normalizePersistedWorkspaceState', () => {
   test('browser tab icon color tailwind key', () => {
     const raw = {
       windows: [
-        {
+        workspaceWindow({
           id: 'a',
-          type: 'browser',
           title: 'a',
-          source: { kind: 'local', rootPath: null },
-          initialState: {},
           layout: {
             snapZone: null,
             bounds: { x: 0, y: 0, width: 400, height: 300 },
@@ -212,7 +196,7 @@ describe('normalizePersistedWorkspaceState', () => {
             minimized: false,
             zIndex: 1,
           },
-        },
+        }),
       ],
       activeWindowId: 'a',
       activeTabMap: {},
@@ -227,15 +211,12 @@ describe('normalizePersistedWorkspaceState', () => {
     expect(workspaceTabIconColorKeyToHex('blue-500')).toBe('#3b82f6')
   })
 
-  test('legacy hex tab icon color is dropped', () => {
+  test('invalid hex tab icon color is dropped', () => {
     const raw = {
       windows: [
-        {
+        workspaceWindow({
           id: 'a',
-          type: 'browser',
           title: 'a',
-          source: { kind: 'local', rootPath: null },
-          initialState: {},
           layout: {
             snapZone: null,
             bounds: { x: 0, y: 0, width: 400, height: 300 },
@@ -243,7 +224,7 @@ describe('normalizePersistedWorkspaceState', () => {
             minimized: false,
             zIndex: 1,
           },
-        },
+        }),
       ],
       activeWindowId: 'a',
       activeTabMap: {},

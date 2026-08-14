@@ -1,13 +1,14 @@
-import type { ResourceContentInstance } from '@/lib/domain/content'
 import { getMediaTypeFromPath } from '@/lib/media-utils'
 import { MediaType } from '@/lib/types'
-import { Show, createMemo } from 'solid-js'
+import { Show, createMemo, createResource } from 'solid-js'
 import { createUrlSearchParamsMemo, useBrowserHistory } from '../browser-history'
 import { ContentRuntimeView } from '../features/content/ContentRuntimeView'
 import {
-  legacyFilesystemContentInstance,
-  legacyFilesystemPathForContent,
-} from '../integrations/filesystem/legacy-content'
+  filesystemContentInstance,
+  filesystemPathForContent,
+} from '../integrations/filesystem/content'
+import { filesystemPathForResourceKey } from '../integrations/filesystem/resource'
+import { explorerLocationFromQuery } from '../integrations/explorer-adapter'
 import { applicationContentRuntime } from '../integrations/registry'
 import { closeViewer, viewFile } from '../lib/url-state-actions'
 import { AudioPlayer } from './AudioPlayer'
@@ -21,24 +22,28 @@ type Props = {
 export function MainMediaPlayers(_props: Props) {
   const history = useBrowserHistory()
   const params = createUrlSearchParamsMemo(history)
-  const directory = createMemo(() => params().get('dir') ?? '')
-  const content = createMemo<ResourceContentInstance | null>(() => {
+  const directory = createMemo(
+    () => filesystemPathForResourceKey(explorerLocationFromQuery(params()).key) ?? '',
+  )
+  const contentRequest = createMemo(() => {
     const path = params().get('viewing')
     if (!path) return null
     const type = getMediaTypeFromPath(path)
     if (type === MediaType.AUDIO || type === MediaType.VIDEO) return null
-    return legacyFilesystemContentInstance({
+    return {
       id: 'library-viewer',
       path,
       surface: 'library',
       disposition: type === MediaType.PDF || type === MediaType.BOOK ? 'fullscreen' : 'modal',
       contextPath: directory() || undefined,
-    })
+    } as const
   })
+  const [content] = createResource(contentRequest, filesystemContentInstance)
+  const visibleContent = createMemo(() => (contentRequest() ? (content() ?? null) : null))
 
   return (
     <>
-      <Show when={content()}>
+      <Show when={visibleContent()}>
         <div
           role='dialog'
           aria-modal='true'
@@ -47,11 +52,11 @@ export function MainMediaPlayers(_props: Props) {
         >
           <ContentRuntimeView
             runtime={applicationContentRuntime}
-            instance={content}
+            instance={visibleContent}
             onReplace={(next) => {
               if (next.type !== 'resource') return
-              const path = legacyFilesystemPathForContent(next)
-              if (path !== null) viewFile(path, directory())
+              const path = filesystemPathForContent(next)
+              if (path !== null) viewFile(path)
             }}
             onClose={closeViewer}
           />
