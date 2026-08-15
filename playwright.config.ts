@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test'
+import path from 'path'
 
 process.env.NO_PROXY =
   (process.env.NO_PROXY ? process.env.NO_PROXY + ',' : '') + 'localhost,127.0.0.1'
@@ -10,10 +11,14 @@ const configFile = batchId
   : 'tests/fixtures/test-config.jsonc'
 const outputDir = batchId ? `test-results/batch-${batchId}` : 'test-results'
 const htmlReportDir = batchId ? `playwright-report/batch-${batchId}` : 'playwright-report'
-const releaseServer =
-  process.platform === 'win32'
-    ? 'target\\release\\derp-media-server.exe --production'
-    : 'target/release/derp-media-server --production'
+const serverTargetDir = process.env.TEST_SERVER_TARGET_DIR ?? 'target'
+const serverBinary = path.resolve(
+  __dirname,
+  serverTargetDir,
+  'release',
+  process.platform === 'win32' ? 'derp-media-server.exe' : 'derp-media-server',
+)
+const releaseServer = `"${serverBinary}" --production`
 const seededReleaseServer = `bun tests/fixtures/seed-state.ts && ${releaseServer}`
 
 export default defineConfig({

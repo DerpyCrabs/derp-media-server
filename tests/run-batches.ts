@@ -62,6 +62,7 @@ export const BATCHES = [
 
 const ROOT = path.resolve(__dirname, '..')
 const FIXTURES_DIR = path.join(__dirname, 'fixtures')
+const TEST_SERVER_TARGET_DIR = path.join(ROOT, 'target', 'test-batch')
 
 function generateBatchConfig(batchId: string, port: number): string {
   const configPath = path.join(FIXTURES_DIR, `test-config-${batchId}.jsonc`)
@@ -158,6 +159,7 @@ function runBatch(batch: (typeof BATCHES)[number]): Promise<{
       env: {
         ...process.env,
         BATCH_ID: batch.id,
+        TEST_SERVER_TARGET_DIR,
         PLAYWRIGHT_JSON_OUTPUT_NAME: jsonOutputPath,
       },
       stdio: ['ignore', 'pipe', 'pipe'],

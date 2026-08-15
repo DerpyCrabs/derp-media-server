@@ -12,7 +12,7 @@
     "fmt:check": "oxfmt --check .",
     "test": "bun run build && playwright test",
     "test:unit": "cargo test && bun test tests/unit/",
-    "test:batch": "bun run build && bun tests/run-batches.ts",
+    "test:batch": "bun run build:client && cargo build --release --target-dir target/test-batch && bun tests/run-batches.ts",
     "test:generate-media": "bun tests/fixtures/generate-media-cache.ts",
     "test:ui": "bun run build && playwright test --ui",
     "test:headed": "bun run build && playwright test --headed",

@@ -55,9 +55,9 @@ function serverCommand(): { executable: string; args: string[] } {
   const executable = path.resolve(
     __dirname,
     '../..',
-    process.platform === 'win32'
-      ? 'target/release/derp-media-server.exe'
-      : 'target/release/derp-media-server',
+    process.env.TEST_SERVER_TARGET_DIR ?? 'target',
+    'release',
+    process.platform === 'win32' ? 'derp-media-server.exe' : 'derp-media-server',
   )
   return { executable, args: ['--production'] }
 }
