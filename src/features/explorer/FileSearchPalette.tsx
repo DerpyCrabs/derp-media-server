@@ -234,7 +234,7 @@ function FileSearchPalette(props: {
               type='button'
               class='inline-flex size-10 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground'
               aria-label='Close search'
-              onClick={props.onClose}
+              onClick={() => props.onClose()}
             >
               <X class='size-5' aria-hidden='true' />
             </button>

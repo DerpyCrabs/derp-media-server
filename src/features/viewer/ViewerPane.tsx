@@ -77,7 +77,6 @@ export function ViewerPane(props: Props) {
   const playbackSession = usePlaybackSession()
   const playback = usePlaybackSnapshot()
   const playbackMediaHost = usePlaybackMediaHost()
-  let paneEl: HTMLDivElement | undefined
 
   const viewingPath = createMemo(() => props.viewingPath())
   const readerKind = createMemo(() => props.readerKind?.() ?? null)
@@ -200,9 +199,6 @@ export function ViewerPane(props: Props) {
     }
   })
 
-  const imageFiles = createMemo(() =>
-    (filesQuery.data?.files ?? []).filter((f) => f.type === MediaType.IMAGE),
-  )
   const folderAudioFiles = createMemo(() =>
     (filesQuery.data?.files ?? []).filter((file) => file.type === MediaType.AUDIO),
   )
@@ -585,7 +581,6 @@ export function ViewerPane(props: Props) {
 
   return (
     <div
-      ref={paneEl}
       data-no-window-drag
       class={
         props.presentation === 'modal'

@@ -26,7 +26,7 @@ export function ReaderSelectionMenu(props: {
   aiDetail: ReaderAiDetail
   onTextChange: (text: string) => void
 }) {
-  let previewRef!: HTMLDivElement
+  let previewRef: HTMLDivElement | undefined
   let lastAutomaticKey = ''
   let requestId = 0
   const [task, setTask] = createSignal<'define' | 'translate' | null>(null)
@@ -126,7 +126,9 @@ export function ReaderSelectionMenu(props: {
       <Show when={props.selection.kind === 'text' && props.selection.text.trim()}>
         <div class='relative min-w-0 rounded-[7px] border border-[#444] bg-[#202020] focus-within:border-[#666]'>
           <div
-            ref={previewRef}
+            ref={(element) => {
+              previewRef = element
+            }}
             class='reader-selection-preview box-border max-h-44 min-w-0 overflow-auto py-[7px] pr-[76px] pl-2 text-[0.86rem] leading-[1.35] whitespace-pre-wrap text-[#e8e8e8] outline-none [overflow-wrap:anywhere] [scrollbar-color:#555_#181818]'
             style={{ 'min-height': `calc(${previewRows()} * 1.35em + 14px)` }}
             role='textbox'

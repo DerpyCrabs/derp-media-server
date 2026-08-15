@@ -99,7 +99,7 @@ function MenuSurface(props: MenuSurfaceProps) {
 
   createEffect(() => {
     const surface = surfaceRef()
-    if (!surface) return
+    if (!surface) return undefined
     return registerFloatingDismissLayer({
       zIndex: props.zIndex,
       isInside: (e) => {

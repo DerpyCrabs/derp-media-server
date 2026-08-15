@@ -4,8 +4,8 @@ import { createMarkdownEditor, type MarkdownEditorController } from './create-ed
 import type { MarkdownDocumentProps, MarkdownEditorRuntime } from './types'
 
 export default function MarkdownDocument(props: MarkdownDocumentProps): JSX.Element {
-  let mountElement!: HTMLDivElement
-  let expandedDialog!: HTMLDivElement
+  let mountElement: HTMLDivElement | undefined
+  let expandedDialog: HTMLDivElement | undefined
   let imageReturnFocus: HTMLElement | null = null
   const [controller, setController] = createSignal<MarkdownEditorController | null>(null)
   const [expandedImage, setExpandedImage] = createSignal<{ src: string; alt: string } | null>(null)
@@ -34,6 +34,7 @@ export default function MarkdownDocument(props: MarkdownDocumentProps): JSX.Elem
   }
 
   onMount(() => {
+    if (!mountElement) return
     const next = createMarkdownEditor({
       parent: mountElement,
       doc: props.content,
@@ -90,7 +91,12 @@ export default function MarkdownDocument(props: MarkdownDocumentProps): JSX.Elem
       data-testid='markdown-document'
       data-mode={props.mode}
     >
-      <div ref={mountElement} class='h-full min-h-full' />
+      <div
+        ref={(element) => {
+          mountElement = element
+        }}
+        class='h-full min-h-full'
+      />
       <Show when={expandedImage()}>
         {(src) => (
           <div
@@ -98,7 +104,9 @@ export default function MarkdownDocument(props: MarkdownDocumentProps): JSX.Elem
             aria-modal='true'
             aria-label='View image fullscreen'
             tabindex={0}
-            ref={expandedDialog}
+            ref={(element) => {
+              expandedDialog = element
+            }}
             class='absolute inset-0 z-[100] flex cursor-zoom-out items-center justify-center bg-black/90 p-4'
             onClick={(event) => event.target === event.currentTarget && closeExpandedImage()}
             onKeyDown={(event) => {

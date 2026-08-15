@@ -1,5 +1,5 @@
 import type { Accessor } from 'solid-js'
-import { createEffect, createMemo, createSignal, onCleanup, onMount } from 'solid-js'
+import { createEffect, createMemo, createSignal, onCleanup, untrack } from 'solid-js'
 import {
   buildImageConfigUrl,
   buildImageUrl,
@@ -152,7 +152,7 @@ export function createResponsiveImage(options: Options) {
     setShowSpinner(false)
     setError(false)
     const spinnerTimer = window.setTimeout(() => {
-      if (loading()) setShowSpinner(true)
+      if (untrack(loading)) setShowSpinner(true)
     }, 1000)
     const image = new Image()
     image.decoding = 'async'
@@ -160,16 +160,18 @@ export function createResponsiveImage(options: Options) {
       void image
         .decode()
         .catch(() => undefined)
-        .then(() => {
-          if (cancelled) return
-          const path = options.path()
-          if (loadedPath() !== path) options.onDisplayPath?.(path)
-          setDisplayedSrc(value)
-          setLoading(false)
-          setShowSpinner(false)
-          setError(false)
-          setLoadedPath(path)
-        })
+        .then(() =>
+          untrack(() => {
+            if (cancelled) return
+            const path = options.path()
+            if (loadedPath() !== path) options.onDisplayPath?.(path)
+            setDisplayedSrc(value)
+            setLoading(false)
+            setShowSpinner(false)
+            setError(false)
+            setLoadedPath(path)
+          }),
+        )
     }
     image.onerror = () => {
       if (cancelled) return

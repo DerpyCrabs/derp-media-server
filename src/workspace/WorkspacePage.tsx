@@ -52,7 +52,6 @@ import {
 import { useAdminEventsStream } from '@/lib/api/use-admin-events-stream'
 import { WorkspacePageCanvas } from './page/WorkspacePageCanvas'
 import { WorkspacePageTaskbar } from './page/WorkspacePageTaskbar'
-import type { WorkspacePageProps } from './page/workspace-page-types'
 import { createWorkspaceSnapDragModel } from './layout/create-workspace-snap-drag-model'
 import { useWorkspacePageDocumentChrome } from './page/use-workspace-page-document-chrome'
 import { useWorkspacePageLayoutBaseline } from './page/use-workspace-page-layout-baseline'
@@ -88,13 +87,13 @@ import { canCloseHermesWindow, discardHermesDraft } from '@/features/hermes/herm
 import { createFilesystemPlaybackItem, playbackPathMatches } from '@/features/playback/items'
 import { usePlaybackSession, usePlaybackSnapshot } from '@/features/playback/PlaybackProvider'
 
-export function WorkspacePage(props: WorkspacePageProps = {}) {
+export function WorkspacePage() {
   const history = useBrowserHistory()
   const urlSearchParams = createUrlSearchParamsMemo(history)
   const playbackSession = usePlaybackSession()
   const playback = usePlaybackSnapshot()
 
-  const server = useWorkspacePageServerData(props)
+  const server = useWorkspacePageServerData()
   const browserSource = () => DEFAULT_WORKSPACE_SOURCE
 
   const storageSessionKeyFull = createMemo(() => {
@@ -1128,7 +1127,11 @@ export function WorkspacePage(props: WorkspacePageProps = {}) {
     void server.persistPinsMutation.mutateAsync(next)
   }
 
-  async function selectPinned(pin: PinnedTaskbarItem) {
+  function selectPinned(pin: PinnedTaskbarItem): void {
+    void selectPinnedAsync(pin)
+  }
+
+  async function selectPinnedAsync(pin: PinnedTaskbarItem) {
     if (pin.isVirtual) {
       const response = await fetch(
         `/api/virtual-directory/open?path=${encodeURIComponent(pin.path)}`,

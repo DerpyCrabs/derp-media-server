@@ -50,7 +50,7 @@ export function ImageViewerPane(props: ImageViewerPaneProps): JSX.Element {
   let wheelResetTimer: ReturnType<typeof setTimeout> | undefined
   let wheelFlushTimer: ReturnType<typeof setTimeout> | undefined
   let pendingWheelSteps = 0
-  let viewerElement!: HTMLDivElement
+  let viewerElement: HTMLDivElement | undefined
 
   const fileName = createMemo(() => props.viewingPath.split(/[/\\]/).pop() || '')
 
@@ -236,8 +236,10 @@ export function ImageViewerPane(props: ImageViewerPaneProps): JSX.Element {
   })
 
   onMount(() => {
-    viewerElement.addEventListener('wheel', handleWheel, { passive: false })
-    onCleanup(() => viewerElement.removeEventListener('wheel', handleWheel))
+    if (!viewerElement) return
+    const element = viewerElement
+    element.addEventListener('wheel', handleWheel, { passive: false })
+    onCleanup(() => element.removeEventListener('wheel', handleWheel))
   })
 
   const imgStyle = createMemo((): JSX.CSSProperties => {
@@ -275,7 +277,9 @@ export function ImageViewerPane(props: ImageViewerPaneProps): JSX.Element {
           ? 'flex h-full min-h-0 flex-col bg-black'
           : 'fixed inset-0 z-50 flex flex-col bg-black/95'
       }
-      ref={viewerElement}
+      ref={(element) => {
+        viewerElement = element
+      }}
     >
       <span class='sr-only'>
         <h2 id='image-viewer-title'>{fileName()}</h2>

@@ -125,8 +125,15 @@ function displayValue(value: unknown): string {
   try {
     return JSON.stringify(value, null, 2)
   } catch {
-    return String(value)
+    return value instanceof Error ? value.message : ''
   }
+}
+
+function scalarString(value: unknown): string | undefined {
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint')
+    return String(value)
+  return undefined
 }
 
 function normalizeMessages(value: unknown): HermesMessage[] {
@@ -140,8 +147,12 @@ function normalizeMessages(value: unknown): HermesMessage[] {
             record.function && typeof record.function === 'object' ? record.function : {}
           ) as Record<string, unknown>
           return {
-            id: String(record.id ?? `${row.id ?? index}-tool-${callIndex}`),
-            name: String(fn.name ?? record.name ?? row.tool_name ?? 'Unknown tool'),
+            id: scalarString(record.id) ?? `${scalarString(row.id) ?? index}-tool-${callIndex}`,
+            name:
+              scalarString(fn.name) ??
+              scalarString(record.name) ??
+              scalarString(row.tool_name) ??
+              'Unknown tool',
             arguments:
               typeof fn.arguments === 'string'
                 ? fn.arguments
@@ -151,7 +162,10 @@ function normalizeMessages(value: unknown): HermesMessage[] {
       : undefined
     const media = extractHermesMessageImages(messageText(row.text ?? row.content))
     return {
-      id: String(row.id ?? row.row_id ?? `${row.timestamp ?? 0}-${index}`),
+      id:
+        scalarString(row.id) ??
+        scalarString(row.row_id) ??
+        `${scalarString(row.timestamp) ?? 0}-${index}`,
       role: typeof row.role === 'string' ? row.role : 'assistant',
       text: media.text,
       images: media.images.length ? media.images : undefined,
@@ -189,7 +203,7 @@ let streamSequence = 0
 
 function ensureHermesStreamMessage(key: string): number | undefined {
   const state = sessions[key]
-  if (!state) return
+  if (!state) return undefined
   const streamMessageId =
     state.streamMessageId ?? `assistant-stream-${Date.now()}-${++streamSequence}`
   let index = state.messages.findIndex((message) => message.id === streamMessageId)
@@ -222,13 +236,22 @@ function upsertHermesStreamTool(
 ) {
   const messageIndex = ensureHermesStreamMessage(key)
   if (messageIndex === undefined) return
-  const id = String(payload.tool_id ?? payload.tool_call_id ?? payload.id ?? payload.name ?? 'tool')
+  const id =
+    scalarString(payload.tool_id) ??
+    scalarString(payload.tool_call_id) ??
+    scalarString(payload.id) ??
+    scalarString(payload.name) ??
+    'tool'
   const current = sessions[key]!.messages[messageIndex]!.toolCalls ?? []
   const callIndex = current.findIndex((call) => call.id === id)
   const previous = callIndex >= 0 ? current[callIndex] : undefined
   const next: HermesToolCall = {
     id,
-    name: String(payload.name ?? payload.tool_name ?? previous?.name ?? 'Unknown tool'),
+    name:
+      scalarString(payload.name) ??
+      scalarString(payload.tool_name) ??
+      previous?.name ??
+      'Unknown tool',
     arguments:
       displayValue(payload.args ?? payload.arguments ?? payload.input) || previous?.arguments || '',
     result:
@@ -323,7 +346,7 @@ function blobDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onerror = () => reject(reader.error ?? new Error('Could not read voice recording'))
-    reader.onload = () => resolve(String(reader.result))
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '')
     reader.readAsDataURL(blob)
   })
 }
@@ -463,7 +486,7 @@ async function refreshHermesModelOptions(key: string) {
 export async function sendHermesControl(key: string, command: string) {
   if (!sessions[key] || sessions[key]!.readOnly) return
   setSessions(key, { composer: command, completions: [] })
-  return sendHermesPrompt(key)
+  await sendHermesPrompt(key)
 }
 
 function refreshIdle() {
@@ -622,9 +645,11 @@ function connectEvents() {
       setSessions(key, 'decision', {
         kind: 'approval',
         requestId: typeof payload.request_id === 'string' ? payload.request_id : undefined,
-        dedupeId: String(
-          payload.request_id ?? payload.tool_id ?? payload.tool_call_id ?? crypto.randomUUID(),
-        ),
+        dedupeId:
+          scalarString(payload.request_id) ??
+          scalarString(payload.tool_id) ??
+          scalarString(payload.tool_call_id) ??
+          crypto.randomUUID(),
         prompt: messageText(payload.command ?? payload.description) || 'Hermes requests approval',
         choices: Array.isArray(payload.choices) ? payload.choices.map(String) : ['once', 'deny'],
       })
@@ -632,7 +657,7 @@ function connectEvents() {
       setSessions(key, 'decision', {
         kind: 'clarify',
         requestId: typeof payload.request_id === 'string' ? payload.request_id : undefined,
-        dedupeId: String(payload.request_id ?? crypto.randomUUID()),
+        dedupeId: scalarString(payload.request_id) ?? crypto.randomUUID(),
         prompt: messageText(payload.question),
         choices: Array.isArray(payload.choices)
           ? payload.choices.map((choice: unknown) =>
@@ -646,7 +671,7 @@ function connectEvents() {
       setSessions(key, 'decision', {
         kind: kind === 'sudo.request' ? 'sudo' : 'secret',
         requestId: typeof payload.request_id === 'string' ? payload.request_id : undefined,
-        dedupeId: String(payload.request_id ?? crypto.randomUUID()),
+        dedupeId: scalarString(payload.request_id) ?? crypto.randomUUID(),
         prompt:
           kind === 'sudo.request'
             ? 'Hermes needs administrator credentials'
@@ -811,11 +836,11 @@ export async function rewindHermesSession(key: string, messageId: string, replac
   }
 }
 
-export function retryHermesLastTurn(key: string) {
+export async function retryHermesLastTurn(key: string) {
   const message = [...(sessions[key]?.messages ?? [])]
     .reverse()
     .find((item) => item.role === 'user')
-  if (message) return rewindHermesSession(key, message.id)
+  if (message) await rewindHermesSession(key, message.id)
 }
 
 export async function exportHermesSession(key: string) {
@@ -838,7 +863,8 @@ function readFileBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onerror = () => reject(reader.error ?? new Error(`Could not read ${file.name}`))
-    reader.onload = () => resolve(String(reader.result).split(',', 2)[1] ?? '')
+    reader.onload = () =>
+      resolve(typeof reader.result === 'string' ? (reader.result.split(',', 2)[1] ?? '') : '')
     reader.readAsDataURL(file)
   })
 }

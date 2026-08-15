@@ -1,6 +1,6 @@
 import type { FileItem } from '@/lib/files/types'
 import type { Accessor, JSX } from 'solid-js'
-import { Show } from 'solid-js'
+import { Show, children } from 'solid-js'
 import {
   DirectoryListingEmpty,
   DirectoryListingEmptyTableRow,
@@ -43,7 +43,7 @@ export type FileExplorerViewProps = Readonly<{
 export function FileExplorerView(props: FileExplorerViewProps) {
   const showError = () => props.error?.()
   // Solid resolves children lazily; reading props.children twice would mount the subtree twice.
-  const content = props.children
+  const content = children(() => props.children)
 
   return (
     <>
@@ -51,9 +51,9 @@ export function FileExplorerView(props: FileExplorerViewProps) {
         <DirectoryListingErrorPanel onRetry={() => props.onRetry?.()} detail={showError()} />
       </Show>
       <Show when={!showError()}>
-        {content}
+        {content()}
         <DirectoryListingLoading show={props.loading() && props.deferredLoading()} />
-        <Show when={!props.loading() && content === undefined}>
+        <Show when={!props.loading() && content() === undefined}>
           <FileExplorerListing
             viewMode={props.viewMode}
             renderGrid={() => (

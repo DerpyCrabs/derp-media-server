@@ -309,7 +309,12 @@ function GridMediaThumbnail(props: { file: FileItem; ctx: FileIconContext }): JS
 
   return (
     <Show when={!imgFailed()} fallback={<div class='h-full min-h-full w-full' />}>
-      <div ref={containerEl} class='absolute inset-0'>
+      <div
+        ref={(element) => {
+          containerEl = element
+        }}
+        class='absolute inset-0'
+      >
         <Show when={queuedSrc()} fallback={<div class='h-full min-h-full w-full' />}>
           {(thumbnailSrc) => (
             <img

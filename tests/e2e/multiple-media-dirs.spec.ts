@@ -65,7 +65,7 @@ function serverCommand(): { executable: string; args: string[] } {
 test.describe.serial('Multiple media directories', () => {
   test.setTimeout(60_000)
 
-  test.beforeAll(async ({}, testInfo) => {
+  test.beforeAll(async ({ browserName: _browserName }, testInfo) => {
     testInfo.setTimeout(60_000)
 
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'derp-multi-media-'))

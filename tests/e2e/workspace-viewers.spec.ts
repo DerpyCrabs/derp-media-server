@@ -386,17 +386,16 @@ test.describe('Workspace PDF Viewer', () => {
 
   test('keeps two readers independent and hands fullscreen between them', async () => {
     await page.addInitScript(() => {
-      let active: Element | null = null
       Object.defineProperty(document, 'fullscreenElement', {
         configurable: true,
-        get: () => active,
+        get: () => Reflect.get(document, '__testFullscreenElement') as Element | null,
       })
       HTMLElement.prototype.requestFullscreen = async function () {
-        active = this
+        Reflect.set(document, '__testFullscreenElement', this)
         document.dispatchEvent(new Event('fullscreenchange'))
       }
       document.exitFullscreen = async () => {
-        active = null
+        Reflect.set(document, '__testFullscreenElement', null)
         document.dispatchEvent(new Event('fullscreenchange'))
       }
     })

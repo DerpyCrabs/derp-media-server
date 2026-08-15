@@ -97,6 +97,8 @@ function buildPlacements(cols: number, rows: number): Placement[] {
 
 function defaultShapeLabel(shape: AssistGridShape): string {
   switch (shape) {
+    default:
+      throw new Error('Unhandled assist grid shape')
     case '3x2':
       return '3×2'
     case '3x3':

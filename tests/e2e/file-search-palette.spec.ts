@@ -1,9 +1,5 @@
 import { expect, test } from '@playwright/test'
-import type { Page } from '@playwright/test'
 import { WORKSPACE_VISIBLE_WINDOW_GROUP } from './workspace-layout-helpers'
-
-const workspaceContent = (page: Page) =>
-  page.locator('[data-testid="workspace-window-visible-content"]:visible')
 
 test.describe('File search palette', () => {
   test.describe.configure({ timeout: 45_000 })

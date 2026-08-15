@@ -127,8 +127,7 @@ Listens on `0.0.0.0` by default.
 
 ## Development
 
-- Typecheck: `bun run lint-errors` (Oxlint `typeAware` + `typeCheck`)
-- Lint: `bun run lint-errors`
+- Lint and typecheck: `bun run lint` (Oxlint `typeAware` + `typeCheck`)
 - E2E: `bun run test` (single worker) or `bun run test:batch` (CI-style batches)
 - Unit: `bun run test:unit`
 

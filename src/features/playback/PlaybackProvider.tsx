@@ -2,6 +2,7 @@ import {
   createContext,
   createSignal,
   onCleanup,
+  untrack,
   onMount,
   useContext,
   type Accessor,
@@ -28,7 +29,7 @@ type PlaybackProviderProps = Readonly<{
 const PlaybackContext = createContext<PlaybackContextValue>()
 
 export function PlaybackProvider(props: PlaybackProviderProps) {
-  const session = props.session
+  const session = untrack(() => props.session)
   const mediaHost = createMediaElementHost(session)
   const [snapshot, setSnapshot] = createSignal(session.getSnapshot(), { equals: false })
   const value = Object.freeze({ session, snapshot, mediaHost })

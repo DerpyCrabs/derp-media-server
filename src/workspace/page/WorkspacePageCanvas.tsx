@@ -174,7 +174,7 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
         style={{ display: 'none', 'z-index': 9000 }}
       />
       <Show when={props.workspaceAreaNode()}>
-        {(area) => (
+        {(_area) => (
           <WorkspaceSnapAssistBar
             visible={props.snapAssistShown()}
             dragging={props.dragSnapWindowId() != null}

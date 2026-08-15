@@ -271,7 +271,7 @@ export function HermesChatPane(props: {
       return
     }
     if (command === '/export') {
-      exportHermesSession(key())
+      void exportHermesSession(key())
       setHermesComposer(key(), '')
       return
     }
@@ -324,7 +324,9 @@ export function HermesChatPane(props: {
 
   return (
     <div
-      ref={paneEl}
+      ref={(element) => {
+        paneEl = element
+      }}
       class='relative flex h-full min-h-0 flex-col bg-background text-[13px] text-foreground'
       data-testid='hermes-chat-pane'
     >
@@ -338,7 +340,7 @@ export function HermesChatPane(props: {
             onInput={(event) => {
               setFindQuery(event.currentTarget.value)
               setFindIndex(0)
-              queueMicrotask(() => jumpToFindMatch(0))
+              queueMicrotask(() => untrack(() => jumpToFindMatch(0)))
             }}
             onKeyDown={(event) => {
               if (event.key === 'Enter') jumpToFindMatch(findIndex() + (event.shiftKey ? -1 : 1))
@@ -379,7 +381,9 @@ export function HermesChatPane(props: {
         </div>
       </Show>
       <div
-        ref={transcriptEl}
+        ref={(element) => {
+          transcriptEl = element
+        }}
         data-testid='hermes-transcript'
         class='min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-2 pr-4 select-text [overflow-anchor:none]'
         onWheel={(event) => {
@@ -404,7 +408,12 @@ export function HermesChatPane(props: {
           if (atBottom) followLatest = true
         }}
       >
-        <div ref={transcriptContentEl} class='space-y-2'>
+        <div
+          ref={(element) => {
+            transcriptContentEl = element
+          }}
+          class='space-y-2'
+        >
           <Show when={state()?.status === 'loading'}>
             <div>Loading transcript…</div>
           </Show>
@@ -455,16 +464,18 @@ export function HermesChatPane(props: {
                           const count =
                             (state()?.messages.findIndex((candidate) => candidate.id === item.id) ??
                               -1) + 1
-                          void branchHermesSession(key(), undefined, count).then((branch) => {
-                            if (branch) props.onBranchCreated?.(branch.sessionId, branch.title)
-                          })
+                          void branchHermesSession(key(), undefined, count).then((branch) =>
+                            untrack(() => {
+                              if (branch) props.onBranchCreated?.(branch.sessionId, branch.title)
+                            }),
+                          )
                         }
                   }
                   onSpeak={
                     voiceGates().playback && message.role === 'assistant'
                       ? (item) =>
                           void speakHermesText(item.text).catch((error) =>
-                            setHermesError(key(), error),
+                            untrack(() => setHermesError(key(), error)),
                           )
                       : undefined
                   }
@@ -608,7 +619,9 @@ export function HermesChatPane(props: {
           }}
         >
           <input
-            ref={attachmentInput}
+            ref={(element) => {
+              attachmentInput = element
+            }}
             class='hidden'
             type='file'
             multiple
@@ -799,16 +812,18 @@ export function HermesChatPane(props: {
                     <button
                       class='rounded px-2 py-1 text-left hover:bg-muted'
                       onClick={() =>
-                        void branchHermesSession(key()).then((branch) => {
-                          if (branch) props.onBranchCreated?.(branch.sessionId, branch.title)
-                        })
+                        void branchHermesSession(key()).then((branch) =>
+                          untrack(() => {
+                            if (branch) props.onBranchCreated?.(branch.sessionId, branch.title)
+                          }),
+                        )
                       }
                     >
                       Branch
                     </button>
                     <button
                       class='rounded px-2 py-1 text-left hover:bg-muted'
-                      onClick={() => exportHermesSession(key())}
+                      onClick={() => void exportHermesSession(key())}
                     >
                       Export
                     </button>
@@ -817,7 +832,7 @@ export function HermesChatPane(props: {
                       disabled={state()?.status !== 'idle' || !!state()?.queuedPrompts.length}
                       onClick={() =>
                         void archiveHermesSession(key()).catch((error) =>
-                          setHermesError(key(), error),
+                          untrack(() => setHermesError(key(), error)),
                         )
                       }
                     >
@@ -990,10 +1005,12 @@ export function HermesChatPane(props: {
               event.preventDefault()
               const title = renameValue().trim()
               if (!title) return
-              void renameHermesSession(key(), title).then(() => {
-                props.onTitleChanged?.(title)
-                setRenameOpen(false)
-              })
+              void renameHermesSession(key(), title).then(() =>
+                untrack(() => {
+                  props.onTitleChanged?.(title)
+                  setRenameOpen(false)
+                }),
+              )
             }}
           >
             <h2 id='hermes-rename-title' class='text-sm font-semibold'>

@@ -1,4 +1,4 @@
-import { For, createEffect, createSignal, onCleanup, onMount } from 'solid-js'
+import { For, Show, createEffect, createSignal, onCleanup, onMount } from 'solid-js'
 import type { RenderedBook } from './book-sanitize'
 import type { BookAppearance } from './reader-state-client'
 
@@ -8,12 +8,20 @@ function Chapter(props: {
   currentIndex: number
   viewport: HTMLElement
 }) {
-  let host!: HTMLElement
-  let content!: HTMLDivElement
-  const [near, setNear] = createSignal(Math.abs(props.index - props.currentIndex) <= 2)
+  let host: HTMLElement | undefined
+  const [contentElement, setContentElement] = createSignal<HTMLDivElement>()
+  const [near, setNear] = createSignal(false)
   const [height, setHeight] = createSignal(680)
 
+  const isNear = () => Math.abs(props.index - props.currentIndex) <= 2
+
+  createEffect(() => {
+    if (isNear()) setNear(true)
+  })
+
   onMount(() => {
+    if (!host) return
+    const chapterHost = host
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (!entry) return
@@ -23,9 +31,9 @@ function Chapter(props: {
       },
       { root: props.viewport, rootMargin: '1200px 0px', threshold: 0.01 },
     )
-    observer.observe(host)
+    observer.observe(chapterHost)
     const resize = new ResizeObserver(() => {
-      if (near() && host.offsetHeight > 80) setHeight(host.offsetHeight)
+      if (near() && chapterHost.offsetHeight > 80) setHeight(chapterHost.offsetHeight)
     })
     resize.observe(host)
     onCleanup(() => {
@@ -35,26 +43,31 @@ function Chapter(props: {
   })
 
   createEffect(() => {
-    if (Math.abs(props.index - props.currentIndex) <= 2) setNear(true)
-  })
-
-  createEffect(() => {
-    if (!near() || !content) return
+    const element = contentElement()
+    if (!near() || !element) return
     const template = document.createElement('template')
     template.innerHTML = props.chapter.html
-    content.replaceChildren(template.content.cloneNode(true))
+    element.replaceChildren(template.content.cloneNode(true))
   })
 
   return (
     <article
-      ref={host}
+      ref={(element) => {
+        host = element
+      }}
       id={`reader-${props.chapter.id}`}
       data-book-chapter={props.chapter.id}
       aria-label={props.chapter.title}
       class='book-chapter mx-auto w-full scroll-mt-3 px-5 py-8 sm:px-10'
       style={{ 'min-height': near() ? undefined : `${height()}px` }}
     >
-      {near() ? <div ref={content} /> : null}
+      <Show when={near()}>
+        <div
+          ref={(element) => {
+            setContentElement(element)
+          }}
+        />
+      </Show>
     </article>
   )
 }
@@ -66,7 +79,7 @@ export function BookContent(props: {
   viewport: HTMLElement
   onNavigate: (chapterId: string, anchor?: string, recordHistory?: boolean) => void
 }) {
-  let publisherStyle!: HTMLStyleElement
+  let publisherStyle: HTMLStyleElement | undefined
   createEffect(() => {
     if (publisherStyle) publisherStyle.textContent = props.document.css
   })
@@ -106,7 +119,11 @@ export function BookContent(props: {
         props.onNavigate(chapterId, link.dataset.anchor, true)
       }}
     >
-      <style ref={publisherStyle} />
+      <style
+        ref={(element) => {
+          publisherStyle = element
+        }}
+      />
       <For each={props.document.chapters}>
         {(chapter, index) => (
           <Chapter

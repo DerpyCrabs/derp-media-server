@@ -248,7 +248,7 @@ test('renders parity controls and native export, then archives read-only', async
   const download = page.waitForEvent('download')
   await chat.locator('summary[aria-label="Chat options"]').click()
   await chat.getByRole('button', { name: 'Export' }).click()
-  await expect((await download).suggestedFilename()).toBe('Hermes-E2E.json')
+  expect((await download).suggestedFilename()).toBe('Hermes-E2E.json')
 
   await chat.getByRole('button', { name: 'Archive' }).click()
   await expect.poll(() => archiveRequests).toBe(1)

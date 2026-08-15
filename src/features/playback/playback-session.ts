@@ -560,6 +560,7 @@ export function createPlaybackSession(options: CreatePlaybackSessionOptions): Pl
         listeners.clear()
         return changed()
     }
+    throw new Error('Unhandled playback command')
   }
 
   const session: PlaybackSession = Object.freeze({

@@ -21,9 +21,10 @@ export function PaneSwitch(props: PaneSwitchProps) {
         return props.viewer
       case 'hermes':
         return props.hermes
-      default:
+      case undefined:
         return undefined
     }
+    return undefined
   })
 
   return <Dynamic component={activeRenderer()} />

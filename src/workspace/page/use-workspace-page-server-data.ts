@@ -6,7 +6,6 @@ import type { WorkspaceLayoutPreset } from '@/workspace/model/workspace-layout-p
 import { useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
 import { createMemo } from 'solid-js'
 import { unwrap } from 'solid-js/store'
-import type { WorkspacePageProps } from './workspace-page-types'
 
 type ServerConfig = { editableFolders: string[] }
 
@@ -14,7 +13,7 @@ function fromQueryData<T>(value: T): T {
   return structuredClone(unwrap(value))
 }
 
-export function useWorkspacePageServerData(props: WorkspacePageProps) {
+export function useWorkspacePageServerData() {
   const queryClient = useQueryClient()
 
   const settingsQuery = useQuery(() => ({

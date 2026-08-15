@@ -32,12 +32,10 @@ import { virtualAppearanceForPath } from './virtual-directory-appearance'
 import { MediaType } from '@/lib/files/types'
 import { normalizeNewFilePath } from '@/lib/files/new-file-name'
 import { formatFileSize, getMediaType } from '@/lib/media/media-utils'
-import { useBrowserViewModeStore } from '@/features/explorer/browser-view-mode-store'
 import { persistViewMode } from '@/features/explorer/view-mode-persistence'
 import { fileOpenTargetStore } from './file-open-target'
 import { cn } from '@/lib/ui/cn'
 import { getKnowledgeBaseRoot, isPathEditable } from '@/lib/files/path-utils'
-import ArrowUp from 'lucide-solid/icons/arrow-up'
 import FilePlus from 'lucide-solid/icons/file-plus'
 import FolderPlus from 'lucide-solid/icons/folder-plus'
 import BookOpenText from 'lucide-solid/icons/book-open-text'
@@ -243,16 +241,14 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
   const dragController = createFileBrowserDragController({
     files,
     currentPath,
-    editableFolders: props.editableFolders,
+    editableFolders: () => props.editableFolders,
     allowMoveFile,
     virtualOpenTarget: (file) => virtualEntry(file)?.openTarget,
   })
   const {
     draggedPath,
     dragOverPath,
-    dragAllowsMove,
     enableDrag,
-    canDropOnParent,
     parentRowDragOver,
     parentRowDragLeave,
     parentRowDrop,
@@ -582,12 +578,16 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
     }
     if (action === 'setAppearance') {
       setVirtualActionDialog({ action, file, entry })
-      setVirtualAppearanceIcon(String(entry?.metadata?.icon || 'Folder'))
-      setVirtualAppearanceColor(String(entry?.metadata?.color || ''))
+      const icon = entry?.metadata?.icon
+      const color = entry?.metadata?.color
+      setVirtualAppearanceIcon(typeof icon === 'string' ? icon : 'Folder')
+      setVirtualAppearanceColor(typeof color === 'string' ? color : '')
       virtualActionMutation.reset()
       return
     }
     if (action === 'branch') {
+      const windowId = props.windowId
+      const onOpenVirtualTarget = props.onOpenVirtualTarget
       void virtualActionMutation.mutateAsync({ action, path: file.path }).then((result) => {
         if (!result.openTarget) return
         const branch: FileItem = {
@@ -595,7 +595,7 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
           name: `${file.name} branch`,
           path: `virtual-branch-${Date.now()}`,
         }
-        props.onOpenVirtualTarget?.(props.windowId, branch, result.openTarget)
+        onOpenVirtualTarget?.(windowId, branch, result.openTarget)
       })
       return
     }
@@ -864,6 +864,8 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
 
   function openCreateFileDialog() {
     if (hasVirtualCapability(virtualDirectory(), 'createFile')) {
+      const windowId = props.windowId
+      const onOpenVirtualTarget = props.onOpenVirtualTarget
       void virtualActionMutation
         .mutateAsync({ action: 'createFile', path: currentPath() })
         .then((result) => {
@@ -877,8 +879,8 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
             isDirectory: false,
             isVirtual: true,
           }
-          props.onOpenVirtualTarget?.(props.windowId, draft, result.openTarget)
-          if (!props.onOpenVirtualTarget) {
+          onOpenVirtualTarget?.(windowId, draft, result.openTarget)
+          if (!onOpenVirtualTarget) {
             setVirtualDetail({
               file: draft,
               entry: {
@@ -1045,7 +1047,6 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
   async function submitInlineFile() {
     const stem = inlineName().trim()
     if (!stem || inlineFileExists() || !showInlineCreate()) return
-    const fileStem = normalizeNewFilePath(stem, inKb())
     try {
       const base = currentPath() ? `${currentPath()}/${stem}` : stem
       const finalPath = normalizeNewFilePath(base, inKb())

@@ -337,9 +337,9 @@ export function createWorkspaceSnapDragModel(options: {
   ): WorkspaceBounds | undefined {
     const w = workspace()
     const container = workspaceAreaEl?.getBoundingClientRect()
-    if (!w || !container) return
+    if (!w || !container) return undefined
     const win = w.windows.find((x) => x.id === windowId)
-    if (!win) return
+    if (!win) return undefined
     const currentBounds = win.layout?.bounds
     const restoreBounds = win.layout?.restoreBounds
     const restoredW = restoreBounds?.width ?? currentBounds?.width ?? 500

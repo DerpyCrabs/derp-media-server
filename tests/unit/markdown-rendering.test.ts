@@ -102,7 +102,7 @@ afterAll(() => {
   } else {
     delete (globalThis as Record<string, unknown>).cancelAnimationFrame
   }
-  void testWindow.close()
+  testWindow.close()
 })
 
 describe('Markdown read rendering', () => {

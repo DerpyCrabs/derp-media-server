@@ -188,7 +188,7 @@ describe('PlaybackMediaHost', () => {
     host.dispose()
   })
 
-  test('allows native video playback to resume after a native pause', () => {
+  test('allows native video playback to resume after a native pause', async () => {
     const session = createPlaybackSession({ sourceResolver: { resolve: resolver } })
     const host = createMediaElementHost(session)
     const media = new FakeMediaElement()
@@ -204,7 +204,7 @@ describe('PlaybackMediaHost', () => {
     media.pause()
     expect(session.getSnapshot()).toMatchObject({ desiredPlaying: false, phase: 'paused' })
 
-    media.play()
+    await media.play()
 
     expect(media.paused).toBe(false)
     expect(session.getSnapshot()).toMatchObject({ desiredPlaying: true, phase: 'playing' })

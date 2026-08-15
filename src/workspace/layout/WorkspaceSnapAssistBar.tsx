@@ -13,6 +13,8 @@ import { layoutViewportClientSize } from '@/lib/ui/layout-viewport'
 
 function shapeLabel(id: AssistGridShape): string {
   switch (id) {
+    default:
+      throw new Error('Unhandled assist grid shape')
     case '3x2':
       return '3×2'
     case '3x3':
@@ -90,7 +92,7 @@ export function WorkspaceSnapAssistBar(props: WorkspaceSnapAssistBarProps) {
         data-workspace-snap-assist
         class='pointer-events-auto fixed left-1/2 top-0 z-[100000] max-w-[calc(100%-1rem)] -translate-x-1/2 overflow-hidden rounded-b-xl border border-border/80 bg-popover/95 shadow-2xl ring-1 ring-black/10 backdrop-blur-xl'
         style={{ width: `${surfaceWidth()}px` }}
-        on:pointerleave={props.onPanelLeave}
+        on:pointerleave={() => props.onPanelLeave()}
       >
         <div class='flex h-8 items-center justify-center gap-1.5 border-b border-border/60 px-3 text-[10px] font-semibold text-foreground/80'>
           Snap layouts

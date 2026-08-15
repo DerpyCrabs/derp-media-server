@@ -79,7 +79,7 @@ export function ReaderOutline(props: {
           type='button'
           aria-label='Close document outline'
           class='grid h-7 w-7 place-items-center rounded hover:bg-white/10'
-          onClick={props.onClose}
+          onClick={() => props.onClose()}
         >
           <X size={16} />
         </button>

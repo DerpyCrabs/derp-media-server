@@ -28,6 +28,7 @@ import {
   createEffect,
   createMemo,
   createSignal,
+  on,
   onCleanup,
   onMount,
   untrack,
@@ -115,12 +116,14 @@ function PdfPage(props: {
   let host!: HTMLDivElement
   let canvas!: HTMLCanvasElement
   const [near, setNear] = createSignal(false)
-  const [size, setSize] = createSignal({
-    width: props.page.width,
-    height: props.page.height,
+  const [size, setSize] = createSignal({ width: 0, height: 0 })
+
+  createEffect(() => {
+    setSize({ width: props.page.width, height: props.page.height })
   })
 
   onMount(() => {
+    if (!host) return
     const observer = new IntersectionObserver(
       ([entry]) => setNear(Boolean(entry?.isIntersecting)),
       {
@@ -136,7 +139,7 @@ function PdfPage(props: {
     const pageNumber = props.pageIndex + 1
     const scale = props.zoom
     const renderText = props.selectionMode === 'text'
-    if (!near()) return
+    if (!near() || !host || !canvas) return
     let cancelled = false
     let renderTask: pdfjs.RenderTask | undefined
     let textLayer: InstanceType<typeof TextLayerBuilder> | undefined
@@ -181,7 +184,9 @@ function PdfPage(props: {
 
   return (
     <div
-      ref={host}
+      ref={(element) => {
+        host = element
+      }}
       class='relative box-content touch-none overflow-hidden rounded-lg border border-[#c6d0ca] bg-white shadow-[0_7px_20px_rgb(0_0_0/28%)]'
       style={{
         width: `${size().width}px`,
@@ -191,7 +196,13 @@ function PdfPage(props: {
         '--total-scale-factor': String(props.zoom),
       }}
     >
-      <canvas ref={canvas} data-testid='pdf-canvas' class='block h-auto w-full' />
+      <canvas
+        ref={(element) => {
+          canvas = element
+        }}
+        data-testid='pdf-canvas'
+        class='block h-auto w-full'
+      />
       <RegionLayer
         active={props.selectionMode === 'image'}
         host={() => host}
@@ -212,12 +223,16 @@ function ImagePage(props: {
   let image!: HTMLImageElement
   return (
     <div
-      ref={host}
+      ref={(element) => {
+        host = element
+      }}
       class='relative touch-none overflow-hidden rounded-lg border border-[#c6d0ca] bg-[#fffdf8] shadow-[0_7px_20px_rgb(0_0_0/28%)]'
       style={{ width: `${Math.min(props.page.width * props.zoom, 1400)}px` }}
     >
       <img
-        ref={image}
+        ref={(element) => {
+          image = element
+        }}
         src={props.page.source}
         alt={props.page.name}
         class='block h-auto w-full select-none'
@@ -669,144 +684,150 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
       loadSyncedReaderState(activePath).catch(() => null),
       preferenceQueue
         .then(() => loadReaderPreferences())
-        .catch(() => ({
-          preferences: preferenceBase,
-          revision: preferencesRevision(),
-        })),
+        .catch(() =>
+          untrack(() => ({
+            preferences: preferenceBase,
+            revision: preferencesRevision(),
+          })),
+        ),
     ])
-      .then(async ([saved, preferenceEnvelope]) => {
-        if (cancelled) return
-        const preferences = preferenceEnvelope.preferences
-        setPreferencesRevision(preferenceEnvelope.revision)
-        preferenceBase = preferences
-        if (saved) {
-          setStateRevision(saved.revision)
-          setStateFingerprint(saved.fingerprint)
-          if (saved.state) {
-            applyPosition(saved.state)
-            setCurrentChapterId(saved.state.chapterId ?? '')
-            pendingBookAnchor = saved.state.anchor
-            pendingBookProgress = saved.state.chapterProgress ?? 0
-            pendingOutlineExpanded = saved.state.outlineExpanded
+      .then(([saved, preferenceEnvelope]) => {
+        const loadDocument = async () => {
+          if (cancelled) return
+          const preferences = preferenceEnvelope.preferences
+          setPreferencesRevision(preferenceEnvelope.revision)
+          preferenceBase = preferences
+          if (saved) {
+            setStateRevision(saved.revision)
+            setStateFingerprint(saved.fingerprint)
+            if (saved.state) {
+              applyPosition(saved.state)
+              setCurrentChapterId(saved.state.chapterId ?? '')
+              pendingBookAnchor = saved.state.anchor
+              pendingBookProgress = saved.state.chapterProgress ?? 0
+              pendingOutlineExpanded = saved.state.outlineExpanded
+            }
           }
-        }
-        setSelectionMode(preferences.selectionMode)
-        setPreferredSelectionMode(preferences.selectionMode)
-        setDefaultAction(preferences.defaultAction)
-        setAiDetail(preferences.aiDetail)
-        setOutlineOpen(preferences.outlineOpen)
-        setBookAppearance(preferences.bookAppearance)
-        setPreferencesReady(true)
-        if (kind === 'folder') setSelectionMode('image')
-        if (kind === 'book') setSelectionMode('text')
+          setSelectionMode(preferences.selectionMode)
+          setPreferredSelectionMode(preferences.selectionMode)
+          setDefaultAction(preferences.defaultAction)
+          setAiDetail(preferences.aiDetail)
+          setOutlineOpen(preferences.outlineOpen)
+          setBookAppearance(preferences.bookAppearance)
+          setPreferencesReady(true)
+          if (kind === 'folder') setSelectionMode('image')
+          if (kind === 'book') setSelectionMode('text')
 
-        if (kind === 'folder') {
-          const listUrl = `/api/files?dir=${encodeURIComponent(activePath)}`
-          const response = await fetch(listUrl)
-          const payload = await response.json()
-          if (!response.ok) throw new Error(payload?.error ?? 'Could not open image folder')
-          const files = ((payload.files ?? []) as FileItem[])
-            .filter((file) => !file.isDirectory && file.type === MediaType.IMAGE)
-            .sort(naturalCompare)
-          if (files.length === 0) throw new Error('Folder contains no supported images')
+          if (kind === 'folder') {
+            const listUrl = `/api/files?dir=${encodeURIComponent(activePath)}`
+            const response = await fetch(listUrl)
+            const payload = await response.json()
+            if (!response.ok) throw new Error(payload?.error ?? 'Could not open image folder')
+            const files = ((payload.files ?? []) as FileItem[])
+              .filter((file) => !file.isDirectory && file.type === MediaType.IMAGE)
+              .sort(naturalCompare)
+            if (files.length === 0) throw new Error('Folder contains no supported images')
+            const loaded = await Promise.all(
+              files.map(async (file) => {
+                const source = mediaUrl(file.path)
+                const size = await loadImageSize(source)
+                return {
+                  id: file.path,
+                  name: file.name,
+                  source,
+                  ...size,
+                  kind: 'image' as const,
+                }
+              }),
+            )
+            if (!cancelled) {
+              setPages(loaded)
+              restorePositionAfterLoad(loaded.length)
+            }
+            return
+          }
+
+          if (kind === 'book') {
+            const response = await fetch(mediaUrl(activePath), {
+              credentials: 'include',
+            })
+            if (!response.ok) throw new Error(`Could not open book (${response.status})`)
+            const parsed = await parseBook(await response.arrayBuffer(), basename(activePath))
+            if (cancelled) return
+            const rendered = renderBook(parsed)
+            setBookDocument(rendered)
+            const map = (items: typeof rendered.outline): ReaderOutlineItem[] =>
+              items.map((item) => ({
+                id: item.id,
+                label: item.label,
+                target: item.chapterId,
+                anchor: item.anchor,
+                children: map(item.children),
+              }))
+            const mappedOutline = map(rendered.outline)
+            const firstOutlineTarget = (items: ReaderOutlineItem[]): string | undefined => {
+              for (const item of items) {
+                if (typeof item.target === 'string') return item.target
+                const childTarget = firstOutlineTarget(item.children)
+                if (childTarget) return childTarget
+              }
+              return undefined
+            }
+            const initialChapter =
+              currentChapterId() ||
+              firstOutlineTarget(mappedOutline) ||
+              rendered.chapters[0]?.id ||
+              ''
+            setCurrentChapterId(initialChapter)
+            setOutline(mappedOutline)
+            const allIds = (items: ReaderOutlineItem[]): string[] =>
+              items.flatMap((item) => [item.id, ...allIds(item.children)])
+            setOutlineExpanded(pendingOutlineExpanded ?? allIds(mappedOutline))
+            requestAnimationFrame(() =>
+              requestAnimationFrame(() => {
+                const restoreByProgress = pendingBookProgress > 0
+                const target = scrollBookViewport(
+                  initialChapter,
+                  restoreByProgress ? undefined : pendingBookAnchor,
+                )
+                if (restoreByProgress && target && viewport)
+                  viewport.scrollTop += target.offsetHeight * Math.min(1, pendingBookProgress)
+              }),
+            )
+            return
+          }
+
+          pdfTask = pdfjs.getDocument({
+            url: mediaUrl(activePath),
+            withCredentials: true,
+          })
+          const loadedPdf = await pdfTask.promise
           const loaded = await Promise.all(
-            files.map(async (file) => {
-              const source = mediaUrl(file.path)
-              const size = await loadImageSize(source)
+            Array.from({ length: loadedPdf.numPages }, async (_, index) => {
+              const page = await loadedPdf.getPage(index + 1)
+              const viewport = page.getViewport({ scale: 1 })
               return {
-                id: file.path,
-                name: file.name,
-                source,
-                ...size,
-                kind: 'image' as const,
+                id: `${activePath}#${index + 1}`,
+                name: `Page ${index + 1}`,
+                source: mediaUrl(activePath),
+                width: viewport.width,
+                height: viewport.height,
+                kind: 'pdf' as const,
               }
             }),
           )
           if (!cancelled) {
+            setPdfDocument(loadedPdf)
             setPages(loaded)
+            const mappedOutline = await mapPdfOutline(loadedPdf, await loadedPdf.getOutline())
+            setOutline(mappedOutline)
+            const allIds = (items: ReaderOutlineItem[]): string[] =>
+              items.flatMap((item) => [item.id, ...allIds(item.children)])
+            setOutlineExpanded(pendingOutlineExpanded ?? allIds(mappedOutline))
             restorePositionAfterLoad(loaded.length)
           }
-          return
         }
-
-        if (kind === 'book') {
-          const response = await fetch(mediaUrl(activePath), {
-            credentials: 'include',
-          })
-          if (!response.ok) throw new Error(`Could not open book (${response.status})`)
-          const parsed = await parseBook(await response.arrayBuffer(), basename(activePath))
-          if (cancelled) return
-          const rendered = renderBook(parsed)
-          setBookDocument(rendered)
-          const map = (items: typeof rendered.outline): ReaderOutlineItem[] =>
-            items.map((item) => ({
-              id: item.id,
-              label: item.label,
-              target: item.chapterId,
-              anchor: item.anchor,
-              children: map(item.children),
-            }))
-          const mappedOutline = map(rendered.outline)
-          const firstOutlineTarget = (items: ReaderOutlineItem[]): string | undefined => {
-            for (const item of items) {
-              if (typeof item.target === 'string') return item.target
-              const childTarget = firstOutlineTarget(item.children)
-              if (childTarget) return childTarget
-            }
-          }
-          const initialChapter =
-            currentChapterId() ||
-            firstOutlineTarget(mappedOutline) ||
-            rendered.chapters[0]?.id ||
-            ''
-          setCurrentChapterId(initialChapter)
-          setOutline(mappedOutline)
-          const allIds = (items: ReaderOutlineItem[]): string[] =>
-            items.flatMap((item) => [item.id, ...allIds(item.children)])
-          setOutlineExpanded(pendingOutlineExpanded ?? allIds(mappedOutline))
-          requestAnimationFrame(() =>
-            requestAnimationFrame(() => {
-              const restoreByProgress = pendingBookProgress > 0
-              const target = scrollBookViewport(
-                initialChapter,
-                restoreByProgress ? undefined : pendingBookAnchor,
-              )
-              if (restoreByProgress && target && viewport)
-                viewport.scrollTop += target.offsetHeight * Math.min(1, pendingBookProgress)
-            }),
-          )
-          return
-        }
-
-        pdfTask = pdfjs.getDocument({
-          url: mediaUrl(activePath),
-          withCredentials: true,
-        })
-        const loadedPdf = await pdfTask.promise
-        const loaded = await Promise.all(
-          Array.from({ length: loadedPdf.numPages }, async (_, index) => {
-            const page = await loadedPdf.getPage(index + 1)
-            const viewport = page.getViewport({ scale: 1 })
-            return {
-              id: `${activePath}#${index + 1}`,
-              name: `Page ${index + 1}`,
-              source: mediaUrl(activePath),
-              width: viewport.width,
-              height: viewport.height,
-              kind: 'pdf' as const,
-            }
-          }),
-        )
-        if (!cancelled) {
-          setPdfDocument(loadedPdf)
-          setPages(loaded)
-          const mappedOutline = await mapPdfOutline(loadedPdf, await loadedPdf.getOutline())
-          setOutline(mappedOutline)
-          const allIds = (items: ReaderOutlineItem[]): string[] =>
-            items.flatMap((item) => [item.id, ...allIds(item.children)])
-          setOutlineExpanded(pendingOutlineExpanded ?? allIds(mappedOutline))
-          restorePositionAfterLoad(loaded.length)
-        }
+        return untrack(loadDocument)
       })
       .catch(
         (reason) =>
@@ -909,8 +930,8 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
     const snapshot = capturePersistedState()
     if (!snapshot) return Promise.resolve()
     const queued = saveQueue.then(
-      () => persistNow(snapshot),
-      () => persistNow(snapshot),
+      () => untrack(() => persistNow(snapshot)),
+      () => untrack(() => persistNow(snapshot)),
     )
     saveQueue = queued.catch(() => {})
     return queued
@@ -927,7 +948,7 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
     currentChapterId()
     outlineExpanded()
     window.clearTimeout(saveTimer)
-    saveTimer = window.setTimeout(() => void persist(), 1_000)
+    saveTimer = window.setTimeout(() => untrack(() => void persist()), 1_000)
     onCleanup(() => window.clearTimeout(saveTimer))
   })
 
@@ -935,7 +956,7 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
     if (!preferencesReady()) return
     const snapshot = capturePreferences()
     window.clearTimeout(preferenceTimer)
-    preferenceTimer = window.setTimeout(() => void persistPreferences(snapshot), 350)
+    preferenceTimer = window.setTimeout(() => untrack(() => void persistPreferences(snapshot)), 350)
     onCleanup(() => window.clearTimeout(preferenceTimer))
   })
 
@@ -948,13 +969,14 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
     setZoom(clampZoom(fitMode() === 'width' ? widthScale : heightScale))
   }
 
-  createEffect(() => {
-    pages().length
-    currentPage()
-    viewMode()
-    fitMode()
-    if (fitMode() !== 'manual') requestAnimationFrame(fit)
-  })
+  createEffect(
+    on(
+      () => [pages().length, currentPage(), viewMode(), fitMode()],
+      () => {
+        if (fitMode() !== 'manual') requestAnimationFrame(fit)
+      },
+    ),
+  )
 
   const goToPage = (index: number) => {
     const next = Math.max(0, Math.min(pages().length - 1, index))
@@ -1012,14 +1034,6 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
     }
     const targetId = navigationIds[Math.max(0, Math.min(navigationIds.length - 1, targetIndex))]
     if (targetId) goToBookChapter(targetId, undefined, true)
-  }
-
-  const moveBookHistory = (offset: number) => {
-    const index = bookHistoryIndex() + offset
-    const entry = bookHistory()[index]
-    if (!entry) return
-    setBookHistoryIndex(index)
-    goToBookChapter(entry.chapterId, entry.anchor)
   }
 
   const commitPageJump = () => {
@@ -1111,10 +1125,12 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
       if (target instanceof Element && target.closest('[data-testid="reader-selection-menu"]'))
         return
       window.cancelAnimationFrame(selectionCaptureFrame)
-      selectionCaptureFrame = window.requestAnimationFrame(() => {
-        selectionCaptureFrame = 0
-        captureTextSelection({ x: event.clientX, y: event.clientY })
-      })
+      selectionCaptureFrame = window.requestAnimationFrame(() =>
+        untrack(() => {
+          selectionCaptureFrame = 0
+          captureTextSelection({ x: event.clientX, y: event.clientY })
+        }),
+      )
     }
     document.addEventListener('fullscreenchange', fullscreenChange)
     document.addEventListener('pointerup', captureFromRelease)
@@ -1173,7 +1189,9 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
   return (
     <Show when={path()}>
       <div
-        ref={readerRoot}
+        ref={(element) => {
+          readerRoot = element
+        }}
         role='dialog'
         aria-modal='true'
         aria-label={`Reader: ${title()}`}
@@ -1448,7 +1466,9 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
             />
           </Show>
           <div
-            ref={viewport}
+            ref={(element) => {
+              viewport = element
+            }}
             data-testid='reader-viewport'
             class='reader-viewport min-h-0 flex-1 overflow-auto bg-[#191919] px-2 pt-1 pb-2 [scrollbar-color:#555_#181818]'
             classList={{ 'cursor-text': selectionMode() === 'text' }}
@@ -1484,7 +1504,7 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
                 setCurrentPage(pageFromScroll(pages(), event.currentTarget.scrollTop, zoom()))
               }
               window.clearTimeout(saveTimer)
-              saveTimer = window.setTimeout(() => void persist(), 1_000)
+              saveTimer = window.setTimeout(() => untrack(() => void persist()), 1_000)
             }}
           >
             <Show when={loading()}>
@@ -1674,7 +1694,7 @@ function StepSetting(props: { value: string; onDecrease: () => void; onIncrease:
         type='button'
         aria-label='Decrease'
         class='h-8 rounded-md border border-[#3a3a3a] bg-[#202020] hover:border-[#777]'
-        onClick={props.onDecrease}
+        onClick={() => props.onDecrease()}
       >
         −
       </button>
@@ -1683,7 +1703,7 @@ function StepSetting(props: { value: string; onDecrease: () => void; onIncrease:
         type='button'
         aria-label='Increase'
         class='h-8 rounded-md border border-[#3a3a3a] bg-[#202020] hover:border-[#777]'
-        onClick={props.onIncrease}
+        onClick={() => props.onIncrease()}
       >
         +
       </button>

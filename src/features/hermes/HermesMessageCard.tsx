@@ -17,6 +17,18 @@ import { LazyMarkdownDocument } from '@/lib/markdown/LazyMarkdownDocument'
 
 const LARGE_OUTPUT_CHARS = 8_000
 
+function displayHermesValue(value: unknown): string {
+  if (value == null) return ''
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint')
+    return String(value)
+  try {
+    return JSON.stringify(value) ?? ''
+  } catch {
+    return ''
+  }
+}
+
 function toolPresentation(name: string) {
   switch (classifyHermesTool(name)) {
     case 'command':
@@ -33,9 +45,10 @@ function toolPresentation(name: string) {
       return { Icon: Users, label: 'Delegation' }
     case 'file':
       return { Icon: FileCode, label: 'File' }
-    default:
+    case 'generic':
       return { Icon: Braces, label: 'Tool' }
   }
+  return { Icon: Braces, label: 'Tool' }
 }
 
 function downloadText(name: string, content: string) {
@@ -131,7 +144,7 @@ function ToolCard(props: {
         command ? `$ ${command}` : '',
         stdout,
         stderr,
-        exitCode != null ? `exit ${String(exitCode)}` : '',
+        exitCode != null ? `exit ${displayHermesValue(exitCode)}` : '',
       ]
         .filter(Boolean)
         .join('\n')
@@ -222,7 +235,7 @@ function ToolCard(props: {
                   <div class='flex gap-1.5'>
                     <span>{done ? '✓' : '○'}</span>
                     <span class={done ? 'line-through opacity-60' : ''}>
-                      {String(row.content ?? row.text ?? row.title ?? '')}
+                      {displayHermesValue(row.content ?? row.text ?? row.title)}
                     </span>
                   </div>
                 )
@@ -241,9 +254,9 @@ function ToolCard(props: {
                 return (
                   <div
                     class='truncate rounded bg-background/60 px-1.5 py-1'
-                    title={String(row.path ?? row.file ?? row.text ?? '')}
+                    title={displayHermesValue(row.path ?? row.file ?? row.text)}
                   >
-                    {String(row.path ?? row.file ?? row.text ?? row.content ?? '')}
+                    {displayHermesValue(row.path ?? row.file ?? row.text ?? row.content)}
                   </div>
                 )
               }}
@@ -291,7 +304,7 @@ function MessageMarkdown(props: {
   onOpenImage?: (src: string) => void
 }) {
   const needsMarkdown = () =>
-    /(^|\n)\s{0,3}(#{1,6}\s|[-*+]\s|\d+\.\s|>|```)|[`*_\[\]~]|https?:\/\//m.test(props.text)
+    /(^|\n)\s{0,3}(#{1,6}\s|[-*+]\s|\d+\.\s|>|```)|[\u005b\u005d*_~]|https?:\/\//m.test(props.text)
   return (
     <div class='hermes-markdown min-w-0 overflow-hidden'>
       <Show
@@ -454,7 +467,9 @@ export function HermesMessageCard(props: {
               }
             >
               <details
-                ref={actionsEl}
+                ref={(element) => {
+                  actionsEl = element
+                }}
                 data-testid='hermes-message-actions'
                 class='relative ml-auto h-5 w-fit text-[11px] text-muted-foreground'
                 onToggle={syncActionsDismissListeners}
@@ -491,7 +506,7 @@ export function HermesMessageCard(props: {
                   <Show when={props.onRetry}>
                     <button
                       class='rounded px-2 py-1 text-left hover:bg-muted hover:text-foreground'
-                      onClick={props.onRetry}
+                      onClick={() => props.onRetry?.()}
                     >
                       Retry
                     </button>

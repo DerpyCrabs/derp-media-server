@@ -29,6 +29,7 @@ export function assistShapeToDims(shape: AssistGridShape): {
     case '2x3':
       return { cols: 2, rows: 3 }
   }
+  throw new Error('Unhandled assist grid shape')
 }
 
 /** Resolve persisted / picked span dimensions to a known assist shape, if it matches. */

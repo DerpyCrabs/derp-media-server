@@ -56,7 +56,7 @@ function normalizedLinkHref(href: string): string {
 export function isSafeMarkdownHref(href: string): boolean {
   const normalized = decodeMarkdownText(href)
     .trim()
-    .replace(/[\u0000-\u001f\u007f\s]+/g, '')
+    .replace(/[\p{Cc}\s]+/gu, '')
   if (!normalized) return false
   const scheme = /^([a-z][a-z\d+.-]*):/i.exec(normalized)?.[1]?.toLowerCase()
   return (

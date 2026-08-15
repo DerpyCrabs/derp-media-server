@@ -167,7 +167,7 @@ function buildReadMultilineCodeDecorations(state: EditorState): DecorationSet {
   const ranges: Range<Decoration>[] = []
   syntaxTree(state).iterate({
     enter(ref) {
-      if (ref.name !== 'InlineCode' || !inlineCodeIsMultiline(state, ref.node)) return
+      if (ref.name !== 'InlineCode' || !inlineCodeIsMultiline(state, ref.node)) return undefined
       const rendered = normalizedInlineCode(state, ref.node)
       if (rendered !== null) {
         ranges.push(

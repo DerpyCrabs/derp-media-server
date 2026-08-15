@@ -16,9 +16,10 @@ afterAll(() => {
 beforeEach(() => {
   requests = []
   globalThis.fetch = (async (input, init) => {
+    const body = init?.body
     requests.push({
-      url: String(input),
-      body: JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>,
+      url: typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url,
+      body: JSON.parse(typeof body === 'string' ? body : '{}') as Record<string, unknown>,
     })
     return new Response(JSON.stringify({ success: true }), {
       status: 200,

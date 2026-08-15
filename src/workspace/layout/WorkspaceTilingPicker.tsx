@@ -15,6 +15,8 @@ const MIN_TILE_HEIGHT = 260
 
 function shapeLabel(id: AssistGridShape): string {
   switch (id) {
+    default:
+      throw new Error('Unhandled assist grid shape')
     case '3x2':
       return '3×2'
     case '3x3':

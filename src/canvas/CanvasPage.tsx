@@ -39,7 +39,7 @@ import {
   type CanvasWindowSizeKey,
   type InfiniteCanvasState,
 } from '@/canvas/model/infinite-canvas'
-import { getMediaType, getMediaTypeFromPath } from '@/lib/media/media-utils'
+import { getMediaTypeFromPath } from '@/lib/media/media-utils'
 import { queryKeys } from '@/lib/api/query-keys'
 import { MediaType, type FileItem } from '@/lib/files/types'
 import { fileNameFromPath, parentPath } from '@/lib/files/path-utils'
@@ -69,13 +69,21 @@ import Minimize2 from 'lucide-solid/icons/minimize-2'
 import PanelLeft from 'lucide-solid/icons/panel-left'
 import Upload from 'lucide-solid/icons/upload'
 import Redo2 from 'lucide-solid/icons/redo-2'
-import RotateCcw from 'lucide-solid/icons/rotate-ccw'
 import Search from 'lucide-solid/icons/search'
 import Trash2 from 'lucide-solid/icons/trash-2'
 import Undo2 from 'lucide-solid/icons/undo-2'
 import Volume2 from 'lucide-solid/icons/volume-2'
 import X from 'lucide-solid/icons/x'
-import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from 'solid-js'
+import {
+  For,
+  Show,
+  createEffect,
+  createMemo,
+  createSignal,
+  onCleanup,
+  onMount,
+  untrack,
+} from 'solid-js'
 import { CanvasSearchPalette } from './CanvasSearchPalette'
 import { canvasEdgeAutoPanVelocity } from './canvas-edge-auto-pan'
 import { createCanvasPanController } from './create-canvas-pan-controller'
@@ -225,9 +233,11 @@ function mediaWindowSizeKey(mediaType: MediaType): CanvasWindowSizeKey {
     case MediaType.PDF:
     case MediaType.BOOK:
       return 'viewer-pdf'
-    default:
+    case MediaType.FOLDER:
+    case MediaType.OTHER:
       return 'viewer-other'
   }
+  return 'viewer-other'
 }
 
 function windowSizeKey(definition: WindowDefinition): CanvasWindowSizeKey {
@@ -308,7 +318,7 @@ function MenuButton(props: {
       class={`flex h-9 w-full items-center gap-2 rounded-md px-2.5 text-left text-sm disabled:opacity-40 ${
         props.danger ? 'text-destructive hover:bg-destructive/10' : 'hover:bg-muted'
       }`}
-      onClick={props.onClick}
+      onClick={() => props.onClick()}
     >
       {props.children as never}
     </button>
@@ -332,6 +342,7 @@ function canvasDialogLabel(dialog: CanvasDialogState): string {
     case 'message':
       return 'Canvas message'
   }
+  throw new Error('Unhandled canvas dialog')
 }
 
 export function CanvasPage() {
@@ -739,7 +750,7 @@ export function CanvasPage() {
     document.addEventListener('drop', clearFileDropPreviewAfterDrop, true)
     window.addEventListener('blur', clearFileDropPreview)
     window.addEventListener('pagehide', persistBeforePageTeardown)
-    syncInterval = window.setInterval(() => void syncCanvases(), 30_000)
+    syncInterval = window.setInterval(() => void untrack(syncCanvases), 30_000)
     void syncCanvases(true)
     onCleanup(() => {
       viewport?.removeEventListener('pointerdown', beginPan, true)
@@ -759,11 +770,15 @@ export function CanvasPage() {
   createEffect(() => {
     serializeInfiniteCanvasState(state())
     if (persistenceTimer !== undefined) window.clearTimeout(persistenceTimer)
-    persistenceTimer = window.setTimeout(() => {
-      persistActiveState()
-      persistenceTimer = undefined
-      scheduleSync()
-    }, 220)
+    persistenceTimer = window.setTimeout(
+      () =>
+        untrack(() => {
+          persistActiveState()
+          persistenceTimer = undefined
+          scheduleSync()
+        }),
+      220,
+    )
   })
 
   onCleanup(() => {
@@ -1319,7 +1334,8 @@ export function CanvasPage() {
       { x: bounds.x + bounds.width + CANVAS_GRID_SIZE, y: bounds.y },
       { duplicate },
     )
-    if (createdId) queueMicrotask(() => ensureWindowsVisible([sourceWindowId, createdId]))
+    if (createdId)
+      queueMicrotask(() => untrack(() => ensureWindowsVisible([sourceWindowId, createdId])))
   }
 
   function openReaderFromBrowser(sourceWindowId: string, file: FileItem) {
@@ -1330,7 +1346,8 @@ export function CanvasPage() {
       { x: source.bounds.x + source.bounds.width + CANVAS_GRID_SIZE, y: source.bounds.y },
       { duplicate: true, readerKind: 'folder' },
     )
-    if (createdId) queueMicrotask(() => ensureWindowsVisible([sourceWindowId, createdId]))
+    if (createdId)
+      queueMicrotask(() => untrack(() => ensureWindowsVisible([sourceWindowId, createdId])))
   }
 
   function openHermesFromBrowser(
@@ -1500,7 +1517,7 @@ export function CanvasPage() {
         ),
       }
     })
-    queueMicrotask(() => ensureWindowsVisible([windowId]))
+    queueMicrotask(() => untrack(() => ensureWindowsVisible([windowId])))
   }
 
   function handleAudioActivate(windowId: string) {
@@ -2852,7 +2869,7 @@ export function CanvasPage() {
                     onSubmit={(event) => {
                       event.preventDefault()
                       if (!dialogInput().trim() || !noteDirectory()) return
-                      createDocumentFromComposer(value())
+                      void createDocumentFromComposer(value())
                     }}
                   >
                     <h2 class='text-base font-semibold'>New document</h2>

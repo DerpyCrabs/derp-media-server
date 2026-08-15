@@ -22,7 +22,6 @@ import { normalizeNewFilePath } from '@/lib/files/new-file-name'
 import { formatFileSize } from '@/lib/media/media-utils'
 import { cn } from '@/lib/ui/cn'
 import { getKnowledgeBaseRoot, isPathEditable } from '@/lib/files/path-utils'
-import ArrowUp from 'lucide-solid/icons/arrow-up'
 import FilePlus from 'lucide-solid/icons/file-plus'
 import FolderPlus from 'lucide-solid/icons/folder-plus'
 import BookOpenText from 'lucide-solid/icons/book-open-text'
@@ -30,7 +29,7 @@ import Star from 'lucide-solid/icons/star'
 import Upload from 'lucide-solid/icons/upload'
 import Eye from 'lucide-solid/icons/eye'
 import Ellipsis from 'lucide-solid/icons/ellipsis'
-import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, Show } from 'solid-js'
+import { batch, createEffect, createMemo, createSignal, on, onCleanup, Show } from 'solid-js'
 import type { FileIconContext } from '@/features/explorer/use-file-icon'
 import { fileItemIcon, gridHeroIcon } from '@/features/explorer/use-file-icon'
 import { createUrlSearchParamsMemo, useBrowserHistory } from '@/lib/browser/browser-history'
@@ -165,7 +164,7 @@ export function MediaCenterPage() {
       : [...queue, item]
   }
 
-  let previousLibraryPlayingPath = playingParam()
+  let previousLibraryPlayingPath: string | null = null
   createEffect(() => {
     const path = playingParam()
     if (window.location.pathname !== '/') return
@@ -442,7 +441,6 @@ export function MediaCenterPage() {
   const {
     draggedPath,
     dragOverPath,
-    dragAllowsMove,
     enableDrag,
     canDropOnParent,
     parentRowDragOver,

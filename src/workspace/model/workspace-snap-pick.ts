@@ -54,6 +54,7 @@ function slopInflatedRect(r: DOMRectReadOnly, kind: 'v' | 'h' | 'j'): DOMRect {
     case 'j':
       return new DOMRect(r.left - s, r.top - s, r.width + 2 * s, r.height + 2 * s)
   }
+  throw new Error('Unhandled gutter kind')
 }
 
 function pickFromGutterSlop(

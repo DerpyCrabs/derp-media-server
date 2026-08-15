@@ -205,7 +205,7 @@ export function CanvasSearchPalette(props: Props) {
               type='button'
               class='inline-flex size-10 items-center justify-center rounded-md hover:bg-muted'
               aria-label='Close search'
-              onClick={props.onClose}
+              onClick={() => props.onClose()}
             >
               <X class='size-5' />
             </button>

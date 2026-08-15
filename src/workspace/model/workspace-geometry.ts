@@ -391,6 +391,7 @@ export function snapZoneToBoundsWithOccupied(
           height: viewport.height - halfH,
         }
     }
+    throw new Error('Unhandled snap zone')
   })()
 
   if (occupied.length === 0) return defaultBounds

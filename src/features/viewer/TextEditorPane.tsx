@@ -23,7 +23,15 @@ import Download from 'lucide-solid/icons/download'
 import Save from 'lucide-solid/icons/save'
 import Zap from 'lucide-solid/icons/zap'
 import ZapOff from 'lucide-solid/icons/zap-off'
-import { Show, createEffect, createMemo, createSignal, onCleanup, type JSX } from 'solid-js'
+import {
+  Show,
+  createEffect,
+  createMemo,
+  createSignal,
+  onCleanup,
+  untrack,
+  type JSX,
+} from 'solid-js'
 import { closeViewer } from '@/lib/browser/url-state-actions'
 import { buildAdminMediaUrl } from '@/lib/media/build-media-url'
 import { fileDownloadHref } from '@/lib/files/download-urls'
@@ -650,13 +658,16 @@ export function TextEditorPane(props: TextEditorPaneProps): JSX.Element {
                           markdown,
                           complete,
                           () =>
-                            pasteTargetKey === currentTextTargetKey() &&
-                            hydratedDocumentKey === pasteTargetKey &&
-                            fileEditable() &&
-                            readOnlyView() &&
-                            autoSaveEnabled() &&
-                            !conflict(),
-                          () => void saveInternal(true),
+                            untrack(
+                              () =>
+                                pasteTargetKey === currentTextTargetKey() &&
+                                hydratedDocumentKey === pasteTargetKey &&
+                                fileEditable() &&
+                                readOnlyView() &&
+                                autoSaveEnabled() &&
+                                !conflict(),
+                            ),
+                          () => untrack(() => void saveInternal(true)),
                         ),
                     })
                   }}

@@ -177,9 +177,9 @@ describe('Markdown list indentation', () => {
     const result = runCommand(source, source.length, indentMarkdownList(false))
 
     expect(result.state.doc.toString()).toBe('9. parent\n   10. child')
-    expect(syntaxTree(result.state).toString()).toContain(
-      'ListItem(ListMark,Paragraph,OrderedList(ListItem',
-    )
+    const tree = syntaxTree(result.state)
+    const treeToString = Reflect.get(tree, 'toString') as () => string
+    expect(treeToString.call(tree)).toContain('ListItem(ListMark,Paragraph,OrderedList(ListItem')
   })
 
   test('outdents one or two leading spaces', () => {

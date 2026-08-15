@@ -1,12 +1,16 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "plugins": ["eslint", "typescript"],
+  "categories": {
+    "correctness": "error"
+  },
   "env": {
     "builtin": true
   },
   "options": {
     "typeAware": true,
-    "typeCheck": true
+    "typeCheck": true,
+    "maxWarnings": 0
   },
   "overrides": [
     {
@@ -16,23 +20,26 @@
         "solid/jsx-no-duplicate-props": "error",
         "solid/jsx-no-undef": ["error", { "typescriptEnabled": true }],
         "solid/jsx-uses-vars": "error",
-        "solid/no-unknown-namespaces": "off",
+        "solid/no-unknown-namespaces": "error",
         "solid/no-innerhtml": "error",
         "solid/jsx-no-script-url": "error",
-        "solid/components-return-once": "warn",
+        "solid/components-return-once": "error",
         "solid/no-destructure": "error",
         "solid/prefer-for": "error",
-        "solid/reactivity": "warn",
-        "solid/event-handlers": "warn",
-        "solid/imports": "warn",
-        "solid/style-prop": "warn",
-        "solid/no-react-deps": "warn",
-        "solid/no-react-specific-props": "warn",
-        "solid/self-closing-comp": "warn",
+        "solid/reactivity": "error",
+        "solid/event-handlers": "error",
+        "solid/imports": "error",
+        "solid/style-prop": "error",
+        "solid/no-react-deps": "error",
+        "solid/no-react-specific-props": "error",
+        "solid/self-closing-comp": "error",
         "solid/no-array-handlers": "off",
-        "solid/prefer-show": "warn",
+        "solid/prefer-show": "error",
         "solid/no-proxy-apis": "off",
-        "solid/prefer-classlist": "off"
+        "solid/prefer-classlist": "off",
+        "typescript/no-misused-promises": "error",
+        "typescript/switch-exhaustiveness-check": "error",
+        "typescript/consistent-return": "error"
       }
     }
   ]

@@ -62,7 +62,9 @@ export function ThemeSwitcher(props: Props) {
   return (
     <div class={cn('relative', variant() === 'floating' && 'fixed bottom-4 right-4 z-10002')}>
       <button
-        ref={trigger}
+        ref={(element) => {
+          trigger = element
+        }}
         type='button'
         title='Theme settings'
         aria-label='Open theme settings'

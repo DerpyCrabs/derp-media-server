@@ -50,30 +50,32 @@ function fineTunePathIntoView(path: string) {
 
 function makeVirtualizer(
   props: VirtualDirectoryGridProps,
-  rowCount: Accessor<number>,
-  rowHeight: Accessor<number>,
-  scrollMargin: Accessor<number>,
+  accessors: {
+    rowCount: Accessor<number>
+    rowHeight: Accessor<number>
+    scrollMargin: Accessor<number>
+  },
 ) {
   if (props.scrollTarget.kind === 'element') {
     const getScrollElement = props.scrollTarget.getScrollElement
     return createVirtualizer<HTMLElement, HTMLDivElement>({
       get count() {
-        return rowCount()
+        return accessors.rowCount()
       },
       getScrollElement: () => getScrollElement() ?? null,
-      estimateSize: () => rowHeight(),
+      estimateSize: () => accessors.rowHeight(),
       overscan: 4,
     })
   }
 
   return createWindowVirtualizer<HTMLDivElement>({
     get count() {
-      return rowCount()
+      return accessors.rowCount()
     },
-    estimateSize: () => rowHeight(),
+    estimateSize: () => accessors.rowHeight(),
     overscan: 4,
     get scrollMargin() {
-      return scrollMargin()
+      return accessors.scrollMargin()
     },
   })
 }
@@ -112,7 +114,7 @@ export function VirtualDirectoryGrid(props: VirtualDirectoryGridProps) {
       width > 0 ? (width - GRID_GAP_PX * Math.max(0, cols - 1)) / cols : MIN_CARD_WIDTH_PX
     return Math.ceil(cardWidth * (9 / 16) + 76 + GRID_GAP_PX)
   })
-  const virtualizer = makeVirtualizer(props, rowCount, rowHeight, scrollMargin)
+  const virtualizer = makeVirtualizer(props, { rowCount, rowHeight, scrollMargin })
 
   function updateMeasurements() {
     if (containerEl) {

@@ -1,5 +1,5 @@
 import Search from 'lucide-solid/icons/search'
-import { For, Index, Show, createEffect, createSignal } from 'solid-js'
+import { For, Index, Show, createEffect, createSignal, on } from 'solid-js'
 
 type SearchResult = { path: string; name: string; snippet: string }
 
@@ -35,11 +35,12 @@ function pathRelativeTo(from: string, to: string): string {
 
 export function KbSearchResults(props: Props) {
   const [selectedIndex, setSelectedIndex] = createSignal(0)
-  createEffect(() => {
-    props.query
-    props.results
-    setSelectedIndex(0)
-  })
+  createEffect(
+    on(
+      () => [props.query, props.results],
+      () => setSelectedIndex(0),
+    ),
+  )
 
   const onKeyDown = (event: KeyboardEvent) => {
     if (!props.results.length) return

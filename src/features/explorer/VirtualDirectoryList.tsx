@@ -40,8 +40,7 @@ function fineTunePathIntoView(path: string) {
 
 function makeVirtualizer(
   props: VirtualDirectoryListProps,
-  count: Accessor<number>,
-  scrollMargin: Accessor<number>,
+  accessors: { count: Accessor<number>; scrollMargin: Accessor<number> },
 ) {
   const getItemKey = (index: number) => {
     const parentCount = props.includeParent() ? 1 : 0
@@ -53,7 +52,7 @@ function makeVirtualizer(
     const getScrollElement = props.scrollTarget.getScrollElement
     return createVirtualizer<HTMLElement, HTMLTableRowElement>({
       get count() {
-        return count()
+        return accessors.count()
       },
       getScrollElement: () => getScrollElement() ?? null,
       estimateSize: () => props.estimateSize ?? 48,
@@ -64,13 +63,13 @@ function makeVirtualizer(
 
   return createWindowVirtualizer<HTMLTableRowElement>({
     get count() {
-      return count()
+      return accessors.count()
     },
     estimateSize: () => props.estimateSize ?? 48,
     getItemKey,
     overscan: props.overscan ?? 12,
     get scrollMargin() {
-      return scrollMargin()
+      return accessors.scrollMargin()
     },
   })
 }
@@ -98,7 +97,7 @@ export function VirtualDirectoryList(props: VirtualDirectoryListProps) {
   let containerEl: HTMLDivElement | undefined
   const [scrollMargin, setScrollMargin] = createSignal(0)
   const count = () => props.files().length + (props.includeParent() ? 1 : 0)
-  const virtualizer = makeVirtualizer(props, count, scrollMargin)
+  const virtualizer = makeVirtualizer(props, { count, scrollMargin })
 
   createEffect(() => {
     const itemCount = count()

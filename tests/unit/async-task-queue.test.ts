@@ -59,7 +59,7 @@ describe('createKeyedAsyncTaskQueue', () => {
     })
     const recovered = queue.run('same', async () => 'recovered')
 
-    await expect(failed).rejects.toThrow('failed')
+    expect(failed).rejects.toThrow('failed')
     expect(await recovered).toBe('recovered')
   })
 
