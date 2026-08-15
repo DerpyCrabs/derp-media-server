@@ -40,7 +40,7 @@ import FilePlus from 'lucide-solid/icons/file-plus'
 import FolderPlus from 'lucide-solid/icons/folder-plus'
 import BookOpenText from 'lucide-solid/icons/book-open-text'
 import Upload from 'lucide-solid/icons/upload'
-import { For, Show, batch, createEffect, createMemo, createSignal, on, onCleanup } from 'solid-js'
+import { For, Show, createEffect, createMemo, createSignal } from 'solid-js'
 import type { BreadcrumbMenuTarget } from '@/features/explorer/BreadcrumbContextMenu'
 import { Breadcrumbs } from '@/features/explorer/Breadcrumbs'
 import { DirectoryBackgroundContextMenu } from '@/features/explorer/DirectoryBackgroundContextMenu'
@@ -163,22 +163,33 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
   })
 
   createEffect(
-    on(currentPath, () => {
+    () => currentPath(),
+    () => {
       setVirtualOffset(0)
       setVirtualPages([])
       setVirtualRefreshEnabled(false)
-    }),
+    },
   )
-  createEffect(() => {
-    const page = filesQuery.data
-    if (!page) return
-    setVirtualRefreshEnabled(!!page.virtualDirectory)
-    setVirtualPages((current) =>
-      virtualOffset() === 0
-        ? [page]
-        : [...current.filter((value) => value.virtualDirectory?.offset !== virtualOffset()), page],
-    )
-  })
+  createEffect(
+    () => {
+      const page = filesQuery.data
+      return page ? { page, offset: virtualOffset() } : null
+    },
+    (next) => {
+      if (!next) return
+      const pageOffset = next.page.virtualDirectory?.offset ?? 0
+      if (pageOffset !== next.offset) return
+      setVirtualRefreshEnabled(!!next.page.virtualDirectory)
+      setVirtualPages((current) =>
+        next.offset === 0
+          ? [next.page]
+          : [
+              ...current.filter((value) => value.virtualDirectory?.offset !== next.offset),
+              next.page,
+            ],
+      )
+    },
+  )
   const listing = createMemo(() => filesQuery.data)
   const files = createMemo(() => {
     const pages = virtualPages()
@@ -406,29 +417,31 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
     },
   }))
 
-  createEffect(() => {
-    const q = searchQuery()
-    const id = window.setTimeout(() => setDebouncedSearch(q), 300)
-    onCleanup(() => clearTimeout(id))
-  })
+  createEffect(
+    () => searchQuery(),
+    (query) => {
+      const id = window.setTimeout(() => setDebouncedSearch(query), 300)
+      // eslint-disable-next-line solid/reactivity
+      return () => clearTimeout(id)
+    },
+  )
 
   createEffect(
-    on(currentPath, () => {
-      batch(() => {
-        setSearchQuery('')
-        setDebouncedSearch('')
-        setSearchPopoverOpen(false)
-        setInlineMode(null)
-        setInlineName('')
-        resetDrag()
-        resetBreadcrumbFloating()
-        setShowPasteDialog(false)
-        setPasteData(null)
-        pasteMutation.reset()
-      })
+    () => currentPath(),
+    () => {
+      setSearchQuery('')
+      setDebouncedSearch('')
+      setSearchPopoverOpen(false)
+      setInlineMode(null)
+      setInlineName('')
+      resetDrag()
+      resetBreadcrumbFloating()
+      setShowPasteDialog(false)
+      setPasteData(null)
+      pasteMutation.reset()
       externalUploadDragDepth = 0
       setExternalUploadDragOver(false)
-    }),
+    },
   )
 
   registerKbSearchHotkeys({
@@ -478,9 +491,12 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
     onDeleteRequest: (f) => setDeleteTarget(f),
   })
 
-  createEffect(() => {
-    if (fileRowMenu.menu()) setDirectoryBackgroundMenu(null)
-  })
+  createEffect(
+    () => fileRowMenu.menu(),
+    (menu) => {
+      if (menu) setDirectoryBackgroundMenu(null)
+    },
+  )
 
   const deleteMutation = useMutation(() => ({
     mutationFn: (itemPath: string) => post('/api/files/delete', { path: itemPath }),
@@ -697,10 +713,12 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
     return t.path
   })
 
-  createEffect(() => {
-    currentPath()
-    setUnsupportedFile(null)
-  })
+  createEffect(
+    () => currentPath(),
+    () => {
+      setUnsupportedFile(null)
+    },
+  )
 
   function setViewMode(mode: 'list' | 'grid') {
     viewModeMutation.mutate({ path: currentPath(), viewMode: mode })
@@ -1137,15 +1155,18 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
     props.onOpenViewer(props.windowId, file)
   }
 
-  createEffect(() => {
-    const f = unsupportedFile()
-    if (!f) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setUnsupportedFile(null)
-    }
-    window.addEventListener('keydown', onKey)
-    onCleanup(() => window.removeEventListener('keydown', onKey))
-  })
+  createEffect(
+    () => !!unsupportedFile(),
+    (isOpen) => {
+      if (!isOpen) return undefined
+      const onKey = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') setUnsupportedFile(null)
+      }
+      window.addEventListener('keydown', onKey)
+      // eslint-disable-next-line solid/reactivity
+      return () => window.removeEventListener('keydown', onKey)
+    },
+  )
 
   async function uploadFilesToServer(files: File[]) {
     if (files.length === 0 || !allowUpload()) return
@@ -1226,7 +1247,10 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
         data-no-window-drag
         class='relative flex h-9 shrink-0 items-center bg-muted/50 px-2 py-0'
       >
-        <div class='pointer-events-none absolute inset-x-0 bottom-0 h-px bg-border' aria-hidden />
+        <div
+          class='pointer-events-none absolute inset-x-0 bottom-0 h-px bg-border'
+          aria-hidden='true'
+        />
         <div class='flex w-full min-w-0 flex-wrap items-center justify-between gap-1'>
           <div
             data-breadcrumb-slot
@@ -1245,7 +1269,7 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
                 type='button'
                 aria-label='Search note contents'
                 title='Search note contents (Ctrl+K)'
-                aria-pressed={searchPopoverOpen()}
+                aria-pressed={searchPopoverOpen() ? 'true' : 'false'}
                 class={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md outline-none transition-colors ${
                   searchPopoverOpen()
                     ? 'bg-accent text-accent-foreground shadow-sm'
@@ -1357,7 +1381,7 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
         <div
           class='relative flex min-h-0 flex-1 flex-col overflow-hidden outline-none'
           data-testid='workspace-upload-drop-zone'
-          tabIndex={0}
+          tabindex={0}
           title={
             inKb() && allowUpload()
               ? 'Focus this pane and paste (Ctrl+V) to create a file from the clipboard.'
@@ -1443,7 +1467,7 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
                           file.isDirectory && dragOverPath() === file.path ? 'bg-primary/20' : '',
                           draggedPath() === file.path ? 'opacity-50' : '',
                         ),
-                        draggable: enableDrag(),
+                        draggable: enableDrag() ? 'true' : 'false',
                         onPointerEnter: () => prefetchFileRowHover(file),
                         onContextMenu: (event) => fileRowMenu.openRowContextMenu(event, file),
                         ...createLongPressContextMenuHandlers(),
@@ -1468,7 +1492,7 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
                           file.isDirectory && dragOverPath() === file.path ? 'bg-primary/20' : '',
                           draggedPath() === file.path ? 'opacity-50' : '',
                         ),
-                        draggable: enableDrag(),
+                        draggable: enableDrag() ? 'true' : 'false',
                         onPointerEnter: () => prefetchFileRowHover(file),
                         onContextMenu: (event) => fileRowMenu.openRowContextMenu(event, file),
                         ...createLongPressContextMenuHandlers(),

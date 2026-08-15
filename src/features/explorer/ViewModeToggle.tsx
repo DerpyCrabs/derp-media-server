@@ -31,7 +31,7 @@ export function ViewModeToggle(props: ViewModeToggleProps) {
         )}
         onClick={() => props.onChange('list')}
         aria-label='List view'
-        aria-pressed={props.viewMode === 'list'}
+        aria-pressed={props.viewMode === 'list' ? 'true' : 'false'}
         title='List view'
       >
         <List class={iconClass()} stroke-width={2} aria-hidden='true' />
@@ -47,7 +47,7 @@ export function ViewModeToggle(props: ViewModeToggleProps) {
         )}
         onClick={() => props.onChange('grid')}
         aria-label='Grid view'
-        aria-pressed={props.viewMode === 'grid'}
+        aria-pressed={props.viewMode === 'grid' ? 'true' : 'false'}
         title='Grid view'
       >
         <LayoutGrid class={iconClass()} stroke-width={2} aria-hidden='true' />

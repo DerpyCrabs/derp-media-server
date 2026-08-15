@@ -1,4 +1,4 @@
-import { createStore } from 'solid-js/store'
+import { createStore } from 'solid-js'
 import {
   createStoreListeners,
   readPersistedState,
@@ -25,8 +25,8 @@ const [store, setStore] = createStore({
   playbackTimes: loadTimes(),
 })
 
-function persist() {
-  writePersistedState(STORAGE_KEY, { playbackTimes: { ...store.playbackTimes } })
+function persist(playbackTimes: VideoPlaybackTimes) {
+  writePersistedState(STORAGE_KEY, { playbackTimes: { ...playbackTimes } })
 }
 
 function getSavedTime(filePath: string): number | null {
@@ -34,22 +34,29 @@ function getSavedTime(filePath: string): number | null {
 }
 
 function saveTime(filePath: string, time: number, duration: number) {
+  const next = { ...store.playbackTimes }
   if (duration > 0 && time >= duration * 0.9) {
-    const next = { ...store.playbackTimes }
     delete next[filePath]
-    setStore('playbackTimes', next)
+    setStore((state) => {
+      state.playbackTimes = next
+    })
   } else {
-    setStore('playbackTimes', filePath, time)
+    setStore((state) => {
+      state.playbackTimes[filePath] = time
+    })
+    next[filePath] = time
   }
-  persist()
+  persist(next)
   listeners.notify()
 }
 
 function clearTime(filePath: string) {
   const next = { ...store.playbackTimes }
   delete next[filePath]
-  setStore('playbackTimes', next)
-  persist()
+  setStore((state) => {
+    state.playbackTimes = next
+  })
+  persist(next)
   listeners.notify()
 }
 

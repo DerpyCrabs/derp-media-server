@@ -7,7 +7,7 @@ import Headphones from 'lucide-solid/icons/headphones'
 import Maximize2 from 'lucide-solid/icons/maximize-2'
 import Minimize2 from 'lucide-solid/icons/minimize-2'
 import X from 'lucide-solid/icons/x'
-import { Show, createEffect, createMemo, createSignal, onCleanup, onMount } from 'solid-js'
+import { Show, createEffect, createMemo, createSignal, onSettled } from 'solid-js'
 import {
   usePlaybackMediaHost,
   usePlaybackSession,
@@ -29,19 +29,25 @@ export function VideoPlayer() {
   const [position, setPositionView] = createSignal(floatingVideoPositionStore.getState().position)
   const [videoEl, setVideoEl] = createSignal<HTMLVideoElement>()
 
-  onMount(() => {
+  onSettled(() => {
     const unsubscribe = floatingVideoPositionStore.subscribe((state) => {
       setPositionView(state.position)
     })
-    onCleanup(unsubscribe)
+    return unsubscribe
   })
 
-  createEffect(() => {
-    const element = videoEl()
-    if (!element || !isVideoFile()) return
-    const detach = mediaHost.attach(element, 'video')
-    onCleanup(detach)
-  })
+  createEffect(
+    () => {
+      const element = videoEl()
+      return element && isVideoFile() ? element : null
+    },
+    (element) => {
+      if (!element) return undefined
+      const detach = mediaHost.attach(element, 'video')
+      // eslint-disable-next-line solid/reactivity
+      return detach
+    },
+  )
 
   function checkpointVideo() {
     const element = videoEl()
@@ -107,13 +113,17 @@ export function VideoPlayer() {
   }
 
   let lastScrolledPlayingPath: string | null = null
-  createEffect(() => {
-    const path = currentItem()?.locator ?? null
-    if (!path || !isVideoFile() || isMinimized()) return
-    if (lastScrolledPlayingPath === path) return
-    lastScrolledPlayingPath = path
-    requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }))
-  })
+  createEffect(
+    () => {
+      const path = currentItem()?.locator ?? null
+      return path && isVideoFile() && !isMinimized() ? path : null
+    },
+    (path) => {
+      if (!path || lastScrolledPlayingPath === path) return
+      lastScrolledPlayingPath = path
+      requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }))
+    },
+  )
 
   return (
     <Show when={isVideoFile() && currentItem()}>

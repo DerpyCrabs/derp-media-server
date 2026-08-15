@@ -26,7 +26,14 @@ import Star from 'lucide-solid/icons/star'
 import Upload from 'lucide-solid/icons/upload'
 import Zap from 'lucide-solid/icons/zap'
 
-type SolidIconEntry = { name: string; Icon: Component<{ class?: string; size?: number }> }
+type SolidIconProps = {
+  class?: string
+  size?: number
+  style?: { color?: string }
+  'stroke-width'?: string | number
+}
+
+type SolidIconEntry = { name: string; Icon: Component<SolidIconProps> }
 
 /** Curated names persisted server-side for custom folder icons. */
 export const SOLID_AVAILABLE_ICONS: SolidIconEntry[] = [
@@ -58,9 +65,7 @@ export const SOLID_AVAILABLE_ICONS: SolidIconEntry[] = [
   { name: 'KeyRound', Icon: KeyRound },
 ]
 
-export function getSolidIconComponent(
-  iconName: string,
-): Component<{ class?: string; size?: number }> | null {
+export function getSolidIconComponent(iconName: string): Component<SolidIconProps> | null {
   const entry = SOLID_AVAILABLE_ICONS.find((i) => i.name === iconName)
   return entry?.Icon ?? null
 }

@@ -11,7 +11,7 @@ import {
   finePointerDragEnabled,
   subscribeFinePointerDragEnabled,
 } from '@/lib/ui/enable-fine-pointer-drag'
-import { createMemo, createSignal, onMount, type Accessor } from 'solid-js'
+import { createMemo, createSignal, onSettled, type Accessor } from 'solid-js'
 
 export type FileBrowserDragControllerProps = Readonly<{
   files: Accessor<FileItem[]>
@@ -38,7 +38,7 @@ export function createFileBrowserDragController(props: FileBrowserDragController
       isPathEditable(parentDirForDrop(), [...foldersFor(props.editableFolders)]),
   )
 
-  onMount(() => {
+  onSettled(() => {
     setEnableDrag(finePointerDragEnabled())
     return subscribeFinePointerDragEnabled(setEnableDrag)
   })

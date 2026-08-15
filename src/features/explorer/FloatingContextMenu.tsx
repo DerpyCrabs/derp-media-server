@@ -10,9 +10,10 @@ import {
 } from '@/lib/ui/floating-z-index'
 import { clampFixedMenuPosition } from '@/lib/ui/clamp-fixed-menu'
 import { cn } from '@/lib/ui/cn'
-import type { Accessor, JSX } from 'solid-js'
-import { Match, Show, Switch, createEffect, createSignal, onCleanup } from 'solid-js'
-import { Portal } from 'solid-js/web'
+import type { Accessor } from 'solid-js'
+import type { JSX } from '@solidjs/web'
+import { Match, Show, Switch, createEffect, createSignal } from 'solid-js'
+import { Portal } from '@solidjs/web'
 
 const MENU_ROOT_CLASS =
   'fixed min-w-36 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md'
@@ -47,75 +48,90 @@ type MenuSurfaceProps = {
 function MenuSurface(props: MenuSurfaceProps) {
   const [surfaceRef, setSurfaceRef] = createSignal<HTMLDivElement | null>(null)
 
-  createEffect(() => {
-    const el = surfaceRef()
-    if (!el) return
-    const apply = () => {
-      let preferredLeft: number
-      let flip: { anchorTop: number; anchorBottom: number; gap: number }
-      const pos = props.positioning
-      if (pos.kind === 'pointer') {
-        preferredLeft = pos.left
-        flip = { anchorTop: pos.top, anchorBottom: pos.top, gap: 0 }
-      } else {
-        const anchor = pos.anchorRef()
-        if (!anchor) return
-        const ar = anchor.getBoundingClientRect()
-        el.style.minWidth = `${Math.max(pos.minWidthMin, ar.width)}px`
-        preferredLeft = ar.left
-        flip = { anchorTop: ar.top, anchorBottom: ar.bottom, gap: pos.gap }
+  createEffect(
+    () => {
+      const surface = surfaceRef()
+      if (!surface) return null
+      const positioning = props.positioning
+      const anchor = positioning.kind === 'anchor' ? positioning.anchorRef() : null
+      return { surface, positioning, anchor, trackScroll: props.trackScroll }
+    },
+    (state) => {
+      if (!state) return undefined
+      const { surface: el, positioning, anchor, trackScroll } = state
+      const apply = () => {
+        let preferredLeft: number
+        let flip: { anchorTop: number; anchorBottom: number; gap: number }
+        if (positioning.kind === 'pointer') {
+          preferredLeft = positioning.left
+          flip = { anchorTop: positioning.top, anchorBottom: positioning.top, gap: 0 }
+        } else {
+          if (!anchor) return
+          const ar = anchor.getBoundingClientRect()
+          el.style.minWidth = `${Math.max(positioning.minWidthMin, ar.width)}px`
+          preferredLeft = ar.left
+          flip = { anchorTop: ar.top, anchorBottom: ar.bottom, gap: positioning.gap }
+        }
+        const r = el.getBoundingClientRect()
+        const next = clampFixedMenuPosition({
+          preferredLeft,
+          width: Math.max(r.width, 1),
+          height: Math.max(r.height, 1),
+          flip,
+        })
+        el.style.left = `${next.left}px`
+        el.style.top = `${next.top}px`
       }
-      const r = el.getBoundingClientRect()
-      const next = clampFixedMenuPosition({
-        preferredLeft,
-        width: Math.max(r.width, 1),
-        height: Math.max(r.height, 1),
-        flip,
-      })
-      el.style.left = `${next.left}px`
-      el.style.top = `${next.top}px`
-    }
-    requestAnimationFrame(apply)
-    const ro = new ResizeObserver(() => requestAnimationFrame(apply))
-    ro.observe(el)
-    const bump = () => requestAnimationFrame(apply)
-    window.addEventListener('resize', bump)
-    const vv = window.visualViewport
-    if (props.trackScroll) {
-      window.addEventListener('scroll', bump, true)
-      vv?.addEventListener('resize', bump)
-      vv?.addEventListener('scroll', bump)
-    }
-    onCleanup(() => {
-      ro.disconnect()
-      window.removeEventListener('resize', bump)
-      if (props.trackScroll) {
-        window.removeEventListener('scroll', bump, true)
-        vv?.removeEventListener('resize', bump)
-        vv?.removeEventListener('scroll', bump)
+      requestAnimationFrame(apply)
+      const ro = new ResizeObserver(() => requestAnimationFrame(apply))
+      ro.observe(el)
+      const bump = () => requestAnimationFrame(apply)
+      window.addEventListener('resize', bump)
+      const vv = window.visualViewport
+      if (trackScroll) {
+        window.addEventListener('scroll', bump, true)
+        vv?.addEventListener('resize', bump)
+        vv?.addEventListener('scroll', bump)
       }
-    })
-  })
+      // eslint-disable-next-line solid/reactivity
+      return () => {
+        ro.disconnect()
+        window.removeEventListener('resize', bump)
+        if (trackScroll) {
+          window.removeEventListener('scroll', bump, true)
+          vv?.removeEventListener('resize', bump)
+          vv?.removeEventListener('scroll', bump)
+        }
+      }
+    },
+  )
 
-  createEffect(() => {
-    const surface = surfaceRef()
-    if (!surface) return undefined
-    return registerFloatingDismissLayer({
-      zIndex: props.zIndex,
-      isInside: (e) => {
-        const el = surfaceRef()
-        if (!el) return false
-        return floatingPointerInsideSurface(
-          e,
-          el,
-          props.extraDismissRoots?.() ?? [],
-          props.dismissIgnoreInsideSelector,
-          props.dismissIgnoreSelectorActive,
-        )
-      },
-      dismiss: () => props.onDismiss(),
-    })
-  })
+  createEffect(
+    () => {
+      const surface = surfaceRef()
+      return surface ? { surface, zIndex: props.zIndex } : null
+    },
+    (state) => {
+      if (!state) return undefined
+      const unregister = registerFloatingDismissLayer({
+        zIndex: state.zIndex,
+        isInside: (e) => {
+          const el = surfaceRef()
+          if (!el) return false
+          return floatingPointerInsideSurface(
+            e,
+            el,
+            props.extraDismissRoots?.() ?? [],
+            props.dismissIgnoreInsideSelector,
+            props.dismissIgnoreSelectorActive,
+          )
+        },
+        dismiss: () => props.onDismiss(),
+      })
+      // eslint-disable-next-line solid/reactivity
+      return unregister
+    },
+  )
 
   const initialPos = () => {
     const pos = props.positioning

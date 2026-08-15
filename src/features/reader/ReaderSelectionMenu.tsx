@@ -1,7 +1,7 @@
 import Languages from 'lucide-solid/icons/languages'
 import RefreshCw from 'lucide-solid/icons/refresh-cw'
 import Sparkles from 'lucide-solid/icons/sparkles'
-import { Show, createEffect, createResource, createSignal, onCleanup, untrack } from 'solid-js'
+import { Show, createEffect, createMemo, createSignal, onSettled, untrack } from 'solid-js'
 import type { ReaderDefaultAction } from './reader-position'
 import { MarkdownContent } from './MarkdownContent'
 import { readerAiAvailable, runReaderAi } from './reader-ai'
@@ -33,7 +33,9 @@ export function ReaderSelectionMenu(props: {
   const [busy, setBusy] = createSignal(false)
   const [result, setResult] = createSignal('')
   const [error, setError] = createSignal('')
-  const [readerAiEnabled] = createResource(readerAiAvailable)
+  const readerAiEnabled = createMemo<boolean | undefined>(() => readerAiAvailable(), {
+    loadingValue: undefined,
+  })
 
   const run = async (nextTask: 'define' | 'translate') => {
     const currentRequest = ++requestId
@@ -59,26 +61,36 @@ export function ReaderSelectionMenu(props: {
     }
   }
 
-  createEffect(() => {
-    const id = props.selection.id
-    const action = props.defaultAction
-    if (readerAiEnabled() !== true) return
-    const key = `${id}:${action}:${props.aiDetail}`
-    if (!id || action === 'none' || key === lastAutomaticKey) return
-    lastAutomaticKey = key
-    void untrack(() => run(action))
+  createEffect(
+    () => ({
+      id: props.selection.id,
+      action: props.defaultAction,
+      detail: props.aiDetail,
+      enabled: readerAiEnabled(),
+    }),
+    ({ id, action, detail, enabled }) => {
+      if (enabled !== true) return
+      const key = `${id}:${action}:${detail}`
+      if (!id || action === 'none' || key === lastAutomaticKey) return
+      lastAutomaticKey = key
+      void untrack(() => run(action))
+    },
+  )
+
+  onSettled(() => {
+    return () => {
+      requestId += 1
+    }
   })
 
-  onCleanup(() => {
-    requestId += 1
-  })
-
-  createEffect(() => {
-    const text = props.selection.text
-    if (!previewRef || document.activeElement === previewRef || previewRef.textContent === text)
-      return
-    previewRef.textContent = text
-  })
+  createEffect(
+    () => props.selection.text,
+    (text) => {
+      if (!previewRef || document.activeElement === previewRef || previewRef.textContent === text)
+        return
+      previewRef.textContent = text
+    },
+  )
 
   const shouldRegenerate = (nextTask: 'define' | 'translate') =>
     Boolean(result()) && task() === nextTask
@@ -134,7 +146,7 @@ export function ReaderSelectionMenu(props: {
             role='textbox'
             aria-label='Selected text'
             aria-multiline='true'
-            contentEditable
+            contenteditable
             spellcheck={false}
             onInput={(event) => props.onTextChange(event.currentTarget.textContent ?? '')}
             onPointerDown={(event) => event.stopPropagation()}

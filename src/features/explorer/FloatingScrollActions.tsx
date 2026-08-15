@@ -1,5 +1,5 @@
 import type { Accessor } from 'solid-js'
-import { createEffect, createSignal, onCleanup, onMount, Show } from 'solid-js'
+import { createEffect, createSignal, onSettled, Show } from 'solid-js'
 import ArrowUp from 'lucide-solid/icons/arrow-up'
 import LocateFixed from 'lucide-solid/icons/locate-fixed'
 import { getVirtualFileScroller } from './virtual-directory-scroll'
@@ -64,13 +64,14 @@ export function FloatingScrollActions(props: Props) {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  createEffect(() => {
-    props.playingPath()
-    props.scrollScope?.()
-    updateVisibility()
-  })
+  createEffect(
+    () => [props.playingPath(), props.scrollScope?.()] as const,
+    () => {
+      updateVisibility()
+    },
+  )
 
-  onMount(() => {
+  onSettled(() => {
     window.addEventListener('scroll', updateVisibility, { passive: true })
     window.addEventListener('resize', updateVisibility)
     observer = new MutationObserver(updateVisibility)
@@ -81,13 +82,12 @@ export function FloatingScrollActions(props: Props) {
       subtree: true,
     })
     updateVisibility()
-  })
-
-  onCleanup(() => {
-    cancelAnimationFrame(raf)
-    window.removeEventListener('scroll', updateVisibility)
-    window.removeEventListener('resize', updateVisibility)
-    observer?.disconnect()
+    return () => {
+      cancelAnimationFrame(raf)
+      window.removeEventListener('scroll', updateVisibility)
+      window.removeEventListener('resize', updateVisibility)
+      observer?.disconnect()
+    }
   })
 
   return (

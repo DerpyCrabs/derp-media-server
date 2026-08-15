@@ -1,13 +1,12 @@
 import {
   createContext,
   createSignal,
-  onCleanup,
   untrack,
-  onMount,
+  onSettled,
   useContext,
   type Accessor,
-  type JSX,
 } from 'solid-js'
+import type { JSX } from '@solidjs/web'
 import {
   createMediaElementHost,
   type MediaElementHost,
@@ -34,19 +33,19 @@ export function PlaybackProvider(props: PlaybackProviderProps) {
   const [snapshot, setSnapshot] = createSignal(session.getSnapshot(), { equals: false })
   const value = Object.freeze({ session, snapshot, mediaHost })
 
-  onMount(() => {
+  onSettled(() => {
     const unsubscribe = session.subscribe(() => setSnapshot(session.getSnapshot()))
     const checkpoint = () => session.dispatch({ type: 'checkpoint' })
     window.addEventListener('pagehide', checkpoint)
-    onCleanup(() => {
+    return () => {
       window.removeEventListener('pagehide', checkpoint)
       unsubscribe()
       mediaHost.dispose()
       session.dispatch({ type: 'destroy' })
-    })
+    }
   })
 
-  return <PlaybackContext.Provider value={value}>{props.children}</PlaybackContext.Provider>
+  return <PlaybackContext value={value}>{props.children}</PlaybackContext>
 }
 
 function requiredPlaybackContext(): PlaybackContextValue {

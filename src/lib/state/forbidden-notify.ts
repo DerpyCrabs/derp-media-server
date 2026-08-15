@@ -1,4 +1,4 @@
-import { createStore } from 'solid-js/store'
+import { createStore } from 'solid-js'
 import { createStoreListeners } from './client-store-utils'
 
 const DEBOUNCE_MS = 1500
@@ -19,12 +19,16 @@ export function pushForbiddenNotice(message: string) {
   if (trimmed === lastPushedMessage && now - lastPushedAt < DEBOUNCE_MS) return
   lastPushedMessage = trimmed
   lastPushedAt = now
-  setStore('message', trimmed)
+  setStore((state) => {
+    state.message = trimmed
+  })
   listeners.notify()
 }
 
 export function dismissForbiddenNotice() {
-  setStore('message', null)
+  setStore((state) => {
+    state.message = null
+  })
   listeners.notify()
 }
 

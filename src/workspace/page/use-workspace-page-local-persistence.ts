@@ -1,5 +1,5 @@
 import type { PersistedWorkspaceState } from '@/workspace/model/use-workspace'
-import { createEffect, onCleanup, onMount, type Accessor } from 'solid-js'
+import { createEffect, onSettled, type Accessor } from 'solid-js'
 import { persistWorkspaceState } from './workspace-page-persistence'
 
 export function useWorkspacePageLocalPersistence(options: {
@@ -8,24 +8,30 @@ export function useWorkspacePageLocalPersistence(options: {
 }) {
   let persistTimer: ReturnType<typeof setTimeout> | null = null
 
-  createEffect(() => {
-    const { key } = options.storageSessionKeyFull()
-    const w = options.workspace()
-    if (!key || !w) return
-    if (persistTimer) clearTimeout(persistTimer)
-    persistTimer = setTimeout(() => {
-      persistTimer = null
-      persistWorkspaceState(key, w)
-    }, 300)
-    onCleanup(() => {
-      if (persistTimer) {
-        clearTimeout(persistTimer)
+  createEffect(
+    () => {
+      const { key } = options.storageSessionKeyFull()
+      const state = options.workspace()
+      return key && state ? { key, state } : null
+    },
+    (persisted) => {
+      if (!persisted) return undefined
+      if (persistTimer) clearTimeout(persistTimer)
+      persistTimer = setTimeout(() => {
         persistTimer = null
+        persistWorkspaceState(persisted.key, persisted.state)
+      }, 300)
+      // eslint-disable-next-line solid/reactivity
+      return () => {
+        if (persistTimer) {
+          clearTimeout(persistTimer)
+          persistTimer = null
+        }
       }
-    })
-  })
+    },
+  )
 
-  onMount(() => {
+  onSettled(() => {
     const flushPersist = () => {
       const k = options.storageSessionKeyFull().key
       const w = options.workspace()
@@ -36,9 +42,9 @@ export function useWorkspacePageLocalPersistence(options: {
       if (document.visibilityState === 'hidden') flushPersist()
     }
     document.addEventListener('visibilitychange', onVis)
-    onCleanup(() => {
+    return () => {
       window.removeEventListener('beforeunload', flushPersist)
       document.removeEventListener('visibilitychange', onVis)
-    })
+    }
   })
 }

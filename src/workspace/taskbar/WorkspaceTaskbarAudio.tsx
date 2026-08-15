@@ -12,7 +12,7 @@ import StepForward from 'lucide-solid/icons/step-forward'
 import Volume2 from 'lucide-solid/icons/volume-2'
 import VolumeX from 'lucide-solid/icons/volume-x'
 import X from 'lucide-solid/icons/x'
-import { Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js'
+import { Show, createEffect, createMemo, createSignal } from 'solid-js'
 import {
   buildAudioMetadataUrl,
   buildMediaUrl,
@@ -45,9 +45,12 @@ export function WorkspaceTaskbarAudio(props: Props) {
       !!item() && playback().mode === 'audio' && !(props.suppressTaskbarAudioChrome?.() ?? false),
   )
 
-  createEffect(() => {
-    if (!shouldHandleAudio()) setDetailsOpen(false)
-  })
+  createEffect(
+    () => shouldHandleAudio(),
+    (handleAudio) => {
+      if (!handleAudio) setDetailsOpen(false)
+    },
+  )
 
   const filesQuery = useQuery(() => ({
     queryKey: queryKeys.files(currentDir()),
@@ -56,15 +59,19 @@ export function WorkspaceTaskbarAudio(props: Props) {
   }))
   const allFiles = createMemo(() => filesQuery.data?.files ?? [])
   let queuedSignature = ''
-  createEffect(() => {
-    const current = item()
-    if (!current || !shouldHandleAudio() || filesQuery.isPending) return
-    const queue = audioPlaybackQueueFromFiles(allFiles(), current)
-    const signature = queue.map((candidate) => candidate.locator).join('\x01')
-    if (signature === queuedSignature) return
-    queuedSignature = signature
-    session.dispatch({ type: 'setQueue', queue, current })
-  })
+  createEffect(
+    () => {
+      const current = item()
+      if (!current || !shouldHandleAudio() || filesQuery.isPending) return null
+      const queue = audioPlaybackQueueFromFiles(allFiles(), current)
+      return { queue, current, signature: queue.map((candidate) => candidate.locator).join('\x01') }
+    },
+    (next) => {
+      if (!next || next.signature === queuedSignature) return
+      queuedSignature = next.signature
+      session.dispatch({ type: 'setQueue', queue: next.queue, current: next.current })
+    },
+  )
   const coverArtUrl = createMemo(() => {
     const cover = allFiles().find(
       (file) =>
@@ -96,23 +103,27 @@ export function WorkspaceTaskbarAudio(props: Props) {
     () => playback().currentIndex >= 0 && playback().currentIndex + 1 < playback().queue.length,
   )
 
-  createEffect(() => {
-    if (!detailsOpen()) return
-    const onDown = (event: MouseEvent) => {
-      const target = event.target as Node | null
-      const root = document.querySelector('[data-workspace-taskbar-audio-root]')
-      if (root && target && !root.contains(target)) setDetailsOpen(false)
-    }
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setDetailsOpen(false)
-    }
-    document.addEventListener('mousedown', onDown)
-    document.addEventListener('keydown', onKey)
-    onCleanup(() => {
-      document.removeEventListener('mousedown', onDown)
-      document.removeEventListener('keydown', onKey)
-    })
-  })
+  createEffect(
+    () => detailsOpen(),
+    (isOpen) => {
+      if (!isOpen) return undefined
+      const onDown = (event: MouseEvent) => {
+        const target = event.target as Node | null
+        const root = document.querySelector('[data-workspace-taskbar-audio-root]')
+        if (root && target && !root.contains(target)) setDetailsOpen(false)
+      }
+      const onKey = (event: KeyboardEvent) => {
+        if (event.key === 'Escape') setDetailsOpen(false)
+      }
+      document.addEventListener('mousedown', onDown)
+      document.addEventListener('keydown', onKey)
+      // eslint-disable-next-line solid/reactivity
+      return () => {
+        document.removeEventListener('mousedown', onDown)
+        document.removeEventListener('keydown', onKey)
+      }
+    },
+  )
 
   function handleShowVideo() {
     const path = playingPath()
@@ -130,7 +141,7 @@ export function WorkspaceTaskbarAudio(props: Props) {
             class='hover:opacity-90 flex min-w-0 cursor-pointer items-center gap-1.5 pr-1 text-left transition-opacity'
             onClick={() => setDetailsOpen(!detailsOpen())}
             aria-label='Open audio controls'
-            aria-expanded={detailsOpen()}
+            aria-expanded={detailsOpen() ? 'true' : 'false'}
           >
             <div class='bg-muted flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded'>
               <Show
@@ -251,7 +262,7 @@ export function WorkspaceTaskbarAudio(props: Props) {
                   <button
                     type='button'
                     aria-label={playback().repeat ? 'Disable repeat' : 'Enable repeat'}
-                    aria-pressed={playback().repeat}
+                    aria-pressed={playback().repeat ? 'true' : 'false'}
                     class={
                       playback().repeat
                         ? 'bg-primary text-primary-foreground inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md'

@@ -23,15 +23,8 @@ import Download from 'lucide-solid/icons/download'
 import Save from 'lucide-solid/icons/save'
 import Zap from 'lucide-solid/icons/zap'
 import ZapOff from 'lucide-solid/icons/zap-off'
-import {
-  Show,
-  createEffect,
-  createMemo,
-  createSignal,
-  onCleanup,
-  untrack,
-  type JSX,
-} from 'solid-js'
+import { Show, createEffect, createMemo, createSignal, onSettled, untrack } from 'solid-js'
+import type { JSX } from '@solidjs/web'
 import { closeViewer } from '@/lib/browser/url-state-actions'
 import { buildAdminMediaUrl } from '@/lib/media/build-media-url'
 import { fileDownloadHref } from '@/lib/files/download-urls'
@@ -215,43 +208,57 @@ export function TextEditorPane(props: TextEditorPaneProps): JSX.Element {
     }
   }
 
-  createEffect(() => {
-    const target = currentTextTarget()
-    const documentKey = textDocumentTargetKey(target)
-    const pr = persistedReadOnly()
-    if (!target.viewingPath) return
-    if (documentKey !== lastDocumentKey) {
-      lastDocumentKey = documentKey
-      hydratedDocumentKey = ''
-      setSavedContentAwaitingQuery(null)
-      setReadOnlyView(pr)
-      setEditContent('')
-      setEditorBaseContent('')
-      setCopied(false)
-      setAutoSaveError(null)
-    }
-
-    void textQuery.data
-    const data = queryClient.getQueryData<string>(queryKey())
-    if (data === undefined) return
-    if (documentKey !== hydratedDocumentKey) {
-      hydratedDocumentKey = documentKey
-      const draft = readTextEditorDraft(
-        textEditorDraftKey(textDocumentDraftScope(target), target.viewingPath),
-      )
-      setEditContent(draft?.content !== data ? (draft?.content ?? data) : data)
-      setEditorBaseContent(data)
-    } else {
-      const savedContent = savedContentAwaitingQuery()
-      if (savedContent !== null && data === savedContent) {
-        setEditorBaseContent(savedContent)
-        setSavedContentAwaitingQuery(null)
-      } else if (data !== editorBaseContent() && editContent() === editorBaseContent()) {
-        setEditContent(data)
-        setEditorBaseContent(data)
+  createEffect(
+    () => {
+      const target = currentTextTarget()
+      if (!target.viewingPath) return null
+      const documentKey = textDocumentTargetKey(target)
+      void textQuery.data
+      const data = queryClient.getQueryData<string>(queryKey())
+      return {
+        target,
+        documentKey,
+        readOnly: persistedReadOnly(),
+        data,
+        savedContent: savedContentAwaitingQuery(),
+        editorBase: editorBaseContent(),
+        edit: editContent(),
       }
-    }
-  })
+    },
+    (state) => {
+      if (!state) return
+      const { target, documentKey, readOnly: pr, data } = state
+      if (documentKey !== lastDocumentKey) {
+        lastDocumentKey = documentKey
+        hydratedDocumentKey = ''
+        setSavedContentAwaitingQuery(null)
+        setReadOnlyView(pr)
+        setEditContent('')
+        setEditorBaseContent('')
+        setCopied(false)
+        setAutoSaveError(null)
+      }
+
+      if (data === undefined) return
+      if (documentKey !== hydratedDocumentKey) {
+        hydratedDocumentKey = documentKey
+        const draft = readTextEditorDraft(
+          textEditorDraftKey(textDocumentDraftScope(target), target.viewingPath),
+        )
+        setEditContent(draft?.content !== data ? (draft?.content ?? data) : data)
+        setEditorBaseContent(data)
+      } else {
+        const savedContent = state.savedContent
+        if (savedContent !== null && data === savedContent) {
+          setEditorBaseContent(savedContent)
+          setSavedContentAwaitingQuery(null)
+        } else if (data !== state.editorBase && state.edit === state.editorBase) {
+          setEditContent(data)
+          setEditorBaseContent(data)
+        }
+      }
+    },
+  )
 
   const draftKey = createMemo(() =>
     textEditorDraftKey(textDocumentDraftScope(currentTextTarget()), props.viewingPath),
@@ -261,36 +268,65 @@ export function TextEditorPane(props: TextEditorPaneProps): JSX.Element {
     () => dirty() && textQuery.data !== undefined && textQuery.data !== editorBaseContent(),
   )
 
-  createEffect(() => {
-    if (hydratedDocumentKey !== currentTextTargetKey()) return
-    if (dirty() && autoSaveEnabled()) writeTextEditorDraft(draftKey(), editContent())
-    else removeTextEditorDraft(draftKey())
-  })
+  createEffect(
+    () => {
+      const key = draftKey()
+      const content = editContent()
+      return {
+        ready: hydratedDocumentKey === currentTextTargetKey(),
+        dirty: dirty(),
+        autoSave: autoSaveEnabled(),
+        key,
+        content,
+      }
+    },
+    ({ ready, dirty: isDirty, autoSave, key, content }) => {
+      if (!ready) return
+      if (isDirty && autoSave) writeTextEditorDraft(key, content)
+      else removeTextEditorDraft(key)
+    },
+  )
 
-  createEffect(() => {
+  onSettled(() => {
     const warnIfDirty = (event: BeforeUnloadEvent) => {
       if (!dirty()) return
       event.preventDefault()
       event.returnValue = ''
     }
     window.addEventListener('beforeunload', warnIfDirty)
-    onCleanup(() => window.removeEventListener('beforeunload', warnIfDirty))
+    // eslint-disable-next-line solid/reactivity
+    return () => window.removeEventListener('beforeunload', warnIfDirty)
   })
 
-  createEffect(() => {
-    onCleanup(() => {
+  createEffect(
+    () => ({
+      ready: hydratedDocumentKey === currentTextTargetKey(),
+      editable: fileEditable(),
+      readOnly: readOnlyView(),
+      autoSave: autoSaveEnabled(),
+      hasConflict: conflict(),
+      edit: editContent(),
+      base: editorBaseContent(),
+    }),
+    ({ ready, editable, readOnly, autoSave, hasConflict, edit, base }) => {
       if (autosaveTimer) {
         clearTimeout(autosaveTimer)
         autosaveTimer = null
       }
-    })
-    if (hydratedDocumentKey !== currentTextTargetKey()) return
-    if (!fileEditable() || readOnlyView() || !autoSaveEnabled() || conflict()) return
-    if (editContent() === editorBaseContent()) return
-    autosaveTimer = setTimeout(() => {
-      void saveInternal(true)
-    }, 2000)
-  })
+      if (!ready || !editable || readOnly || !autoSave || hasConflict || edit === base)
+        return undefined
+      autosaveTimer = setTimeout(() => {
+        void saveInternal(true)
+      }, 2000)
+      // eslint-disable-next-line solid/reactivity
+      return () => {
+        if (autosaveTimer) {
+          clearTimeout(autosaveTimer)
+          autosaveTimer = null
+        }
+      }
+    },
+  )
 
   async function handleClose() {
     if (autosaveTimer) {

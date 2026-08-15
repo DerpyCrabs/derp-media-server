@@ -7,7 +7,8 @@ import {
   type WorkspaceLayoutScope,
 } from '@/workspace/model/workspace-layout-presets'
 import FolderOpen from 'lucide-solid/icons/folder-open'
-import { For, Show, type JSX } from 'solid-js'
+import { For, Show } from 'solid-js'
+import type { JSX } from '@solidjs/web'
 import { FloatingContextMenu } from '@/features/explorer/FloatingContextMenu'
 import { pinnedItemIcon } from '@/features/explorer/use-file-icon'
 import type { GlobalSettings } from '@/lib/models/settings-types'
@@ -80,9 +81,9 @@ export function WorkspacePageTaskbar(props: WorkspacePageTaskbarProps) {
                       return (
                         <div
                           class='flex shrink-0 items-center justify-center py-1 px-0.5'
-                          data-taskbar-pin
+                          data-taskbar-pin=''
                           draggable='true'
-                          on:dragstart={(e: DragEvent) => {
+                          onDragStart={(e: DragEvent) => {
                             const dt = e.dataTransfer
                             if (!dt) return
                             const d: FileDragData = {
@@ -125,7 +126,7 @@ export function WorkspacePageTaskbar(props: WorkspacePageTaskbarProps) {
                 </div>
               </Show>
               <Show when={props.pinnedItems().length > 0 && props.taskbarGroupIds().length > 0}>
-                <div class='w-2 shrink-0' aria-hidden />
+                <div class='w-2 shrink-0' aria-hidden='true' />
               </Show>
               <div class='flex min-w-0 flex-1 items-center gap-1 overflow-x-auto'>
                 {props.taskbarWindowRows()}

@@ -1,11 +1,8 @@
 import type { FileItem } from '@/lib/files/types'
-import {
-  createVirtualizer,
-  createWindowVirtualizer,
-  type VirtualItem,
-} from '@tanstack/solid-virtual'
-import type { Accessor, JSX } from 'solid-js'
-import { createEffect, createSignal, For, onCleanup, onMount, Show } from 'solid-js'
+import { createVirtualizer, createWindowVirtualizer, type VirtualItem } from '@/lib/virtualizer'
+import type { Accessor } from 'solid-js'
+import type { JSX } from '@solidjs/web'
+import { createEffect, createSignal, For, onSettled, Show } from 'solid-js'
 import { registerVirtualFileScroller } from './virtual-directory-scroll'
 
 const VIRTUALIZE_THRESHOLD = 100
@@ -55,7 +52,10 @@ function makeVirtualizer(
         return accessors.count()
       },
       getScrollElement: () => getScrollElement() ?? null,
-      estimateSize: () => props.estimateSize ?? 48,
+      get estimateSize() {
+        const size = props.estimateSize ?? 48
+        return () => size
+      },
       getItemKey,
       overscan: props.overscan ?? 12,
     })
@@ -65,7 +65,10 @@ function makeVirtualizer(
     get count() {
       return accessors.count()
     },
-    estimateSize: () => props.estimateSize ?? 48,
+    get estimateSize() {
+      const size = props.estimateSize ?? 48
+      return () => size
+    },
     getItemKey,
     overscan: props.overscan ?? 12,
     get scrollMargin() {
@@ -99,27 +102,33 @@ export function VirtualDirectoryList(props: VirtualDirectoryListProps) {
   const count = () => props.files().length + (props.includeParent() ? 1 : 0)
   const virtualizer = makeVirtualizer(props, { count, scrollMargin })
 
-  createEffect(() => {
-    const itemCount = count()
-    const scrollElement =
-      props.scrollTarget.kind === 'element'
-        ? props.scrollTarget.getScrollElement()
-        : document.documentElement
-    if (!itemCount || !scrollElement) return
+  createEffect(
+    () => {
+      const itemCount = count()
+      const scrollElement =
+        props.scrollTarget.kind === 'element'
+          ? props.scrollTarget.getScrollElement()
+          : document.documentElement
+      return itemCount && scrollElement ? { itemCount, scrollElement } : null
+    },
+    (state) => {
+      if (!state) return undefined
 
-    let cancelled = false
-    const measure = () => {
-      if (cancelled) return
-      virtualizer._willUpdate()
-      virtualizer.measure()
-    }
-    queueMicrotask(measure)
-    const frame = window.requestAnimationFrame(measure)
-    onCleanup(() => {
-      cancelled = true
-      window.cancelAnimationFrame(frame)
-    })
-  })
+      let cancelled = false
+      const measure = () => {
+        if (cancelled) return
+        virtualizer._willUpdate()
+        virtualizer.measure()
+      }
+      queueMicrotask(measure)
+      const frame = window.requestAnimationFrame(measure)
+      // eslint-disable-next-line solid/reactivity
+      return () => {
+        cancelled = true
+        window.cancelAnimationFrame(frame)
+      }
+    },
+  )
 
   function updateScrollMargin() {
     if (props.scrollTarget.kind !== 'window' || !containerEl) {
@@ -142,35 +151,42 @@ export function VirtualDirectoryList(props: VirtualDirectoryListProps) {
     return Math.max(0, virtualizer.getTotalSize() - last.end)
   }
 
-  createEffect(() => {
-    const scope = props.scrollScope?.()
-    const files = props.files()
-    const parentCount = props.includeParent() ? 1 : 0
-    if (!scope) return
+  createEffect(
+    () => {
+      const scope = props.scrollScope?.()
+      return scope
+        ? { scope, files: props.files(), parentCount: props.includeParent() ? 1 : 0 }
+        : null
+    },
+    (state) => {
+      if (!state) return undefined
 
-    const unregister = registerVirtualFileScroller(scope, {
-      hasPath: (path) => files.some((file) => file.path === path),
-      scrollToPath: (path) => {
-        const index = files.findIndex((file) => file.path === path)
-        if (index === -1) return
-        virtualizer.scrollToIndex(index + parentCount, { align: 'center' })
-        fineTunePathIntoView(path)
-      },
-    })
+      const unregister = registerVirtualFileScroller(state.scope, {
+        hasPath: (path) => state.files.some((file) => file.path === path),
+        scrollToPath: (path) => {
+          const index = state.files.findIndex((file) => file.path === path)
+          if (index === -1) return
+          virtualizer.scrollToIndex(index + state.parentCount, { align: 'center' })
+          fineTunePathIntoView(path)
+        },
+      })
 
-    onCleanup(unregister)
-  })
+      // eslint-disable-next-line solid/reactivity
+      return unregister
+    },
+  )
 
-  onMount(() => {
+  onSettled(() => {
     updateScrollMargin()
-    if (props.scrollTarget.kind !== 'window') return
+    if (props.scrollTarget.kind !== 'window') return undefined
 
     window.addEventListener('resize', updateScrollMargin)
     window.addEventListener('scroll', updateScrollMargin, { passive: true })
-    onCleanup(() => {
+    // eslint-disable-next-line solid/reactivity
+    return () => {
       window.removeEventListener('resize', updateScrollMargin)
       window.removeEventListener('scroll', updateScrollMargin)
-    })
+    }
   })
 
   const table = (children: JSX.Element) => (
@@ -210,7 +226,7 @@ export function VirtualDirectoryList(props: VirtualDirectoryListProps) {
           <>
             <Show when={topPadding() > 0}>
               <tr aria-hidden='true'>
-                <td colSpan={props.colSpan} style={{ height: `${topPadding()}px`, padding: '0' }} />
+                <td colspan={props.colSpan} style={{ height: `${topPadding()}px`, padding: '0' }} />
               </tr>
             </Show>
             <For each={virtualizer.getVirtualItems()}>
@@ -228,7 +244,7 @@ export function VirtualDirectoryList(props: VirtualDirectoryListProps) {
             <Show when={bottomPadding() > 0}>
               <tr aria-hidden='true'>
                 <td
-                  colSpan={props.colSpan}
+                  colspan={props.colSpan}
                   style={{ height: `${bottomPadding()}px`, padding: '0' }}
                 />
               </tr>

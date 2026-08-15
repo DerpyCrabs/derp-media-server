@@ -5,7 +5,8 @@ import { modalDialogBackdropClass } from './modal-overlay-scope'
 import ArrowUp from 'lucide-solid/icons/arrow-up'
 import Folder from 'lucide-solid/icons/folder'
 import LoaderCircle from 'lucide-solid/icons/loader-circle'
-import { createMemo, createResource, createSignal, For, Show, untrack } from 'solid-js'
+import { Errored, For, Loading, Show } from '@solidjs/web'
+import { createMemo, createSignal, untrack } from 'solid-js'
 
 type MoveOrCopyMode = 'move' | 'copy'
 
@@ -49,9 +50,8 @@ export function MoveToDialog(props: MoveToDialogProps) {
     untrack(() => computeInitialBrowse(props.filePath, props.editableFolders)),
   )
 
-  const listSource = createMemo(() => browsePath())
-
-  const [dirFiles] = createResource(listSource, async (src) => {
+  const dirFiles = createMemo<FileItem[]>(async () => {
+    const src = browsePath()
     const { files } = await api<{ files: FileItem[] }>(`/api/files?dir=${encodeURIComponent(src)}`)
     return files
   })
@@ -128,11 +128,13 @@ export function MoveToDialog(props: MoveToDialogProps) {
                 return (
                   <button
                     type='button'
-                    class='text-xs h-7 px-2 rounded-md border text-sm font-medium'
-                    classList={{
-                      'bg-primary text-primary-foreground border-primary': selectedRoot() === nf,
-                      'border-input bg-background hover:bg-accent': selectedRoot() !== nf,
-                    }}
+                    class={[
+                      'text-xs h-7 px-2 rounded-md border text-sm font-medium',
+                      {
+                        'bg-primary text-primary-foreground border-primary': selectedRoot() === nf,
+                        'border-input bg-background hover:bg-accent': selectedRoot() !== nf,
+                      },
+                    ]}
                     onClick={() => handleRootChange(folder)}
                   >
                     {folder}
@@ -149,20 +151,21 @@ export function MoveToDialog(props: MoveToDialogProps) {
         </div>
 
         <div class='border border-border rounded-md max-h-64 overflow-y-auto mt-2'>
-          <Show
-            when={!dirFiles.loading}
-            fallback={
-              <div class='flex items-center justify-center py-8'>
-                <LoaderCircle class='h-5 w-5 animate-spin text-muted-foreground' stroke-width={2} />
-              </div>
-            }
+          <Errored
+            fallback={(error) => (
+              <div class='px-3 py-6 text-center text-sm text-destructive'>{String(error())}</div>
+            )}
           >
-            <Show when={dirFiles.error}>
-              <div class='px-3 py-6 text-center text-sm text-destructive'>
-                {(dirFiles.error as Error).message}
-              </div>
-            </Show>
-            <Show when={!dirFiles.error}>
+            <Loading
+              fallback={
+                <div class='flex items-center justify-center py-8'>
+                  <LoaderCircle
+                    class='h-5 w-5 animate-spin text-muted-foreground'
+                    stroke-width={2}
+                  />
+                </div>
+              }
+            >
               <div class='divide-y divide-border'>
                 <Show when={canGoUp()}>
                   <button
@@ -192,8 +195,8 @@ export function MoveToDialog(props: MoveToDialogProps) {
                   )}
                 </For>
               </div>
-            </Show>
-          </Show>
+            </Loading>
+          </Errored>
         </div>
 
         <Show when={props.error}>

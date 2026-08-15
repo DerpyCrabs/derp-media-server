@@ -3,7 +3,7 @@ use crate::{
     media,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
-use image::{DynamicImage, ImageDecoder, ImageEncoder, codecs::jpeg::JpegEncoder};
+use image::{DynamicImage, ImageDecoder, ImageEncoder, ImageFormat, codecs::jpeg::JpegEncoder};
 use std::{
     collections::{HashMap, VecDeque},
     path::{Path, PathBuf},
@@ -94,7 +94,18 @@ impl Thumbnailer {
             .map_err(AppError::io)?;
         let cache = self.cache_path(file, modified);
         if cache.exists() {
-            return fs::read(cache).await.map_err(AppError::io);
+            match fs::read(&cache).await {
+                Ok(data)
+                    if image::guess_format(&data)
+                        .is_ok_and(|format| format == ImageFormat::Jpeg)
+                        && image::load_from_memory(&data).is_ok() =>
+                {
+                    return Ok(data);
+                }
+                Ok(_) | Err(_) => {
+                    let _ = fs::remove_file(&cache).await;
+                }
+            }
         }
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (waiter, receiver) = oneshot::channel();
@@ -477,6 +488,12 @@ mod tests {
             std::fs::read(thumbnails.cache_path(&first_path, modified)).unwrap()
         );
         assert_eq!(TEST_GENERATIONS.load(Ordering::SeqCst), 0);
+
+        std::fs::write(thumbnails.cache_path(&first_path, modified), b"corrupt").unwrap();
+        TEST_GENERATIONS.store(0, Ordering::SeqCst);
+        let repaired = thumbnails.read(&first_path, modified).await.unwrap();
+        assert!(repaired.starts_with(&[0xff, 0xd8, 0xff]));
+        assert_eq!(TEST_GENERATIONS.load(Ordering::SeqCst), 1);
 
         TEST_GENERATIONS.store(0, Ordering::SeqCst);
         TEST_DELAY_MS.store(120, Ordering::SeqCst);

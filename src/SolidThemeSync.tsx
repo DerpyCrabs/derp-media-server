@@ -5,10 +5,10 @@ import {
   resolveTheme,
   subscribeSystemPreference,
 } from '@/lib/state/theme-dom'
-import { onCleanup, onMount } from 'solid-js'
+import { onSettled } from 'solid-js'
 
 export function SolidThemeSync() {
-  onMount(() => {
+  onSettled(() => {
     initThemeFromStorage()
     let lastPalette: string | undefined
     let lastMode: string | undefined
@@ -23,10 +23,10 @@ export function SolidThemeSync() {
       const { palette, mode } = useThemeStore.getState()
       applyTheme(resolveTheme(palette, mode))
     })
-    onCleanup(() => {
+    return () => {
       unsubStore()
       unsubMedia()
-    })
+    }
   })
   return null
 }

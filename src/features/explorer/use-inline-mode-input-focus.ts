@@ -5,12 +5,14 @@ export function useInlineModeInputFocus(
   fileInput: () => HTMLInputElement | undefined,
   folderInput: () => HTMLInputElement | undefined,
 ) {
-  createEffect(() => {
-    const m = inlineMode()
-    if (m === 'file') {
-      queueMicrotask(() => fileInput()?.focus())
-    } else if (m === 'folder') {
-      queueMicrotask(() => folderInput()?.focus())
-    }
-  })
+  createEffect(
+    () => inlineMode(),
+    (mode) => {
+      if (mode === 'file') {
+        queueMicrotask(() => fileInput()?.focus())
+      } else if (mode === 'folder') {
+        queueMicrotask(() => folderInput()?.focus())
+      }
+    },
+  )
 }

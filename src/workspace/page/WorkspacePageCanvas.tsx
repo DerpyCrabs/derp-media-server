@@ -257,7 +257,7 @@ export function WorkspacePageCanvas(props: WorkspacePageCanvasProps) {
                             class={`workspace-window-content relative h-full min-h-0 flex-1 overflow-hidden text-sm text-muted-foreground ${
                               tabId === visibleTabId() ? '' : 'hidden'
                             }`}
-                            aria-hidden={tabId !== visibleTabId()}
+                            aria-hidden={tabId !== visibleTabId() ? 'true' : 'false'}
                           >
                             {renderWindowContent(tabId, windowDef, () => tabId === visibleTabId())}
                           </div>

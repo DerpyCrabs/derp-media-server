@@ -49,6 +49,7 @@ export function buildAudioMetadataUrl(filePath: string): string {
   return `/api/audio/metadata/${filePath}`
 }
 
-export function buildThumbnailUrl(filePath: string): string {
-  return `/api/thumbnail/${encodeSegments(filePath)}`
+export function buildThumbnailUrl(filePath: string, version?: number): string {
+  const url = `/api/thumbnail/${encodeSegments(filePath)}`
+  return version === undefined ? url : `${url}?v=${encodeURIComponent(String(version))}`
 }

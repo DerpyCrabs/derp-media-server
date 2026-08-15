@@ -1,5 +1,6 @@
 import type { FileItem } from '@/lib/files/types'
-import type { Accessor, JSX } from 'solid-js'
+import type { Accessor } from 'solid-js'
+import type { JSX } from '@solidjs/web'
 import ArrowUp from 'lucide-solid/icons/arrow-up'
 import { Show } from 'solid-js'
 import { cn } from '@/lib/ui/cn'

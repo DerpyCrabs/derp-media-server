@@ -2,7 +2,7 @@ import { cn } from '@/lib/ui/cn'
 import FileIcon from 'lucide-solid/icons/file'
 import Folder from 'lucide-solid/icons/folder'
 import Upload from 'lucide-solid/icons/upload'
-import { createEffect, createSignal, onCleanup, Show } from 'solid-js'
+import { createEffect, createSignal, Show } from 'solid-js'
 
 type UploadMenuProps = {
   disabled: boolean
@@ -16,14 +16,18 @@ export function UploadMenu(props: UploadMenuProps) {
   let fileInput: HTMLInputElement | undefined
   let folderInput: HTMLInputElement | undefined
 
-  createEffect(() => {
-    if (!open()) return
-    const h = (e: MouseEvent) => {
-      if (wrap && !wrap.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', h)
-    onCleanup(() => document.removeEventListener('mousedown', h))
-  })
+  createEffect(
+    () => open(),
+    (isOpen) => {
+      if (!isOpen) return undefined
+      const h = (e: MouseEvent) => {
+        if (wrap && !wrap.contains(e.target as Node)) setOpen(false)
+      }
+      document.addEventListener('mousedown', h)
+      // eslint-disable-next-line solid/reactivity
+      return () => document.removeEventListener('mousedown', h)
+    },
+  )
 
   function handleInputChange(e: Event & { currentTarget: HTMLInputElement }) {
     const input = e.currentTarget
@@ -52,7 +56,7 @@ export function UploadMenu(props: UploadMenuProps) {
         type='button'
         title='Upload'
         disabled={props.disabled}
-        aria-expanded={open()}
+        aria-expanded={open() ? 'true' : 'false'}
         class={cn(
           props.compact ? 'h-7 w-7' : 'size-8',
           'inline-flex shrink-0 items-center justify-center rounded-md text-sm font-medium transition-colors',
@@ -109,7 +113,7 @@ export function UploadMenu(props: UploadMenuProps) {
       <input
         type='file'
         multiple
-        {...({ webkitdirectory: '' } as { webkitdirectory: string })}
+        webkitdirectory=''
         class='hidden'
         ref={(el) => (folderInput = el)}
         onChange={handleInputChange}

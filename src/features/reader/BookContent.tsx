@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createSignal, onCleanup, onMount } from 'solid-js'
+import { For, Show, createEffect, createSignal, onSettled } from 'solid-js'
 import type { RenderedBook } from './book-sanitize'
 import type { BookAppearance } from './reader-state-client'
 
@@ -15,12 +15,15 @@ function Chapter(props: {
 
   const isNear = () => Math.abs(props.index - props.currentIndex) <= 2
 
-  createEffect(() => {
-    if (isNear()) setNear(true)
-  })
+  createEffect(
+    () => isNear(),
+    (nearEnough) => {
+      if (nearEnough) setNear(true)
+    },
+  )
 
-  onMount(() => {
-    if (!host) return
+  onSettled(() => {
+    if (!host) return undefined
     const chapterHost = host
     const observer = new IntersectionObserver(
       ([entry]) => {
@@ -36,19 +39,24 @@ function Chapter(props: {
       if (near() && chapterHost.offsetHeight > 80) setHeight(chapterHost.offsetHeight)
     })
     resize.observe(host)
-    onCleanup(() => {
+    return () => {
       observer.disconnect()
       resize.disconnect()
-    })
+    }
   })
 
-  createEffect(() => {
-    const element = contentElement()
-    if (!near() || !element) return
-    const template = document.createElement('template')
-    template.innerHTML = props.chapter.html
-    element.replaceChildren(template.content.cloneNode(true))
-  })
+  createEffect(
+    () => {
+      const element = contentElement()
+      return near() && element ? { element, html: props.chapter.html } : null
+    },
+    (content) => {
+      if (!content) return
+      const template = document.createElement('template')
+      template.innerHTML = content.html
+      content.element.replaceChildren(template.content.cloneNode(true))
+    },
+  )
 
   return (
     <article
@@ -80,9 +88,12 @@ export function BookContent(props: {
   onNavigate: (chapterId: string, anchor?: string, recordHistory?: boolean) => void
 }) {
   let publisherStyle: HTMLStyleElement | undefined
-  createEffect(() => {
-    if (publisherStyle) publisherStyle.textContent = props.document.css
-  })
+  createEffect(
+    () => props.document.css,
+    (css) => {
+      if (publisherStyle) publisherStyle.textContent = css
+    },
+  )
   const currentIndex = () =>
     Math.max(
       0,

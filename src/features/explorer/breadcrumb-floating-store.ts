@@ -1,4 +1,4 @@
-import { createStore } from 'solid-js/store'
+import { createStore } from 'solid-js'
 
 /** Compact path popover and folder context-menu state for explorer surfaces. */
 export type BreadcrumbFolderMenuTarget = {
@@ -15,18 +15,27 @@ export const [breadcrumbFloating, setBreadcrumbFloating] = createStore({
 })
 
 export function setBreadcrumbCompactPathOpen(open: boolean) {
-  setBreadcrumbFloating('compactPathOpen', open)
-  if (!open) setBreadcrumbFloating('folderMenu', null)
+  setBreadcrumbFloating((state) => {
+    state.compactPathOpen = open
+    if (!open) state.folderMenu = null
+  })
 }
 
 export function setBreadcrumbFolderMenu(target: BreadcrumbFolderMenuTarget | null) {
-  setBreadcrumbFloating('folderMenu', target)
+  setBreadcrumbFloating((state) => {
+    state.folderMenu = target
+  })
 }
 
 export function clearCompactPathOpenOnly() {
-  setBreadcrumbFloating('compactPathOpen', false)
+  setBreadcrumbFloating((state) => {
+    state.compactPathOpen = false
+  })
 }
 
 export function resetBreadcrumbFloating() {
-  setBreadcrumbFloating({ compactPathOpen: false, folderMenu: null })
+  setBreadcrumbFloating((state) => {
+    state.compactPathOpen = false
+    state.folderMenu = null
+  })
 }

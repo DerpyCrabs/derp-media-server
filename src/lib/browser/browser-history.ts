@@ -1,5 +1,5 @@
 import type { Accessor } from 'solid-js'
-import { createMemo, createSignal, onCleanup, onMount } from 'solid-js'
+import { createMemo, createSignal, onSettled } from 'solid-js'
 
 export type BrowserLocation = { pathname: string; search: string }
 
@@ -46,14 +46,14 @@ patchHistory()
 export function useBrowserHistory() {
   const [tick, setTick] = createSignal(0)
 
-  onMount(() => {
+  onSettled(() => {
     const bump = () => setTick((t) => t + 1)
     subscribers.add(bump)
     window.addEventListener('popstate', bump)
-    onCleanup(() => {
+    return () => {
       window.removeEventListener('popstate', bump)
       subscribers.delete(bump)
-    })
+    }
   })
 
   const locationMemo = createMemo(() => {

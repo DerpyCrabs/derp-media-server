@@ -32,16 +32,7 @@ import {
   takeOverHermesSession,
   transcribeHermesAudio,
 } from '@/features/hermes/hermes-session-store'
-import {
-  For,
-  Show,
-  createEffect,
-  createMemo,
-  createSignal,
-  onCleanup,
-  onMount,
-  untrack,
-} from 'solid-js'
+import { For, Show, createEffect, createMemo, createSignal, onSettled, untrack } from 'solid-js'
 import Paperclip from 'lucide-solid/icons/paperclip'
 import X from 'lucide-solid/icons/x'
 import Mic from 'lucide-solid/icons/mic'
@@ -148,7 +139,7 @@ export function HermesChatPane(props: {
       permissionDenied: microphoneDenied(),
     })
 
-  onCleanup(() => {
+  onSettled(() => () => {
     disposed = true
     microphoneRequest++
     if (scrollFrame !== undefined) cancelAnimationFrame(scrollFrame)
@@ -161,10 +152,9 @@ export function HermesChatPane(props: {
     recordingStream?.getTracks().forEach((track) => track.stop())
   })
 
-  onMount(() => {
+  onSettled(() => {
     const transcriptObserver = new ResizeObserver(scrollTranscriptToBottom)
     if (transcriptContentEl) transcriptObserver.observe(transcriptContentEl)
-    onCleanup(() => transcriptObserver.disconnect())
 
     const handleFind = (event: KeyboardEvent) => {
       if (
@@ -183,10 +173,12 @@ export function HermesChatPane(props: {
     }
     window.addEventListener('keydown', handleFind)
     window.addEventListener('pointerdown', handlePointer)
-    onCleanup(() => {
+    // eslint-disable-next-line solid/reactivity
+    return () => {
+      transcriptObserver.disconnect()
       window.removeEventListener('keydown', handleFind)
       window.removeEventListener('pointerdown', handlePointer)
-    })
+    }
   })
 
   async function toggleRecording() {
@@ -234,33 +226,49 @@ export function HermesChatPane(props: {
     }
   }
 
-  createEffect(() => {
-    const currentKey = key()
-    const currentOwner = owner()
-    untrack(() => {
-      if (!hermesSessions[currentKey]?.editorOwner) claimHermesEditor(currentKey, currentOwner)
-    })
-    onCleanup(() => releaseHermesEditor(currentKey, currentOwner))
-  })
-  createEffect(() => {
-    if (props.contentVisible?.() ?? true) markHermesRead(key())
-  })
-  createEffect(() => {
-    const sessionId = state()?.sessionId
-    if (sessionId && sessionId !== props.window()?.hermes?.sessionId)
-      props.onSessionCreated?.(sessionId)
-  })
-  createEffect(() => {
-    const decision = state()?.decision
-    const nextKey = decision ? `${key()}:${decision.kind}:${decision.dedupeId}` : undefined
-    if (nextKey === activeDecisionKey) return
-    activeDecisionKey = nextKey
-    setDecisionAnswer('')
-  })
-  createEffect(() => {
-    const title = state()?.title?.trim()
-    if (title && title !== props.window()?.title) props.onTitleChanged?.(title)
-  })
+  createEffect(
+    () => ({ currentKey: key(), currentOwner: owner() }),
+    ({ currentKey, currentOwner }) => {
+      untrack(() => {
+        if (!hermesSessions[currentKey]?.editorOwner) claimHermesEditor(currentKey, currentOwner)
+      })
+      return () => releaseHermesEditor(currentKey, currentOwner)
+    },
+  )
+  createEffect(
+    () => ({ visible: props.contentVisible?.() ?? true, currentKey: key() }),
+    ({ visible, currentKey }) => {
+      if (visible) markHermesRead(currentKey)
+    },
+  )
+  createEffect(
+    () => ({
+      sessionId: state()?.sessionId,
+      windowSessionId: props.window()?.hermes?.sessionId,
+    }),
+    ({ sessionId, windowSessionId }) => {
+      if (sessionId && sessionId !== windowSessionId) props.onSessionCreated?.(sessionId)
+    },
+  )
+  createEffect(
+    () => {
+      const decision = state()?.decision
+      return {
+        nextKey: decision ? `${key()}:${decision.kind}:${decision.dedupeId}` : undefined,
+      }
+    },
+    ({ nextKey }) => {
+      if (nextKey === activeDecisionKey) return
+      activeDecisionKey = nextKey
+      setDecisionAnswer('')
+    },
+  )
+  createEffect(
+    () => ({ title: state()?.title?.trim(), windowTitle: props.window()?.title }),
+    ({ title, windowTitle }) => {
+      if (title && title !== windowTitle) props.onTitleChanged?.(title)
+    },
+  )
 
   async function submit(takeover = false) {
     if (!claimHermesEditor(key(), owner())) return

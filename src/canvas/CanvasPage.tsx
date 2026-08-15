@@ -81,7 +81,7 @@ import {
   createMemo,
   createSignal,
   onCleanup,
-  onMount,
+  onSettled,
   untrack,
 } from 'solid-js'
 import { CanvasSearchPalette } from './CanvasSearchPalette'
@@ -455,49 +455,58 @@ export function CanvasPage() {
       : canvases
   })
 
-  createEffect(() => {
-    const current = dialog()
-    if (!current) return
-    const previousFocus =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null
-    queueMicrotask(() => {
-      const focusable = dialogEl?.querySelector<HTMLElement>(
-        'input:not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled]), [tabindex="0"]',
-      )
-      focusable?.focus()
-    })
-    const handleDialogKeydown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        setDialog(null)
-        return
+  createEffect(
+    () => {
+      const current = dialog()
+      if (!current) return null
+      return {
+        previousFocus:
+          document.activeElement instanceof HTMLElement ? document.activeElement : null,
       }
-      if (event.key !== 'Tab' || !dialogEl) return
-      const focusable = [
-        ...dialogEl.querySelectorAll<HTMLElement>(
-          'input:not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled]), [tabindex="0"]',
-        ),
-      ].filter((element) => element.offsetParent !== null)
-      if (!focusable.length) return
-      const first = focusable[0]!
-      const last = focusable.at(-1)!
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault()
-        last.focus()
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault()
-        first.focus()
-      }
-    }
-    document.addEventListener('keydown', handleDialogKeydown)
-    onCleanup(() => {
-      document.removeEventListener('keydown', handleDialogKeydown)
+    },
+    (state) => {
+      if (!state) return undefined
+      const { previousFocus } = state
       queueMicrotask(() => {
-        if (previousFocus?.isConnected) previousFocus.focus()
-        else document.querySelector<HTMLElement>('[data-testid="canvas-name-trigger"]')?.focus()
+        const focusable = dialogEl?.querySelector<HTMLElement>(
+          'input:not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled]), [tabindex="0"]',
+        )
+        focusable?.focus()
       })
-    })
-  })
+      const handleDialogKeydown = (event: KeyboardEvent) => {
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          setDialog(null)
+          return
+        }
+        if (event.key !== 'Tab' || !dialogEl) return
+        const focusable = [
+          ...dialogEl.querySelectorAll<HTMLElement>(
+            'input:not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled]), [tabindex="0"]',
+          ),
+        ].filter((element) => element.offsetParent !== null)
+        if (!focusable.length) return
+        const first = focusable[0]!
+        const last = focusable.at(-1)!
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault()
+          last.focus()
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault()
+          first.focus()
+        }
+      }
+      document.addEventListener('keydown', handleDialogKeydown)
+      // eslint-disable-next-line solid/reactivity
+      return () => {
+        document.removeEventListener('keydown', handleDialogKeydown)
+        queueMicrotask(() => {
+          if (previousFocus?.isConnected) previousFocus.focus()
+          else document.querySelector<HTMLElement>('[data-testid="canvas-name-trigger"]')?.focus()
+        })
+      }
+    },
+  )
 
   function storeCollection(next: CanvasCollection) {
     localStorage.setItem(CANVAS_COLLECTION_STORAGE_KEY, serializeCanvasCollection(next))
@@ -687,7 +696,7 @@ export function CanvasPage() {
     }
   }
 
-  onMount(() => {
+  onSettled(() => {
     const oldHtmlOverflow = document.documentElement.style.overflow
     const oldBodyOverflow = document.body.style.overflow
     document.documentElement.style.overflow = 'hidden'
@@ -752,7 +761,8 @@ export function CanvasPage() {
     window.addEventListener('pagehide', persistBeforePageTeardown)
     syncInterval = window.setInterval(() => void untrack(syncCanvases), 30_000)
     void syncCanvases(true)
-    onCleanup(() => {
+    // eslint-disable-next-line solid/reactivity
+    return () => {
       viewport?.removeEventListener('pointerdown', beginPan, true)
       viewportObserver.disconnect()
       document.removeEventListener('pointerdown', dismissContextMenu, true)
@@ -764,24 +774,31 @@ export function CanvasPage() {
       if (syncInterval !== undefined) window.clearInterval(syncInterval)
       document.documentElement.style.overflow = oldHtmlOverflow
       document.body.style.overflow = oldBodyOverflow
-    })
+    }
   })
 
-  createEffect(() => {
-    serializeInfiniteCanvasState(state())
-    if (persistenceTimer !== undefined) window.clearTimeout(persistenceTimer)
-    persistenceTimer = window.setTimeout(
-      () =>
-        untrack(() => {
-          persistActiveState()
-          persistenceTimer = undefined
-          scheduleSync()
-        }),
-      220,
-    )
-  })
+  createEffect(
+    () => serializeInfiniteCanvasState(state()),
+    () => {
+      if (persistenceTimer !== undefined) window.clearTimeout(persistenceTimer)
+      persistenceTimer = window.setTimeout(
+        () =>
+          untrack(() => {
+            persistActiveState()
+            persistenceTimer = undefined
+            scheduleSync()
+          }),
+        220,
+      )
+      // eslint-disable-next-line solid/reactivity
+      return () => {
+        if (persistenceTimer !== undefined) window.clearTimeout(persistenceTimer)
+      }
+    },
+  )
 
-  onCleanup(() => {
+  // eslint-disable-next-line solid/reactivity
+  onSettled(() => () => {
     if (animationTimer !== undefined) window.clearTimeout(animationTimer)
     if (persistenceTimer !== undefined) window.clearTimeout(persistenceTimer)
     if (syncTimer !== undefined) window.clearTimeout(syncTimer)
@@ -998,6 +1015,10 @@ export function CanvasPage() {
       )
     })
     if (!visible) fitBounds(unionRects(bounds), 1)
+  }
+
+  function scheduleEnsureWindowsVisible(windowIds: string[]) {
+    onSettled(() => untrack(() => ensureWindowsVisible(windowIds)))
   }
 
   function clearSelection() {
@@ -1334,8 +1355,7 @@ export function CanvasPage() {
       { x: bounds.x + bounds.width + CANVAS_GRID_SIZE, y: bounds.y },
       { duplicate },
     )
-    if (createdId)
-      queueMicrotask(() => untrack(() => ensureWindowsVisible([sourceWindowId, createdId])))
+    if (createdId) scheduleEnsureWindowsVisible([sourceWindowId, createdId])
   }
 
   function openReaderFromBrowser(sourceWindowId: string, file: FileItem) {
@@ -1346,8 +1366,7 @@ export function CanvasPage() {
       { x: source.bounds.x + source.bounds.width + CANVAS_GRID_SIZE, y: source.bounds.y },
       { duplicate: true, readerKind: 'folder' },
     )
-    if (createdId)
-      queueMicrotask(() => untrack(() => ensureWindowsVisible([sourceWindowId, createdId])))
+    if (createdId) scheduleEnsureWindowsVisible([sourceWindowId, createdId])
   }
 
   function openHermesFromBrowser(
@@ -1737,7 +1756,7 @@ export function CanvasPage() {
     addFileWindow(fileSearchResultToFileItem(result), searchPlacement())
   }
 
-  createEffect(() => {
+  onSettled(() => {
     const keydown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'p') {
@@ -1788,10 +1807,11 @@ export function CanvasPage() {
     }
     window.addEventListener('keydown', keydown)
     window.addEventListener('keyup', keyup)
-    onCleanup(() => {
+    // eslint-disable-next-line solid/reactivity
+    return () => {
       window.removeEventListener('keydown', keydown)
       window.removeEventListener('keyup', keyup)
-    })
+    }
   })
 
   const selectedWindow = createMemo(() => {
@@ -1969,7 +1989,7 @@ export function CanvasPage() {
                   class='inline-flex size-9 items-center justify-center rounded-md bg-primary text-primary-foreground shadow-sm hover:bg-primary/90'
                   aria-label='Add to canvas'
                   title='Add to canvas'
-                  aria-expanded={addMenuOpen()}
+                  aria-expanded={addMenuOpen() ? 'true' : 'false'}
                   onClick={() => setAddMenuOpen((open) => !open)}
                 >
                   <Plus class='size-4' />
@@ -2208,8 +2228,10 @@ export function CanvasPage() {
       <div
         ref={(element) => (viewportEl = element)}
         data-testid='infinite-canvas'
-        class='relative min-h-0 flex-1 overflow-hidden bg-muted/20 outline-none'
-        classList={{ 'cursor-grab': spaceHeld(), 'cursor-grabbing': geometryActive() }}
+        class={[
+          'relative min-h-0 flex-1 overflow-hidden bg-muted/20 outline-none',
+          { 'cursor-grab': spaceHeld(), 'cursor-grabbing': geometryActive() },
+        ]}
         style={{
           'background-image':
             state().camera.zoom < FAR_ZOOM
@@ -2333,8 +2355,10 @@ export function CanvasPage() {
         <div
           ref={(element) => (worldEl = element)}
           data-testid='canvas-world'
-          class='absolute top-0 left-0 origin-top-left will-change-transform'
-          classList={{ 'transition-transform duration-200 ease-out': cameraAnimating() }}
+          class={[
+            'absolute top-0 left-0 origin-top-left will-change-transform',
+            { 'transition-transform duration-200 ease-out': cameraAnimating() },
+          ]}
           style={{
             transform: `translate3d(${state().camera.x}px, ${state().camera.y}px, 0) scale(${state().camera.zoom})`,
           }}
@@ -2406,14 +2430,17 @@ export function CanvasPage() {
                 <div
                   data-testid='canvas-window'
                   data-window-id={windowId}
-                  class='absolute overflow-visible bg-background'
-                  classList={{
-                    'rounded-lg': !maximized(),
-                    'border border-border shadow-2xl outline outline-1 -outline-offset-1 outline-border':
-                      liveWindowChrome(),
-                    'border-border shadow-black/20': liveWindowChrome() && selected(),
-                    'invisible pointer-events-none': state().camera.zoom < FAR_ZOOM && !maximized(),
-                  }}
+                  class={[
+                    'absolute overflow-visible bg-background',
+                    {
+                      'rounded-lg': !maximized(),
+                      'border border-border shadow-2xl outline outline-1 -outline-offset-1 outline-border':
+                        liveWindowChrome(),
+                      'border-border shadow-black/20': liveWindowChrome() && selected(),
+                      'invisible pointer-events-none':
+                        state().camera.zoom < FAR_ZOOM && !maximized(),
+                    },
+                  ]}
                   style={{
                     left: `${visualBounds().x}px`,
                     top: `${visualBounds().y}px`,
@@ -2438,15 +2465,17 @@ export function CanvasPage() {
                 >
                   <div
                     data-testid='canvas-window-titlebar'
-                    class='flex cursor-grab items-center font-medium select-none active:cursor-grabbing'
-                    classList={{
-                      'rounded-t-lg': !maximized(),
-                      'gap-2 px-2 text-xs': liveWindowChrome(),
-                      'border-b border-border': liveWindowChrome(),
-                      'bg-muted text-foreground': selected(),
-                      'bg-muted/50 text-muted-foreground': liveWindowChrome() && !selected(),
-                      'bg-card text-muted-foreground': !liveWindowChrome() && !selected(),
-                    }}
+                    class={[
+                      'flex cursor-grab items-center font-medium select-none active:cursor-grabbing',
+                      {
+                        'rounded-t-lg': !maximized(),
+                        'gap-2 px-2 text-xs': liveWindowChrome(),
+                        'border-b border-border': liveWindowChrome(),
+                        'bg-muted text-foreground': selected(),
+                        'bg-muted/50 text-muted-foreground': liveWindowChrome() && !selected(),
+                        'bg-card text-muted-foreground': !liveWindowChrome() && !selected(),
+                      },
+                    ]}
                     style={{ height: `${titlebarHeight()}px` }}
                     onPointerDown={(event) => !maximized() && startWindowMove(windowId, event)}
                   >
@@ -2531,17 +2560,21 @@ export function CanvasPage() {
                   <div
                     ref={(element) => bindReadingProgress(element, windowId)}
                     data-canvas-window-content
-                    class='absolute right-0 bottom-0 left-0 overflow-hidden text-sm text-muted-foreground'
-                    classList={{ 'rounded-b-lg': !maximized() }}
+                    class={[
+                      'absolute right-0 bottom-0 left-0 overflow-hidden text-sm text-muted-foreground',
+                      { 'rounded-b-lg': !maximized() },
+                    ]}
                     style={{ top: `${titlebarHeight()}px` }}
                     onContextMenu={(event) => event.stopPropagation()}
                   >
                     <div
-                      class='h-full'
-                      classList={{
-                        'invisible pointer-events-none':
-                          state().camera.zoom < LIVE_ZOOM && !maximized(),
-                      }}
+                      class={[
+                        'h-full',
+                        {
+                          'invisible pointer-events-none':
+                            state().camera.zoom < LIVE_ZOOM && !maximized(),
+                        },
+                      ]}
                     >
                       <ApplicationWindowContent
                         windowId={() => windowId}
@@ -2666,8 +2699,10 @@ export function CanvasPage() {
                   >
                     <span
                       data-testid='canvas-window-summary-content'
-                      class='absolute inset-0 flex items-center justify-center overflow-hidden text-center'
-                      classList={{ 'flex-col': !metrics().horizontal }}
+                      class={[
+                        'absolute inset-0 flex items-center justify-center overflow-hidden text-center',
+                        { 'flex-col': !metrics().horizontal },
+                      ]}
                       style={{
                         width: `${bounds.width}px`,
                         height: `${bounds.height}px`,
@@ -2719,8 +2754,10 @@ export function CanvasPage() {
           </Show>
           <div
             data-testid='canvas-drop-preview'
-            class='pointer-events-none absolute overflow-hidden rounded-lg border-2 border-dashed border-primary bg-primary/10 shadow-xl'
-            classList={{ invisible: !fileDropVisualBounds() }}
+            class={[
+              'pointer-events-none absolute overflow-hidden rounded-lg border-2 border-dashed border-primary bg-primary/10 shadow-xl',
+              { invisible: !fileDropVisualBounds() },
+            ]}
             style={{
               left: `${fileDropVisualBounds()?.x ?? 0}px`,
               top: `${fileDropVisualBounds()?.y ?? 0}px`,
@@ -2807,11 +2844,13 @@ export function CanvasPage() {
               role='dialog'
               aria-modal='true'
               aria-labelledby='canvas-dialog-title'
-              class='w-full rounded-xl border border-border bg-popover p-5 text-popover-foreground shadow-2xl'
-              classList={{
-                'max-w-lg': current().kind === 'new-note' || current().kind === 'new-canvas',
-                'max-w-sm': current().kind !== 'new-note' && current().kind !== 'new-canvas',
-              }}
+              class={[
+                'w-full rounded-xl border border-border bg-popover p-5 text-popover-foreground shadow-2xl',
+                {
+                  'max-w-lg': current().kind === 'new-note' || current().kind === 'new-canvas',
+                  'max-w-sm': current().kind !== 'new-note' && current().kind !== 'new-canvas',
+                },
+              ]}
             >
               <span id='canvas-dialog-title' class='sr-only'>
                 {canvasDialogLabel(current())}

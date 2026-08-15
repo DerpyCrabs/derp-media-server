@@ -4,13 +4,12 @@ import type { PinnedTaskbarItem } from '@/workspace/model/use-workspace'
 import { queryKeys } from '@/lib/api/query-keys'
 import type { WorkspaceLayoutPreset } from '@/workspace/model/workspace-layout-presets'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
-import { createMemo } from 'solid-js'
-import { unwrap } from 'solid-js/store'
+import { createMemo, snapshot } from 'solid-js'
 
 type ServerConfig = { editableFolders: string[] }
 
 function fromQueryData<T>(value: T): T {
-  return structuredClone(unwrap(value))
+  return structuredClone(snapshot(value))
 }
 
 export function useWorkspacePageServerData() {

@@ -1,4 +1,4 @@
-import { createStore, reconcile } from 'solid-js/store'
+import { createStore, reconcile } from 'solid-js'
 import type { FileDragData } from '@/lib/files/file-drag-data'
 import {
   extractHermesMessageImages,
@@ -90,6 +90,29 @@ export type HermesQueuedPrompt = { text: string; attachments: HermesAttachment[]
 const [sessions, setSessions] = createStore<Record<string, HermesChatState>>({})
 let eventSource: EventSource | null = null
 const activeHermesSends = new Set<string>()
+
+function updateHermesState(key: string, update: (state: HermesChatState) => void) {
+  setSessions((states) => {
+    const state = states[key]
+    if (state) update(state)
+  })
+}
+
+function patchHermesState(key: string, patch: Partial<HermesChatState>) {
+  updateHermesState(key, (state) => Object.assign(state, patch))
+}
+
+function replaceHermesState(key: string, state: HermesChatState) {
+  setSessions((states) => {
+    states[key] = state
+  })
+}
+
+function removeHermesState(key: string) {
+  setSessions((states) => {
+    delete states[key]
+  })
+}
 
 export function hermesChatKey(target: { sessionId?: string; draftId?: string }): string {
   return target.sessionId
@@ -208,13 +231,12 @@ function ensureHermesStreamMessage(key: string): number | undefined {
     state.streamMessageId ?? `assistant-stream-${Date.now()}-${++streamSequence}`
   let index = state.messages.findIndex((message) => message.id === streamMessageId)
   if (index < 0) {
-    setSessions(key, 'messages', (messages) => [
-      ...messages,
-      { id: streamMessageId, role: 'assistant', text: '', pending: true },
-    ])
-    index = sessions[key]!.messages.length - 1
+    index = state.messages.length
+    updateHermesState(key, (state) => {
+      state.messages.push({ id: streamMessageId, role: 'assistant', text: '', pending: true })
+    })
   }
-  setSessions(key, {
+  patchHermesState(key, {
     streamMessageId,
     status: 'streaming',
     awaitingResponse: false,
@@ -226,7 +248,9 @@ function appendHermesStreamDelta(key: string, field: 'text' | 'reasoning', delta
   if (!delta) return
   const index = ensureHermesStreamMessage(key)
   if (index === undefined) return
-  setSessions(key, 'messages', index, field, (value) => `${value ?? ''}${delta}`)
+  updateHermesState(key, (state) => {
+    state.messages[index]![field] = `${state.messages[index]![field] ?? ''}${delta}`
+  })
 }
 
 function upsertHermesStreamTool(
@@ -261,15 +285,12 @@ function upsertHermesStreamTool(
     inlineDiff:
       typeof payload.inline_diff === 'string' ? payload.inline_diff : previous?.inlineDiff,
   }
-  setSessions(
-    key,
-    'messages',
-    messageIndex,
-    'toolCalls',
-    callIndex >= 0
-      ? current.map((call, index) => (index === callIndex ? next : call))
-      : [...current, next],
-  )
+  updateHermesState(key, (state) => {
+    state.messages[messageIndex]!.toolCalls =
+      callIndex >= 0
+        ? current.map((call, index) => (index === callIndex ? next : call))
+        : [...current, next]
+  })
 }
 
 class HermesRequestError extends Error {
@@ -300,7 +321,7 @@ export function ensureHermesChat(target: {
 }): string {
   const key = hermesChatKey(target)
   if (!sessions[key]) {
-    setSessions(key, {
+    replaceHermesState(key, {
       ...target,
       lineageRootId: target.sessionId,
       messages: [],
@@ -330,7 +351,7 @@ async function refreshHermesCapabilities(key: string) {
   try {
     const payload = await jsonRequest('/api/hermes/capabilities')
     if (!sessions[key]) return
-    setSessions(key, {
+    patchHermesState(key, {
       voice: {
         transcription: payload.transcription === true,
         playback: payload.playback === true,
@@ -361,7 +382,9 @@ export async function transcribeHermesAudio(key: string, blob: Blob) {
   const transcript = typeof payload.transcript === 'string' ? payload.transcript.trim() : ''
   if (transcript && sessions[key]) {
     const prefix = sessions[key]!.composer && !/\s$/.test(sessions[key]!.composer) ? ' ' : ''
-    setSessions(key, 'composer', `${sessions[key]!.composer}${prefix}${transcript}`)
+    updateHermesState(key, (state) => {
+      state.composer = `${state.composer}${prefix}${transcript}`
+    })
   }
 }
 
@@ -395,8 +418,10 @@ export async function refreshHermesChat(key: string) {
     const retainedCount = Math.max(0, current.length - historyLimit)
     const messages = retainedCount ? [...current.slice(0, retainedCount), ...refreshed] : refreshed
     if (!sameHermesMessages(current, messages))
-      setSessions(key, 'messages', reconcile(messages, { key: 'id' }))
-    setSessions(key, {
+      updateHermesState(key, (state) => {
+        reconcile(messages, 'id')(state.messages)
+      })
+    patchHermesState(key, {
       hasOlderMessages: retainedCount
         ? state.hasOlderMessages
         : (Array.isArray(payload.messages)
@@ -413,7 +438,10 @@ export async function refreshHermesChat(key: string) {
       title: typeof detail.title === 'string' ? detail.title : state.title,
       model: typeof detail.model === 'string' ? detail.model : state.model,
     })
-    if (sessions[key]?.status === 'loading') setSessions(key, 'status', 'idle')
+    if (sessions[key]?.status === 'loading')
+      updateHermesState(key, (state) => {
+        state.status = 'idle'
+      })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     const unavailable = error instanceof HermesRequestError && error.status === 404
@@ -423,7 +451,7 @@ export async function refreshHermesChat(key: string) {
         : 'disconnected'
     if (unavailable && state.sessionId)
       deletedHermesSessionIds.add(state.lineageRootId ?? state.sessionId)
-    setSessions(key, {
+    patchHermesState(key, {
       status: 'error',
       error: message,
       unavailable,
@@ -436,7 +464,9 @@ export async function refreshHermesChat(key: string) {
 export async function loadOlderHermesMessages(key: string) {
   const state = sessions[key]
   if (!state?.sessionId || state.historyLoading || !state.hasOlderMessages) return 0
-  setSessions(key, 'historyLoading', true)
+  updateHermesState(key, (state) => {
+    state.historyLoading = true
+  })
   try {
     const payload = await jsonRequest(
       `/api/hermes/sessions/${encodeURIComponent(state.sessionId)}/messages?limit=100&offset=${state.messages.length}`,
@@ -444,14 +474,14 @@ export async function loadOlderHermesMessages(key: string) {
     const older = normalizeMessages(payload.messages ?? payload.data)
     const existing = new Set(sessions[key]!.messages.map((message) => message.id))
     const unique = older.filter((message) => !existing.has(message.id))
-    setSessions(key, {
+    patchHermesState(key, {
       messages: [...unique, ...sessions[key]!.messages],
       hasOlderMessages: older.length === 100,
       historyLoading: false,
     })
     return unique.length
   } catch (error) {
-    setSessions(key, {
+    patchHermesState(key, {
       historyLoading: false,
       error: error instanceof Error ? error.message : String(error),
     })
@@ -477,7 +507,11 @@ async function refreshHermesModelOptions(key: string) {
         }
       })
     })
-    setSessions(key, { modelOptions: options, model: payload.model, provider: payload.provider })
+    patchHermesState(key, {
+      modelOptions: options,
+      model: payload.model,
+      provider: payload.provider,
+    })
   } catch {
     // Optional capability. Chat remains usable without model controls.
   }
@@ -485,7 +519,7 @@ async function refreshHermesModelOptions(key: string) {
 
 export async function sendHermesControl(key: string, command: string) {
   if (!sessions[key] || sessions[key]!.readOnly) return
-  setSessions(key, { composer: command, completions: [] })
+  patchHermesState(key, { composer: command, completions: [] })
   await sendHermesPrompt(key)
 }
 
@@ -507,19 +541,20 @@ function settleHermesStream(key: string, finalText: string) {
     ? sessions[key]!.messages.findIndex((message) => message.id === streamMessageId)
     : -1
   if (streamIndex >= 0) {
-    if (finalText) setSessions(key, 'messages', streamIndex, 'text', finalText)
-    setSessions(key, 'messages', streamIndex, 'pending', false)
+    updateHermesState(key, (state) => {
+      if (finalText) state.messages[streamIndex]!.text = finalText
+      state.messages[streamIndex]!.pending = false
+    })
   } else if (finalText) {
-    setSessions(key, 'messages', (messages) => [
-      ...messages,
-      {
+    updateHermesState(key, (state) => {
+      state.messages.push({
         id: `assistant-complete-${Date.now()}-${++streamSequence}`,
         role: 'assistant',
         text: finalText,
-      },
-    ])
+      })
+    })
   }
-  setSessions(key, { streamMessageId: undefined, awaitingResponse: false })
+  patchHermesState(key, { streamMessageId: undefined, awaitingResponse: false })
 }
 
 function connectEvents() {
@@ -527,7 +562,7 @@ function connectEvents() {
   eventSource = new EventSource('/api/hermes/events')
   eventSource.onopen = () => {
     for (const key of Object.keys(sessions))
-      setSessions(key, { connection: 'connected', error: undefined })
+      patchHermesState(key, { connection: 'connected', error: undefined })
     refreshIdle()
   }
   eventSource.onmessage = (message) => {
@@ -568,7 +603,7 @@ function connectEvents() {
       const connected = kind === 'transport.connected'
       for (const candidate of Object.keys(sessions)) {
         if (!sessions[candidate]?.sessionId) continue
-        setSessions(candidate, {
+        patchHermesState(candidate, {
           connection: connected ? 'connected' : 'disconnected',
           error: connected ? undefined : 'Hermes gateway disconnected',
         })
@@ -586,21 +621,25 @@ function connectEvents() {
       const nextKey = `session:${sessionId}`
       if (nextKey !== key) {
         const previousKey = key
-        setSessions(nextKey, {
+        replaceHermesState(nextKey, {
           ...sessions[key]!,
           sessionId,
           draftId: undefined,
         })
         // Keep the old entry long enough for mounted panes to persist the new durable id.
-        setSessions(key, 'sessionId', sessionId)
+        updateHermesState(key, (state) => {
+          state.sessionId = sessionId
+        })
         key = nextKey
         queueMicrotask(() => cleanupHermesAlias(previousKey))
       } else {
-        setSessions(key, 'sessionId', sessionId)
+        updateHermesState(key, (state) => {
+          state.sessionId = sessionId
+        })
       }
     }
     if (kind === 'message.start') {
-      setSessions(key, { status: 'streaming', awaitingResponse: true })
+      patchHermesState(key, { status: 'streaming', awaitingResponse: true })
     } else if (kind === 'message.delta') {
       appendHermesStreamDelta(
         key,
@@ -617,66 +656,79 @@ function connectEvents() {
       const index = ensureHermesStreamMessage(key)
       const reasoning = messageText(payload.text ?? payload.content)
       if (index !== undefined && reasoning)
-        setSessions(key, 'messages', index, 'reasoning', reasoning)
+        updateHermesState(key, (state) => {
+          state.messages[index]!.reasoning = reasoning
+        })
     } else if (kind === 'message.interim') {
       const index = ensureHermesStreamMessage(key)
       const text = messageText(payload.text ?? payload.rendered)
       if (index !== undefined) {
-        if (text) setSessions(key, 'messages', index, 'text', text)
-        setSessions(key, 'messages', index, 'pending', false)
-        setSessions(key, 'streamMessageId', undefined)
+        updateHermesState(key, (state) => {
+          if (text) state.messages[index]!.text = text
+          state.messages[index]!.pending = false
+          state.streamMessageId = undefined
+        })
       }
     } else if (kind === 'message.complete' || kind === 'error') {
       settleHermesStream(
         key,
         kind === 'message.complete' ? messageText(payload.text ?? payload.rendered) : '',
       )
-      setSessions(key, {
+      patchHermesState(key, {
         status: kind === 'error' ? 'error' : 'idle',
         ...(kind === 'message.complete' ? { unread: true } : {}),
       })
-      if (kind === 'error') setSessions(key, 'error', messageText(payload.message ?? payload.error))
+      if (kind === 'error')
+        updateHermesState(key, (state) => {
+          state.error = messageText(payload.message ?? payload.error)
+        })
       if (kind === 'message.complete') window.setTimeout(() => void drainHermesQueue(key), 0)
     } else if (kind === 'tool.start' || kind === 'tool.progress') {
       upsertHermesStreamTool(key, payload, 'running')
     } else if (kind === 'tool.complete') {
       upsertHermesStreamTool(key, payload, 'complete')
     } else if (kind === 'approval.request') {
-      setSessions(key, 'decision', {
-        kind: 'approval',
-        requestId: typeof payload.request_id === 'string' ? payload.request_id : undefined,
-        dedupeId:
-          scalarString(payload.request_id) ??
-          scalarString(payload.tool_id) ??
-          scalarString(payload.tool_call_id) ??
-          crypto.randomUUID(),
-        prompt: messageText(payload.command ?? payload.description) || 'Hermes requests approval',
-        choices: Array.isArray(payload.choices) ? payload.choices.map(String) : ['once', 'deny'],
+      updateHermesState(key, (state) => {
+        state.decision = {
+          kind: 'approval',
+          requestId: typeof payload.request_id === 'string' ? payload.request_id : undefined,
+          dedupeId:
+            scalarString(payload.request_id) ??
+            scalarString(payload.tool_id) ??
+            scalarString(payload.tool_call_id) ??
+            crypto.randomUUID(),
+          prompt: messageText(payload.command ?? payload.description) || 'Hermes requests approval',
+          choices: Array.isArray(payload.choices) ? payload.choices.map(String) : ['once', 'deny'],
+        }
       })
     } else if (kind === 'clarify.request') {
-      setSessions(key, 'decision', {
-        kind: 'clarify',
-        requestId: typeof payload.request_id === 'string' ? payload.request_id : undefined,
-        dedupeId: scalarString(payload.request_id) ?? crypto.randomUUID(),
-        prompt: messageText(payload.question),
-        choices: Array.isArray(payload.choices)
-          ? payload.choices.map((choice: unknown) =>
-              typeof choice === 'string'
-                ? choice
-                : messageText((choice as any)?.label ?? (choice as any)?.value),
-            )
-          : [],
+      updateHermesState(key, (state) => {
+        state.decision = {
+          kind: 'clarify',
+          requestId: typeof payload.request_id === 'string' ? payload.request_id : undefined,
+          dedupeId: scalarString(payload.request_id) ?? crypto.randomUUID(),
+          prompt: messageText(payload.question),
+          choices: Array.isArray(payload.choices)
+            ? payload.choices.map((choice: unknown) =>
+                typeof choice === 'string'
+                  ? choice
+                  : messageText((choice as any)?.label ?? (choice as any)?.value),
+              )
+            : [],
+        }
       })
     } else if (kind === 'sudo.request' || kind === 'secret.request') {
-      setSessions(key, 'decision', {
-        kind: kind === 'sudo.request' ? 'sudo' : 'secret',
-        requestId: typeof payload.request_id === 'string' ? payload.request_id : undefined,
-        dedupeId: scalarString(payload.request_id) ?? crypto.randomUUID(),
-        prompt:
-          kind === 'sudo.request'
-            ? 'Hermes needs administrator credentials'
-            : messageText(payload.prompt ?? payload.env_var) || 'Hermes needs a secret value',
-        choices: [],
+      updateHermesState(key, (state) => {
+        state.decision = {
+          kind: kind === 'sudo.request' ? 'sudo' : 'secret',
+          requestId: typeof payload.request_id === 'string' ? payload.request_id : undefined,
+          dedupeId: scalarString(payload.request_id) ?? crypto.randomUUID(),
+          prompt:
+            kind === 'sudo.request'
+              ? 'Hermes needs administrator credentials'
+              : messageText(payload.prompt ?? payload.env_var) || 'Hermes needs a secret value',
+          choices: [],
+        }
       })
     } else if (kind.startsWith('subagent.')) {
       upsertHermesStreamTool(
@@ -690,21 +742,25 @@ function connectEvents() {
       )
     } else if (kind === 'session.info') {
       if (payload.running === true && sessions[key]?.status === 'idle')
-        setSessions(key, 'status', 'streaming')
+        updateHermesState(key, (state) => {
+          state.status = 'streaming'
+        })
       if (
         payload.running === false &&
         !sessions[key]?.awaitingResponse &&
         sessions[key]?.status === 'streaming'
       ) {
         settleHermesStream(key, '')
-        setSessions(key, 'status', 'idle')
+        updateHermesState(key, (state) => {
+          state.status = 'idle'
+        })
       }
     }
   }
   eventSource.onerror = () => {
     for (const key of Object.keys(sessions)) {
       if (sessions[key]?.sessionId)
-        setSessions(key, { connection: 'disconnected', error: 'Hermes gateway disconnected' })
+        patchHermesState(key, { connection: 'disconnected', error: 'Hermes gateway disconnected' })
     }
     eventSource?.close()
     eventSource = null
@@ -714,13 +770,17 @@ function connectEvents() {
 
 export function setHermesComposer(key: string, value: string) {
   if (!sessions[key]) return
-  setSessions(key, 'composer', value)
+  updateHermesState(key, (state) => {
+    state.composer = value
+  })
   void refreshHermesCompletions(key, value)
 }
 
 export function setHermesError(key: string, error: unknown) {
   if (sessions[key])
-    setSessions(key, 'error', error instanceof Error ? error.message : String(error))
+    updateHermesState(key, (state) => {
+      state.error = error instanceof Error ? error.message : String(error)
+    })
 }
 
 const completionSequences = new Map<string, number>()
@@ -731,7 +791,7 @@ function cleanupHermesAlias(key: string) {
   if (!state?.sessionId) return
   const canonicalKey = `session:${state.sessionId}`
   if (canonicalKey === key || !sessions[canonicalKey]) return
-  setSessions(key, undefined!)
+  removeHermesState(key)
   completionSequences.delete(key)
 }
 
@@ -742,7 +802,9 @@ async function refreshHermesCompletions(key: string, value: string) {
   const sequence = (completionSequences.get(key) ?? 0) + 1
   completionSequences.set(key, sequence)
   if (!kind) {
-    setSessions(key, 'completions', [])
+    updateHermesState(key, (state) => {
+      state.completions = []
+    })
     return
   }
   try {
@@ -752,10 +814,14 @@ async function refreshHermesCompletions(key: string, value: string) {
     const payload = await jsonRequest(`/api/hermes/completions?${params}`)
     if (sequence !== completionSequences.get(key) || !sessions[key]) return
     const items = Array.isArray(payload.items) ? payload.items : []
-    setSessions(key, 'completions', filterHermesCompletions(value, items).slice(0, 8))
+    updateHermesState(key, (state) => {
+      state.completions = filterHermesCompletions(value, items).slice(0, 8)
+    })
   } catch {
     if (sequence === completionSequences.get(key) && sessions[key])
-      setSessions(key, 'completions', [])
+      updateHermesState(key, (state) => {
+        state.completions = []
+      })
   }
 }
 
@@ -763,11 +829,11 @@ export function applyHermesCompletion(key: string, completion: HermesCompletion)
   const state = sessions[key]
   if (!state) return
   if (state.composer.startsWith('/')) {
-    setSessions(key, { composer: completion.text, completions: [] })
+    patchHermesState(key, { composer: completion.text, completions: [] })
     return
   }
   const start = Math.max(state.composer.lastIndexOf(' '), state.composer.lastIndexOf('\n')) + 1
-  setSessions(key, {
+  patchHermesState(key, {
     composer: `${state.composer.slice(0, start)}${completion.text}`,
     completions: [],
   })
@@ -781,7 +847,7 @@ export async function renameHermesSession(key: string, title: string) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ sessionId, title }),
   })
-  setSessions(key, { title, error: undefined })
+  patchHermesState(key, { title, error: undefined })
 }
 
 export async function branchHermesSession(key: string, name?: string, count?: number) {
@@ -812,7 +878,7 @@ export async function rewindHermesSession(key: string, messageId: string, replac
     text,
     timestamp: Date.now() / 1000,
   }
-  setSessions(key, {
+  patchHermesState(key, {
     messages: [...state.messages.slice(0, index), optimistic],
     status: 'sending',
     awaitingResponse: true,
@@ -825,9 +891,11 @@ export async function rewindHermesSession(key: string, messageId: string, replac
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId: state.sessionId, text, userOrdinal }),
     })
-    setSessions(key, 'status', 'streaming')
+    updateHermesState(key, (state) => {
+      state.status = 'streaming'
+    })
   } catch (error) {
-    setSessions(key, {
+    patchHermesState(key, {
       messages: state.messages,
       status: 'error',
       awaitingResponse: false,
@@ -874,26 +942,29 @@ export async function addHermesAttachments(key: string, files: Iterable<File>) {
   for (const file of files) {
     const id = crypto.randomUUID()
     if (file.size > HERMES_ATTACHMENT_LIMIT) {
-      setSessions(key, 'error', `${file.name} exceeds the 16 MiB attachment limit`)
+      updateHermesState(key, (state) => {
+        state.error = `${file.name} exceeds the 16 MiB attachment limit`
+      })
       continue
     }
     try {
       const contentBase64 = await readFileBase64(file)
       if (!sessions[key]) return
-      setSessions(key, 'attachments', (items) => [
-        ...items,
-        {
+      updateHermesState(key, (state) => {
+        state.attachments.push({
           id,
           name: file.name,
           mimeType: file.type || 'application/octet-stream',
           size: file.size,
           contentBase64,
           status: 'ready',
-        },
-      ])
+        })
+      })
     } catch (error) {
       if (sessions[key])
-        setSessions(key, 'error', error instanceof Error ? error.message : String(error))
+        updateHermesState(key, (state) => {
+          state.error = error instanceof Error ? error.message : String(error)
+        })
     }
   }
 }
@@ -901,7 +972,9 @@ export async function addHermesAttachments(key: string, files: Iterable<File>) {
 export async function addHermesDraggedPath(key: string, dragged: FileDragData) {
   if (!sessions[key]) return
   if (dragged.sourceKind !== 'local' || dragged.virtualOpenTarget) {
-    setSessions(key, 'error', 'Only local derp files and folders can be attached to Hermes')
+    updateHermesState(key, (state) => {
+      state.error = 'Only local derp files and folders can be attached to Hermes'
+    })
     return
   }
   try {
@@ -913,28 +986,33 @@ export async function addHermesDraggedPath(key: string, dragged: FileDragData) {
     if (!sessions[key]) return
     if (payload.mode === 'shared' && typeof payload.text === 'string') {
       const prefix = sessions[key]!.composer && !/\s$/.test(sessions[key]!.composer) ? ' ' : ''
-      setSessions(key, 'composer', `${sessions[key]!.composer}${prefix}${payload.text} `)
+      updateHermesState(key, (state) => {
+        state.composer = `${state.composer}${prefix}${payload.text} `
+      })
     } else if (payload.mode === 'upload' && payload.attachment) {
       const attachment = payload.attachment as Omit<HermesAttachment, 'id' | 'status'>
-      setSessions(key, 'attachments', (items) => [
-        ...items,
-        { ...attachment, id: crypto.randomUUID(), status: 'ready' },
-      ])
+      updateHermesState(key, (state) => {
+        state.attachments.push({ ...attachment, id: crypto.randomUUID(), status: 'ready' })
+      })
     }
   } catch (error) {
-    setSessions(key, 'error', error instanceof Error ? error.message : String(error))
+    updateHermesState(key, (state) => {
+      state.error = error instanceof Error ? error.message : String(error)
+    })
   }
 }
 
 export function removeHermesAttachment(key: string, id: string) {
   if (sessions[key])
-    setSessions(key, 'attachments', (items) => items.filter((item) => item.id !== id))
+    updateHermesState(key, (state) => {
+      state.attachments = state.attachments.filter((item) => item.id !== id)
+    })
 }
 
 export function queueHermesPrompt(key: string) {
   const text = sessions[key]?.composer.trim()
   if (!text) return
-  setSessions(key, {
+  patchHermesState(key, {
     composer: '',
     attachments: [],
     queuedPrompts: [
@@ -955,7 +1033,7 @@ async function drainHermesQueue(key: string) {
     state.status === 'streaming'
   )
     return
-  setSessions(key, {
+  patchHermesState(key, {
     composer: next.text,
     attachments: next.attachments,
     queuedPrompts: state.queuedPrompts.slice(1),
@@ -969,15 +1047,15 @@ async function drainHermesQueue(key: string) {
 
 export function removeHermesQueuedPrompt(key: string, index: number) {
   if (sessions[key])
-    setSessions(key, 'queuedPrompts', (items) =>
-      items.filter((_, itemIndex) => itemIndex !== index),
-    )
+    updateHermesState(key, (state) => {
+      state.queuedPrompts = state.queuedPrompts.filter((_, itemIndex) => itemIndex !== index)
+    })
 }
 
 export function editHermesQueuedPrompt(key: string, index: number) {
   const item = sessions[key]?.queuedPrompts[index]
   if (!item) return
-  setSessions(key, {
+  patchHermesState(key, {
     composer: item.text,
     attachments: item.attachments,
     queuedPrompts: sessions[key]!.queuedPrompts.filter((_, itemIndex) => itemIndex !== index),
@@ -989,12 +1067,16 @@ export function moveHermesQueuedPrompt(key: string, index: number, direction: -1
   const target = index + direction
   if (!items[index] || target < 0 || target >= items.length) return
   ;[items[index], items[target]] = [items[target]!, items[index]!]
-  setSessions(key, 'queuedPrompts', items)
+  updateHermesState(key, (state) => {
+    state.queuedPrompts = items
+  })
 }
 
 export function resumeHermesQueue(key: string) {
   if (!sessions[key]) return
-  setSessions(key, 'queueParked', false)
+  updateHermesState(key, (state) => {
+    state.queueParked = false
+  })
   void drainHermesQueue(key)
 }
 
@@ -1007,7 +1089,7 @@ export async function steerHermesPrompt(key: string) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ sessionId: state.sessionId, text }),
   })
-  setSessions(key, { composer: '', error: undefined })
+  patchHermesState(key, { composer: '', error: undefined })
 }
 
 export function claimHermesEditor(key: string, owner: string): boolean {
@@ -1016,12 +1098,17 @@ export function claimHermesEditor(key: string, owner: string): boolean {
     if (!window.confirm('Take editing control? Unsaved text in another window will remain shared.'))
       return false
   }
-  setSessions(key, 'editorOwner', owner)
+  updateHermesState(key, (state) => {
+    state.editorOwner = owner
+  })
   return true
 }
 
 export function releaseHermesEditor(key: string, owner: string) {
-  if (sessions[key]?.editorOwner === owner) setSessions(key, 'editorOwner', undefined)
+  if (sessions[key]?.editorOwner === owner)
+    updateHermesState(key, (state) => {
+      state.editorOwner = undefined
+    })
 }
 
 export async function sendHermesPrompt(key: string, takeover = false): Promise<string | undefined> {
@@ -1029,16 +1116,20 @@ export async function sendHermesPrompt(key: string, takeover = false): Promise<s
   const text = state?.composer.trim()
   if (!state || !text || (state.readOnly && !state.takeoverPending)) return state?.sessionId
   const requestedSessionId = state.sessionId
-  setSessions(key, {
+  patchHermesState(key, {
     composer: '',
     status: 'sending',
     awaitingResponse: true,
     streamMessageId: undefined,
     error: undefined,
   })
-  setSessions(key, 'attachments', (items) =>
-    items.map((item) => ({ ...item, status: 'uploading' as const, error: undefined })),
-  )
+  updateHermesState(key, (state) => {
+    state.attachments = state.attachments.map((item) => ({
+      ...item,
+      status: 'uploading' as const,
+      error: undefined,
+    }))
+  })
   const optimistic: HermesMessage = {
     id: `local-${Date.now()}`,
     role: 'user',
@@ -1048,7 +1139,9 @@ export async function sendHermesPrompt(key: string, takeover = false): Promise<s
       .filter((attachment) => attachment.mimeType.startsWith('image/'))
       .map((attachment) => `data:${attachment.mimeType};base64,${attachment.contentBase64}`),
   }
-  setSessions(key, 'messages', (messages) => [...messages, optimistic])
+  updateHermesState(key, (state) => {
+    state.messages.push(optimistic)
+  })
   activeHermesSends.add(key)
   try {
     const payload = await jsonRequest('/api/hermes/turn', {
@@ -1073,7 +1166,7 @@ export async function sendHermesPrompt(key: string, takeover = false): Promise<s
       currentSessionId && currentSessionId !== requestedSessionId
         ? currentSessionId
         : responseSessionId
-    setSessions(key, {
+    patchHermesState(key, {
       sessionId,
       lineageRootId: state.lineageRootId ?? sessionId,
       status: 'streaming',
@@ -1084,17 +1177,17 @@ export async function sendHermesPrompt(key: string, takeover = false): Promise<s
     })
     const canonicalKey = `session:${sessionId}`
     if (canonicalKey !== key)
-      setSessions(canonicalKey, { ...sessions[key]!, sessionId, draftId: undefined })
+      replaceHermesState(canonicalKey, { ...sessions[key]!, sessionId, draftId: undefined })
     return sessionId
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     const currentSessionId = sessions[key]?.sessionId
     const canonicalKey = currentSessionId ? `session:${currentSessionId}` : key
     const targetKey = canonicalKey !== key && sessions[canonicalKey] ? canonicalKey : key
-    setSessions(targetKey, 'messages', (messages) =>
-      messages.filter((item) => item.id !== optimistic.id),
-    )
-    setSessions(targetKey, {
+    updateHermesState(targetKey, (state) => {
+      state.messages = state.messages.filter((item) => item.id !== optimistic.id)
+    })
+    patchHermesState(targetKey, {
       composer: text,
       status: 'error',
       awaitingResponse: false,
@@ -1111,7 +1204,7 @@ export async function sendHermesPrompt(key: string, takeover = false): Promise<s
 export function takeOverHermesSession(key: string) {
   const state = sessions[key]
   if (!state || state.archived) return
-  setSessions(key, {
+  patchHermesState(key, {
     externallyActive: false,
     takeoverPending: true,
     readOnly: false,
@@ -1127,12 +1220,15 @@ export async function stopHermesTurn(key: string) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ sessionId }),
   })
-  setSessions(key, { status: 'idle', queueParked: sessions[key]?.queuedPrompts.length > 0 })
+  patchHermesState(key, { status: 'idle', queueParked: sessions[key]?.queuedPrompts.length > 0 })
   await refreshHermesChat(key)
 }
 
 export function markHermesRead(key: string) {
-  if (sessions[key]?.unread) setSessions(key, 'unread', false)
+  if (sessions[key]?.unread)
+    updateHermesState(key, (state) => {
+      state.unread = false
+    })
 }
 
 export async function restoreHermesSession(key: string) {
@@ -1143,7 +1239,7 @@ export async function restoreHermesSession(key: string) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ sessionId }),
   })
-  setSessions(key, { archived: false, readOnly: false, error: undefined })
+  patchHermesState(key, { archived: false, readOnly: false, error: undefined })
   await refreshHermesChat(key)
 }
 
@@ -1155,7 +1251,7 @@ export async function archiveHermesSession(key: string) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ sessionId: state.sessionId }),
   })
-  setSessions(key, { archived: true, readOnly: true, error: undefined })
+  patchHermesState(key, { archived: true, readOnly: true, error: undefined })
   await refreshHermesChat(key)
 }
 
@@ -1168,7 +1264,9 @@ export async function answerHermesDecision(key: string, answer: string) {
   const decisionKey = `${state.sessionId}:${decision.kind}:${decision.dedupeId}`
   if (answeredDecisions.has(decisionKey)) return
   answeredDecisions.add(decisionKey)
-  setSessions(key, 'decision', undefined)
+  updateHermesState(key, (state) => {
+    state.decision = undefined
+  })
   try {
     await jsonRequest('/api/hermes/decision', {
       method: 'POST',
@@ -1182,7 +1280,10 @@ export async function answerHermesDecision(key: string, answer: string) {
     })
   } catch (error) {
     answeredDecisions.delete(decisionKey)
-    setSessions(key, { decision, error: error instanceof Error ? error.message : String(error) })
+    patchHermesState(key, {
+      decision,
+      error: error instanceof Error ? error.message : String(error),
+    })
   }
 }
 
@@ -1196,7 +1297,7 @@ export function canCloseHermesWindow(target?: { draftId?: string; sessionId?: st
 
 export function discardHermesDraft(target?: { draftId?: string; sessionId?: string }) {
   if (!target?.draftId || target.sessionId) return
-  setSessions(`draft:${target.draftId}`, undefined!)
+  removeHermesState(`draft:${target.draftId}`)
 }
 
 export { sessions as hermesSessions }

@@ -1,5 +1,6 @@
 import Search from 'lucide-solid/icons/search'
-import { For, Index, Show, createEffect, createSignal, on } from 'solid-js'
+import { For, Show } from '@solidjs/web'
+import { createEffect, createSignal } from 'solid-js'
 
 type SearchResult = { path: string; name: string; snippet: string }
 
@@ -36,10 +37,10 @@ function pathRelativeTo(from: string, to: string): string {
 export function KbSearchResults(props: Props) {
   const [selectedIndex, setSelectedIndex] = createSignal(0)
   createEffect(
-    on(
-      () => [props.query, props.results],
-      () => setSelectedIndex(0),
-    ),
+    () => [props.query, props.results],
+    () => {
+      setSelectedIndex(0)
+    },
   )
 
   const onKeyDown = (event: KeyboardEvent) => {
@@ -85,11 +86,13 @@ export function KbSearchResults(props: Props) {
               }
               return (
                 <button
-                  data-kb-search-result
+                  data-kb-search-result=''
                   type='button'
-                  class='w-full px-3 py-3 text-left transition-colors hover:bg-muted/50 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-inset'
-                  classList={{ 'bg-muted/50': index() === selectedIndex() }}
-                  tabIndex={index() === selectedIndex() ? 0 : -1}
+                  class={[
+                    'w-full px-3 py-3 text-left transition-colors hover:bg-muted/50 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-inset',
+                    { 'bg-muted/50': index() === selectedIndex() },
+                  ]}
+                  tabindex={index() === selectedIndex() ? 0 : -1}
                   onClick={() => props.onResultClick(result.path)}
                 >
                   <div class='truncate font-medium'>{result.name}</div>
@@ -98,7 +101,7 @@ export function KbSearchResults(props: Props) {
                   </Show>
                   <Show when={result.snippet}>
                     <div class='mt-1 line-clamp-2 text-sm text-muted-foreground'>
-                      <Index each={snippetSegments(result.snippet, props.query)}>
+                      <For keyed={false} each={snippetSegments(result.snippet, props.query)}>
                         {(seg) => (
                           <Show when={seg().hl} fallback={seg().text}>
                             <mark class='rounded bg-yellow-400/40 px-0.5 ring-1 ring-amber-500/60 dark:bg-amber-500/40 dark:ring-amber-400/50'>
@@ -106,7 +109,7 @@ export function KbSearchResults(props: Props) {
                             </mark>
                           </Show>
                         )}
-                      </Index>
+                      </For>
                     </div>
                   </Show>
                 </button>

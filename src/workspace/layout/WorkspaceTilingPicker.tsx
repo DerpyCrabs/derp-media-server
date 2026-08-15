@@ -5,7 +5,7 @@ import {
   narrowPickToAssistShape,
   pickAssistSlotFromPoint,
 } from '@/workspace/model/workspace-snap-pick'
-import { createEffect, onCleanup, onMount, createMemo, createSignal } from 'solid-js'
+import { createEffect, onSettled, createMemo, createSignal } from 'solid-js'
 import X from 'lucide-solid/icons/x'
 import { WorkspaceSnapAssistMasterGrid } from './WorkspaceSnapAssistMasterGrid'
 import { snapAssistSurfaceWidth } from '@/workspace/model/use-snap-zones'
@@ -47,36 +47,35 @@ export function WorkspaceTilingPicker(props: WorkspaceTilingPickerProps) {
     h: number
   } | null>(null)
 
-  createEffect(() => {
+  onSettled(() => {
     const cont = props.container
-    if (!cont) return
+    if (!cont) return undefined
     const bump = () => setLayoutVersion((v) => v + 1)
     const ro = new ResizeObserver(bump)
     ro.observe(cont)
     const onWinResize = () => bump()
     window.addEventListener('resize', onWinResize)
-    onCleanup(() => {
+    return () => {
       ro.disconnect()
       window.removeEventListener('resize', onWinResize)
-    })
+    }
   })
 
-  createEffect(() => {
-    const el = pickerRoot()
-    if (!el) {
-      setMeasuredBox(null)
-      return
-    }
-    let raf = 0
-    const measure = () => {
-      raf = requestAnimationFrame(() => {
+  createEffect(
+    () => pickerRoot(),
+    (el) => {
+      if (!el) {
+        setMeasuredBox(null)
+        return undefined
+      }
+      const raf = requestAnimationFrame(() => {
         const r = el.getBoundingClientRect()
         if (r.width > 0 && r.height > 0) setMeasuredBox({ w: r.width, h: r.height })
       })
-    }
-    measure()
-    onCleanup(() => cancelAnimationFrame(raf))
-  })
+      // eslint-disable-next-line solid/reactivity
+      return () => cancelAnimationFrame(raf)
+    },
+  )
 
   const layout = createMemo(() => {
     void layoutVersion()
@@ -139,27 +138,28 @@ export function WorkspaceTilingPicker(props: WorkspaceTilingPickerProps) {
     setPointerPick(pickAssistSlotFromPoint(e.clientX, e.clientY, el))
   }
 
-  createEffect(() => {
-    if (!pickerRoot()) return
-    const onWindow = (e: PointerEvent) => updateHoverFromEvent(e)
-    window.addEventListener('pointermove', onWindow, {
-      capture: true,
-      passive: true,
-    })
-    onCleanup(() => window.removeEventListener('pointermove', onWindow, { capture: true }))
-  })
+  createEffect(
+    () => pickerRoot(),
+    (root) => {
+      if (!root) return undefined
+      const onWindow = (e: PointerEvent) => updateHoverFromEvent(e)
+      window.addEventListener('pointermove', onWindow, {
+        capture: true,
+        passive: true,
+      })
+      // eslint-disable-next-line solid/reactivity
+      return () => window.removeEventListener('pointermove', onWindow, { capture: true })
+    },
+  )
 
-  createEffect(() => {
-    const cb = props.onHoverSpanChange
-    if (!cb) return
-    cb(pointerPick()?.span ?? null)
-  })
+  createEffect(
+    () => pointerPick()?.span ?? null,
+    (span) => {
+      props.onHoverSpanChange?.(span)
+    },
+  )
 
-  onCleanup(() => {
-    props.onHoverSpanChange?.(null)
-  })
-
-  onMount(() => {
+  onSettled(() => {
     const outside = (target: EventTarget | null) => {
       const r = pickerRoot()
       const n = target as Node | null
@@ -172,10 +172,12 @@ export function WorkspaceTilingPicker(props: WorkspaceTilingPickerProps) {
     }
     document.addEventListener('pointerdown', onPointerDownCapture, true)
     document.addEventListener('keydown', onKey)
-    onCleanup(() => {
+    // eslint-disable-next-line solid/reactivity
+    return () => {
       document.removeEventListener('pointerdown', onPointerDownCapture, true)
       document.removeEventListener('keydown', onKey)
-    })
+      props.onHoverSpanChange?.(null)
+    }
   })
 
   return (
@@ -188,7 +190,7 @@ export function WorkspaceTilingPicker(props: WorkspaceTilingPickerProps) {
         top: `${layout().top}px`,
         width: `${surfaceWidth()}px`,
       }}
-      on:pointerleave={() => setPointerPick(null)}
+      onPointerLeave={() => setPointerPick(null)}
       role='dialog'
       aria-label='Choose window layout'
     >

@@ -28,13 +28,11 @@ import {
   createEffect,
   createMemo,
   createSignal,
-  on,
-  onCleanup,
-  onMount,
+  onSettled,
   untrack,
   type Setter,
 } from 'solid-js'
-import { Portal } from 'solid-js/web'
+import { Portal } from '@solidjs/web'
 import { ReaderSelectionMenu, type ReaderSelection } from './ReaderSelectionMenu'
 import { menuPositionForRect, visibleRectForRange } from './reader-geometry'
 import { closeReader } from './reader-url'
@@ -118,12 +116,15 @@ function PdfPage(props: {
   const [near, setNear] = createSignal(false)
   const [size, setSize] = createSignal({ width: 0, height: 0 })
 
-  createEffect(() => {
-    setSize({ width: props.page.width, height: props.page.height })
-  })
+  createEffect(
+    () => ({ width: props.page.width, height: props.page.height }),
+    (pageSize) => {
+      setSize(pageSize)
+    },
+  )
 
-  onMount(() => {
-    if (!host) return
+  onSettled(() => {
+    if (!host) return undefined
     const observer = new IntersectionObserver(
       ([entry]) => setNear(Boolean(entry?.isIntersecting)),
       {
@@ -131,56 +132,63 @@ function PdfPage(props: {
       },
     )
     observer.observe(host)
-    onCleanup(() => observer.disconnect())
+    return () => observer.disconnect()
   })
 
-  createEffect(() => {
-    const document = props.document
-    const pageNumber = props.pageIndex + 1
-    const scale = props.zoom
-    const renderText = props.selectionMode === 'text'
-    if (!near() || !host || !canvas) return
-    let cancelled = false
-    let renderTask: pdfjs.RenderTask | undefined
-    let textLayer: InstanceType<typeof TextLayerBuilder> | undefined
-    host.querySelectorAll(':scope > .textLayer').forEach((node) => node.remove())
-    void document.getPage(pageNumber).then(async (page) => {
-      if (cancelled) return
-      const viewport = page.getViewport({ scale })
-      const ratio = window.devicePixelRatio || 1
-      const context = canvas.getContext('2d')
-      if (!context) return
-      canvas.width = Math.floor(viewport.width * ratio)
-      canvas.height = Math.floor(viewport.height * ratio)
-      canvas.style.width = `${viewport.width}px`
-      canvas.style.height = `${viewport.height}px`
-      setSize({ width: viewport.width, height: viewport.height })
-      context.setTransform(ratio, 0, 0, ratio, 0, 0)
-      renderTask = page.render({ canvas, canvasContext: context, viewport })
-      try {
-        await renderTask.promise
-      } catch (error) {
-        if (cancelled || (error as { name?: string }).name === 'RenderingCancelledException') return
-        throw error
-      }
-      if (cancelled || !renderText) return
-      textLayer = new TextLayerBuilder({
-        pdfPage: page,
-        onAppend: (layer: HTMLDivElement) => {
-          if (cancelled) return
-          layer.dataset.testid = 'pdf-text-layer'
-          host.append(layer)
-        },
+  createEffect(
+    () => ({
+      document: props.document,
+      pageNumber: props.pageIndex + 1,
+      scale: props.zoom,
+      renderText: props.selectionMode === 'text',
+      near: near(),
+    }),
+    ({ document, pageNumber, scale, renderText, near: isNear }) => {
+      if (!isNear || !host || !canvas) return undefined
+      let cancelled = false
+      let renderTask: pdfjs.RenderTask | undefined
+      let textLayer: InstanceType<typeof TextLayerBuilder> | undefined
+      host.querySelectorAll(':scope > .textLayer').forEach((node) => node.remove())
+      void document.getPage(pageNumber).then(async (page) => {
+        if (cancelled) return
+        const viewport = page.getViewport({ scale })
+        const ratio = window.devicePixelRatio || 1
+        const context = canvas.getContext('2d')
+        if (!context) return
+        canvas.width = Math.floor(viewport.width * ratio)
+        canvas.height = Math.floor(viewport.height * ratio)
+        canvas.style.width = `${viewport.width}px`
+        canvas.style.height = `${viewport.height}px`
+        setSize({ width: viewport.width, height: viewport.height })
+        context.setTransform(ratio, 0, 0, ratio, 0, 0)
+        renderTask = page.render({ canvas, canvasContext: context, viewport })
+        try {
+          await renderTask.promise
+        } catch (error) {
+          if (cancelled || (error as { name?: string }).name === 'RenderingCancelledException')
+            return
+          throw error
+        }
+        if (cancelled || !renderText) return
+        textLayer = new TextLayerBuilder({
+          pdfPage: page,
+          onAppend: (layer: HTMLDivElement) => {
+            if (cancelled) return
+            layer.dataset.testid = 'pdf-text-layer'
+            host.append(layer)
+          },
+        })
+        await textLayer.render({ viewport, images: null! })
       })
-      await textLayer.render({ viewport, images: null! })
-    })
-    onCleanup(() => {
-      cancelled = true
-      renderTask?.cancel()
-      textLayer?.cancel()
-      host?.querySelectorAll(':scope > .textLayer').forEach((node) => node.remove())
-    })
-  })
+      // eslint-disable-next-line solid/reactivity
+      return () => {
+        cancelled = true
+        renderTask?.cancel()
+        textLayer?.cancel()
+        host?.querySelectorAll(':scope > .textLayer').forEach((node) => node.remove())
+      }
+    },
+  )
 
   return (
     <div
@@ -303,17 +311,20 @@ function RegionLayer(props: {
     }
   })
 
-  createEffect(() => {
-    if (props.active) return
-    setDrag(null)
-    setCommittedRegion(null)
-  })
+  createEffect(
+    () => props.active,
+    (active) => {
+      if (active) return
+      setDrag(null)
+      setCommittedRegion(null)
+    },
+  )
 
-  onMount(() => {
+  onSettled(() => {
     const observer = new ResizeObserver(() => setSourceSizeVersion((version) => version + 1))
     observer.observe(props.host())
     observer.observe(props.source())
-    onCleanup(() => observer.disconnect())
+    return () => observer.disconnect()
   })
 
   const finish = () => {
@@ -357,8 +368,7 @@ function RegionLayer(props: {
   return (
     <div
       data-testid='region-layer'
-      class='absolute inset-0'
-      classList={{ 'cursor-crosshair': props.active }}
+      class={['absolute inset-0', { 'cursor-crosshair': props.active }]}
       style={{
         'pointer-events': props.active ? 'auto' : 'none',
         'z-index': props.active ? 5 : 2,
@@ -645,201 +655,203 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
       }),
     )
 
-  createEffect(() => {
-    const activePath = path()
-    const kind = sourceKind()
-    if (untrack(preferencesReady)) {
-      window.clearTimeout(preferenceTimer)
-      void persistPreferences(untrack(capturePreferences)).catch(() => {})
-    }
-    setPages([])
-    setPdfDocument(undefined)
-    setBookDocument((current) => {
-      current?.release()
-      return undefined
-    })
-    setOutline([])
-    setOutlineExpanded([])
-    setCurrentChapterId('')
-    setCurrentChapterProgress(0)
-    setBookHistory([])
-    setBookHistoryIndex(-1)
-    setSelection(null)
-    setSettingsOpen(false)
-    setError('')
-    pendingBookAnchor = undefined
-    pendingBookProgress = 0
-    pendingOutlineExpanded = undefined
-    setSyncBlocked(false)
-    pendingScrollTop = DEFAULT_READER_POSITION.scrollTop
-    applyPosition(DEFAULT_READER_POSITION)
-    setPreferencesReady(false)
-    setStateRevision(0)
-    setStateFingerprint('')
-    if (!activePath) return
-    setLoading(true)
-    let cancelled = false
-    let pdfTask: ReturnType<typeof pdfjs.getDocument> | undefined
-    void Promise.all([
-      loadSyncedReaderState(activePath).catch(() => null),
-      preferenceQueue
-        .then(() => loadReaderPreferences())
-        .catch(() =>
-          untrack(() => ({
-            preferences: preferenceBase,
-            revision: preferencesRevision(),
-          })),
-        ),
-    ])
-      .then(([saved, preferenceEnvelope]) => {
-        const loadDocument = async () => {
-          if (cancelled) return
-          const preferences = preferenceEnvelope.preferences
-          setPreferencesRevision(preferenceEnvelope.revision)
-          preferenceBase = preferences
-          if (saved) {
-            setStateRevision(saved.revision)
-            setStateFingerprint(saved.fingerprint)
-            if (saved.state) {
-              applyPosition(saved.state)
-              setCurrentChapterId(saved.state.chapterId ?? '')
-              pendingBookAnchor = saved.state.anchor
-              pendingBookProgress = saved.state.chapterProgress ?? 0
-              pendingOutlineExpanded = saved.state.outlineExpanded
+  createEffect(
+    () => ({ activePath: path(), kind: sourceKind() }),
+    ({ activePath, kind }) => {
+      if (untrack(preferencesReady)) {
+        window.clearTimeout(preferenceTimer)
+        void persistPreferences(untrack(capturePreferences)).catch(() => {})
+      }
+      setPages([])
+      setPdfDocument(undefined)
+      setBookDocument((current) => {
+        current?.release()
+        return undefined
+      })
+      setOutline([])
+      setOutlineExpanded([])
+      setCurrentChapterId('')
+      setCurrentChapterProgress(0)
+      setBookHistory([])
+      setBookHistoryIndex(-1)
+      setSelection(null)
+      setSettingsOpen(false)
+      setError('')
+      pendingBookAnchor = undefined
+      pendingBookProgress = 0
+      pendingOutlineExpanded = undefined
+      setSyncBlocked(false)
+      pendingScrollTop = DEFAULT_READER_POSITION.scrollTop
+      applyPosition(DEFAULT_READER_POSITION)
+      setPreferencesReady(false)
+      setStateRevision(0)
+      setStateFingerprint('')
+      if (!activePath) return undefined
+      setLoading(true)
+      let cancelled = false
+      let pdfTask: ReturnType<typeof pdfjs.getDocument> | undefined
+      void Promise.all([
+        loadSyncedReaderState(activePath).catch(() => null),
+        preferenceQueue
+          .then(() => loadReaderPreferences())
+          .catch(() =>
+            untrack(() => ({
+              preferences: preferenceBase,
+              revision: preferencesRevision(),
+            })),
+          ),
+      ])
+        .then(([saved, preferenceEnvelope]) => {
+          const loadDocument = async () => {
+            if (cancelled) return
+            const preferences = preferenceEnvelope.preferences
+            setPreferencesRevision(preferenceEnvelope.revision)
+            preferenceBase = preferences
+            if (saved) {
+              setStateRevision(saved.revision)
+              setStateFingerprint(saved.fingerprint)
+              if (saved.state) {
+                applyPosition(saved.state)
+                setCurrentChapterId(saved.state.chapterId ?? '')
+                pendingBookAnchor = saved.state.anchor
+                pendingBookProgress = saved.state.chapterProgress ?? 0
+                pendingOutlineExpanded = saved.state.outlineExpanded
+              }
             }
-          }
-          setSelectionMode(preferences.selectionMode)
-          setPreferredSelectionMode(preferences.selectionMode)
-          setDefaultAction(preferences.defaultAction)
-          setAiDetail(preferences.aiDetail)
-          setOutlineOpen(preferences.outlineOpen)
-          setBookAppearance(preferences.bookAppearance)
-          setPreferencesReady(true)
-          if (kind === 'folder') setSelectionMode('image')
-          if (kind === 'book') setSelectionMode('text')
+            setSelectionMode(preferences.selectionMode)
+            setPreferredSelectionMode(preferences.selectionMode)
+            setDefaultAction(preferences.defaultAction)
+            setAiDetail(preferences.aiDetail)
+            setOutlineOpen(preferences.outlineOpen)
+            setBookAppearance(preferences.bookAppearance)
+            setPreferencesReady(true)
+            if (kind === 'folder') setSelectionMode('image')
+            if (kind === 'book') setSelectionMode('text')
 
-          if (kind === 'folder') {
-            const listUrl = `/api/files?dir=${encodeURIComponent(activePath)}`
-            const response = await fetch(listUrl)
-            const payload = await response.json()
-            if (!response.ok) throw new Error(payload?.error ?? 'Could not open image folder')
-            const files = ((payload.files ?? []) as FileItem[])
-              .filter((file) => !file.isDirectory && file.type === MediaType.IMAGE)
-              .sort(naturalCompare)
-            if (files.length === 0) throw new Error('Folder contains no supported images')
+            if (kind === 'folder') {
+              const listUrl = `/api/files?dir=${encodeURIComponent(activePath)}`
+              const response = await fetch(listUrl)
+              const payload = await response.json()
+              if (!response.ok) throw new Error(payload?.error ?? 'Could not open image folder')
+              const files = ((payload.files ?? []) as FileItem[])
+                .filter((file) => !file.isDirectory && file.type === MediaType.IMAGE)
+                .sort(naturalCompare)
+              if (files.length === 0) throw new Error('Folder contains no supported images')
+              const loaded = await Promise.all(
+                files.map(async (file) => {
+                  const source = mediaUrl(file.path)
+                  const size = await loadImageSize(source)
+                  return {
+                    id: file.path,
+                    name: file.name,
+                    source,
+                    ...size,
+                    kind: 'image' as const,
+                  }
+                }),
+              )
+              if (!cancelled) {
+                setPages(loaded)
+                restorePositionAfterLoad(loaded.length)
+              }
+              return
+            }
+
+            if (kind === 'book') {
+              const response = await fetch(mediaUrl(activePath), {
+                credentials: 'include',
+              })
+              if (!response.ok) throw new Error(`Could not open book (${response.status})`)
+              const parsed = await parseBook(await response.arrayBuffer(), basename(activePath))
+              if (cancelled) return
+              const rendered = renderBook(parsed)
+              setBookDocument(rendered)
+              const map = (items: typeof rendered.outline): ReaderOutlineItem[] =>
+                items.map((item) => ({
+                  id: item.id,
+                  label: item.label,
+                  target: item.chapterId,
+                  anchor: item.anchor,
+                  children: map(item.children),
+                }))
+              const mappedOutline = map(rendered.outline)
+              const firstOutlineTarget = (items: ReaderOutlineItem[]): string | undefined => {
+                for (const item of items) {
+                  if (typeof item.target === 'string') return item.target
+                  const childTarget = firstOutlineTarget(item.children)
+                  if (childTarget) return childTarget
+                }
+                return undefined
+              }
+              const initialChapter =
+                currentChapterId() ||
+                firstOutlineTarget(mappedOutline) ||
+                rendered.chapters[0]?.id ||
+                ''
+              setCurrentChapterId(initialChapter)
+              setOutline(mappedOutline)
+              const allIds = (items: ReaderOutlineItem[]): string[] =>
+                items.flatMap((item) => [item.id, ...allIds(item.children)])
+              setOutlineExpanded(pendingOutlineExpanded ?? allIds(mappedOutline))
+              requestAnimationFrame(() =>
+                requestAnimationFrame(() => {
+                  const restoreByProgress = pendingBookProgress > 0
+                  const target = scrollBookViewport(
+                    initialChapter,
+                    restoreByProgress ? undefined : pendingBookAnchor,
+                  )
+                  if (restoreByProgress && target && viewport)
+                    viewport.scrollTop += target.offsetHeight * Math.min(1, pendingBookProgress)
+                }),
+              )
+              return
+            }
+
+            pdfTask = pdfjs.getDocument({
+              url: mediaUrl(activePath),
+              withCredentials: true,
+            })
+            const loadedPdf = await pdfTask.promise
             const loaded = await Promise.all(
-              files.map(async (file) => {
-                const source = mediaUrl(file.path)
-                const size = await loadImageSize(source)
+              Array.from({ length: loadedPdf.numPages }, async (_, index) => {
+                const page = await loadedPdf.getPage(index + 1)
+                const viewport = page.getViewport({ scale: 1 })
                 return {
-                  id: file.path,
-                  name: file.name,
-                  source,
-                  ...size,
-                  kind: 'image' as const,
+                  id: `${activePath}#${index + 1}`,
+                  name: `Page ${index + 1}`,
+                  source: mediaUrl(activePath),
+                  width: viewport.width,
+                  height: viewport.height,
+                  kind: 'pdf' as const,
                 }
               }),
             )
             if (!cancelled) {
+              setPdfDocument(loadedPdf)
               setPages(loaded)
+              const mappedOutline = await mapPdfOutline(loadedPdf, await loadedPdf.getOutline())
+              setOutline(mappedOutline)
+              const allIds = (items: ReaderOutlineItem[]): string[] =>
+                items.flatMap((item) => [item.id, ...allIds(item.children)])
+              setOutlineExpanded(pendingOutlineExpanded ?? allIds(mappedOutline))
               restorePositionAfterLoad(loaded.length)
             }
-            return
           }
-
-          if (kind === 'book') {
-            const response = await fetch(mediaUrl(activePath), {
-              credentials: 'include',
-            })
-            if (!response.ok) throw new Error(`Could not open book (${response.status})`)
-            const parsed = await parseBook(await response.arrayBuffer(), basename(activePath))
-            if (cancelled) return
-            const rendered = renderBook(parsed)
-            setBookDocument(rendered)
-            const map = (items: typeof rendered.outline): ReaderOutlineItem[] =>
-              items.map((item) => ({
-                id: item.id,
-                label: item.label,
-                target: item.chapterId,
-                anchor: item.anchor,
-                children: map(item.children),
-              }))
-            const mappedOutline = map(rendered.outline)
-            const firstOutlineTarget = (items: ReaderOutlineItem[]): string | undefined => {
-              for (const item of items) {
-                if (typeof item.target === 'string') return item.target
-                const childTarget = firstOutlineTarget(item.children)
-                if (childTarget) return childTarget
-              }
-              return undefined
-            }
-            const initialChapter =
-              currentChapterId() ||
-              firstOutlineTarget(mappedOutline) ||
-              rendered.chapters[0]?.id ||
-              ''
-            setCurrentChapterId(initialChapter)
-            setOutline(mappedOutline)
-            const allIds = (items: ReaderOutlineItem[]): string[] =>
-              items.flatMap((item) => [item.id, ...allIds(item.children)])
-            setOutlineExpanded(pendingOutlineExpanded ?? allIds(mappedOutline))
-            requestAnimationFrame(() =>
-              requestAnimationFrame(() => {
-                const restoreByProgress = pendingBookProgress > 0
-                const target = scrollBookViewport(
-                  initialChapter,
-                  restoreByProgress ? undefined : pendingBookAnchor,
-                )
-                if (restoreByProgress && target && viewport)
-                  viewport.scrollTop += target.offsetHeight * Math.min(1, pendingBookProgress)
-              }),
-            )
-            return
-          }
-
-          pdfTask = pdfjs.getDocument({
-            url: mediaUrl(activePath),
-            withCredentials: true,
-          })
-          const loadedPdf = await pdfTask.promise
-          const loaded = await Promise.all(
-            Array.from({ length: loadedPdf.numPages }, async (_, index) => {
-              const page = await loadedPdf.getPage(index + 1)
-              const viewport = page.getViewport({ scale: 1 })
-              return {
-                id: `${activePath}#${index + 1}`,
-                name: `Page ${index + 1}`,
-                source: mediaUrl(activePath),
-                width: viewport.width,
-                height: viewport.height,
-                kind: 'pdf' as const,
-              }
-            }),
-          )
-          if (!cancelled) {
-            setPdfDocument(loadedPdf)
-            setPages(loaded)
-            const mappedOutline = await mapPdfOutline(loadedPdf, await loadedPdf.getOutline())
-            setOutline(mappedOutline)
-            const allIds = (items: ReaderOutlineItem[]): string[] =>
-              items.flatMap((item) => [item.id, ...allIds(item.children)])
-            setOutlineExpanded(pendingOutlineExpanded ?? allIds(mappedOutline))
-            restorePositionAfterLoad(loaded.length)
-          }
-        }
-        return untrack(loadDocument)
-      })
-      .catch(
-        (reason) =>
-          !cancelled &&
-          setError(reason instanceof Error ? reason.message : 'Could not open document'),
-      )
-      .finally(() => !cancelled && setLoading(false))
-    onCleanup(() => {
-      cancelled = true
-      void pdfTask?.destroy()
-    })
-  })
+          return untrack(loadDocument)
+        })
+        .catch(
+          (reason) =>
+            !cancelled &&
+            setError(reason instanceof Error ? reason.message : 'Could not open document'),
+        )
+        .finally(() => !cancelled && setLoading(false))
+      // eslint-disable-next-line solid/reactivity
+      return () => {
+        cancelled = true
+        void pdfTask?.destroy()
+      }
+    },
+  )
 
   const capturePersistedState = () => {
     const activePath = path()
@@ -937,28 +949,40 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
     return queued
   }
 
-  createEffect(() => {
-    path()
-    currentPage()
-    zoom()
-    viewMode()
-    fitMode()
-    selectionMode()
-    defaultAction()
-    currentChapterId()
-    outlineExpanded()
-    window.clearTimeout(saveTimer)
-    saveTimer = window.setTimeout(() => untrack(() => void persist()), 1_000)
-    onCleanup(() => window.clearTimeout(saveTimer))
-  })
+  createEffect(
+    () =>
+      [
+        path(),
+        currentPage(),
+        zoom(),
+        viewMode(),
+        fitMode(),
+        selectionMode(),
+        defaultAction(),
+        currentChapterId(),
+        outlineExpanded(),
+      ] as const,
+    () => {
+      window.clearTimeout(saveTimer)
+      saveTimer = window.setTimeout(() => untrack(() => void persist()), 1_000)
+      // eslint-disable-next-line solid/reactivity
+      return () => window.clearTimeout(saveTimer)
+    },
+  )
 
-  createEffect(() => {
-    if (!preferencesReady()) return
-    const snapshot = capturePreferences()
-    window.clearTimeout(preferenceTimer)
-    preferenceTimer = window.setTimeout(() => untrack(() => void persistPreferences(snapshot)), 350)
-    onCleanup(() => window.clearTimeout(preferenceTimer))
-  })
+  createEffect(
+    () => (preferencesReady() ? capturePreferences() : null),
+    (snapshot) => {
+      if (!snapshot) return undefined
+      window.clearTimeout(preferenceTimer)
+      preferenceTimer = window.setTimeout(
+        () => untrack(() => void persistPreferences(snapshot)),
+        350,
+      )
+      // eslint-disable-next-line solid/reactivity
+      return () => window.clearTimeout(preferenceTimer)
+    },
+  )
 
   const fit = () => {
     if (!viewport || fitMode() === 'manual') return
@@ -970,12 +994,15 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
   }
 
   createEffect(
-    on(
-      () => [pages().length, currentPage(), viewMode(), fitMode()],
-      () => {
-        if (fitMode() !== 'manual') requestAnimationFrame(fit)
-      },
-    ),
+    () => ({
+      pageCount: pages().length,
+      page: currentPage(),
+      view: viewMode(),
+      fitModeValue: fitMode(),
+    }),
+    ({ fitModeValue }) => {
+      if (fitModeValue !== 'manual') requestAnimationFrame(fit)
+    },
   )
 
   const goToPage = (index: number) => {
@@ -1108,7 +1135,7 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
     if (rect) setSelection({ ...active, ...menuPositionForRect(rect, viewport) })
   }
 
-  onMount(() => {
+  onSettled(() => {
     document.body.append(menuHost)
     if (!activeReaderRoot || !props.embedded) activeReaderRoot = readerRoot
     const resize = new ResizeObserver(() => fit())
@@ -1135,7 +1162,8 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
     document.addEventListener('fullscreenchange', fullscreenChange)
     document.addEventListener('pointerup', captureFromRelease)
     document.addEventListener('mouseup', captureFromRelease)
-    onCleanup(() => {
+    // eslint-disable-next-line solid/reactivity
+    return () => {
       window.clearTimeout(saveTimer)
       window.clearTimeout(preferenceTimer)
       if (!closePersisted) void persist()
@@ -1148,43 +1176,47 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
       document.removeEventListener('mouseup', captureFromRelease)
       menuHost.remove()
       if (activeReaderRoot === readerRoot) activeReaderRoot = null
-    })
+    }
   })
 
-  createEffect(() => {
-    if (!path()) return
-    const keydown = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null
-      const targetReader = target?.closest<HTMLElement>('[data-testid="reader-dialog"]')
-      const ownsEvent = targetReader
-        ? targetReader === readerRoot
-        : document.fullscreenElement === readerRoot || activeReaderRoot === readerRoot
-      if (!ownsEvent) return
-      if (event.key === 'Escape') {
-        if (settingsOpen() || pageJumpOpen()) {
-          setSettingsOpen(false)
-          setPageJumpOpen(false)
-        } else if (selection()) setSelection(null)
-        else if (!props.embedded || props.onClose) void close()
-        return
+  createEffect(
+    () => path(),
+    (activePath) => {
+      if (!activePath) return undefined
+      const keydown = (event: KeyboardEvent) => {
+        const target = event.target as HTMLElement | null
+        const targetReader = target?.closest<HTMLElement>('[data-testid="reader-dialog"]')
+        const ownsEvent = targetReader
+          ? targetReader === readerRoot
+          : document.fullscreenElement === readerRoot || activeReaderRoot === readerRoot
+        if (!ownsEvent) return
+        if (event.key === 'Escape') {
+          if (settingsOpen() || pageJumpOpen()) {
+            setSettingsOpen(false)
+            setPageJumpOpen(false)
+          } else if (selection()) setSelection(null)
+          else if (!props.embedded || props.onClose) void close()
+          return
+        }
+        if (target?.closest('input, textarea, button, [contenteditable=true]')) return
+        if (sourceKind() === 'book') return
+        const targets: Record<string, number> = {
+          ArrowRight: currentPage() + 1,
+          PageDown: currentPage() + 1,
+          ArrowLeft: currentPage() - 1,
+          PageUp: currentPage() - 1,
+          Home: 0,
+          End: pages().length - 1,
+        }
+        if (targets[event.key] === undefined) return
+        event.preventDefault()
+        goToPage(targets[event.key]!)
       }
-      if (target?.closest('input, textarea, button, [contenteditable=true]')) return
-      if (sourceKind() === 'book') return
-      const targets: Record<string, number> = {
-        ArrowRight: currentPage() + 1,
-        PageDown: currentPage() + 1,
-        ArrowLeft: currentPage() - 1,
-        PageUp: currentPage() - 1,
-        Home: 0,
-        End: pages().length - 1,
-      }
-      if (targets[event.key] === undefined) return
-      event.preventDefault()
-      goToPage(targets[event.key]!)
-    }
-    document.addEventListener('keydown', keydown)
-    onCleanup(() => document.removeEventListener('keydown', keydown))
-  })
+      document.addEventListener('keydown', keydown)
+      // eslint-disable-next-line solid/reactivity
+      return () => document.removeEventListener('keydown', keydown)
+    },
+  )
 
   return (
     <Show when={path()}>
@@ -1195,11 +1227,13 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
         role='dialog'
         aria-modal='true'
         aria-label={`Reader: ${title()}`}
-        class='inset-0 flex flex-col bg-neutral-900 text-white'
-        classList={{
-          'fixed z-[70]': !props.embedded,
-          'absolute z-20': !!props.embedded,
-        }}
+        class={[
+          'inset-0 flex flex-col bg-neutral-900 text-white',
+          {
+            'fixed z-[70]': !props.embedded,
+            'absolute z-20': !!props.embedded,
+          },
+        ]}
         data-testid='reader-dialog'
         onPointerDown={() => (activeReaderRoot = readerRoot)}
         onFocusIn={() => (activeReaderRoot = readerRoot)}
@@ -1301,7 +1335,7 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
                       data-testid='reader-page-input'
                       class='h-8 w-20 rounded-md border border-[#3a3a3a] bg-[#202020] px-2 text-center text-sm outline-none focus:border-[#777]'
                       value={pageInput()}
-                      inputMode='numeric'
+                      inputmode='numeric'
                       autofocus
                       onInput={(event) => setPageInput(event.currentTarget.value)}
                       onFocus={(event) => event.currentTarget.select()}
@@ -1331,11 +1365,13 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
                 </button>
                 <Show when={settingsOpen()}>
                   <div
-                    class='absolute top-[38px] right-0 z-50 grid gap-2 rounded-lg border border-[#3a3a3a] bg-[#181818] p-[5px] shadow-[0_14px_34px_rgb(0_0_0/42%)]'
-                    classList={{
-                      'w-[min(384px,calc(100vw-16px))]': sourceKind() === 'book',
-                      'min-w-[216px]': sourceKind() !== 'book',
-                    }}
+                    class={[
+                      'absolute top-[38px] right-0 z-50 grid gap-2 rounded-lg border border-[#3a3a3a] bg-[#181818] p-[5px] shadow-[0_14px_34px_rgb(0_0_0/42%)]',
+                      {
+                        'w-[min(384px,calc(100vw-16px))]': sourceKind() === 'book',
+                        'min-w-[216px]': sourceKind() !== 'book',
+                      },
+                    ]}
                     data-testid='reader-settings'
                   >
                     <Show when={sourceKind() !== 'book'}>
@@ -1470,8 +1506,10 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
               viewport = element
             }}
             data-testid='reader-viewport'
-            class='reader-viewport min-h-0 flex-1 overflow-auto bg-[#191919] px-2 pt-1 pb-2 [scrollbar-color:#555_#181818]'
-            classList={{ 'cursor-text': selectionMode() === 'text' }}
+            class={[
+              'reader-viewport min-h-0 flex-1 overflow-auto bg-[#191919] px-2 pt-1 pb-2 [scrollbar-color:#555_#181818]',
+              { 'cursor-text': selectionMode() === 'text' },
+            ]}
             onPointerDown={(event) => {
               setSettingsOpen(false)
               setPageJumpOpen(false)
@@ -1539,11 +1577,13 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
                           data-page-id={page.id}
                           data-page-index={pageIndex()}
                           data-reader-page-index={pageIndex()}
-                          class='mx-auto mb-2 w-fit scroll-mt-1'
-                          classList={{
-                            'max-w-none': page.kind === 'pdf',
-                            'max-w-full': page.kind !== 'pdf',
-                          }}
+                          class={[
+                            'mx-auto mb-2 w-fit scroll-mt-1',
+                            {
+                              'max-w-none': page.kind === 'pdf',
+                              'max-w-full': page.kind !== 'pdf',
+                            },
+                          ]}
                           aria-label={`Page ${pageIndex() + 1}`}
                         >
                           <Show
@@ -1718,11 +1758,13 @@ function Segmented(props: { values: string[]; value: string; onChange: (value: s
         {(value) => (
           <button
             type='button'
-            class='min-w-0 flex-1 rounded-md border border-transparent px-2 py-1 text-xs capitalize hover:border-[#777]'
-            classList={{
-              'border-[#7a7a7a] bg-[#303030] text-white': props.value === value,
-              'text-white/60': props.value !== value,
-            }}
+            class={[
+              'min-w-0 flex-1 rounded-md border border-transparent px-2 py-1 text-xs capitalize hover:border-[#777]',
+              {
+                'border-[#7a7a7a] bg-[#303030] text-white': props.value === value,
+                'text-white/60': props.value !== value,
+              },
+            ]}
             onClick={() => props.onChange(value)}
           >
             {value}

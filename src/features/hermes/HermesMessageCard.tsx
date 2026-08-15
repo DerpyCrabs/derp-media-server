@@ -11,7 +11,8 @@ import Users from 'lucide-solid/icons/users'
 import MoreHorizontal from 'lucide-solid/icons/ellipsis'
 import LoaderCircle from 'lucide-solid/icons/loader-circle'
 import CircleCheck from 'lucide-solid/icons/circle-check'
-import { ErrorBoundary, For, Show, createMemo, createSignal, onCleanup } from 'solid-js'
+import { Errored, For, Show } from '@solidjs/web'
+import { createMemo, createSignal, onSettled } from 'solid-js'
 import { classifyHermesTool, hermesImageUrl } from '@/features/hermes/hermes-chat-parity'
 import { LazyMarkdownDocument } from '@/lib/markdown/LazyMarkdownDocument'
 
@@ -377,7 +378,7 @@ export function HermesMessageCard(props: {
     document.addEventListener('pointerdown', closeActionsOutside, true)
     document.addEventListener('keydown', closeActionsOnEscape, true)
   }
-  onCleanup(removeActionsDismissListeners)
+  onSettled(() => removeActionsDismissListeners)
   const pendingToolCalls = createMemo(
     () =>
       props.message.toolCalls?.filter((call) => !props.completedToolCallIds?.has(call.id)) ?? [],
@@ -393,7 +394,7 @@ export function HermesMessageCard(props: {
       : ''
 
   return (
-    <ErrorBoundary
+    <Errored
       fallback={
         <div class='rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs'>
           This transcript item could not be rendered.
@@ -527,6 +528,6 @@ export function HermesMessageCard(props: {
           </div>
         </div>
       </Show>
-    </ErrorBoundary>
+    </Errored>
   )
 }

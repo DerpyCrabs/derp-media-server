@@ -1,4 +1,4 @@
-import { createStore } from 'solid-js/store'
+import { createStore } from 'solid-js'
 import { createStoreListeners, readPersistedState, writePersistedState } from './client-store-utils'
 
 export type ThemePalette = 'default' | 'caffeine' | 'cosmic-night'
@@ -52,14 +52,16 @@ const [store, setStore] = createStore({
   mode: initialSync.mode,
 })
 
-function persist() {
-  writePersistedState(THEME_PERSIST_KEY, { palette: store.palette, mode: store.mode })
+function persist(palette: ThemePalette, mode: ThemeMode) {
+  writePersistedState(THEME_PERSIST_KEY, { palette, mode })
 }
 
 function setTheme(palette: ThemePalette, mode: ThemeMode) {
-  setStore('palette', palette)
-  setStore('mode', mode)
-  persist()
+  setStore((state) => {
+    state.palette = palette
+    state.mode = mode
+  })
+  persist(palette, mode)
   listeners.notify()
 }
 

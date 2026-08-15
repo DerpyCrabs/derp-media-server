@@ -37,11 +37,13 @@ function OutlineItem(props: {
         </Show>
         <button
           type='button'
-          class='min-w-0 flex-1 truncate rounded px-1.5 py-1 text-left text-sm hover:bg-white/10'
-          classList={{
-            'bg-white/15 text-white': props.active === props.item.target,
-            'text-white/72': props.active !== props.item.target,
-          }}
+          class={[
+            'min-w-0 flex-1 truncate rounded px-1.5 py-1 text-left text-sm hover:bg-white/10',
+            {
+              'bg-white/15 text-white': props.active === props.item.target,
+              'text-white/72': props.active !== props.item.target,
+            },
+          ]}
           title={props.item.label}
           onClick={() => props.onNavigate(props.item.target, props.item.anchor)}
         >

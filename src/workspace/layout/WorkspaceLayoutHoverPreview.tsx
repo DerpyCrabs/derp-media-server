@@ -16,8 +16,10 @@ function TabStrip(props: {
 }) {
   return (
     <div
-      class='flex min-h-0 shrink-0 flex-row gap-px overflow-hidden border-b border-border bg-muted/90'
-      classList={{ 'max-h-[26%]': !props.dense, 'max-h-[40%]': !!props.dense }}
+      class={[
+        'flex min-h-0 shrink-0 flex-row gap-px overflow-hidden border-b border-border bg-muted/90',
+        { 'max-h-[26%]': !props.dense, 'max-h-[40%]': !!props.dense },
+      ]}
     >
       <Show when={props.tabs.length === 0}>
         <span class='flex min-h-[14px] min-w-0 flex-1 items-center justify-center bg-secondary/50 px-0.5 text-[8px] text-muted-foreground'>
@@ -48,11 +50,13 @@ function TabStrip(props: {
 function PreviewGroupShell(props: ParentProps<{ group: LayoutPreviewGroup }>) {
   return (
     <div
-      class='absolute box-border flex h-full w-full flex-col overflow-hidden rounded-sm border border-foreground/25 bg-card shadow-sm'
-      classList={{
-        'opacity-[0.58]': props.group.minimized,
-        'ring-1 ring-dashed ring-muted-foreground/40': props.group.minimized,
-      }}
+      class={[
+        'absolute box-border flex h-full w-full flex-col overflow-hidden rounded-sm border border-foreground/25 bg-card shadow-sm',
+        {
+          'opacity-[0.58]': props.group.minimized,
+          'ring-1 ring-dashed ring-muted-foreground/40': props.group.minimized,
+        },
+      ]}
       style={{
         left: `${props.group.leftPct}%`,
         top: `${props.group.topPct}%`,

@@ -58,9 +58,12 @@ export function WorkspaceNamedLayoutMenu(props: Props) {
     anchor: { left: number; top: number; right: number; bottom: number }
   } | null>(null)
 
-  createEffect(() => {
-    if (!menuOpen()) setLayoutHoverPreview(null)
-  })
+  createEffect(
+    () => menuOpen(),
+    (isOpen) => {
+      if (!isOpen) setLayoutHoverPreview(null)
+    },
+  )
 
   const persistPresetsMutation = useMutation(() => ({
     mutationFn: async (next: WorkspaceLayoutPreset[]) =>

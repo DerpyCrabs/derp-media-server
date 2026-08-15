@@ -1,7 +1,7 @@
 import { cn } from '@/lib/ui/cn'
 import Settings from 'lucide-solid/icons/settings'
-import { Show, createEffect, createSignal, onCleanup } from 'solid-js'
-import { Portal } from 'solid-js/web'
+import { Show, createEffect, createSignal } from 'solid-js'
+import { Portal } from '@solidjs/web'
 import { ThemeSwitcherMenuContent } from './ThemeSwitcherMenuContent'
 
 type Props = { variant?: 'header' | 'floating' }
@@ -44,20 +44,24 @@ export function ThemeSwitcher(props: Props) {
     setMenuOpen(!menuOpen())
   }
 
-  createEffect(() => {
-    if (!menuOpen()) return
-    const update = () => updateMenuPosition()
-    window.addEventListener('resize', update)
-    window.addEventListener('scroll', update, true)
-    window.visualViewport?.addEventListener('resize', update)
-    window.visualViewport?.addEventListener('scroll', update)
-    onCleanup(() => {
-      window.removeEventListener('resize', update)
-      window.removeEventListener('scroll', update, true)
-      window.visualViewport?.removeEventListener('resize', update)
-      window.visualViewport?.removeEventListener('scroll', update)
-    })
-  })
+  createEffect(
+    () => menuOpen(),
+    (isOpen) => {
+      if (!isOpen) return undefined
+      const update = () => updateMenuPosition()
+      window.addEventListener('resize', update)
+      window.addEventListener('scroll', update, true)
+      window.visualViewport?.addEventListener('resize', update)
+      window.visualViewport?.addEventListener('scroll', update)
+      // eslint-disable-next-line solid/reactivity
+      return () => {
+        window.removeEventListener('resize', update)
+        window.removeEventListener('scroll', update, true)
+        window.visualViewport?.removeEventListener('resize', update)
+        window.visualViewport?.removeEventListener('scroll', update)
+      }
+    },
+  )
 
   return (
     <div class={cn('relative', variant() === 'floating' && 'fixed bottom-4 right-4 z-10002')}>
@@ -68,7 +72,7 @@ export function ThemeSwitcher(props: Props) {
         type='button'
         title='Theme settings'
         aria-label='Open theme settings'
-        aria-expanded={menuOpen()}
+        aria-expanded={menuOpen() ? 'true' : 'false'}
         class='inline-flex size-8 shrink-0 items-center justify-center rounded-md text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground dark:hover:bg-input/50 aria-expanded:bg-muted aria-expanded:text-foreground'
         onClick={toggleMenu}
       >
@@ -85,11 +89,13 @@ export function ThemeSwitcher(props: Props) {
             data-testid='theme-settings-menu'
             role='menu'
             aria-label='Theme settings'
-            class='ring-foreground/10 fixed z-10001 min-w-44 max-w-[calc(100vw-1rem)] overflow-y-auto overscroll-contain rounded-md bg-popover p-1 text-popover-foreground shadow-md ring-1'
-            classList={{
-              'origin-bottom-right': variant() === 'floating',
-              'origin-top-right': variant() !== 'floating',
-            }}
+            class={[
+              'ring-foreground/10 fixed z-10001 min-w-44 max-w-[calc(100vw-1rem)] overflow-y-auto overscroll-contain rounded-md bg-popover p-1 text-popover-foreground shadow-md ring-1',
+              {
+                'origin-bottom-right': variant() === 'floating',
+                'origin-top-right': variant() !== 'floating',
+              },
+            ]}
             style={{
               right: `${menuPosition().right}px`,
               ...(variant() === 'floating'

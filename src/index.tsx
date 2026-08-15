@@ -8,7 +8,7 @@ import {
   hydrate,
   type DehydratedState,
 } from '@tanstack/solid-query'
-import { render } from 'solid-js/web'
+import { render } from '@solidjs/web'
 import { App } from './App'
 import { AppProviders } from './AppProviders'
 

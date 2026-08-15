@@ -15,7 +15,7 @@ import {
 import Pin from 'lucide-solid/icons/pin'
 import X from 'lucide-solid/icons/x'
 import type { Accessor } from 'solid-js'
-import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from 'solid-js'
+import { For, Show, createEffect, createMemo, createSignal, onSettled } from 'solid-js'
 
 function TabStripDropSlot(props: {
   groupId: string
@@ -39,7 +39,7 @@ function TabStripDropSlot(props: {
           ? `min-w-[12px] w-[12px] ${props.highlighted ? 'bg-primary/80' : ''}`
           : 'pointer-events-none max-w-0 min-w-0 w-0 overflow-hidden select-none'
       }`}
-      aria-hidden={props.active ? undefined : true}
+      aria-hidden={props.active ? undefined : 'true'}
       onDragOver={(e) => {
         if (!props.active || !props.onDropFile) return
         props.onSlotDragOver(e, props.groupSlotIndex)
@@ -145,22 +145,22 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
     })
   }
 
-  onMount(() => {
+  onSettled(() => {
     const observer = new ResizeObserver(scheduleFocusedTabScroll)
     if (scrollEl) observer.observe(scrollEl)
     scheduleFocusedTabScroll()
-    onCleanup(() => {
+    return () => {
       observer.disconnect()
       if (focusScrollFrame !== undefined) cancelAnimationFrame(focusScrollFrame)
-    })
+    }
   })
 
-  createEffect(() => {
-    tabsList()
-    pinnedLead()
-    props.visibleTabId()
-    scheduleFocusedTabScroll()
-  })
+  createEffect(
+    () => [tabsList(), pinnedLead(), props.visibleTabId()] as const,
+    () => {
+      scheduleFocusedTabScroll()
+    },
+  )
   const fileDropSlotActiveByDisplay = (displaySlotIndex: number) =>
     displaySlotIndex === tabsList().length || displaySlotIndex >= pinnedLead()
 

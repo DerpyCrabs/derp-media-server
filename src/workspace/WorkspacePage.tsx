@@ -3,6 +3,7 @@ import type { FileItem } from '@/lib/files/types'
 import { MediaType } from '@/lib/files/types'
 import { getMediaType } from '@/lib/media/media-utils'
 import type { AssistGridSpan } from '@/workspace/model/workspace-assist-grid'
+import type { WorkspaceLayoutPreset } from '@/workspace/model/workspace-settings-types'
 import {
   createDefaultBounds,
   createWindowLayout,
@@ -40,7 +41,7 @@ import {
   pickWorkspaceWindowAtClientPoint,
 } from './tabs/workspace-file-open-target-picker'
 import { directoryTitle } from '@/lib/files/directory-title'
-import { For, Show, createEffect, createMemo, createSignal, onCleanup, untrack } from 'solid-js'
+import { For, Show, createEffect, createMemo, createSignal } from 'solid-js'
 import { useThemeStore } from '@/lib/state/theme-store'
 import { useStoreSync } from '@/lib/state/solid-store-sync'
 import type { FileIconContext } from '@/features/explorer/use-file-icon'
@@ -129,66 +130,111 @@ export function WorkspacePage() {
     workspace,
   })
 
-  createEffect(() => {
-    const w = workspace()
-    const t = w?.fileOpenTarget
-    if (t !== 'new-tab' && t !== 'new-window') return
-    const cur = fileOpenTargetStore.getState().target
-    if (cur !== t) {
-      fileOpenTargetStore.getState().setTarget(t)
-    }
-  })
-
-  createEffect(() => {
-    if (!fileOpenTargetPick()) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setFileOpenTargetPick(null)
-        setFileOpenPickHoverId(null)
+  createEffect(
+    () => workspace()?.fileOpenTarget,
+    (target) => {
+      if (target !== 'new-tab' && target !== 'new-window') return
+      const current = fileOpenTargetStore.getState().target
+      if (current !== target) {
+        fileOpenTargetStore.getState().setTarget(target)
       }
-    }
-    window.addEventListener('keydown', onKey)
-    onCleanup(() => window.removeEventListener('keydown', onKey))
-  })
+    },
+  )
+
+  createEffect(
+    () => !!fileOpenTargetPick(),
+    (isOpen) => {
+      if (!isOpen) return undefined
+      const onKey = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+          setFileOpenTargetPick(null)
+          setFileOpenPickHoverId(null)
+        }
+      }
+      window.addEventListener('keydown', onKey)
+      // eslint-disable-next-line solid/reactivity
+      return () => window.removeEventListener('keydown', onKey)
+    },
+  )
 
   const [pinsHydratedFor, setPinsHydratedFor] = createSignal('')
 
   let lastHydratedStorageKey = ''
+  const [generatedWorkspaceSession, setGeneratedWorkspaceSession] = createSignal<{
+    pathname: string
+    id: string
+  } | null>(null)
 
-  createEffect(() => {
-    const loc = history()
-    if (!isWorkspaceRoute(loc.pathname)) return
-    const sp = urlSearchParams()
-    let sid = sp.get('ws') ?? ''
-    if (!sid) {
-      sid = crypto.randomUUID()
-      navigateSearchParams({ ws: sid }, 'replace')
-    }
-    const base = workspaceStorageBaseKey()
-    const key = workspaceStorageSessionKey(base, sid)
-    const dirParam = sp.get('dir')
-    const presetParam = sp.get('preset')
-    void server.settingsQuery.isSuccess
-    void server.serverLayoutPresets()
-    const presetsReadyNow = server.settingsQuery.isSuccess
-    // Always prefer session draft in localStorage over a named preset in the URL.
-    const loaded = loadPersisted(key)
-    const src = browserSource()
-    const scope = server.layoutScope()
-    const presetsList = server.serverLayoutPresets()
+  type WorkspaceHydration =
+    | { kind: 'generate-session'; pathname: string }
+    | {
+        kind: 'hydrate'
+        sid: string
+        hasSid: boolean
+        key: string
+        dirParam: string | null
+        presetParam: string | null
+        loaded: PersistedWorkspaceState | null
+        hasPersistedDraft: boolean
+        presetsReadyNow: boolean
+        presetsList: WorkspaceLayoutPreset[]
+        scope: string
+        source: WorkspaceSource
+      }
 
-    if (lastHydratedStorageKey !== key) {
-      lastHydratedStorageKey = key
-      const initial = resolveWorkspaceInitialHydration({
-        dirParam,
-        presetParam,
+  createEffect(
+    (): WorkspaceHydration | null => {
+      const location = history()
+      if (!isWorkspaceRoute(location.pathname)) return null
+      const params = urlSearchParams()
+      const sidParam = params.get('ws') ?? ''
+      const generated = generatedWorkspaceSession()
+      const generatedId = generated?.pathname === location.pathname ? generated.id : undefined
+      if (!sidParam && !generatedId)
+        return { kind: 'generate-session', pathname: location.pathname }
+      const sid = sidParam || generatedId!
+      const base = workspaceStorageBaseKey()
+      const key = workspaceStorageSessionKey(base, sid)
+      const presetsReadyNow = server.settingsQuery.isSuccess
+      const presetsList = server.serverLayoutPresets()
+      const scope = server.layoutScope()
+      const loaded = loadPersisted(key)
+      return {
+        sid,
+        kind: 'hydrate',
+        hasSid: !!sidParam,
+        key,
+        dirParam: params.get('dir'),
+        presetParam: params.get('preset'),
         loaded,
+        hasPersistedDraft: !!loaded,
         presetsReadyNow,
         presetsList,
-        layoutScope: scope,
-        source: src,
-      })
-      untrack(() => {
+        scope,
+        source: browserSource(),
+      }
+    },
+    (hydration) => {
+      if (!hydration) return
+      if (hydration.kind === 'generate-session') {
+        setGeneratedWorkspaceSession({ pathname: hydration.pathname, id: crypto.randomUUID() })
+        return
+      }
+      if (!hydration.hasSid) {
+        navigateSearchParams({ ws: hydration.sid }, 'replace')
+      }
+
+      if (lastHydratedStorageKey !== hydration.key) {
+        lastHydratedStorageKey = hydration.key
+        const initial = resolveWorkspaceInitialHydration({
+          dirParam: hydration.dirParam,
+          presetParam: hydration.presetParam,
+          loaded: hydration.loaded,
+          presetsReadyNow: hydration.presetsReadyNow,
+          presetsList: hydration.presetsList,
+          layoutScope: hydration.scope,
+          source: hydration.source,
+        })
         if (initial.kind === 'defer-preset') {
           setPinsHydratedFor('')
           return
@@ -207,19 +253,17 @@ export function WorkspacePage() {
           navigateSearchParams({ preset: null }, 'replace')
         }
         setPinsHydratedFor('')
-      })
-      return
-    }
+        return
+      }
 
-    const deferred = resolveWorkspaceDeferredPresetApply({
-      presetParam,
-      presetsReadyNow,
-      hasPersistedDraft: !!loadPersisted(key),
-      presetsList,
-      layoutScope: scope,
-    })
-    if (!deferred) return
-    untrack(() => {
+      const deferred = resolveWorkspaceDeferredPresetApply({
+        presetParam: hydration.presetParam,
+        presetsReadyNow: hydration.presetsReadyNow,
+        hasPersistedDraft: hydration.hasPersistedDraft,
+        presetsList: hydration.presetsList,
+        layoutScope: hydration.scope,
+      })
+      if (!deferred) return
       if (deferred.kind === 'apply') {
         baseline.setLayoutBaselinePresetId(deferred.baselinePresetId)
         baseline.setLayoutBaselineSerialized(
@@ -232,26 +276,27 @@ export function WorkspacePage() {
         navigateSearchParams({ preset: null }, 'replace')
       }
       setPinsHydratedFor('')
-    })
-  })
+    },
+  )
 
-  createEffect(() => {
-    if (!server.serverPinsReady()) return
-    const { key } = storageSessionKeyFull()
-    const w = workspace()
-    if (!key || !w) return
-    if (pinsHydratedFor() === key) return
-
-    const serverPins = server.serverPinsList()
-    untrack(() => {
-      if (serverPins.length > 0) {
-        setWorkspace((prev) => (prev ? { ...prev, pinnedTaskbarItems: serverPins } : prev))
-      } else if ((w.pinnedTaskbarItems?.length ?? 0) > 0) {
-        void server.persistPinsMutation.mutateAsync(w.pinnedTaskbarItems ?? [])
+  createEffect(
+    () => {
+      if (!server.serverPinsReady()) return null
+      const { key } = storageSessionKeyFull()
+      const state = workspace()
+      if (!key || !state || pinsHydratedFor() === key) return null
+      return { key, state, serverPins: server.serverPinsList() }
+    },
+    (pins) => {
+      if (!pins) return
+      if (pins.serverPins.length > 0) {
+        setWorkspace((prev) => (prev ? { ...prev, pinnedTaskbarItems: pins.serverPins } : prev))
+      } else if ((pins.state.pinnedTaskbarItems?.length ?? 0) > 0) {
+        void server.persistPinsMutation.mutateAsync(pins.state.pinnedTaskbarItems ?? [])
       }
-    })
-    setPinsHydratedFor(key)
-  })
+      setPinsHydratedFor(pins.key)
+    },
+  )
 
   function focusWindow(windowId: string) {
     const w = workspace()
@@ -1303,33 +1348,37 @@ export function WorkspacePage() {
     cancelFileOpenTargetPick()
   }
 
-  createEffect(() => {
-    if (!fileOpenTargetPick()) return
-    const prevCursor = document.body.style.cursor
-    document.body.style.cursor = 'crosshair'
-    const onMove = (e: PointerEvent) => {
-      updateFileOpenPickHover(e.clientX, e.clientY)
-    }
-    const onUp = (e: PointerEvent) => {
-      const w = workspace()
-      const area = snap.getWorkspaceAreaElement()
-      if (!w || !area) {
-        cancelFileOpenTargetPick()
-        return
+  createEffect(
+    () => !!fileOpenTargetPick(),
+    (isOpen) => {
+      if (!isOpen) return undefined
+      const previousCursor = document.body.style.cursor
+      document.body.style.cursor = 'crosshair'
+      const onMove = (e: PointerEvent) => {
+        updateFileOpenPickHover(e.clientX, e.clientY)
       }
-      const rect = area.getBoundingClientRect()
-      const id = pickWorkspaceWindowAtClientPoint(w.windows, rect, e.clientX, e.clientY)
-      if (id) commitFileOpenTargetPick(id)
-      else cancelFileOpenTargetPick()
-    }
-    document.addEventListener('pointermove', onMove, { capture: true })
-    document.addEventListener('pointerup', onUp, { capture: true })
-    onCleanup(() => {
-      document.body.style.cursor = prevCursor
-      document.removeEventListener('pointermove', onMove, { capture: true })
-      document.removeEventListener('pointerup', onUp, { capture: true })
-    })
-  })
+      const onUp = (e: PointerEvent) => {
+        const state = workspace()
+        const area = snap.getWorkspaceAreaElement()
+        if (!state || !area) {
+          cancelFileOpenTargetPick()
+          return
+        }
+        const rect = area.getBoundingClientRect()
+        const id = pickWorkspaceWindowAtClientPoint(state.windows, rect, e.clientX, e.clientY)
+        if (id) commitFileOpenTargetPick(id)
+        else cancelFileOpenTargetPick()
+      }
+      document.addEventListener('pointermove', onMove, { capture: true })
+      document.addEventListener('pointerup', onUp, { capture: true })
+      // eslint-disable-next-line solid/reactivity
+      return () => {
+        document.body.style.cursor = previousCursor
+        document.removeEventListener('pointermove', onMove, { capture: true })
+        document.removeEventListener('pointerup', onUp, { capture: true })
+      }
+    },
+  )
 
   return (
     <div class='workspace-layout pointer-events-auto fixed inset-0 flex flex-col overflow-hidden bg-background select-none'>

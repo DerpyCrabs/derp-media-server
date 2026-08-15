@@ -6,16 +6,8 @@ import LoaderCircle from 'lucide-solid/icons/loader-circle'
 import X from 'lucide-solid/icons/x'
 import ZoomIn from 'lucide-solid/icons/zoom-in'
 import ZoomOut from 'lucide-solid/icons/zoom-out'
-import {
-  Show,
-  createEffect,
-  createMemo,
-  createSignal,
-  onCleanup,
-  onMount,
-  type Accessor,
-  type JSX,
-} from 'solid-js'
+import { Show, createMemo, createSignal, onSettled, type Accessor } from 'solid-js'
+import type { JSX } from '@solidjs/web'
 import { createUrlSearchParamsMemo, useBrowserHistory } from '@/lib/browser/browser-history'
 import { createResponsiveImage } from '@/features/viewer/responsive-image'
 import { closeViewer, viewFile } from '@/lib/browser/url-state-actions'
@@ -109,8 +101,8 @@ export function ImageViewerPane(props: ImageViewerPaneProps): JSX.Element {
     moveImage(-1)
   }
 
-  createEffect(() => {
-    if (!props.viewingPath) return
+  onSettled(() => {
+    if (!props.viewingPath) return undefined
     const handler = (e: KeyboardEvent) => {
       if (props.active && !props.active()) return
       const target = e.target as HTMLElement | null
@@ -126,7 +118,8 @@ export function ImageViewerPane(props: ImageViewerPaneProps): JSX.Element {
       }
     }
     window.addEventListener('keydown', handler, true)
-    onCleanup(() => window.removeEventListener('keydown', handler, true))
+    // eslint-disable-next-line solid/reactivity
+    return () => window.removeEventListener('keydown', handler, true)
   })
 
   function handleDownload() {
@@ -230,16 +223,15 @@ export function ImageViewerPane(props: ImageViewerPaneProps): JSX.Element {
     }, 100)
   }
 
-  onCleanup(() => {
-    clearTimeout(wheelResetTimer)
-    clearTimeout(wheelFlushTimer)
-  })
-
-  onMount(() => {
-    if (!viewerElement) return
+  onSettled(() => {
+    if (!viewerElement) return undefined
     const element = viewerElement
     element.addEventListener('wheel', handleWheel, { passive: false })
-    onCleanup(() => element.removeEventListener('wheel', handleWheel))
+    return () => {
+      element.removeEventListener('wheel', handleWheel)
+      clearTimeout(wheelResetTimer)
+      clearTimeout(wheelFlushTimer)
+    }
   })
 
   const imgStyle = createMemo((): JSX.CSSProperties => {
@@ -408,12 +400,12 @@ export function ImageViewerPane(props: ImageViewerPaneProps): JSX.Element {
 
       <div
         data-testid={props.embedded ? 'workspace-image-surface' : 'image-gesture-surface'}
-        class={
+        class={[
           props.embedded
             ? 'relative flex min-h-0 flex-1 touch-pan-y items-center justify-center p-2'
-            : 'relative flex flex-1 touch-pan-y items-center justify-center p-4'
-        }
-        classList={{ 'overflow-hidden': zoom() === 'fit', 'overflow-auto': zoom() !== 'fit' }}
+            : 'relative flex flex-1 touch-pan-y items-center justify-center p-4',
+          { 'overflow-hidden': zoom() === 'fit', 'overflow-auto': zoom() !== 'fit' },
+        ]}
         ref={setImageSurface}
         onPointerDown={handlePointerDown}
         onPointerUp={handlePointerUp}
@@ -477,12 +469,12 @@ export function ImageViewerPane(props: ImageViewerPaneProps): JSX.Element {
           <img
             src={responsiveImage.src()}
             alt={fileName()}
-            class={
+            class={[
               props.embedded
                 ? 'pointer-events-none shrink-0'
-                : 'pointer-events-none shrink-0 select-none'
-            }
-            classList={{ invisible: responsiveImage.showSpinner() }}
+                : 'pointer-events-none shrink-0 select-none',
+              { invisible: responsiveImage.showSpinner() },
+            ]}
             style={imgStyle()}
           />
         </Show>

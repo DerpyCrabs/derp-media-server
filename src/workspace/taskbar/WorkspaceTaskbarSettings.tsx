@@ -11,7 +11,7 @@ import Moon from 'lucide-solid/icons/moon'
 import Settings from 'lucide-solid/icons/settings'
 import Sun from 'lucide-solid/icons/sun'
 import type { Accessor } from 'solid-js'
-import { For, Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js'
+import { For, Show, createEffect, createMemo, createSignal } from 'solid-js'
 import { WORKSPACE_TAB_ICON_SWATCHES } from '@/workspace/model/workspace-tab-icon-colors'
 import { SOLID_AVAILABLE_ICONS } from '@/lib/ui/solid-available-icons'
 import { useStoreSync } from '@/lib/state/solid-store-sync'
@@ -102,14 +102,18 @@ export function WorkspaceTaskbarSettings(props: WorkspaceTaskbarSettingsProps) {
     applyTheme(resolveTheme(p, m))
   }
 
-  createEffect(() => {
-    if (!open()) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('keydown', onKey)
-    onCleanup(() => document.removeEventListener('keydown', onKey))
-  })
+  createEffect(
+    () => open(),
+    (isOpen) => {
+      if (!isOpen) return undefined
+      const onKey = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') setOpen(false)
+      }
+      document.addEventListener('keydown', onKey)
+      // eslint-disable-next-line solid/reactivity
+      return () => document.removeEventListener('keydown', onKey)
+    },
+  )
 
   return (
     <div class='relative shrink-0'>
@@ -118,7 +122,7 @@ export function WorkspaceTaskbarSettings(props: WorkspaceTaskbarSettingsProps) {
         class={triggerClass}
         title='Settings'
         aria-label='Open settings'
-        aria-expanded={open()}
+        aria-expanded={open() ? 'true' : 'false'}
         onClick={() => setOpen(!open())}
       >
         <Settings class='h-4 w-4' stroke-width={2} aria-hidden='true' />
@@ -147,7 +151,7 @@ export function WorkspaceTaskbarSettings(props: WorkspaceTaskbarSettingsProps) {
                 type='text'
                 class='mb-3 flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm'
                 placeholder='Workspace'
-                maxLength={120}
+                maxlength={120}
                 value={props.browserTabTitle()}
                 onInput={(e) => props.onBrowserTabTitleChange(e.currentTarget.value)}
               />

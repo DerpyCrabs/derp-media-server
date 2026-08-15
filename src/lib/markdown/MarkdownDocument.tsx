@@ -1,4 +1,5 @@
-import { Show, createEffect, createSignal, onCleanup, onMount, type JSX } from 'solid-js'
+import { Show, createEffect, createSignal, onSettled } from 'solid-js'
+import type { JSX } from '@solidjs/web'
 
 import { createMarkdownEditor, type MarkdownEditorController } from './create-editor'
 import type { MarkdownDocumentProps, MarkdownEditorRuntime } from './types'
@@ -33,7 +34,7 @@ export default function MarkdownDocument(props: MarkdownDocumentProps): JSX.Elem
       props.onPasteImage?.(event, selection, complete) ?? false,
   }
 
-  onMount(() => {
+  onSettled(() => {
     if (!mountElement) return
     const next = createMarkdownEditor({
       parent: mountElement,
@@ -46,48 +47,69 @@ export default function MarkdownDocument(props: MarkdownDocumentProps): JSX.Elem
     setController(next)
   })
 
-  createEffect(() => {
-    const next = controller()
-    const mode = props.mode
-    const label = props.ariaLabel ?? (mode === 'read' ? 'Markdown document' : 'Markdown editor')
-    next?.setMode(mode, label)
-  })
+  createEffect(
+    () => {
+      const mode = props.mode
+      return {
+        controller: controller(),
+        mode,
+        label: props.ariaLabel ?? (mode === 'read' ? 'Markdown document' : 'Markdown editor'),
+      }
+    },
+    ({ controller: next, mode, label }) => {
+      next?.setMode(mode, label)
+    },
+  )
 
-  createEffect(() => {
-    const content = props.content
-    controller()?.setContent(content)
-  })
+  createEffect(
+    () => ({ controller: controller(), content: props.content }),
+    ({ controller: next, content }) => {
+      next?.setContent(content)
+    },
+  )
 
-  createEffect(() => {
-    const resolveImageUrl = props.resolveImageUrl
-    const onChange = props.onChange
-    const onBlur = props.onBlur
-    const onSave = props.onSave
-    const onPasteImage = props.onPasteImage
-    runtime.resolveImageUrl = resolveImageUrl
-    runtime.onChange = onChange
-    runtime.onBlur = onBlur
-    runtime.onSave = onSave
-    runtime.onPasteImage = onPasteImage
-    controller()?.refresh()
-  })
+  createEffect(
+    () => ({
+      controller: controller(),
+      resolveImageUrl: props.resolveImageUrl,
+      onChange: props.onChange,
+      onBlur: props.onBlur,
+      onSave: props.onSave,
+      onPasteImage: props.onPasteImage,
+    }),
+    ({ controller: next, resolveImageUrl, onChange, onBlur, onSave, onPasteImage }) => {
+      runtime.resolveImageUrl = resolveImageUrl
+      runtime.onChange = onChange
+      runtime.onBlur = onBlur
+      runtime.onSave = onSave
+      runtime.onPasteImage = onPasteImage
+      next?.refresh()
+    },
+  )
 
-  createEffect(() => {
-    if (!expandedImage()) return
-    requestAnimationFrame(() => expandedDialog?.focus())
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') closeExpandedImage()
-    }
-    window.addEventListener('keydown', closeOnEscape)
-    onCleanup(() => window.removeEventListener('keydown', closeOnEscape))
-  })
+  createEffect(
+    () => !!expandedImage(),
+    (isExpanded) => {
+      if (!isExpanded) return undefined
+      requestAnimationFrame(() => expandedDialog?.focus())
+      const closeOnEscape = (event: KeyboardEvent) => {
+        if (event.key === 'Escape') closeExpandedImage()
+      }
+      window.addEventListener('keydown', closeOnEscape)
+      // eslint-disable-next-line solid/reactivity
+      return () => window.removeEventListener('keydown', closeOnEscape)
+    },
+  )
 
-  onCleanup(() => controller()?.destroy())
+  // eslint-disable-next-line solid/reactivity
+  onSettled(() => () => controller()?.destroy())
 
   return (
     <div
-      class='markdown-document relative h-full min-h-full overflow-hidden'
-      classList={{ 'markdown-document-compact': props.compact === true }}
+      class={[
+        'markdown-document relative h-full min-h-full overflow-hidden',
+        { 'markdown-document-compact': props.compact === true },
+      ]}
       data-testid='markdown-document'
       data-mode={props.mode}
     >

@@ -1,4 +1,5 @@
-import { For, Show, createEffect, createMemo, createSignal, untrack, type JSX } from 'solid-js'
+import { For, Show, createEffect, createMemo, createSignal, untrack } from 'solid-js'
+import type { JSX } from '@solidjs/web'
 import { getSolidIconComponent, SOLID_AVAILABLE_ICONS } from '@/lib/ui/solid-available-icons'
 import X from 'lucide-solid/icons/x'
 import type { ModalOverlayScope } from './modal-overlay-scope'
@@ -19,9 +20,12 @@ export function IconEditorDialog(props: Props) {
     untrack(() => props.currentIcon),
   )
 
-  createEffect(() => {
-    if (props.isOpen) setSelectedIcon(props.currentIcon)
-  })
+  createEffect(
+    () => ({ isOpen: props.isOpen, currentIcon: props.currentIcon }),
+    ({ isOpen, currentIcon }) => {
+      if (isOpen) setSelectedIcon(currentIcon)
+    },
+  )
 
   function handleSave() {
     props.onSave(selectedIcon())

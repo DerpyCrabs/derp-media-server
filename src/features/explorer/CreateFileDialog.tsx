@@ -39,8 +39,10 @@ export function CreateFileDialog(props: CreateFileDialogProps) {
           </p>
           <input
             type='text'
-            class='mt-4 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring'
-            classList={{ 'border-yellow-500': props.fileExists }}
+            class={[
+              'mt-4 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              { 'border-yellow-500': props.fileExists },
+            ]}
             placeholder={`File name (e.g., ${extExample()})`}
             value={props.fileName}
             onInput={(e) => props.onFileNameChange(e.currentTarget.value)}

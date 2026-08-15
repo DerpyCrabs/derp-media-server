@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/solid-query'
 import { api } from '@/lib/api/client'
-import { createEffect, createMemo, createSignal, onCleanup, onMount } from 'solid-js'
+import { createEffect, createMemo, createSignal, onSettled } from 'solid-js'
 import { queryKeys } from '@/lib/api/query-keys'
 import { MediaType, type FileItem } from '@/lib/files/types'
 import { navigateSearchParams } from '@/lib/browser/browser-history'
@@ -70,8 +70,8 @@ export function PlaybackMediaHost() {
     return audioMetadata()?.coverArt || folderCoverUrl()
   })
 
-  onMount(() => {
-    if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return
+  onSettled(() => {
+    if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return undefined
     navigator.mediaSession.setActionHandler('play', () => session.dispatch({ type: 'play' }))
     navigator.mediaSession.setActionHandler('pause', () => session.dispatch({ type: 'pause' }))
     navigator.mediaSession.setActionHandler('seekbackward', (details) => {
@@ -99,7 +99,7 @@ export function PlaybackMediaHost() {
     )
     navigator.mediaSession.setActionHandler('nexttrack', () => session.dispatch({ type: 'next' }))
 
-    onCleanup(() => {
+    return () => {
       navigator.mediaSession.metadata = null
       try {
         navigator.mediaSession.playbackState = 'none'
@@ -109,74 +109,104 @@ export function PlaybackMediaHost() {
           navigator.mediaSession.setActionHandler(action, null)
         } catch {}
       }
-    })
-  })
-
-  createEffect(() => {
-    const element = audioElement()
-    if (!element || !handlesAudio()) return
-    const detach = mediaHost.attach(element, 'audio')
-    onCleanup(detach)
-  })
-
-  createEffect(() => {
-    if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return
-    const state = snapshot()
-    navigator.mediaSession.playbackState =
-      state.phase === 'playing' ? 'playing' : state.currentItem ? 'paused' : 'none'
-    const item = state.currentItem
-    if (typeof MediaMetadata !== 'undefined') {
-      navigator.mediaSession.metadata = item
-        ? new MediaMetadata(
-            buildPlaybackMediaSessionMetadata({
-              item,
-              mode: state.mode,
-              album: currentDir(),
-              metadata: handlesAudio() ? audioMetadata() : undefined,
-              artworkUrl: artworkUrl(),
-              artworkBaseUrl: typeof window === 'undefined' ? undefined : window.location.origin,
-            }),
-          )
-        : null
     }
   })
 
-  createEffect(() => {
-    if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return
-    const element = audioElement()
-    const state = snapshot()
-    if (!element || !handlesAudio()) return
+  createEffect(
+    () => {
+      const element = audioElement()
+      return element && handlesAudio() ? element : null
+    },
+    (element) => {
+      if (!element) return undefined
+      const detach = mediaHost.attach(element, 'audio')
+      // eslint-disable-next-line solid/reactivity
+      return detach
+    },
+  )
 
-    const duration = Number.isFinite(element.duration) ? element.duration : state.duration
-    const position = Number.isFinite(element.currentTime) ? element.currentTime : state.position
-    setPlaybackMediaSessionPosition(navigator.mediaSession, {
-      duration,
-      position,
-      playbackRate: element.playbackRate,
-    })
-  })
+  createEffect(
+    () => {
+      if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return null
+      const state = snapshot()
+      return {
+        state,
+        album: currentDir(),
+        metadata: handlesAudio() ? audioMetadata() : undefined,
+        artworkUrl: artworkUrl(),
+      }
+    },
+    (next) => {
+      if (!next) return
+      const { state } = next
+      navigator.mediaSession.playbackState =
+        state.phase === 'playing' ? 'playing' : state.currentItem ? 'paused' : 'none'
+      const item = state.currentItem
+      if (typeof MediaMetadata !== 'undefined') {
+        navigator.mediaSession.metadata = item
+          ? new MediaMetadata(
+              buildPlaybackMediaSessionMetadata({
+                item,
+                mode: state.mode,
+                album: next.album,
+                metadata: next.metadata,
+                artworkUrl: next.artworkUrl,
+                artworkBaseUrl: typeof window === 'undefined' ? undefined : window.location.origin,
+              }),
+            )
+          : null
+      }
+    },
+  )
+
+  createEffect(
+    () => {
+      if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return null
+      const element = audioElement()
+      const state = snapshot()
+      return element && handlesAudio() ? { element, state } : null
+    },
+    (next) => {
+      if (!next) return
+      const duration = Number.isFinite(next.element.duration)
+        ? next.element.duration
+        : next.state.duration
+      const position = Number.isFinite(next.element.currentTime)
+        ? next.element.currentTime
+        : next.state.position
+      setPlaybackMediaSessionPosition(navigator.mediaSession, {
+        duration,
+        position,
+        playbackRate: next.element.playbackRate,
+      })
+    },
+  )
 
   let observedItem = ''
-  createEffect(() => {
-    const state = snapshot()
-    const item = state.currentItem
-    if (!item || typeof window === 'undefined' || window.location.pathname !== '/') return
-    const signature = `${item.locator}\0${state.mode}`
-    if (signature === observedItem) return
-    observedItem = signature
-    const params = new URLSearchParams(window.location.search)
-    if (!params.has('playing')) return
-    const audioOnly = item.media === 'video' && state.mode === 'audio'
-    if (
-      params.get('playing') !== item.locator ||
-      (params.get('audioOnly') === 'true') !== audioOnly
-    ) {
-      navigateSearchParams(
-        { playing: item.locator, audioOnly: audioOnly ? 'true' : null },
-        'replace',
-      )
-    }
-  })
+  createEffect(
+    () => {
+      const state = snapshot()
+      const item = state.currentItem
+      if (!item || typeof window === 'undefined' || window.location.pathname !== '/') return null
+      return { state, item, signature: `${item.locator}\0${state.mode}` }
+    },
+    (next) => {
+      if (!next || next.signature === observedItem) return
+      observedItem = next.signature
+      const params = new URLSearchParams(window.location.search)
+      if (!params.has('playing')) return
+      const audioOnly = next.item.media === 'video' && next.state.mode === 'audio'
+      if (
+        params.get('playing') !== next.item.locator ||
+        (params.get('audioOnly') === 'true') !== audioOnly
+      ) {
+        navigateSearchParams(
+          { playing: next.item.locator, audioOnly: audioOnly ? 'true' : null },
+          'replace',
+        )
+      }
+    },
+  )
 
   return (
     <audio

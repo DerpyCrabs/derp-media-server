@@ -8,7 +8,7 @@ import { api } from '@/lib/api/client'
 import { queryKeys } from '@/lib/api/query-keys'
 import { cn } from '@/lib/ui/cn'
 import FileText from 'lucide-solid/icons/file-text'
-import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from 'solid-js'
+import { For, Show, createEffect, createMemo, createSignal, onSettled } from 'solid-js'
 
 type RecentFile = { path: string; name: string; modifiedAt: string }
 
@@ -40,7 +40,7 @@ export function KbDashboard(props: Props) {
   const compact = () => props.compact === true || props.mode === 'Workspace'
   const [enableDrag, setEnableDrag] = createSignal(finePointerDragEnabled())
 
-  onMount(() => {
+  onSettled(() => {
     setEnableDrag(finePointerDragEnabled())
     return subscribeFinePointerDragEnabled(setEnableDrag)
   })
@@ -65,12 +65,15 @@ export function KbDashboard(props: Props) {
     el.scrollLeft += e.deltaY
   }
 
-  createEffect(() => {
-    const el = scrollEl()
-    if (!el) return
-    el.addEventListener('wheel', handleWheel, { passive: false })
-    onCleanup(() => el.removeEventListener('wheel', handleWheel))
-  })
+  createEffect(
+    () => scrollEl(),
+    (el) => {
+      if (!el) return undefined
+      el.addEventListener('wheel', handleWheel, { passive: false })
+      // eslint-disable-next-line solid/reactivity
+      return () => el.removeEventListener('wheel', handleWheel)
+    },
+  )
 
   function onRecentDragStart(file: RecentFile, e: globalThis.DragEvent) {
     const dtr = e.dataTransfer
@@ -111,7 +114,7 @@ export function KbDashboard(props: Props) {
                     ? 'gap-1 px-1.5 py-0.5'
                     : 'gap-1 px-1.5 py-1 md:gap-1.5 md:px-2 md:py-1.5',
                 )}
-                draggable={enableDrag()}
+                draggable={enableDrag() ? 'true' : 'false'}
                 onClick={() => props.onFileClick(file.path)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {

@@ -15,8 +15,9 @@ import { useQuery } from '@tanstack/solid-query'
 import Search from 'lucide-solid/icons/search'
 import SquareStack from 'lucide-solid/icons/square-stack'
 import X from 'lucide-solid/icons/x'
-import { For, Show, createEffect, createMemo, createSignal, onCleanup, type JSX } from 'solid-js'
-import { Portal } from 'solid-js/web'
+import { For, Show, createEffect, createMemo, createSignal, onSettled } from 'solid-js'
+import type { JSX } from '@solidjs/web'
+import { Portal } from '@solidjs/web'
 
 type CanvasSearchItem =
   | { kind: 'window'; id: string; title: string; detail: string }
@@ -52,11 +53,14 @@ export function CanvasSearchPalette(props: Props) {
   let dialogEl: HTMLDivElement | undefined
   const previousFocus = document.activeElement as HTMLElement | null
 
-  createEffect(() => {
-    const value = query()
-    const timer = window.setTimeout(() => setDebounced(value.trim()), 120)
-    onCleanup(() => window.clearTimeout(timer))
-  })
+  createEffect(
+    () => query(),
+    (value) => {
+      const timer = window.setTimeout(() => setDebounced(value.trim()), 120)
+      // eslint-disable-next-line solid/reactivity
+      return () => window.clearTimeout(timer)
+    },
+  )
 
   const normalized = createMemo(() => normalizeFileSearchText(debounced()))
   const localMatches = createMemo(() => {
@@ -115,12 +119,14 @@ export function CanvasSearchPalette(props: Props) {
   })
   const items = createMemo(() => [...localMatches(), ...fileMatches()])
 
-  createEffect(() => {
-    void normalized()
-    setActiveIndex(0)
-  })
+  createEffect(
+    () => normalized(),
+    () => {
+      setActiveIndex(0)
+    },
+  )
 
-  createEffect(() => {
+  onSettled(() => {
     const oldOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     queueMicrotask(() => inputEl?.focus())
@@ -146,11 +152,12 @@ export function CanvasSearchPalette(props: Props) {
       }
     }
     document.addEventListener('keydown', close)
-    onCleanup(() => {
+    // eslint-disable-next-line solid/reactivity
+    return () => {
       document.body.style.overflow = oldOverflow
       document.removeEventListener('keydown', close)
       queueMicrotask(() => previousFocus?.focus())
-    })
+    }
   })
 
   function choose(item: CanvasSearchItem) {
@@ -223,8 +230,10 @@ export function CanvasSearchPalette(props: Props) {
               {([value, label]) => (
                 <button
                   type='button'
-                  class='rounded-full px-3 py-1 text-xs hover:bg-muted'
-                  classList={{ 'bg-primary text-primary-foreground': scope() === value }}
+                  class={[
+                    'rounded-full px-3 py-1 text-xs hover:bg-muted',
+                    { 'bg-primary text-primary-foreground': scope() === value },
+                  ]}
                   onClick={() => setScope(value)}
                 >
                   {label}

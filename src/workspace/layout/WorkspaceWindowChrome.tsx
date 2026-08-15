@@ -11,8 +11,8 @@ import Minimize2 from 'lucide-solid/icons/minimize-2'
 import Minus from 'lucide-solid/icons/minus'
 import X from 'lucide-solid/icons/x'
 import ChevronDown from 'lucide-solid/icons/chevron-down'
-import { type Accessor, Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js'
-import type { JSX } from 'solid-js'
+import { type Accessor, Show, createEffect, createMemo, createSignal } from 'solid-js'
+import type { JSX } from '@solidjs/web'
 import {
   type ResizeHandleKey,
   getWorkspaceSnapResizeHandleMap,
@@ -115,18 +115,21 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
   const [titleBarEl, setTitleBarEl] = createSignal<HTMLDivElement | null>(null)
   const preferredSnapTick = useStoreSync(useWorkspacePreferredSnapStore)
 
-  createEffect(() => {
-    const el = windowGroupEl()
-    if (!el) return
-    const onMouseDownCapture = (e: MouseEvent) => {
-      if (e.button !== 0) return
-      const t = e.target as HTMLElement | null
-      if (t?.closest?.('.workspace-window-drag-handle')) return
-      props.onFocusWindow(props.visibleTabId())
-    }
-    el.addEventListener('mousedown', onMouseDownCapture, true)
-    onCleanup(() => el.removeEventListener('mousedown', onMouseDownCapture, true))
-  })
+  createEffect(
+    () => windowGroupEl(),
+    (el) => {
+      if (!el) return undefined
+      const onMouseDownCapture = (e: MouseEvent) => {
+        if (e.button !== 0) return
+        const t = e.target as HTMLElement | null
+        if (t?.closest?.('.workspace-window-drag-handle')) return
+        props.onFocusWindow(props.visibleTabId())
+      }
+      el.addEventListener('mousedown', onMouseDownCapture, true)
+      // eslint-disable-next-line solid/reactivity
+      return () => el.removeEventListener('mousedown', onMouseDownCapture, true)
+    },
+  )
 
   const liveLeaderId = createMemo(() => {
     const rows = props.workspace()?.windows ?? []
@@ -260,16 +263,19 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
     document.addEventListener('pointercancel', onUp)
   }
 
-  createEffect(() => {
-    const bar = titleBarEl()
-    if (!bar) return
-    const onPointerDownCapture = (e: PointerEvent) => {
-      if (e.button !== 0) return
-      startWindowDrag(e, bar)
-    }
-    bar.addEventListener('pointerdown', onPointerDownCapture, true)
-    onCleanup(() => bar.removeEventListener('pointerdown', onPointerDownCapture, true))
-  })
+  createEffect(
+    () => titleBarEl(),
+    (bar) => {
+      if (!bar) return undefined
+      const onPointerDownCapture = (e: PointerEvent) => {
+        if (e.button !== 0) return
+        startWindowDrag(e, bar)
+      }
+      bar.addEventListener('pointerdown', onPointerDownCapture, true)
+      // eslint-disable-next-line solid/reactivity
+      return () => bar.removeEventListener('pointerdown', onPointerDownCapture, true)
+    },
+  )
 
   const startResize = (direction: string, e: PointerEvent) => {
     e.preventDefault()
@@ -385,7 +391,7 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
             ? { opacity: 0.55 }
             : {}),
       }}
-      aria-hidden={isMinimized()}
+      aria-hidden={isMinimized() ? 'true' : 'false'}
     >
       <div
         ref={(el) => setWindowGroupEl(el ?? null)}
@@ -427,7 +433,7 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
           </div>
           <div
             class='workspace-window-drag-handle min-w-[48px] shrink-0 cursor-grab active:cursor-grabbing'
-            aria-hidden
+            aria-hidden='true'
           />
           <div
             data-no-window-drag
@@ -513,7 +519,7 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
             data-workspace-resize-handle
             role='separator'
             aria-label='Resize top edge'
-            tabIndex={0}
+            tabindex={0}
             class='pointer-events-auto absolute top-0 right-2 left-2 z-[100] h-2'
             style={{ cursor: 'row-resize' }}
             onPointerDown={(e) => {
@@ -530,7 +536,7 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
             data-workspace-resize-handle
             role='separator'
             aria-label='Resize bottom edge'
-            tabIndex={0}
+            tabindex={0}
             class='pointer-events-auto absolute right-2 bottom-0 left-2 z-[100] h-2'
             style={{ cursor: 'row-resize' }}
             onPointerDown={(e) => {
@@ -547,7 +553,7 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
             data-workspace-resize-handle
             role='separator'
             aria-label='Resize left edge'
-            tabIndex={0}
+            tabindex={0}
             class='pointer-events-auto absolute top-2 bottom-2 left-0 z-[100] w-2'
             style={{ cursor: 'col-resize' }}
             onPointerDown={(e) => {
@@ -564,7 +570,7 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
             data-workspace-resize-handle
             role='separator'
             aria-label='Resize right edge'
-            tabIndex={0}
+            tabindex={0}
             class='pointer-events-auto absolute top-2 right-0 bottom-2 z-[100] w-2'
             style={{ cursor: 'col-resize' }}
             onPointerDown={(e) => {

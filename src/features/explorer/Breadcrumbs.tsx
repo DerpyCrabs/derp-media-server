@@ -11,7 +11,7 @@ import ChevronRight from 'lucide-solid/icons/chevron-right'
 import House from 'lucide-solid/icons/house'
 import MoreHorizontal from 'lucide-solid/icons/more-horizontal'
 import type { Accessor } from 'solid-js'
-import { For, Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js'
+import { For, Show, createEffect, createMemo, createSignal } from 'solid-js'
 
 type PathMenuEntry = { name: string; path: string; originIndex: number }
 
@@ -48,7 +48,8 @@ export function Breadcrumbs(props: BreadcrumbsProps) {
   const [containerEl, setContainerEl] = createSignal<HTMLDivElement | null>(null)
   const [measureEl, setMeasureEl] = createSignal<HTMLDivElement | null>(null)
   const [visibleIndices, setVisibleIndices] = createSignal<Set<number>>(new Set())
-  const [showPathEllipsis, setShowPathEllipsis] = createSignal(false)
+  const [pathEllipsisVisible, setShowPathEllipsis] = createSignal<boolean>(false)
+  const setPathEllipsis = setShowPathEllipsis
   /** When true, inline trail is Home > … > current (parent folder not in the bar). */
   const [ellipsisSkipsParent, setEllipsisSkipsParent] = createSignal(false)
   const [compactPathOnly, setCompactPathOnly] = createSignal(false)
@@ -102,154 +103,155 @@ export function Breadcrumbs(props: BreadcrumbsProps) {
       'hover:bg-muted hover:text-foreground',
     )
 
-  createEffect(() => {
-    crumbs()
-    const container = containerEl()
-    const measure = measureEl()
-    if (!container || !measure) return
+  createEffect(
+    () => ({ breadcrumbList: crumbs(), container: containerEl(), measure: measureEl() }),
+    ({ breadcrumbList: bc, container, measure }) => {
+      if (!container || !measure) return undefined
 
-    const layoutObserverTarget = () => {
-      const el = containerEl()
-      if (!el) return el
-      const slot = el.parentElement
-      return slot?.hasAttribute('data-breadcrumb-slot') ? slot : el
-    }
-
-    const calculate = () => {
-      const bc = crumbs()
-      if (!containerEl() || !measureEl()) return
-
-      if (bc.length === 0) {
-        setVisibleIndices(new Set<number>())
-        setShowPathEllipsis(false)
-        setEllipsisSkipsParent(false)
-        setCompactPathOnly(false)
-        return
+      const layoutObserverTarget = () => {
+        const slot = container.parentElement
+        return slot?.hasAttribute('data-breadcrumb-slot') ? slot : container
       }
 
-      const layoutEl = layoutObserverTarget()
-      const barEl = containerEl()
-      if (!layoutEl || !barEl) return
-      const availableWidth = layoutEl.clientWidth
-      const gap = parseFloat(window.getComputedStyle(barEl).gap) || 0
-      const safetyMargin = 10
-
-      const crumbElements = measure.children
-      const nCrumbs = bc.length
-      const crumbWidths: number[] = []
-      for (let i = 0; i < nCrumbs; i++) {
-        crumbWidths.push((crumbElements[i] as HTMLElement).offsetWidth)
-      }
-      const ellipsisWidth = (crumbElements[nCrumbs] as HTMLElement).offsetWidth
-
-      const rowTotalFor = (sortedIndices: number[], ellip: boolean) => {
-        const itemsWidth = sortedIndices.reduce((sum, idx) => sum + (crumbWidths[idx] || 0), 0)
-        const gapsWidth = Math.max(0, sortedIndices.length - 1) * gap
-        const ellipExtra = ellip ? ellipsisWidth + gap : 0
-        return itemsWidth + gapsWidth + ellipExtra + safetyMargin
-      }
-
-      const allIndices = bc.map((_, i) => i)
-
-      const n = bc.length
-
-      if (n === 1) {
-        setVisibleIndices(new Set([0]))
-        setShowPathEllipsis(false)
-        setEllipsisSkipsParent(false)
-        setCompactPathOnly(false)
-        return
-      }
-
-      if (n === 2) {
-        if (rowTotalFor([0, 1], false) <= availableWidth) {
-          setVisibleIndices(new Set([0, 1]))
-          setShowPathEllipsis(false)
+      const calculate = () => {
+        if (bc.length === 0) {
+          setVisibleIndices(new Set<number>())
+          setPathEllipsis(false)
           setEllipsisSkipsParent(false)
           setCompactPathOnly(false)
-        } else {
-          setVisibleIndices(new Set([1]))
-          setShowPathEllipsis(false)
-          setEllipsisSkipsParent(false)
-          setCompactPathOnly(true)
+          return
         }
-        return
-      }
 
-      if (n === 3) {
-        if (rowTotalFor([0, 1, 2], false) <= availableWidth) {
-          setVisibleIndices(new Set([0, 1, 2]))
-          setShowPathEllipsis(false)
+        const layoutEl = layoutObserverTarget()
+        const barEl = container
+        if (!layoutEl || !barEl) return
+        const availableWidth = layoutEl.clientWidth
+        const gap = parseFloat(window.getComputedStyle(barEl).gap) || 0
+        const safetyMargin = 10
+
+        const crumbElements = measure.children
+        const nCrumbs = bc.length
+        const crumbWidths: number[] = []
+        for (let i = 0; i < nCrumbs; i++) {
+          crumbWidths.push((crumbElements[i] as HTMLElement).offsetWidth)
+        }
+        const ellipsisWidth = (crumbElements[nCrumbs] as HTMLElement).offsetWidth
+
+        const rowTotalFor = (sortedIndices: number[], ellip: boolean) => {
+          const itemsWidth = sortedIndices.reduce((sum, idx) => sum + (crumbWidths[idx] || 0), 0)
+          const gapsWidth = Math.max(0, sortedIndices.length - 1) * gap
+          const ellipExtra = ellip ? ellipsisWidth + gap : 0
+          return itemsWidth + gapsWidth + ellipExtra + safetyMargin
+        }
+
+        const allIndices = bc.map((_, i) => i)
+
+        const n = bc.length
+
+        if (n === 1) {
+          setVisibleIndices(new Set([0]))
+          setPathEllipsis(false)
           setEllipsisSkipsParent(false)
           setCompactPathOnly(false)
-        } else {
-          setVisibleIndices(new Set([2]))
-          setShowPathEllipsis(false)
-          setEllipsisSkipsParent(false)
-          setCompactPathOnly(true)
+          return
         }
-        return
-      }
 
-      if (rowTotalFor(allIndices, false) <= availableWidth) {
-        setVisibleIndices(new Set(allIndices))
-        setShowPathEllipsis(false)
+        if (n === 2) {
+          if (rowTotalFor([0, 1], false) <= availableWidth) {
+            setVisibleIndices(new Set([0, 1]))
+            setPathEllipsis(false)
+            setEllipsisSkipsParent(false)
+            setCompactPathOnly(false)
+          } else {
+            setVisibleIndices(new Set([1]))
+            setPathEllipsis(false)
+            setEllipsisSkipsParent(false)
+            setCompactPathOnly(true)
+          }
+          return
+        }
+
+        if (n === 3) {
+          if (rowTotalFor([0, 1, 2], false) <= availableWidth) {
+            setVisibleIndices(new Set([0, 1, 2]))
+            setPathEllipsis(false)
+            setEllipsisSkipsParent(false)
+            setCompactPathOnly(false)
+          } else {
+            setVisibleIndices(new Set([2]))
+            setPathEllipsis(false)
+            setEllipsisSkipsParent(false)
+            setCompactPathOnly(true)
+          }
+          return
+        }
+
+        if (rowTotalFor(allIndices, false) <= availableWidth) {
+          setVisibleIndices(new Set(allIndices))
+          setPathEllipsis(false)
+          setEllipsisSkipsParent(false)
+          setCompactPathOnly(false)
+          return
+        }
+
+        const tail = [0, n - 2, n - 1] as number[]
+        if (rowTotalFor(tail, true) <= availableWidth) {
+          setVisibleIndices(new Set(tail))
+          setPathEllipsis(true)
+          setEllipsisSkipsParent(false)
+          setCompactPathOnly(false)
+          return
+        }
+
+        const homeCurrent = [0, n - 1] as number[]
+        if (rowTotalFor(homeCurrent, true) <= availableWidth) {
+          setVisibleIndices(new Set(homeCurrent))
+          setPathEllipsis(true)
+          setEllipsisSkipsParent(true)
+          setCompactPathOnly(false)
+          return
+        }
+
+        setVisibleIndices(new Set([n - 1]))
+        setPathEllipsis(false)
         setEllipsisSkipsParent(false)
-        setCompactPathOnly(false)
-        return
+        setCompactPathOnly(true)
       }
 
-      const tail = [0, n - 2, n - 1] as number[]
-      if (rowTotalFor(tail, true) <= availableWidth) {
-        setVisibleIndices(new Set(tail))
-        setShowPathEllipsis(true)
-        setEllipsisSkipsParent(false)
-        setCompactPathOnly(false)
-        return
-      }
+      calculate()
+      const ro = new ResizeObserver(calculate)
+      const observeEl = layoutObserverTarget() ?? container
+      ro.observe(observeEl)
+      // eslint-disable-next-line solid/reactivity
+      return () => ro.disconnect()
+    },
+  )
 
-      const homeCurrent = [0, n - 1] as number[]
-      if (rowTotalFor(homeCurrent, true) <= availableWidth) {
-        setVisibleIndices(new Set(homeCurrent))
-        setShowPathEllipsis(true)
-        setEllipsisSkipsParent(true)
-        setCompactPathOnly(false)
-        return
-      }
-
-      setVisibleIndices(new Set([n - 1]))
-      setShowPathEllipsis(false)
-      setEllipsisSkipsParent(false)
-      setCompactPathOnly(true)
-    }
-
-    calculate()
-    const ro = new ResizeObserver(calculate)
-    const observeEl = layoutObserverTarget() ?? container
-    ro.observe(observeEl)
-    onCleanup(() => ro.disconnect())
-  })
-
-  createEffect(() => {
-    if (!compactPathOnly()) {
-      clearCompactPathOpenOnly()
-    }
-  })
+  createEffect(
+    () => compactPathOnly(),
+    (compactOnly) => {
+      if (!compactOnly) clearCompactPathOpenOnly()
+    },
+  )
 
   const [prevCompactLayout, setPrevCompactLayout] = createSignal<boolean | undefined>(undefined)
-  createEffect(() => {
-    const c = compactPathOnly()
-    const p = prevCompactLayout()
-    if (p !== undefined && p !== c) {
-      setBreadcrumbFolderMenu(null)
-      setInlinePathMenuOpen(false)
-    }
-    setPrevCompactLayout(c)
-  })
+  createEffect(
+    () => ({ current: compactPathOnly(), previous: prevCompactLayout() }),
+    ({ current, previous }) => {
+      if (previous !== undefined && previous !== current) {
+        setBreadcrumbFolderMenu(null)
+        setInlinePathMenuOpen(false)
+      }
+      setPrevCompactLayout(current)
+    },
+  )
 
-  createEffect(() => {
-    if (!showPathEllipsis() || compactPathOnly()) setInlinePathMenuOpen(false)
-  })
+  createEffect(
+    () => ({ ellipsis: pathEllipsisVisible(), compact: compactPathOnly() }),
+    ({ ellipsis, compact }) => {
+      if (!ellipsis || compact) setInlinePathMenuOpen(false)
+    },
+  )
 
   const PathMenuItems = (menu: { onAfterPick: () => void; entries: Accessor<PathMenuEntry[]> }) => (
     <For each={menu.entries()}>
@@ -327,7 +329,7 @@ export function Breadcrumbs(props: BreadcrumbsProps) {
 
     for (let index = 1; index < list.length; index++) {
       const crumb = list[index]
-      if (showPathEllipsis() && index === list.length - 2) {
+      if (pathEllipsisVisible() && index === list.length - 2) {
         const hasHiddenCrumbs = !vis.has(index - 1)
         if (hasHiddenCrumbs) {
           rows.push({ id: 'ellipsis-inline', kind: 'ellipsis-inline' })
@@ -398,7 +400,7 @@ export function Breadcrumbs(props: BreadcrumbsProps) {
             ref={setContainerEl}
             data-testid='breadcrumb-bar'
             data-breadcrumb-layout='inline'
-            data-breadcrumb-path-ellipsis={showPathEllipsis() ? '' : undefined}
+            data-breadcrumb-path-ellipsis={pathEllipsisVisible() ? '' : undefined}
             class='relative flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-hidden lg:gap-2'
             aria-label='Breadcrumb'
           >
@@ -470,7 +472,7 @@ export function Breadcrumbs(props: BreadcrumbsProps) {
                           ref={setEllipsisMenuAnchorEl}
                           data-testid='breadcrumb-ellipsis'
                           class={ellipsisBtnClass()}
-                          aria-expanded={inlinePathMenuOpen()}
+                          aria-expanded={inlinePathMenuOpen() ? 'true' : 'false'}
                           aria-haspopup='menu'
                           aria-label='Show hidden path segments'
                           onClick={() => {
@@ -518,7 +520,7 @@ export function Breadcrumbs(props: BreadcrumbsProps) {
               data-breadcrumb-segment='path-picker'
               data-breadcrumb-path={currentCrumb().path}
               class={compactPathPickerBtnClass()}
-              aria-expanded={breadcrumbFloating.compactPathOpen}
+              aria-expanded={breadcrumbFloating.compactPathOpen ? 'true' : 'false'}
               aria-haspopup='menu'
               title={currentCrumb().name}
               onClick={() => {

@@ -29,7 +29,7 @@ import Star from 'lucide-solid/icons/star'
 import Upload from 'lucide-solid/icons/upload'
 import Eye from 'lucide-solid/icons/eye'
 import Ellipsis from 'lucide-solid/icons/ellipsis'
-import { batch, createEffect, createMemo, createSignal, on, onCleanup, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, Show } from 'solid-js'
 import type { FileIconContext } from '@/features/explorer/use-file-icon'
 import { fileItemIcon, gridHeroIcon } from '@/features/explorer/use-file-icon'
 import { createUrlSearchParamsMemo, useBrowserHistory } from '@/lib/browser/browser-history'
@@ -165,39 +165,57 @@ export function MediaCenterPage() {
   }
 
   let previousLibraryPlayingPath: string | null = null
-  createEffect(() => {
-    const path = playingParam()
-    if (window.location.pathname !== '/') return
-    if (!path) {
-      if (previousLibraryPlayingPath) playbackSession.dispatch({ type: 'stop' })
-      previousLibraryPlayingPath = null
-      return
-    }
-    previousLibraryPlayingPath = path
-    const item = playbackItemForPath(path)
-    if (!item) return
-    const mode =
-      item.media === 'video' && urlSearchParams().get('audioOnly') === 'true' ? 'audio' : item.media
-    const state = playbackSession.getSnapshot()
-    const sameCurrent =
-      state.currentItem !== null && playbackPathMatches(state.currentItem, item.locator)
-    if (!sameCurrent) {
-      playbackSession.dispatch({
-        type: 'load',
+  createEffect(
+    () => {
+      const path = playingParam()
+      if (window.location.pathname !== '/') return { path: null, onRoot: false as const }
+      if (!path) return { path: null, onRoot: true as const }
+      const item = playbackItemForPath(path)
+      if (!item) return { path, onRoot: true as const, item: null }
+      return {
+        path,
+        onRoot: true as const,
         item,
+        mode:
+          item.media === 'video' && urlSearchParams().get('audioOnly') === 'true'
+            ? 'audio'
+            : item.media,
         queue: playbackQueueFor(item),
-        mode,
-        autoplay: true,
-      })
-      return
-    }
-    if (state.mode !== mode) playbackSession.dispatch({ type: 'setMode', mode })
-    if (item.media !== 'audio') return
-    const queue = playbackQueueFor(item)
-    if (!playbackQueuesEqual(state.queue, queue)) {
-      playbackSession.dispatch({ type: 'setQueue', queue, current: state.currentItem })
-    }
-  })
+      }
+    },
+    (next) => {
+      if (!next.onRoot) return
+      if (!next.path) {
+        if (previousLibraryPlayingPath) playbackSession.dispatch({ type: 'stop' })
+        previousLibraryPlayingPath = null
+        return
+      }
+      previousLibraryPlayingPath = next.path
+      if (!next.item) return
+      const state = playbackSession.getSnapshot()
+      const sameCurrent =
+        state.currentItem !== null && playbackPathMatches(state.currentItem, next.item.locator)
+      if (!sameCurrent) {
+        playbackSession.dispatch({
+          type: 'load',
+          item: next.item,
+          queue: next.queue,
+          mode: next.mode,
+          autoplay: true,
+        })
+        return
+      }
+      if (state.mode !== next.mode) playbackSession.dispatch({ type: 'setMode', mode: next.mode })
+      if (next.item.media !== 'audio') return
+      if (!playbackQueuesEqual(state.queue, next.queue)) {
+        playbackSession.dispatch({
+          type: 'setQueue',
+          queue: next.queue,
+          current: state.currentItem,
+        })
+      }
+    },
+  )
 
   const [searchQuery, setSearchQuery] = createSignal('')
   const [debouncedSearch, setDebouncedSearch] = createSignal('')
@@ -205,27 +223,26 @@ export function MediaCenterPage() {
   const [iconEditTarget, setIconEditTarget] = createSignal<FileItem | null>(null)
   const breadcrumbMenu = () => breadcrumbFloating.folderMenu
 
-  createEffect(() => {
-    const q = searchQuery()
-    const id = window.setTimeout(() => setDebouncedSearch(q), 300)
-    onCleanup(() => clearTimeout(id))
-  })
+  createEffect(
+    () => searchQuery(),
+    (query) => {
+      const id = window.setTimeout(() => setDebouncedSearch(query), 300)
+      // eslint-disable-next-line solid/reactivity
+      return () => clearTimeout(id)
+    },
+  )
 
   createEffect(
-    on(
-      currentPath,
-      () => {
-        batch(() => {
-          setSearchQuery('')
-          setDebouncedSearch('')
-          setSearchPopoverOpen(false)
-          setInlineMode(null)
-          setInlineName('')
-          resetBreadcrumbFloating()
-        })
-      },
-      { defer: true },
-    ),
+    () => currentPath(),
+    () => {
+      setSearchQuery('')
+      setDebouncedSearch('')
+      setSearchPopoverOpen(false)
+      setInlineMode(null)
+      setInlineName('')
+      resetBreadcrumbFloating()
+    },
+    { defer: true },
   )
 
   registerKbSearchHotkeys({
@@ -312,9 +329,12 @@ export function MediaCenterPage() {
     onDeleteRequest: (f) => setDeleteTarget(f),
   })
 
-  createEffect(() => {
-    if (fileRowMenu.menu()) setDirectoryBackgroundMenu(null)
-  })
+  createEffect(
+    () => fileRowMenu.menu(),
+    (menu) => {
+      if (menu) setDirectoryBackgroundMenu(null)
+    },
+  )
 
   const isUploading = createMemo(() => uploadToast().kind === 'uploading')
   const invalidateContent = () =>
@@ -979,7 +999,7 @@ export function MediaCenterPage() {
         <div
           data-testid='file-browser'
           class='flex min-h-0 flex-1 flex-col'
-          tabIndex={0}
+          tabindex={0}
           title={
             isEditable() && inKb()
               ? 'Focus here and paste (Ctrl+V) to create a file from the clipboard.'
@@ -1008,7 +1028,7 @@ export function MediaCenterPage() {
                         type='button'
                         aria-label='Search note contents'
                         title='Search note contents (Ctrl+K)'
-                        aria-pressed={searchPopoverOpen()}
+                        aria-pressed={searchPopoverOpen() ? 'true' : 'false'}
                         class={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-transparent transition-colors ${
                           searchPopoverOpen()
                             ? 'bg-accent text-accent-foreground shadow-sm'
@@ -1185,7 +1205,7 @@ export function MediaCenterPage() {
                                         : '',
                                       draggedPath() === file.path ? 'opacity-50' : '',
                                     ),
-                                    draggable: enableDrag(),
+                                    draggable: enableDrag() ? 'true' : 'false',
                                     onPointerEnter: () =>
                                       prefetchFolderContentsOnHover(fileBrowserPrefetchCtx(), file),
                                     onContextMenu: (event) =>
@@ -1245,7 +1265,6 @@ export function MediaCenterPage() {
                                                   ? 'fill-yellow-400 text-yellow-400'
                                                   : 'text-muted-foreground',
                                               )}
-                                              fill={isFav() ? 'currentColor' : 'none'}
                                               stroke-width={2}
                                             />
                                           </button>
@@ -1327,7 +1346,6 @@ export function MediaCenterPage() {
                                                   ? 'fill-yellow-400 text-yellow-400 opacity-100'
                                                   : 'text-muted-foreground',
                                               )}
-                                              fill={isFav() ? 'currentColor' : 'none'}
                                               size={16}
                                               stroke-width={2}
                                             />

@@ -1,7 +1,7 @@
 import type { AssistGridShape } from '@/workspace/model/workspace-assist-grid'
 import type { AssistSlotPick } from '@/workspace/model/workspace-snap-pick'
 import { narrowPickToAssistShape } from '@/workspace/model/workspace-snap-pick'
-import { Show, createMemo, createSignal, onCleanup, onMount } from 'solid-js'
+import { Show, createMemo, createSignal, onSettled } from 'solid-js'
 import { WorkspaceSnapAssistMasterGrid } from './WorkspaceSnapAssistMasterGrid'
 import { useWorkspacePreferredSnapStore } from '@/workspace/model/workspace-preferred-snap-store'
 import { useStoreSync } from '@/lib/state/solid-store-sync'
@@ -52,15 +52,15 @@ export function WorkspaceSnapAssistBar(props: WorkspaceSnapAssistBarProps) {
     return snapAssistSurfaceWidth(w, h)
   })
 
-  onMount(() => {
+  onSettled(() => {
     const updateViewport = () => setViewportSize(layoutViewportClientSize())
     const resizeObserver = new ResizeObserver(updateViewport)
     resizeObserver.observe(document.documentElement)
     window.addEventListener('resize', updateViewport)
-    onCleanup(() => {
+    return () => {
       resizeObserver.disconnect()
       window.removeEventListener('resize', updateViewport)
-    })
+    }
   })
 
   return (
@@ -75,8 +75,8 @@ export function WorkspaceSnapAssistBar(props: WorkspaceSnapAssistBarProps) {
               width: `${surfaceWidth()}px`,
               height: `${TOP_SNAP_ASSIST_HANDLE_HEIGHT_PX}px`,
             }}
-            on:pointerenter={props.onHandleEnter}
-            on:pointermove={props.onHandleEnter}
+            onPointerEnter={props.onHandleEnter}
+            onPointerMove={props.onHandleEnter}
             role='button'
             aria-label='Open snap layouts'
           >
@@ -92,7 +92,7 @@ export function WorkspaceSnapAssistBar(props: WorkspaceSnapAssistBarProps) {
         data-workspace-snap-assist
         class='pointer-events-auto fixed left-1/2 top-0 z-[100000] max-w-[calc(100%-1rem)] -translate-x-1/2 overflow-hidden rounded-b-xl border border-border/80 bg-popover/95 shadow-2xl ring-1 ring-black/10 backdrop-blur-xl'
         style={{ width: `${surfaceWidth()}px` }}
-        on:pointerleave={() => props.onPanelLeave()}
+        onPointerLeave={() => props.onPanelLeave()}
       >
         <div class='flex h-8 items-center justify-center gap-1.5 border-b border-border/60 px-3 text-[10px] font-semibold text-foreground/80'>
           Snap layouts

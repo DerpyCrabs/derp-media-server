@@ -1,4 +1,4 @@
-import { createStore } from 'solid-js/store'
+import { createStore } from 'solid-js'
 import {
   createStoreListeners,
   readPersistedState,
@@ -20,8 +20,8 @@ const [store, setStore] = createStore<{ byKey: Record<string, BrowserViewMode> }
   byKey: { ...initialByKey },
 })
 
-function persist() {
-  writePersistedState(STORAGE_KEY, { byKey: { ...store.byKey } })
+function persist(byKey: Record<string, BrowserViewMode>) {
+  writePersistedState(STORAGE_KEY, { byKey: { ...byKey } })
 }
 
 function getViewMode(storageKey: string, fallback: BrowserViewMode): BrowserViewMode {
@@ -29,8 +29,11 @@ function getViewMode(storageKey: string, fallback: BrowserViewMode): BrowserView
 }
 
 function setViewMode(storageKey: string, mode: BrowserViewMode) {
-  setStore('byKey', storageKey, mode)
-  persist()
+  const byKey = { ...store.byKey, [storageKey]: mode }
+  setStore((state) => {
+    state.byKey[storageKey] = mode
+  })
+  persist(byKey)
   listeners.notify()
 }
 

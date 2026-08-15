@@ -48,15 +48,20 @@ export function AudioPlayer() {
   }))
   const allFiles = createMemo(() => filesQuery.data?.files ?? [])
 
-  createEffect(() => {
-    const current = currentItem()
-    if (!current || playbackMode() !== 'audio') return
-    const queue = audioPlaybackQueueFromFiles(allFiles(), current)
-    const state = session.getSnapshot()
-    if (!playbackQueuesEqual(state.queue, queue)) {
-      session.dispatch({ type: 'setQueue', queue, current })
-    }
-  })
+  createEffect(
+    () => {
+      const current = currentItem()
+      if (!current || playbackMode() !== 'audio') return null
+      return { current, queue: audioPlaybackQueueFromFiles(allFiles(), current) }
+    },
+    (next) => {
+      if (!next) return
+      const state = session.getSnapshot()
+      if (!playbackQueuesEqual(state.queue, next.queue)) {
+        session.dispatch({ type: 'setQueue', queue: next.queue, current: next.current })
+      }
+    },
+  )
 
   const coverArtUrl = createMemo(() => {
     const coverFile = allFiles().find((file) => {
@@ -191,7 +196,7 @@ export function AudioPlayer() {
               <button
                 type='button'
                 aria-label={isRepeat() ? 'Disable repeat' : 'Enable repeat'}
-                aria-pressed={isRepeat()}
+                aria-pressed={isRepeat() ? 'true' : 'false'}
                 disabled={!currentItem()}
                 onClick={() => session.dispatch({ type: 'toggleRepeat' })}
                 class={

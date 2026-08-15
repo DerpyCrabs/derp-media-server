@@ -17,17 +17,7 @@ import Play from 'lucide-solid/icons/play'
 import Volume2 from 'lucide-solid/icons/volume-2'
 import VolumeX from 'lucide-solid/icons/volume-x'
 import type { Accessor } from 'solid-js'
-import {
-  For,
-  Match,
-  Show,
-  Switch,
-  createEffect,
-  createMemo,
-  createSignal,
-  lazy,
-  onCleanup,
-} from 'solid-js'
+import { For, Match, Show, Switch, createEffect, createMemo, createSignal, lazy } from 'solid-js'
 import { buildAdminMediaUrl, buildAudioMetadataUrl } from '@/lib/media/build-media-url'
 import { ImageViewerPane } from './ImageViewerPane'
 import { TextEditorPane } from './TextEditorPane'
@@ -98,18 +88,21 @@ export function ViewerPane(props: Props) {
   const [audioSurfaceEl, setAudioSurfaceEl] = createSignal<HTMLDivElement>()
   const [audioSurfaceSize, setAudioSurfaceSize] = createSignal({ width: 576, height: 256 })
 
-  createEffect(() => {
-    const element = audioSurfaceEl()
-    if (!element) return
-    const update = () => {
-      const rect = element.getBoundingClientRect()
-      setAudioSurfaceSize({ width: rect.width, height: rect.height })
-    }
-    update()
-    const observer = new ResizeObserver(update)
-    observer.observe(element)
-    onCleanup(() => observer.disconnect())
-  })
+  createEffect(
+    () => audioSurfaceEl(),
+    (element) => {
+      if (!element) return undefined
+      const update = () => {
+        const rect = element.getBoundingClientRect()
+        setAudioSurfaceSize({ width: rect.width, height: rect.height })
+      }
+      update()
+      const observer = new ResizeObserver(update)
+      observer.observe(element)
+      // eslint-disable-next-line solid/reactivity
+      return () => observer.disconnect()
+    },
+  )
 
   const audioLayout = createMemo<'compact' | 'standard' | 'expanded'>(() => {
     const size = audioSurfaceSize()
@@ -136,53 +129,79 @@ export function ViewerPane(props: Props) {
   const videoError = createMemo(() => (videoPlaybackActive() ? playback().error : null))
 
   let offeredInitialVideoPath = ''
-  createEffect(() => {
-    const path = viewingPath()
-    if (
-      !path ||
-      mediaType() !== MediaType.VIDEO ||
-      !showPlayback() ||
-      !props.contentVisible() ||
-      offeredInitialVideoPath === playbackPathKey(path)
-    ) {
-      return
-    }
-    offeredInitialVideoPath = playbackPathKey(path)
-    const currentItem = playback().currentItem
-    if (playbackPathMatches(currentItem, path) || (currentItem && props.autoPlayVideo === false)) {
-      return
-    }
-    playbackSession.dispatch({
-      type: 'load',
-      item: playbackItemFromPath(path, 'video'),
-      autoplay: props.autoPlayVideo !== false,
-      mode: 'video',
-    })
-  })
-
-  createEffect(() => {
-    const generation = videoPlaybackActive() ? (playback().source?.generation ?? 0) : 0
-    if (videoReadyGeneration() !== generation) setVideoReadyGeneration(0)
-  })
-
-  createEffect(() => {
-    const element = videoEl()
-    const path = viewingPath()
-    if (!element || !path || !showPlayback() || !props.contentVisible() || !videoPlaybackActive())
-      return
-    const detach = playbackMediaHost.attach(element, 'video')
-    onCleanup(() => {
-      const state = playbackSession.getSnapshot()
-      if (
-        state.mode === 'video' &&
-        state.desiredPlaying &&
-        playbackPathMatches(state.currentItem, path)
-      ) {
-        playbackSession.dispatch({ type: 'pause' })
+  createEffect(
+    () => {
+      const path = viewingPath()
+      return {
+        path,
+        currentItem: playback().currentItem,
+        isVideo: mediaType() === MediaType.VIDEO,
+        playbackShown: showPlayback(),
+        contentVisible: props.contentVisible(),
+        key: path ? playbackPathKey(path) : '',
       }
-      detach()
-    })
-  })
+    },
+    ({ path, currentItem, isVideo, playbackShown, contentVisible, key }) => {
+      if (
+        !path ||
+        !isVideo ||
+        !playbackShown ||
+        !contentVisible ||
+        offeredInitialVideoPath === key
+      ) {
+        return
+      }
+      offeredInitialVideoPath = key
+      if (
+        playbackPathMatches(currentItem, path) ||
+        (currentItem && props.autoPlayVideo === false)
+      ) {
+        return
+      }
+      playbackSession.dispatch({
+        type: 'load',
+        item: playbackItemFromPath(path, 'video'),
+        autoplay: props.autoPlayVideo !== false,
+        mode: 'video',
+      })
+    },
+  )
+
+  createEffect(
+    () => {
+      const generation = videoPlaybackActive() ? (playback().source?.generation ?? 0) : 0
+      return { generation, readyGeneration: videoReadyGeneration() }
+    },
+    ({ generation, readyGeneration }) => {
+      if (readyGeneration !== generation) setVideoReadyGeneration(0)
+    },
+  )
+
+  createEffect(
+    () => {
+      const element = videoEl()
+      const path = viewingPath()
+      return element && path && showPlayback() && props.contentVisible() && videoPlaybackActive()
+        ? { element, path }
+        : null
+    },
+    (attachment) => {
+      if (!attachment) return undefined
+      const detach = playbackMediaHost.attach(attachment.element, 'video')
+      // eslint-disable-next-line solid/reactivity
+      return () => {
+        const state = playbackSession.getSnapshot()
+        if (
+          state.mode === 'video' &&
+          state.desiredPlaying &&
+          playbackPathMatches(state.currentItem, attachment.path)
+        ) {
+          playbackSession.dispatch({ type: 'pause' })
+        }
+        detach()
+      }
+    },
+  )
 
   const listDirForFiles = createMemo(() => dirFromWindow())
 
@@ -296,31 +315,52 @@ export function ViewerPane(props: Props) {
   }
 
   let offeredInitialAudioPath = ''
-  createEffect(() => {
-    const path = viewingPath()
-    if (
-      !showPlayback() ||
-      props.autoPlayVideo !== false ||
-      !path ||
-      mediaType() !== MediaType.AUDIO ||
-      !props.contentVisible() ||
-      offeredInitialAudioPath === playbackPathKey(path)
-    ) {
-      return
-    }
-    offeredInitialAudioPath = playbackPathKey(path)
-    if (!playback().currentItem) loadAudio(path, false)
-  })
+  createEffect(
+    () => {
+      const path = viewingPath()
+      return {
+        path,
+        currentItem: playback().currentItem,
+        playbackShown: showPlayback(),
+        autoPlayVideo: props.autoPlayVideo,
+        isAudio: mediaType() === MediaType.AUDIO,
+        contentVisible: props.contentVisible(),
+        key: path ? playbackPathKey(path) : '',
+      }
+    },
+    ({ path, currentItem, playbackShown, autoPlayVideo, isAudio, contentVisible, key }) => {
+      if (
+        !playbackShown ||
+        autoPlayVideo !== false ||
+        !path ||
+        !isAudio ||
+        !contentVisible ||
+        offeredInitialAudioPath === key
+      ) {
+        return
+      }
+      offeredInitialAudioPath = key
+      if (!currentItem) loadAudio(path, false)
+    },
+  )
 
-  createEffect(() => {
-    if (!audioPlaybackActive()) return
-    const state = playback()
-    const queue = audioQueue()
-    if (queue.length === 0 || !state.currentItem) return
-    if (!playbackQueuesEqual(state.queue, queue)) {
-      playbackSession.dispatch({ type: 'setQueue', queue, current: state.currentItem })
-    }
-  })
+  createEffect(
+    () => {
+      const state = playback()
+      const queue = audioQueue()
+      return audioPlaybackActive() && queue.length > 0 && state.currentItem
+        ? { state, queue }
+        : null
+    },
+    (next) => {
+      if (!next || playbackQueuesEqual(next.state.queue, next.queue)) return
+      playbackSession.dispatch({
+        type: 'setQueue',
+        queue: next.queue,
+        current: next.state.currentItem!,
+      })
+    },
+  )
 
   function retryMedia() {
     if (videoPlaybackActive() || audioPlaybackActive()) {
@@ -474,8 +514,8 @@ export function ViewerPane(props: Props) {
           class='bg-primary text-primary-foreground hover:bg-primary/90 inline-flex size-9 shrink-0 items-center justify-center rounded-full shadow-sm'
           onClick={toggleAudioPlayback}
         >
-          <Show when={audioPlaying()} fallback={<Play class='size-4' fill='currentColor' />}>
-            <Pause class='size-4' fill='currentColor' />
+          <Show when={audioPlaying()} fallback={<Play class='size-4 fill-current' />}>
+            <Pause class='size-4 fill-current' />
           </Show>
         </button>
         <button
@@ -562,8 +602,10 @@ export function ViewerPane(props: Props) {
                 <button
                   type='button'
                   data-audio-playlist-path={file.path}
-                  class='flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted'
-                  classList={{ 'bg-primary/10 text-primary': active() }}
+                  class={[
+                    'flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted',
+                    { 'bg-primary/10 text-primary': active() },
+                  ]}
                   onClick={() => selectAudioFile(file)}
                 >
                   <Music2 class='size-3.5 shrink-0' />
@@ -841,12 +883,12 @@ export function ViewerPane(props: Props) {
           role={props.presentation === 'modal' ? 'dialog' : undefined}
           aria-modal={props.presentation === 'modal' ? 'true' : undefined}
           aria-labelledby='unsupported-file-title'
-          class={
+          class={[
             props.presentation === 'modal'
               ? 'fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4'
-              : 'flex flex-1 flex-col items-center justify-center gap-4 p-6'
-          }
-          classList={{ hidden: props.presentation === 'modal' && !!unsupportedFile() }}
+              : 'flex flex-1 flex-col items-center justify-center gap-4 p-6',
+            { hidden: props.presentation === 'modal' && !!unsupportedFile() },
+          ]}
         >
           <div
             class={

@@ -83,15 +83,32 @@ export function PasteDialog(props: Props) {
     if (n) props.onPaste(n, mode, mode === 'replace' ? existingItem()?.version : undefined)
   }
 
-  createEffect(() => {
-    const item = existingItem()
-    setExistingText(null)
-    if (!item || item.isDirectory || !props.pasteData?.isTextContent) return
-    void fetch(buildAdminMediaUrl(item.path))
-      .then((response) => (response.ok ? response.text() : Promise.reject()))
-      .then(setExistingText)
-      .catch(() => setExistingText('Unable to load existing text preview'))
-  })
+  createEffect(
+    () => {
+      const item = existingItem()
+      return {
+        item,
+        isTextContent: props.pasteData?.isTextContent === true,
+      }
+    },
+    ({ item, isTextContent }) => {
+      setExistingText(null)
+      if (!item || item.isDirectory || !isTextContent) return undefined
+      let cancelled = false
+      void fetch(buildAdminMediaUrl(item.path))
+        .then((response) => (response.ok ? response.text() : Promise.reject()))
+        .then((text) => {
+          if (!cancelled) setExistingText(text)
+        })
+        .catch(() => {
+          if (!cancelled) setExistingText('Unable to load existing text preview')
+        })
+      // eslint-disable-next-line solid/reactivity
+      return () => {
+        cancelled = true
+      }
+    },
+  )
 
   function handleClose() {
     if (!props.isPending) {
@@ -246,8 +263,10 @@ export function PasteDialog(props: Props) {
               <input
                 type='text'
                 aria-label='Filename'
-                class='border-input bg-background focus-visible:ring-ring h-9 w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:outline-none'
-                classList={{ 'border-yellow-500': fileExists() }}
+                class={[
+                  'border-input bg-background focus-visible:ring-ring h-9 w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:outline-none',
+                  { 'border-yellow-500': fileExists() },
+                ]}
                 value={displayName()}
                 onInput={(e) => setFileName(e.currentTarget.value)}
                 placeholder={`e.g., ${props.pasteData?.suggestedName ?? 'file.txt'}`}

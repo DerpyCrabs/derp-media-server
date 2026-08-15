@@ -1,4 +1,4 @@
-import { createStore } from 'solid-js/store'
+import { createStore } from 'solid-js'
 import { type AssistGridShape, isAssistGridShape } from './workspace-assist-grid'
 import {
   createStoreListeners,
@@ -51,29 +51,36 @@ const [store, setStore] = createStore({
   tiledWindowGap: initial.tiledWindowGap,
 })
 
-function persist() {
+function persist(overrides: Partial<Persisted> = {}) {
   writePersistedState(STORAGE_KEY, {
-    assistGridShape: store.assistGridShape,
-    snapAssistOnTopDrag: store.snapAssistOnTopDrag,
-    tiledWindowGap: store.tiledWindowGap,
+    assistGridShape: overrides.assistGridShape ?? store.assistGridShape,
+    snapAssistOnTopDrag: overrides.snapAssistOnTopDrag ?? store.snapAssistOnTopDrag,
+    tiledWindowGap: overrides.tiledWindowGap ?? store.tiledWindowGap,
   })
 }
 
 function setAssistGridShape(shape: AssistGridShape) {
-  setStore('assistGridShape', shape)
-  persist()
+  setStore((state) => {
+    state.assistGridShape = shape
+  })
+  persist({ assistGridShape: shape })
   listeners.notify()
 }
 
 function setSnapAssistOnTopDrag(enabled: boolean) {
-  setStore('snapAssistOnTopDrag', enabled)
-  persist()
+  setStore((state) => {
+    state.snapAssistOnTopDrag = enabled
+  })
+  persist({ snapAssistOnTopDrag: enabled })
   listeners.notify()
 }
 
 function setTiledWindowGap(gap: number) {
-  setStore('tiledWindowGap', normalizeTiledWindowGap(gap))
-  persist()
+  const normalizedGap = normalizeTiledWindowGap(gap)
+  setStore((state) => {
+    state.tiledWindowGap = normalizedGap
+  })
+  persist({ tiledWindowGap: normalizedGap })
   listeners.notify()
 }
 

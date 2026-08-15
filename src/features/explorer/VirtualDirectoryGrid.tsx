@@ -1,12 +1,9 @@
 import type { FileItem } from '@/lib/files/types'
 import { cn } from '@/lib/ui/cn'
-import {
-  createVirtualizer,
-  createWindowVirtualizer,
-  type VirtualItem,
-} from '@tanstack/solid-virtual'
-import type { Accessor, JSX } from 'solid-js'
-import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-js'
+import { createVirtualizer, createWindowVirtualizer, type VirtualItem } from '@/lib/virtualizer'
+import type { Accessor } from 'solid-js'
+import type { JSX } from '@solidjs/web'
+import { createEffect, createMemo, createSignal, For, onSettled, Show } from 'solid-js'
 import { registerVirtualFileScroller } from './virtual-directory-scroll'
 
 type ScrollTarget =
@@ -27,6 +24,7 @@ const VIRTUALIZE_THRESHOLD = 100
 const GRID_GAP_PX = 16
 const MIN_CARD_WIDTH_PX = 128
 const MAX_GRID_COLUMNS = 6
+const GRID_CARD_DETAILS_HEIGHT_PX = 64
 
 function calculateColumns(width: number) {
   if (!Number.isFinite(width) || width <= 0) return 1
@@ -63,7 +61,11 @@ function makeVirtualizer(
         return accessors.rowCount()
       },
       getScrollElement: () => getScrollElement() ?? null,
-      estimateSize: () => accessors.rowHeight(),
+      get estimateSize() {
+        const size = accessors.rowHeight()
+        return () => size
+      },
+      gap: GRID_GAP_PX,
       overscan: 4,
     })
   }
@@ -72,7 +74,11 @@ function makeVirtualizer(
     get count() {
       return accessors.rowCount()
     },
-    estimateSize: () => accessors.rowHeight(),
+    get estimateSize() {
+      const size = accessors.rowHeight()
+      return () => size
+    },
+    gap: GRID_GAP_PX,
     overscan: 4,
     get scrollMargin() {
       return accessors.scrollMargin()
@@ -112,7 +118,7 @@ export function VirtualDirectoryGrid(props: VirtualDirectoryGridProps) {
     const cols = columns()
     const cardWidth =
       width > 0 ? (width - GRID_GAP_PX * Math.max(0, cols - 1)) / cols : MIN_CARD_WIDTH_PX
-    return Math.ceil(cardWidth * (9 / 16) + 76 + GRID_GAP_PX)
+    return Math.ceil(cardWidth * (9 / 16) + GRID_CARD_DETAILS_HEIGHT_PX)
   })
   const virtualizer = makeVirtualizer(props, { rowCount, rowHeight, scrollMargin })
 
@@ -132,27 +138,39 @@ export function VirtualDirectoryGrid(props: VirtualDirectoryGridProps) {
     return Math.max(0, item.start - scrollMargin())
   }
 
-  createEffect(() => {
-    const scope = props.scrollScope?.()
-    const files = props.files()
-    const parentCount = props.includeParent() ? 1 : 0
-    const cols = columns()
-    if (!scope) return
+  createEffect(
+    () => {
+      const scope = props.scrollScope?.()
+      return scope
+        ? {
+            scope,
+            files: props.files(),
+            parentCount: props.includeParent() ? 1 : 0,
+            cols: columns(),
+          }
+        : null
+    },
+    (state) => {
+      if (!state) return undefined
 
-    const unregister = registerVirtualFileScroller(scope, {
-      hasPath: (path) => files.some((file) => file.path === path),
-      scrollToPath: (path) => {
-        const index = files.findIndex((file) => file.path === path)
-        if (index === -1) return
-        virtualizer.scrollToIndex(Math.floor((index + parentCount) / cols), { align: 'center' })
-        fineTunePathIntoView(path)
-      },
-    })
+      const unregister = registerVirtualFileScroller(state.scope, {
+        hasPath: (path) => state.files.some((file) => file.path === path),
+        scrollToPath: (path) => {
+          const index = state.files.findIndex((file) => file.path === path)
+          if (index === -1) return
+          virtualizer.scrollToIndex(Math.floor((index + state.parentCount) / state.cols), {
+            align: 'center',
+          })
+          fineTunePathIntoView(path)
+        },
+      })
 
-    onCleanup(unregister)
-  })
+      // eslint-disable-next-line solid/reactivity
+      return unregister
+    },
+  )
 
-  onMount(() => {
+  onSettled(() => {
     updateMeasurements()
     if (containerEl) {
       resizeObserver = new ResizeObserver(updateMeasurements)
@@ -162,11 +180,12 @@ export function VirtualDirectoryGrid(props: VirtualDirectoryGridProps) {
     if (props.scrollTarget.kind === 'window') {
       window.addEventListener('scroll', updateMeasurements, { passive: true })
     }
-    onCleanup(() => {
+    // eslint-disable-next-line solid/reactivity
+    return () => {
       resizeObserver?.disconnect()
       window.removeEventListener('resize', updateMeasurements)
       window.removeEventListener('scroll', updateMeasurements)
-    })
+    }
   })
 
   return (
@@ -194,6 +213,8 @@ export function VirtualDirectoryGrid(props: VirtualDirectoryGridProps) {
         <For each={virtualizer.getVirtualItems()}>
           {(row) => (
             <div
+              ref={(el) => virtualizer.measureElement(el)}
+              data-index={row.index}
               style={{
                 position: 'absolute',
                 left: '0',

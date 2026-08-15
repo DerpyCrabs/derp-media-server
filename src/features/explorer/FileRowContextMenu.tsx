@@ -57,9 +57,12 @@ type FileRowContextMenuProps = {
 
 export function FileRowContextMenu(props: FileRowContextMenuProps) {
   const [openWithOpen, setOpenWithOpen] = createSignal(false)
-  createEffect(() => {
-    if (!props.menu()) setOpenWithOpen(false)
-  })
+  createEffect(
+    () => !!props.menu(),
+    (isOpen) => {
+      if (!isOpen) setOpenWithOpen(false)
+    },
+  )
 
   return (
     <FloatingContextMenu
@@ -357,7 +360,7 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
                   data-slot='context-menu-item'
                   data-testid='open-with-menu'
                   aria-haspopup='menu'
-                  aria-expanded={openWithOpen()}
+                  aria-expanded={openWithOpen() ? 'true' : 'false'}
                   class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
                   role='menuitem'
                   onClick={() => setOpenWithOpen(true)}

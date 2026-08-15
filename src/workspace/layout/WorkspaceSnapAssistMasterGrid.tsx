@@ -3,7 +3,8 @@ import { assistShapeToDims, assistSpanToGridLines } from '@/workspace/model/work
 import type { AssistSlotPick } from '@/workspace/model/workspace-snap-pick'
 import { assistPickMatchesGridSpan } from '@/workspace/model/workspace-snap-pick'
 import { cn } from '@/lib/ui/cn'
-import { Index, Show, createMemo } from 'solid-js'
+import { For, Show } from '@solidjs/web'
+import { createMemo } from 'solid-js'
 
 type Placement = {
   kind: 'cell' | 'vgutter' | 'hgutter' | 'junction'
@@ -186,7 +187,7 @@ export function WorkspaceSnapAssistMasterGrid(props: WorkspaceSnapAssistMasterGr
           'grid-template-rows': gridTemplate().rowT,
         }}
       >
-        <Index each={placements()}>
+        <For keyed={false} each={placements()}>
           {(p) => {
             const active = createMemo(() => assistPickMatchesGridSpan(pick(), p().span))
             const disabled = createMemo(() => props.isSpanDisabled?.(p().span) ?? false)
@@ -223,7 +224,7 @@ export function WorkspaceSnapAssistMasterGrid(props: WorkspaceSnapAssistMasterGr
             return (
               <button
                 type='button'
-                tabIndex={props.pickMode && !disabled() ? 0 : -1}
+                tabindex={props.pickMode && !disabled() ? 0 : -1}
                 disabled={disabled()}
                 aria-label={`${title()}: ${placementLabel(p().span)}`}
                 data-assist-grid-span
@@ -266,7 +267,7 @@ export function WorkspaceSnapAssistMasterGrid(props: WorkspaceSnapAssistMasterGr
               />
             )
           }}
-        </Index>
+        </For>
         <Show when={hoverLines()}>
           {(lines) => (
             <div

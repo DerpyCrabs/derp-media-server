@@ -17,8 +17,8 @@ import Folder from 'lucide-solid/icons/folder'
 import RefreshCw from 'lucide-solid/icons/refresh-cw'
 import Search from 'lucide-solid/icons/search'
 import X from 'lucide-solid/icons/x'
-import { For, Show, createEffect, createSignal, createUniqueId, on, onCleanup } from 'solid-js'
-import { Portal } from 'solid-js/web'
+import { For, Show, createEffect, createSignal, createUniqueId, onSettled } from 'solid-js'
+import { Portal } from '@solidjs/web'
 
 export type FileSearchButtonProps = {
   title: string
@@ -84,11 +84,14 @@ function FileSearchPalette(props: {
   let inputEl: HTMLInputElement | undefined
   const previousFocus = document.activeElement as HTMLElement | null
 
-  createEffect(() => {
-    const value = query()
-    const timer = window.setTimeout(() => setDebouncedQuery(value.trim()), 120)
-    onCleanup(() => window.clearTimeout(timer))
-  })
+  createEffect(
+    () => query(),
+    (value) => {
+      const timer = window.setTimeout(() => setDebouncedQuery(value.trim()), 120)
+      // eslint-disable-next-line solid/reactivity
+      return () => window.clearTimeout(timer)
+    },
+  )
 
   const normalizedQuery = () => normalizeFileSearchText(debouncedQuery())
   const queryLongEnough = () =>
@@ -130,13 +133,13 @@ function FileSearchPalette(props: {
   const status = () => searchQuery.data?.status ?? statusQuery.data
 
   createEffect(
-    on(
-      () => `${normalizedQuery()}:${results().length}`,
-      () => setActiveIndex(0),
-    ),
+    () => `${normalizedQuery()}:${results().length}`,
+    () => {
+      setActiveIndex(0)
+    },
   )
 
-  createEffect(() => {
+  onSettled(() => {
     const oldOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     queueMicrotask(() => inputEl?.focus())
@@ -160,11 +163,12 @@ function FileSearchPalette(props: {
       }
     }
     document.addEventListener('keydown', onKey)
-    onCleanup(() => {
+    // eslint-disable-next-line solid/reactivity
+    return () => {
       document.body.style.overflow = oldOverflow
       document.removeEventListener('keydown', onKey)
       queueMicrotask(() => previousFocus?.focus())
-    })
+    }
   })
 
   function choose(result: FileSearchResult) {
@@ -276,7 +280,7 @@ function FileSearchPalette(props: {
                   id={`${listId}-option-${index()}`}
                   type='button'
                   role='option'
-                  aria-selected={index() === activeIndex()}
+                  aria-selected={index() === activeIndex() ? 'true' : 'false'}
                   class={`flex min-h-12 w-full items-center gap-3 rounded-lg px-3 py-2 text-left outline-none ${
                     index() === activeIndex()
                       ? 'bg-accent text-accent-foreground'

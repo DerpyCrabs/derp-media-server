@@ -12,6 +12,9 @@ describe('media URLs', () => {
   test('encodes media paths by segment', () => {
     expect(buildMediaUrl('Notes/file name.md')).toBe('/api/media/Notes/file%20name.md')
     expect(buildThumbnailUrl('Images/photo one.jpg')).toBe('/api/thumbnail/Images/photo%20one.jpg')
+    expect(buildThumbnailUrl('Images/photo.jpg', 1234)).toBe(
+      '/api/thumbnail/Images/photo.jpg?v=1234',
+    )
   })
 
   test('builds audio endpoints', () => {

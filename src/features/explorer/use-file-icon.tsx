@@ -18,7 +18,8 @@ import Pause from 'lucide-solid/icons/pause'
 import Play from 'lucide-solid/icons/play'
 import Star from 'lucide-solid/icons/star'
 import Video from 'lucide-solid/icons/video'
-import { Show, createEffect, createSignal, onCleanup, type JSX } from 'solid-js'
+import { Show, createEffect, createSignal, onSettled } from 'solid-js'
+import type { JSX } from '@solidjs/web'
 import type { TaskbarPin } from '@/lib/models/taskbar-pins'
 import { virtualAppearanceForPath, type VirtualAppearance } from './virtual-directory-appearance'
 import Archive from 'lucide-solid/icons/archive'
@@ -218,11 +219,13 @@ function gridHeroIconScaleWrap(inner: JSX.Element): JSX.Element {
 }
 
 function GridMediaThumbnail(props: { file: FileItem; ctx: FileIconContext }): JSX.Element {
-  let containerEl: HTMLDivElement | undefined
+  const [containerEl, setContainerEl] = createSignal<HTMLDivElement>()
   let loadTicket: ThumbnailLoadTicket | undefined
   const [imgFailed, setImgFailed] = createSignal(false)
   const [queuedSrc, setQueuedSrc] = createSignal<string | undefined>()
-  const src = () => buildThumbnailUrl(props.file.path)
+  const [settled, setSettled] = createSignal(false)
+  const [attempt, setAttempt] = createSignal(0)
+  const src = () => buildThumbnailUrl(props.file.path, props.file.version)
   const testId = () =>
     props.file.type === MediaType.IMAGE
       ? 'file-browser-image-thumbnail'
@@ -239,82 +242,90 @@ function GridMediaThumbnail(props: { file: FileItem; ctx: FileIconContext }): JS
     setQueuedSrc(undefined)
   }
 
-  createEffect(() => {
-    const url = src()
-    const isGenerated = props.file.thumbnailGenerated === true
-    const target = containerEl
-    let visible = false
-    let settleTimer: number | undefined
-    let observer: IntersectionObserver | undefined
-
-    cancelLoad()
-    setImgFailed(false)
-
-    if (isGenerated) {
-      setQueuedSrc(url)
-      onCleanup(cancelLoad)
-      return
-    }
-
-    function clearSettleTimer() {
-      if (settleTimer === undefined) return
-      window.clearTimeout(settleTimer)
-      settleTimer = undefined
-    }
-
-    function enqueueLoad() {
-      if (!visible || loadTicket) return
-      loadTicket = thumbnailLoadQueue.enqueue(() => {
-        if (!visible) {
-          releaseLoadSlot()
-          return
-        }
-        setQueuedSrc(url)
-      })
-    }
-
-    function scheduleLoad() {
-      clearSettleTimer()
-      settleTimer = window.setTimeout(() => {
-        settleTimer = undefined
-        enqueueLoad()
-      }, 125)
-    }
-
-    if (target && typeof IntersectionObserver !== 'undefined') {
-      observer = new IntersectionObserver(
-        (entries) => {
-          visible = entries.some((entry) => entry.isIntersecting)
-          if (visible) {
-            scheduleLoad()
-          } else {
-            clearSettleTimer()
-            cancelLoad()
-          }
-        },
-        { threshold: 0.01 },
-      )
-      observer.observe(target)
-    } else {
-      visible = true
-      scheduleLoad()
-    }
-
-    onCleanup(() => {
-      observer?.disconnect()
-      clearSettleTimer()
-      cancelLoad()
-    })
+  onSettled(() => {
+    setSettled(true)
   })
+
+  createEffect(
+    () => ({
+      baseUrl: src(),
+      retry: attempt(),
+      isGenerated: props.file.thumbnailGenerated === true,
+      settled: settled(),
+      target: containerEl(),
+    }),
+    ({ baseUrl, retry, isGenerated, settled: isSettled, target }) => {
+      const url = `${baseUrl}${retry ? `${baseUrl.includes('?') ? '&' : '?'}retry=${retry}` : ''}`
+      let visible = false
+      let settleTimer: number | undefined
+      let observer: IntersectionObserver | undefined
+
+      cancelLoad()
+      setImgFailed(false)
+
+      if (!isSettled) return undefined
+
+      if (isGenerated) {
+        setQueuedSrc(url)
+        return undefined
+      }
+
+      function clearSettleTimer() {
+        if (settleTimer === undefined) return
+        window.clearTimeout(settleTimer)
+        settleTimer = undefined
+      }
+
+      function enqueueLoad() {
+        if (!visible || loadTicket) return
+        loadTicket = thumbnailLoadQueue.enqueue(() => {
+          if (!visible) {
+            releaseLoadSlot()
+            return
+          }
+          setQueuedSrc(url)
+        })
+      }
+
+      function scheduleLoad() {
+        clearSettleTimer()
+        settleTimer = window.setTimeout(() => {
+          settleTimer = undefined
+          enqueueLoad()
+        }, 125)
+      }
+
+      if (target && typeof IntersectionObserver !== 'undefined') {
+        observer = new IntersectionObserver(
+          (entries) => {
+            visible = entries.some((entry) => entry.isIntersecting)
+            if (visible) {
+              scheduleLoad()
+            } else {
+              clearSettleTimer()
+              cancelLoad()
+            }
+          },
+          { threshold: 0.01 },
+        )
+        observer.observe(target)
+      } else {
+        visible = true
+        scheduleLoad()
+      }
+
+      // eslint-disable-next-line solid/reactivity
+      return () => {
+        observer?.disconnect()
+        clearSettleTimer()
+        cancelLoad()
+      }
+    },
+  )
 
   return (
     <Show when={!imgFailed()} fallback={<div class='h-full min-h-full w-full' />}>
-      <div
-        ref={(element) => {
-          containerEl = element
-        }}
-        class='absolute inset-0'
-      >
+      <div ref={setContainerEl} class='absolute inset-0'>
         <Show when={queuedSrc()} fallback={<div class='h-full min-h-full w-full' />}>
           {(thumbnailSrc) => (
             <img
@@ -327,7 +338,11 @@ function GridMediaThumbnail(props: { file: FileItem; ctx: FileIconContext }): JS
               onLoad={releaseLoadSlot}
               onError={() => {
                 releaseLoadSlot()
-                setImgFailed(true)
+                if (attempt() === 0) {
+                  setAttempt(1)
+                } else {
+                  setImgFailed(true)
+                }
               }}
             />
           )}

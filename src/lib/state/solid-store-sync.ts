@@ -1,4 +1,4 @@
-import { type Accessor, createSignal, onCleanup, onMount } from 'solid-js'
+import { type Accessor, createSignal, onSettled } from 'solid-js'
 
 export type SubscribableClientStore = { subscribe: (listener: () => void) => () => void }
 
@@ -12,18 +12,18 @@ export type ProgressSubscribableStore = {
  */
 export function useStoreSync(store: SubscribableClientStore): Accessor<number> {
   const [tick, setTick] = createSignal(0)
-  onMount(() => {
+  onSettled(() => {
     const unsub = store.subscribe(() => setTick((n) => n + 1))
-    onCleanup(unsub)
+    return unsub
   })
   return tick
 }
 
 export function useStoreProgressSync(store: ProgressSubscribableStore): Accessor<number> {
   const [tick, setTick] = createSignal(0)
-  onMount(() => {
+  onSettled(() => {
     const unsub = store.subscribeProgress(() => setTick((n) => n + 1))
-    onCleanup(unsub)
+    return unsub
   })
   return tick
 }

@@ -4,7 +4,7 @@ import { queryKeys } from '@/lib/api/query-keys'
 import { parsePathMutation, type PathMutation } from '@/lib/files/path-mutation'
 import { subscribeSseAdmin } from './sse-shared-worker-client'
 import type { SseEventPayload } from './sse-shared-worker-client'
-import { onCleanup, onMount } from 'solid-js'
+import { onSettled } from 'solid-js'
 
 export function useAdminEventsStream(
   enabled = true,
@@ -12,8 +12,8 @@ export function useAdminEventsStream(
 ) {
   const queryClient = useQueryClient()
 
-  onMount(() => {
-    if (!enabled) return
+  onSettled(() => {
+    if (!enabled) return undefined
 
     const onData = (data: SseEventPayload) => {
       try {
@@ -36,6 +36,6 @@ export function useAdminEventsStream(
     }
 
     const unsubscribe = subscribeSseAdmin(onData)
-    onCleanup(unsubscribe)
+    return unsubscribe
   })
 }

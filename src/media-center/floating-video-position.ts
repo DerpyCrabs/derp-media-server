@@ -1,4 +1,4 @@
-import { createStore } from 'solid-js/store'
+import { createStore } from 'solid-js'
 import {
   createStoreListeners,
   readPersistedState,
@@ -31,19 +31,23 @@ const [store, setStore] = createStore({
   position: loadPosition(),
 })
 
-function persist() {
-  writePersistedState(STORAGE_KEY, { position: { ...store.position } })
+function persist(position: Position) {
+  writePersistedState(STORAGE_KEY, { position: { ...position } })
 }
 
 function setPosition(position: Position) {
-  setStore('position', { ...position })
-  persist()
+  setStore((state) => {
+    state.position = { ...position }
+  })
+  persist(position)
   listeners.notify()
 }
 
 function resetPosition() {
-  setStore('position', { ...defaultPosition })
-  persist()
+  setStore((state) => {
+    state.position = { ...defaultPosition }
+  })
+  persist(defaultPosition)
   listeners.notify()
 }
 

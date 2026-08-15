@@ -1,4 +1,4 @@
-import { createStore } from 'solid-js/store'
+import { createStore } from 'solid-js'
 import {
   createStoreListeners,
   readPersistedState,
@@ -41,13 +41,15 @@ const [store, setStore] = createStore({
   target: initialTarget(),
 })
 
-function persist() {
-  writePersistedState(PERSIST_KEY, { target: store.target })
+function persist(target: FileOpenTarget) {
+  writePersistedState(PERSIST_KEY, { target })
 }
 
 function setTarget(value: FileOpenTarget) {
-  setStore('target', value)
-  persist()
+  setStore((state) => {
+    state.target = value
+  })
+  persist(value)
   if (typeof window !== 'undefined') {
     try {
       localStorage.removeItem(LEGACY_STORAGE_KEY)

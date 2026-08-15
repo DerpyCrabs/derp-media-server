@@ -2,7 +2,7 @@ import AlertCircle from 'lucide-solid/icons/alert-circle'
 import FilePlus from 'lucide-solid/icons/file-plus'
 import FolderPlus from 'lucide-solid/icons/folder-plus'
 import type { Accessor } from 'solid-js'
-import { Show, createEffect, onCleanup } from 'solid-js'
+import { Show, createEffect } from 'solid-js'
 
 export type KbInlineCreateFooterProps = {
   inlineMode: Accessor<'file' | 'folder' | null>
@@ -32,17 +32,21 @@ export function KbInlineCreateFooter(props: KbInlineCreateFooterProps) {
 
   let rootEl: HTMLDivElement | undefined
 
-  createEffect(() => {
-    if (props.inlineMode() === null) return
-    const handler = (ev: PointerEvent) => {
-      const el = rootEl
-      const target = ev.target
-      if (!el || !(target instanceof Node) || el.contains(target)) return
-      props.resetInlineCreate()
-    }
-    document.addEventListener('pointerdown', handler, true)
-    onCleanup(() => document.removeEventListener('pointerdown', handler, true))
-  })
+  createEffect(
+    () => props.inlineMode(),
+    (mode) => {
+      if (mode === null) return undefined
+      const handler = (ev: PointerEvent) => {
+        const el = rootEl
+        const target = ev.target
+        if (!el || !(target instanceof Node) || el.contains(target)) return
+        props.resetInlineCreate()
+      }
+      document.addEventListener('pointerdown', handler, true)
+      // eslint-disable-next-line solid/reactivity
+      return () => document.removeEventListener('pointerdown', handler, true)
+    },
+  )
 
   return (
     <div
