@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { createCanvasExport, parseCanvasExport } from '@/lib/canvas-features'
-import { createEmptyCanvasState } from '@/lib/infinite-canvas'
+import { createCanvasExport, parseCanvasExport } from '@/canvas/model/canvas-features'
+import { createEmptyCanvasState } from '@/canvas/model/infinite-canvas'
 
 describe('canvas knowledge features', () => {
   test('round-trips portable canvas export', () => {

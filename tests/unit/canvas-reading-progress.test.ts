@@ -14,7 +14,7 @@ for (const name of installedGlobals) {
   })
 }
 
-const { bindReadingProgress } = await import('@/src/canvas/reading-progress')
+const { bindReadingProgress } = await import('@/canvas/reading-progress')
 
 afterAll(() => {
   testWindow.close()

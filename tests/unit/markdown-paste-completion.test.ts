@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import { completeMarkdownImagePaste } from '@/src/media/markdown/paste-completion'
+import { completeMarkdownImagePaste } from '@/lib/markdown/paste-completion'
 
 describe('completeMarkdownImagePaste', () => {
   test('offers an accepted insertion for save after reactive state can flush', async () => {

@@ -1,10 +1,10 @@
 import { describe, expect, test } from 'bun:test'
-import { MediaType } from '@/lib/types'
+import { MediaType } from '@/lib/files/types'
 import {
   computeLayoutPreviewDetail,
   computeLayoutPreviewNorm,
-} from '@/lib/workspace-layout-preview'
-import type { PersistedWorkspaceState, WorkspaceSource } from '@/lib/use-workspace'
+} from '@/workspace/layout/workspace-layout-preview'
+import type { PersistedWorkspaceState, WorkspaceSource } from '@/workspace/model/use-workspace'
 
 const localSource: WorkspaceSource = { kind: 'local', rootPath: null }
 

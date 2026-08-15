@@ -1,11 +1,8 @@
 import { describe, expect, test } from 'bun:test'
-import {
-  filterAdminWorkspaceTaskbarPins,
-  parseWorkspaceTaskbarPins,
-  type WorkspaceTaskbarPin,
-} from '@/lib/workspace-taskbar-pins'
+import { parseTaskbarPins, type TaskbarPin } from '@/lib/models/taskbar-pins'
+import { filterAdminTaskbarPins } from '@/workspace/model/workspace-taskbar-pins'
 
-const validLocal: WorkspaceTaskbarPin = {
+const validLocal: TaskbarPin = {
   id: '1',
   path: '/Docs',
   isDirectory: true,
@@ -15,13 +12,13 @@ const validLocal: WorkspaceTaskbarPin = {
 
 describe('workspace taskbar pins', () => {
   test('returns empty for non-array input', () => {
-    expect(parseWorkspaceTaskbarPins(null)).toEqual([])
-    expect(parseWorkspaceTaskbarPins({})).toEqual([])
+    expect(parseTaskbarPins(null)).toEqual([])
+    expect(parseTaskbarPins({})).toEqual([])
   })
 
   test('parses local pins and rejects malformed sources', () => {
     expect(
-      parseWorkspaceTaskbarPins([
+      parseTaskbarPins([
         validLocal,
         { id: 'x', path: '/p', title: 't', source: { kind: 'remote' } },
         { id: 'y', path: '/p', isDirectory: true, title: 't', source: {} },
@@ -30,8 +27,8 @@ describe('workspace taskbar pins', () => {
   })
 
   test('filters unsafe local paths', () => {
-    const bad: WorkspaceTaskbarPin = { ...validLocal, id: 'b', path: '/foo/../secret' }
-    const empty: WorkspaceTaskbarPin = { ...validLocal, id: 'e', path: '' }
-    expect(filterAdminWorkspaceTaskbarPins([validLocal, bad, empty])).toEqual([validLocal])
+    const bad: TaskbarPin = { ...validLocal, id: 'b', path: '/foo/../secret' }
+    const empty: TaskbarPin = { ...validLocal, id: 'e', path: '' }
+    expect(filterAdminTaskbarPins([validLocal, bad, empty])).toEqual([validLocal])
   })
 })

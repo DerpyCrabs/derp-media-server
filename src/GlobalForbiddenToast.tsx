@@ -1,8 +1,8 @@
 import CircleX from 'lucide-solid/icons/circle-x'
 import { Show, createMemo } from 'solid-js'
-import { dismissForbiddenNotice, useForbiddenNotifyStore } from '@/lib/forbidden-notify'
-import { useStoreSync } from './lib/solid-store-sync'
-import { uploadToastPanelClass } from './file-browser/types'
+import { dismissForbiddenNotice, useForbiddenNotifyStore } from '@/lib/state/forbidden-notify'
+import { useStoreSync } from '@/lib/state/solid-store-sync'
+import { uploadToastPanelClass } from './features/explorer/types'
 
 export function GlobalForbiddenToast() {
   const tick = useStoreSync(useForbiddenNotifyStore)

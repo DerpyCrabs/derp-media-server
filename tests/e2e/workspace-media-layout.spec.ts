@@ -64,6 +64,34 @@ test.describe('Workspace audio and video playback', () => {
     )
   })
 
+  test('clicking the already playing audio file toggles it once instead of restarting it', async () => {
+    await gotoWorkspace(page)
+    const groups = getWindowGroups(page)
+    const content = getVisibleContent(groups.first())
+    await content.getByText('Music', { exact: true }).click()
+    const track = content.locator('table').getByText('track.mp3')
+    await expect(track).toBeVisible()
+    await track.click()
+
+    const audio = page.locator('[data-workspace-taskbar-media-audio]')
+    await expect(page.getByRole('button', { name: 'Open audio controls' })).toBeVisible({
+      timeout: 10_000,
+    })
+    await page.waitForFunction(
+      () => {
+        const el = document.querySelector(
+          '[data-workspace-taskbar-media-audio]',
+        ) as HTMLAudioElement | null
+        return !!el && !!(el.currentSrc || el.src) && !el.paused && el.currentTime > 0.2
+      },
+      { timeout: 15_000 },
+    )
+
+    await track.click()
+    await page.waitForTimeout(300)
+    expect(await audio.evaluate((element: HTMLAudioElement) => element.paused)).toBe(true)
+  })
+
   test('taskbar repeat keeps playing after track ends', async () => {
     await gotoWorkspace(page)
     const groups = getWindowGroups(page)

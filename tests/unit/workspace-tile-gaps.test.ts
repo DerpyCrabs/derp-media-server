@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { applyWorkspaceTileGap } from '@/lib/workspace-tile-gaps'
-import { normalizeTiledWindowGap } from '@/lib/workspace-preferred-snap-store'
+import { applyWorkspaceTileGap } from '@/workspace/model/workspace-tile-gaps'
+import { normalizeTiledWindowGap } from '@/workspace/model/workspace-preferred-snap-store'
 
 describe('workspace tile gaps', () => {
   test('keeps configured outer gap and one configured gap between tiles', () => {

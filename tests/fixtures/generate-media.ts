@@ -138,12 +138,56 @@ function ensureDir(dir: string) {
   fs.mkdirSync(dir, { recursive: true })
 }
 
+function ensureMediaContentFixture(baseDir: string) {
+  const mediaDir = path.join(baseDir, 'MediaContent')
+  ensureDir(path.join(mediaDir, 'subfolder'))
+  if (!fs.existsSync(path.join(mediaDir, 'public-doc.txt'))) {
+    fs.writeFileSync(
+      path.join(mediaDir, 'public-doc.txt'),
+      'This is a public document for media browser testing.\n',
+    )
+  }
+  if (!fs.existsSync(path.join(mediaDir, 'subfolder', 'nested.txt'))) {
+    fs.writeFileSync(
+      path.join(mediaDir, 'subfolder', 'nested.txt'),
+      'Nested file in media content.\n',
+    )
+  }
+  if (!fs.existsSync(path.join(mediaDir, 'photo.jpg'))) {
+    fs.writeFileSync(path.join(mediaDir, 'photo.jpg'), MINIMAL_JPEG)
+  }
+  if (!fs.existsSync(path.join(mediaDir, 'photo.png'))) {
+    fs.writeFileSync(path.join(mediaDir, 'photo.png'), MINIMAL_PNG)
+  }
+  if (!fs.existsSync(path.join(mediaDir, 'sample.pdf'))) {
+    fs.writeFileSync(path.join(mediaDir, 'sample.pdf'), MINIMAL_PDF)
+  }
+  if (!fs.existsSync(path.join(mediaDir, 'reader.epub'))) {
+    writeBookFixtures(mediaDir)
+  }
+  if (!fs.existsSync(path.join(mediaDir, 'cover.jpg'))) {
+    fs.writeFileSync(path.join(mediaDir, 'cover.jpg'), MINIMAL_JPEG)
+  }
+  if (hasFfmpeg()) {
+    if (!fs.existsSync(path.join(mediaDir, 'public-video.mp4'))) {
+      run(
+        'ffmpeg -y -f lavfi -i color=black:s=320x240:d=2 -f lavfi -i anullsrc=r=44100:cl=mono -shortest -c:v libx264 -pix_fmt yuv420p -c:a aac public-video.mp4',
+        mediaDir,
+      )
+    }
+    if (!fs.existsSync(path.join(mediaDir, 'track.mp3'))) {
+      run('ffmpeg -y -f lavfi -i anullsrc=r=44100:cl=mono -t 2 -c:a libmp3lame track.mp3', mediaDir)
+    }
+  }
+}
+
 /** Text fixtures added after `.test-media-cache` copy so e2e always sees current files. */
 const AUTOSAVE_PARITY_TXT_CONTENT = 'Autosave parity initial content for e2e only.\n'
 const MARKDOWN_EDITOR_MD_CONTENT =
   '# Todo List\n\n- [ ] First task\n- [ ] Second task\n- [x] Done task\n'
 
 export function patchTestMediaAfterCacheCopy(baseDir: string) {
+  ensureMediaContentFixture(baseDir)
   const documentsDir = path.join(baseDir, 'Documents')
   ensureDir(documentsDir)
   fs.writeFileSync(path.join(documentsDir, 'reader-workspace.pdf'), READER_PDF)
@@ -274,28 +318,7 @@ export function generateTestMedia(baseDir: string) {
   fs.writeFileSync(path.join(notesDir, 'images', 'diagram.png'), MINIMAL_PNG)
 
   // --- MediaContent (editable media fixture) ---
-  const mediaDir = path.join(baseDir, 'MediaContent')
-  ensureDir(path.join(mediaDir, 'subfolder'))
-  fs.writeFileSync(
-    path.join(mediaDir, 'public-doc.txt'),
-    'This is a public document for media browser testing.\n',
-  )
-  fs.writeFileSync(
-    path.join(mediaDir, 'subfolder', 'nested.txt'),
-    'Nested file in media content.\n',
-  )
-  fs.writeFileSync(path.join(mediaDir, 'photo.jpg'), MINIMAL_JPEG)
-  fs.writeFileSync(path.join(mediaDir, 'photo.png'), MINIMAL_PNG)
-  fs.writeFileSync(path.join(mediaDir, 'sample.pdf'), MINIMAL_PDF)
-  writeBookFixtures(mediaDir)
-  fs.writeFileSync(path.join(mediaDir, 'cover.jpg'), MINIMAL_JPEG)
-  if (ff) {
-    run(
-      'ffmpeg -y -f lavfi -i color=black:s=320x240:d=2 -f lavfi -i anullsrc=r=44100:cl=mono -shortest -c:v libx264 -pix_fmt yuv420p -c:a aac public-video.mp4',
-      mediaDir,
-    )
-    run('ffmpeg -y -f lavfi -i anullsrc=r=44100:cl=mono -t 2 -c:a libmp3lame track.mp3', mediaDir)
-  }
+  ensureMediaContentFixture(baseDir)
 
   // --- EmptyFolder ---
   ensureDir(path.join(baseDir, 'EmptyFolder'))

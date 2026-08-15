@@ -10,6 +10,7 @@ import {
 } from '@tanstack/solid-query'
 import { render } from 'solid-js/web'
 import { App } from './App'
+import { AppProviders } from './AppProviders'
 
 declare global {
   interface Window {
@@ -36,7 +37,9 @@ if (root) {
   render(
     () => (
       <QueryClientProvider client={queryClient}>
-        <App />
+        <AppProviders>
+          <App />
+        </AppProviders>
       </QueryClientProvider>
     ),
     root,

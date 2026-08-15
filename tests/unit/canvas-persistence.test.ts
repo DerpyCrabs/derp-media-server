@@ -6,12 +6,12 @@ import {
   mergeCanvasRecords,
   parseCanvasRecords,
   type PersistedCanvas,
-} from '@/lib/canvas-persistence'
+} from '@/canvas/model/canvas-persistence'
 import {
   CANVAS_STORAGE_KEY,
   createEmptyCanvasState,
   serializeInfiniteCanvasState,
-} from '@/lib/infinite-canvas'
+} from '@/canvas/model/infinite-canvas'
 
 function storage(values: Record<string, string>) {
   return { getItem: (key: string) => values[key] ?? null }

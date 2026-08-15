@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { normalizeNewFilePath } from '@/lib/new-file-name'
+import { normalizeNewFilePath } from '@/lib/files/new-file-name'
 
 describe('normalizeNewFilePath', () => {
   test('always creates Markdown notes inside knowledge bases', () => {

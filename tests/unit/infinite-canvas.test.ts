@@ -10,8 +10,8 @@ import {
   serializeInfiniteCanvasState,
   snapCanvasRect,
   type CanvasWindow,
-} from '@/lib/infinite-canvas'
-import { MediaType } from '@/lib/types'
+} from '@/canvas/model/infinite-canvas'
+import { MediaType } from '@/lib/files/types'
 
 function canvasWindow(id: string, bounds: CanvasWindow['bounds']): CanvasWindow {
   return {

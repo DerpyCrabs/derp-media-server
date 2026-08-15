@@ -5,7 +5,7 @@ import {
   enqueueTextDocumentSave,
   textDocumentDraftScope,
   textDocumentTargetKey,
-} from '@/lib/text-document-target'
+} from '@/features/viewer/text-document-target'
 
 describe('text document targets', () => {
   test('identifies a document by admin path', () => {

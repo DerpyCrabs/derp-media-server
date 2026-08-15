@@ -1,9 +1,32 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import fs from 'fs'
 import path from 'path'
 
 const batchId = process.env.BATCH_ID
 const mediaDirName = batchId ? `test-media-${batchId}` : 'test-media'
+
+function canvasAudioWindow(page: Page, title: string) {
+  const player = page.getByTestId('canvas-audio-player-ui').filter({
+    has: page.getByRole('heading', { name: title, exact: true }),
+  })
+  return page.getByTestId('canvas-window').filter({ has: player })
+}
+
+function playbackAudioHost(page: Page) {
+  return page.locator('[data-playback-media-host="audio"]')
+}
+
+async function expectPlaybackSource(host: Locator, fileName: string) {
+  const escapedFileName = fileName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  await expect
+    .poll(async () =>
+      host.evaluate((element: HTMLAudioElement) => {
+        const source = element.currentSrc || element.src
+        return source ? decodeURIComponent(new URL(source).pathname) : ''
+      }),
+    )
+    .toMatch(new RegExp(`/api/media/(?:.*/)?${escapedFileName}$`))
+}
 
 async function waitForReaderScrollToSettle(page: Page) {
   await page.evaluate(() => {
@@ -544,7 +567,15 @@ test('fits short semantic cards across every zoom level', async ({ page }) => {
   const browserWindow = page.getByTestId('canvas-window').first()
   await browserWindow.locator('[data-file-path="Music"]').click()
   await browserWindow.locator('[data-file-path="Music/track.mp3"]').click()
-  const audioWindow = page.getByTestId('canvas-window').filter({ has: page.locator('audio') })
+  const liveAudioWindow = canvasAudioWindow(page, 'track.mp3')
+  await expect(liveAudioWindow).toBeVisible()
+  const audioWindowId = await liveAudioWindow.getAttribute('data-window-id')
+  if (!audioWindowId) throw new Error('Audio canvas window has no identity')
+  const audioWindow = page.locator(
+    `[data-testid="canvas-window"][data-window-id="${audioWindowId}"]`,
+  )
+  await expect(playbackAudioHost(page)).toHaveCount(1)
+  await expect(page.locator('audio')).toHaveCount(1)
   const slider = page.getByRole('slider', { name: 'Canvas zoom' })
 
   const expectContained = async (
@@ -821,9 +852,11 @@ test('shows a metadata-rich canvas audio player', async ({ page }) => {
   await browserWindow.locator('[data-file-path="Music"]').click()
   await browserWindow.locator('[data-file-path="Music/track.mp3"]').click()
 
-  const audioWindow = page.getByTestId('canvas-window').filter({ has: page.locator('audio') })
+  const audioWindow = canvasAudioWindow(page, 'track.mp3')
   await expect(audioWindow).toBeVisible()
-  const audio = audioWindow.locator('audio')
+  const audio = playbackAudioHost(page)
+  await expect(audio).toHaveCount(1)
+  await expect(page.locator('audio')).toHaveCount(1)
   await expect(audioWindow.getByTestId('canvas-audio-player-ui')).toBeVisible()
   await expect(audioWindow.getByRole('heading', { name: 'track.mp3' })).toBeVisible()
   await expect(audioWindow.getByText('Unknown artist')).toBeVisible()
@@ -853,8 +886,10 @@ test('switches canvas audio layouts as its window is resized', async ({ page }) 
   await browserWindow.locator('[data-file-path="Music"]').click()
   await browserWindow.locator('[data-file-path="Music/track.mp3"]').click()
 
-  const audioWindow = page.getByTestId('canvas-window').filter({ has: page.locator('audio') })
+  const audioWindow = canvasAudioWindow(page, 'track.mp3')
   const player = audioWindow.getByTestId('canvas-audio-player-ui')
+  await expect(playbackAudioHost(page)).toHaveCount(1)
+  await expect(page.locator('audio')).toHaveCount(1)
   await expect(player).toHaveAttribute('data-audio-layout', 'standard')
   await audioWindow.evaluate((element: HTMLElement) => {
     element.style.width = '800px'
@@ -890,15 +925,15 @@ test('keeps multiple audio players but allows only one to play and focuses it fr
   await browserWindow.locator('[data-file-path="Music"]').click()
   await browserWindow.locator('[data-file-path="Music/track.mp3"]').click()
 
-  const firstWindow = page
-    .getByTestId('canvas-window')
-    .filter({ has: page.locator('audio[title="track.mp3"]') })
-  const firstAudio = firstWindow.locator('audio')
-  await firstAudio.evaluate((element: HTMLAudioElement) => {
+  const firstWindow = canvasAudioWindow(page, 'track.mp3')
+  const transport = playbackAudioHost(page)
+  await expect(transport).toHaveCount(1)
+  await expectPlaybackSource(transport, 'track.mp3')
+  await transport.evaluate((element: HTMLAudioElement) => {
     element.loop = true
   })
   await expect
-    .poll(async () => firstAudio.evaluate((element: HTMLAudioElement) => element.paused))
+    .poll(async () => transport.evaluate((element: HTMLAudioElement) => element.paused))
     .toBe(true)
   await expect(page.getByTestId('canvas-playing-audio-focus')).toHaveAttribute(
     'aria-label',
@@ -906,44 +941,39 @@ test('keeps multiple audio players but allows only one to play and focuses it fr
   )
   await firstWindow.getByRole('button', { name: 'Play' }).click()
   await expect
-    .poll(async () => firstAudio.evaluate((element: HTMLAudioElement) => !element.paused))
+    .poll(async () => transport.evaluate((element: HTMLAudioElement) => !element.paused))
     .toBe(true)
+  await expect(firstWindow.getByRole('button', { name: 'Pause' })).toBeVisible()
 
   await browserWindow.locator('[data-file-path="Music/track.flac"]').click()
-  const secondWindow = page
-    .getByTestId('canvas-window')
-    .filter({ has: page.locator('audio[title="track.flac"]') })
-  const secondAudio = secondWindow.locator('audio')
-  await secondAudio.evaluate((element: HTMLAudioElement) => {
-    element.loop = true
-  })
+  const secondWindow = canvasAudioWindow(page, 'track.flac')
   await expect(page.getByTestId('canvas-window')).toHaveCount(3)
-  await expect
-    .poll(async () => secondAudio.evaluate((element: HTMLAudioElement) => element.paused))
-    .toBe(true)
-  await expect
-    .poll(async () => firstAudio.evaluate((element: HTMLAudioElement) => !element.paused))
-    .toBe(true)
+  await expect(page.getByTestId('canvas-audio-player-ui')).toHaveCount(2)
+  await expect(transport).toHaveCount(1)
+  await expect(page.locator('audio')).toHaveCount(1)
+  await expectPlaybackSource(transport, 'track.mp3')
+  await expect(firstWindow.getByRole('button', { name: 'Pause' })).toBeVisible()
+  await expect(secondWindow.getByRole('button', { name: 'Play' })).toBeVisible()
 
   await secondWindow.getByRole('button', { name: 'Play' }).click()
+  await expectPlaybackSource(transport, 'track.flac')
   await expect
-    .poll(async () => secondAudio.evaluate((element: HTMLAudioElement) => !element.paused))
+    .poll(async () => transport.evaluate((element: HTMLAudioElement) => !element.paused))
     .toBe(true)
-  await expect
-    .poll(async () => firstAudio.evaluate((element: HTMLAudioElement) => element.paused))
-    .toBe(true)
+  await expect(secondWindow.getByRole('button', { name: 'Pause' })).toBeVisible()
+  await expect(firstWindow.getByRole('button', { name: 'Play' })).toBeVisible()
 
   await firstWindow.getByRole('button', { name: 'Play' }).click()
+  await expectPlaybackSource(transport, 'track.mp3')
   await expect
-    .poll(async () => firstAudio.evaluate((element: HTMLAudioElement) => !element.paused))
+    .poll(async () => transport.evaluate((element: HTMLAudioElement) => !element.paused))
     .toBe(true)
-  await expect
-    .poll(async () => secondAudio.evaluate((element: HTMLAudioElement) => element.paused))
-    .toBe(true)
+  await expect(firstWindow.getByRole('button', { name: 'Pause' })).toBeVisible()
+  await expect(secondWindow.getByRole('button', { name: 'Play' })).toBeVisible()
 
   await firstWindow.getByRole('button', { name: 'Pause' }).click()
   await expect
-    .poll(async () => firstAudio.evaluate((element: HTMLAudioElement) => element.paused))
+    .poll(async () => transport.evaluate((element: HTMLAudioElement) => element.paused))
     .toBe(true)
 
   await secondWindow.click({ position: { x: 120, y: 16 } })

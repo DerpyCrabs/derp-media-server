@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { detectEdgeAssistGridSpan } from '@/lib/workspace-assist-grid'
-import { segmentIndex, snapAssistSurfaceWidth } from '@/lib/use-snap-zones'
+import { detectEdgeAssistGridSpan } from '@/workspace/model/workspace-assist-grid'
+import { segmentIndex, snapAssistSurfaceWidth } from '@/workspace/model/use-snap-zones'
 
 describe('snapAssistSurfaceWidth', () => {
   test('fits four thumbnails in landscape and two in portrait', () => {

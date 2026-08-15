@@ -41,6 +41,112 @@ test.describe('Audio Player', () => {
     await expect(page.locator('img[alt="Album art"]')).toBeVisible()
   })
 
+  test('publishes audio metadata and artwork through the Media Session API', async ({ page }) => {
+    await page.addInitScript(() => {
+      class TestMediaMetadata {
+        title: string
+        artist: string
+        album: string
+        artwork: MediaImage[]
+
+        constructor(init: MediaMetadataInit) {
+          this.title = init.title ?? ''
+          this.artist = init.artist ?? ''
+          this.album = init.album ?? ''
+          this.artwork = init.artwork ? [...init.artwork] : []
+        }
+      }
+
+      Object.defineProperty(window, 'MediaMetadata', {
+        configurable: true,
+        value: TestMediaMetadata,
+      })
+      Object.defineProperty(navigator, 'mediaSession', {
+        configurable: true,
+        value: {
+          metadata: null,
+          playbackState: 'none',
+          positionState: null as MediaPositionState | null,
+          setActionHandler: () => undefined,
+          setPositionState(state: MediaPositionState) {
+            this.positionState = state
+          },
+        },
+      })
+      type TestDehydratedState = {
+        queries?: Array<{ queryKey?: unknown[] }>
+      }
+      const removeAudioMetadata = (value: TestDehydratedState | undefined) => {
+        if (value?.queries) {
+          value.queries = value.queries.filter((query) => query.queryKey?.[0] !== 'audio-metadata')
+        }
+        return value
+      }
+      const stateWindow = window as unknown as {
+        __DEHYDRATED_STATE__?: TestDehydratedState
+      }
+      let dehydrated: TestDehydratedState | undefined = stateWindow.__DEHYDRATED_STATE__
+      removeAudioMetadata(dehydrated)
+      Object.defineProperty(window, '__DEHYDRATED_STATE__', {
+        configurable: true,
+        get: () => dehydrated,
+        set: (value: TestDehydratedState) => {
+          dehydrated = removeAudioMetadata(value)
+        },
+      })
+    })
+    await page.route('**/api/audio/metadata/Music/track.mp3', async (route) => {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          title: 'Fixture Track',
+          artist: 'Fixture Artist',
+          album: 'Fixture Album',
+          coverArt: '/api/media/Music/cover.jpg',
+        }),
+      })
+    })
+
+    await page.goto(`/?dir=${MUSIC_DIR}&playing=${encodeURIComponent(AUDIO_FILE)}`)
+    const expectedArtwork = await page.evaluate(
+      () => new URL('/api/media/Music/cover.jpg', window.location.origin).href,
+    )
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() => {
+            const metadata = navigator.mediaSession.metadata as MediaMetadata & {
+              artwork?: MediaImage[]
+            }
+            return {
+              title: metadata?.title,
+              artist: metadata?.artist,
+              album: metadata?.album,
+              artwork: metadata?.artwork?.[0]?.src,
+            }
+          }),
+        { timeout: 10_000 },
+      )
+      .toEqual({
+        title: 'Fixture Track',
+        artist: 'Fixture Artist',
+        album: 'Fixture Album',
+        artwork: expectedArtwork,
+      })
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() => {
+            const session = navigator.mediaSession as MediaSession & {
+              positionState?: MediaPositionState | null
+            }
+            return session.positionState
+          }),
+        { timeout: 10_000 },
+      )
+      .toMatchObject({ playbackRate: 1 })
+  })
+
   test('reflects playing audio in URL', async ({ page }) => {
     await page.goto(`/?dir=${MUSIC_DIR}`)
     await page.locator('table').getByText('track.mp3').click()

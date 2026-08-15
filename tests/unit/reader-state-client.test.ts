@@ -3,7 +3,7 @@ import { afterEach, describe, expect, test } from 'bun:test'
 const originalFetch = globalThis.fetch
 
 const { mergeReaderPreferenceChanges, saveSyncedReaderState } =
-  await import('@/src/reader/reader-state-client')
+  await import('@/features/reader/reader-state-client')
 
 afterEach(() => {
   globalThis.fetch = originalFetch

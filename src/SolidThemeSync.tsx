@@ -1,10 +1,10 @@
-import { useThemeStore } from '@/lib/theme-store'
+import { useThemeStore } from '@/lib/state/theme-store'
 import {
   applyTheme,
   initThemeFromStorage,
   resolveTheme,
   subscribeSystemPreference,
-} from '@/lib/theme-dom'
+} from '@/lib/state/theme-dom'
 import { onCleanup, onMount } from 'solid-js'
 
 export function SolidThemeSync() {

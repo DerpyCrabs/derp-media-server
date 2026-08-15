@@ -3,7 +3,7 @@ import { EditorState } from '@codemirror/state'
 import type { SyntaxNode } from '@lezer/common'
 import { describe, expect, test } from 'bun:test'
 
-import { extractObsidianImage, extractStandardImage } from '@/src/media/markdown/images'
+import { extractObsidianImage, extractStandardImage } from '@/lib/markdown/images'
 import {
   createMarkdownReferenceResolver,
   extractMarkdownLink,
@@ -11,9 +11,9 @@ import {
   markdownLinkAttributes,
   normalizeMarkdownReferenceLabel,
   openMarkdownLink,
-} from '@/src/media/markdown/links'
-import { markdownLanguage } from '@/src/media/markdown/markdown-language'
-import { toggledTaskMarker } from '@/src/media/markdown/task-lists'
+} from '@/lib/markdown/links'
+import { markdownLanguage } from '@/lib/markdown/markdown-language'
+import { toggledTaskMarker } from '@/lib/markdown/task-lists'
 
 function parsed(source: string): EditorState {
   return EditorState.create({ doc: source, extensions: [markdownLanguage] })

@@ -3,13 +3,13 @@ import {
   createEmptyCanvasState,
   parseInfiniteCanvasState,
   serializeInfiniteCanvasState,
-} from '@/lib/infinite-canvas'
+} from '@/canvas/model/infinite-canvas'
 import {
   normalizePersistedWorkspaceState,
   serializeWorkspacePersistedState,
   type PersistedWorkspaceState,
   type WorkspaceWindowDefinition,
-} from '@/lib/use-workspace'
+} from '@/workspace/model/use-workspace'
 
 function hermesWindow(id: string, sessionId?: string): WorkspaceWindowDefinition {
   return {

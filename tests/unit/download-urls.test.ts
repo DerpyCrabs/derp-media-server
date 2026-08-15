@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { fileDownloadHref } from '@/lib/download-urls'
+import { fileDownloadHref } from '@/lib/files/download-urls'
 
 describe('fileDownloadHref', () => {
   test('encodes the file path', () => {

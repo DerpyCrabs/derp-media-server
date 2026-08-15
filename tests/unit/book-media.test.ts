@@ -1,7 +1,11 @@
 import { describe, expect, test } from 'bun:test'
-import { getMediaType, getMediaTypeFromPath, getMimeType } from '../../lib/media-utils'
-import { MediaType } from '../../lib/types'
-import { normalizeBookPath, resolveBookPath, splitBookHref } from '../../src/reader/book-path'
+import { getMediaType, getMediaTypeFromPath, getMimeType } from '../../src/lib/media/media-utils'
+import { MediaType } from '../../src/lib/files/types'
+import {
+  normalizeBookPath,
+  resolveBookPath,
+  splitBookHref,
+} from '../../src/features/reader/book-path'
 
 describe('book media', () => {
   test('detects EPUB, FB2, and compound FB2 ZIP paths', () => {

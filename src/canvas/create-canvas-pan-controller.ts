@@ -1,4 +1,4 @@
-import type { CanvasCamera } from '@/lib/infinite-canvas'
+import type { CanvasCamera } from '@/canvas/model/infinite-canvas'
 
 type CanvasPanControllerOptions = {
   camera: () => CanvasCamera

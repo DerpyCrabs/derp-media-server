@@ -1,5 +1,5 @@
-import type { AssistGridShape } from '@/lib/workspace-assist-grid'
-import { snapAssistSurfaceWidth } from '@/lib/use-snap-zones'
+import type { AssistGridShape } from '@/workspace/model/workspace-assist-grid'
+import { snapAssistSurfaceWidth } from '@/workspace/model/use-snap-zones'
 import type { Page, Locator } from '@playwright/test'
 import { expect } from '@playwright/test'
 

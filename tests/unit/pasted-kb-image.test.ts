@@ -3,7 +3,7 @@ import {
   blobToBase64,
   formatObsidianPastedImageFileName,
   spliceString,
-} from '@/lib/pasted-kb-image'
+} from '@/lib/files/pasted-kb-image'
 
 describe('formatObsidianPastedImageFileName', () => {
   test('uses YYYYMMDDHHmmss stamp and png for empty / unknown mime', () => {
