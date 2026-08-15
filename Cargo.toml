@@ -22,7 +22,7 @@ image = { version = "0.25", default-features = false, features = [
   "png",
   "webp",
 ] }
-lofty = "0.24"
+lofty = "0.25"
 moxcms = "0.9"
 http-body-util = "0.1"
 json5 = "1.3"

@@ -1,6 +1,6 @@
 # Agent Notes
 
-- Use `bun run tsgo` for TypeScript checks. Do not use `tsc`.
+- Use `bun run lint-errors` for TypeScript checks. Oxlint config enables `typeAware` and `typeCheck`.
 - Check `bun run lint-errors` after changes.
 - After larger changes, run `bun run test:batch`.
 - The UI is **Solid.js** under [`src/`](src/) with Vite ([`vite.config.ts`](vite.config.ts)), Tailwind ([`src/globals.css`](src/globals.css)), and [`@tanstack/solid-query`](https://tanstack.com/query/latest/docs/framework/solid/overview) for server-prefetched data (`window.__DEHYDRATED_STATE__` from [`server/html.rs`](server/html.rs)).
