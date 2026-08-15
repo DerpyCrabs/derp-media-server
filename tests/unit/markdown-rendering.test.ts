@@ -1,7 +1,7 @@
 import { Window as HappyWindow } from 'happy-dom'
 import { afterAll, afterEach, describe, expect, test } from 'bun:test'
 
-import type { MarkdownEditorRuntime } from '@/src/media/markdown/types'
+import type { MarkdownEditorRuntime } from '@/lib/markdown/types'
 
 const testWindow = new HappyWindow({ url: 'http://localhost/' })
 const installedGlobals = [
@@ -50,8 +50,8 @@ const [{ EditorState }, { EditorView }, { livePreviewExtension, markdownModeFace
   await Promise.all([
     import('@codemirror/state'),
     import('@codemirror/view'),
-    import('@/src/media/markdown/live-preview'),
-    import('@/src/media/markdown/markdown-language'),
+    import('@/lib/markdown/live-preview'),
+    import('@/lib/markdown/markdown-language'),
   ])
 
 const views: InstanceType<typeof EditorView>[] = []

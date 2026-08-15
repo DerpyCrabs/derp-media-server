@@ -5,7 +5,7 @@ import {
   clipboardHtmlToMarkdown,
   clipboardHtmlToPlainText,
   extractPasteDataFromClipboardData,
-} from '@/lib/extract-paste-data'
+} from '@/lib/files/extract-paste-data'
 
 const GEMINI_STYLE_HTML =
   '<h3><b>Section Title</b></h3><p><i>(note)</i></p><h4><b>Block</b></h4><ol><li><p><b>Item:</b> one.</p><ul><li><p><i>How:</i> detail</p></li></ul></li></ol>'

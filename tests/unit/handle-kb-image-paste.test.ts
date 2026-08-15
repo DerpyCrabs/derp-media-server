@@ -1,5 +1,8 @@
 import { afterAll, beforeEach, describe, expect, test } from 'bun:test'
-import { tryPasteKnowledgeBaseImage, type KbImagePasteContext } from '@/lib/handle-kb-image-paste'
+import {
+  tryPasteKnowledgeBaseImage,
+  type KbImagePasteContext,
+} from '@/features/viewer/handle-kb-image-paste'
 
 type RecordedRequest = { url: string; body: Record<string, unknown> }
 

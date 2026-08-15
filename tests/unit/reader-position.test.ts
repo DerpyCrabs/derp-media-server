@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'bun:test'
-import { DEFAULT_READER_POSITION, normalizeReaderPosition } from '../../src/reader/reader-position'
+import {
+  DEFAULT_READER_POSITION,
+  normalizeReaderPosition,
+} from '../../src/features/reader/reader-position'
 
 describe('reader position', () => {
   test('uses defaults for missing or invalid state', () => {

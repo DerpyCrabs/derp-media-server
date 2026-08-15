@@ -67,6 +67,90 @@ test.describe('Video Player', () => {
     await expect(video).toHaveAttribute('src', /\/api\/media\//)
   })
 
+  test('seeking a playing video does not pause it', async ({ page }) => {
+    await page.goto(`/?dir=${VIDEO_DIR}`)
+    await page.locator('table').getByText('sample.mp4').click()
+    await page.waitForURL(/playing=/)
+    const video = page.locator('video')
+    await expect(video).toBeVisible()
+    await page.waitForFunction(
+      () => {
+        const element = document.querySelector('video')
+        return !!element && !element.paused && element.currentTime > 0.2
+      },
+      { timeout: 15_000 },
+    )
+    const targetTime = 0.5
+    await video.evaluate(
+      (element: HTMLVideoElement, time) =>
+        new Promise<void>((resolve) => {
+          element.addEventListener(
+            'pause',
+            () => {
+              element.currentTime = time
+              element.dispatchEvent(new Event('seeked'))
+              resolve()
+            },
+            { once: true },
+          )
+          element.dispatchEvent(new Event('seeking'))
+          element.pause()
+        }),
+      targetTime,
+    )
+    await expect
+      .poll(
+        async () =>
+          video.evaluate(
+            (element: HTMLVideoElement, time) => element.currentTime >= time - 0.1,
+            targetTime,
+          ),
+        { timeout: 10_000 },
+      )
+      .toBe(true)
+    await page.waitForTimeout(100)
+    expect(await video.evaluate((element: HTMLVideoElement) => element.paused)).toBe(false)
+  })
+
+  test('native video playback can resume after pausing', async ({ page }) => {
+    await page.goto(`/?dir=${VIDEO_DIR}`)
+    await page.locator('table').getByText('sample.mp4').click()
+    await page.waitForURL(/playing=/)
+    const video = page.locator('video')
+    await expect(video).toBeVisible()
+    await page.waitForFunction(
+      () => {
+        const element = document.querySelector('video')
+        return !!element && !element.paused && element.currentTime > 0.2
+      },
+      { timeout: 15_000 },
+    )
+    await video.evaluate((element) => {
+      const events: string[] = []
+      for (const type of ['play', 'pause']) {
+        element.addEventListener(type, () => events.push(type))
+      }
+      ;(element as HTMLVideoElement & { observedEvents?: string[] }).observedEvents = events
+    })
+
+    await video.evaluate((element: HTMLVideoElement) => element.pause())
+    await expect
+      .poll(() => video.evaluate((element: HTMLVideoElement) => element.paused))
+      .toBe(true)
+
+    await video.evaluate((element: HTMLVideoElement) => element.play())
+    await expect
+      .poll(
+        () =>
+          video.evaluate((element: HTMLVideoElement & { observedEvents?: string[] }) => ({
+            paused: element.paused,
+            observedEvents: element.observedEvents,
+          })),
+        { timeout: 5_000 },
+      )
+      .toEqual({ paused: false, observedEvents: ['pause', 'play'] })
+  })
+
   test('video thumbnails appear in grid view', async ({ page }) => {
     await page.goto(`/?dir=${VIDEO_DIR}`)
     await page.locator('button:has(.lucide-layout-grid)').click()

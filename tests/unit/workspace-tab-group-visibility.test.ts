@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { MediaType } from '@/lib/types'
-import type { WorkspaceWindowDefinition } from '@/lib/use-workspace'
+import { MediaType } from '@/lib/files/types'
+import type { WorkspaceWindowDefinition } from '@/workspace/model/use-workspace'
 import {
   insertIndexAfterAllRightTabs,
   mergeInsertIndexToRightStripSlot,
@@ -8,7 +8,7 @@ import {
   rightStripIndexToGroupInsertIndex,
   tabsInGroup,
   visibleTabIdAfterPlayerRemoved,
-} from '@/src/workspace/tab-group-ops'
+} from '@/workspace/tabs/tab-group-ops'
 
 function browserTab(id: string, gid = 'g1'): WorkspaceWindowDefinition {
   return {

@@ -2,8 +2,8 @@ import { describe, expect, test } from 'bun:test'
 import {
   adaptFloatingBoundsForCanvasResize,
   scaleSnappedWindowsBoundsForCanvasResize,
-} from '@/lib/workspace-geometry'
-import { MediaType } from '@/lib/types'
+} from '@/workspace/model/workspace-geometry'
+import { MediaType } from '@/lib/files/types'
 
 describe('scaleSnappedWindowsBoundsForCanvasResize', () => {
   test('updates fullscreen bounds when canvas changes', () => {

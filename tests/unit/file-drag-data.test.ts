@@ -5,7 +5,7 @@ import {
   hasFileDragData,
   isCompatibleSource,
   type FileDragData,
-} from '@/lib/file-drag-data'
+} from '@/lib/files/file-drag-data'
 
 function createMockDataTransfer(): DataTransfer {
   const store = new Map<string, string>()

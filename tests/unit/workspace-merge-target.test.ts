@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { MediaType } from '@/lib/types'
-import type { WorkspaceWindowDefinition } from '@/lib/use-workspace'
+import { MediaType } from '@/lib/files/types'
+import type { WorkspaceWindowDefinition } from '@/workspace/model/use-workspace'
 import {
   findMergeTarget,
   mergeTargetFromElement,
   workspaceWindowsByGroupId,
-} from '@/src/workspace/merge-target'
+} from '@/workspace/layout/merge-target'
 
 const OrigElement = globalThis.Element
 

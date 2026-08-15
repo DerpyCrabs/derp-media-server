@@ -1,6 +1,6 @@
 import { Window as HappyWindow } from 'happy-dom'
 import { beforeAll, describe, expect, test } from 'bun:test'
-import type { BookDocument } from '@/src/reader/book-types'
+import type { BookDocument } from '@/features/reader/book-types'
 
 beforeAll(() => {
   const window = new HappyWindow({ url: 'http://localhost/' })
@@ -27,7 +27,7 @@ function document(styles: BookDocument['styles'], markup = '<p>Text</p>'): BookD
 
 describe('book sanitization', () => {
   test('drops bare stylesheet at-rules instead of copying unmatched CSS', async () => {
-    const { renderBook } = await import('@/src/reader/book-sanitize')
+    const { renderBook } = await import('@/features/reader/book-sanitize')
     const rendered = renderBook(
       document([
         { path: 'remote.css', css: '@import url(https://attacker.invalid/book.css);' },
@@ -42,7 +42,7 @@ describe('book sanitization', () => {
   })
 
   test('keeps malformed fragment text without throwing', async () => {
-    const { renderBook } = await import('@/src/reader/book-sanitize')
+    const { renderBook } = await import('@/features/reader/book-sanitize')
     const rendered = renderBook(document([], '<a href="#%E0%A4%A">Broken fragment</a>'))
 
     expect(rendered.chapters[0]?.html).toContain('data-anchor="%E0%A4%A"')

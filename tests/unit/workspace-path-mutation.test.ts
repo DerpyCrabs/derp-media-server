@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'bun:test'
-import {
-  applyCanvasPathMutation,
-  applyWorkspacePathMutation,
-  parseWorkspacePathMutation,
-  type WorkspacePathMutation,
-} from '@/lib/workspace-path-mutation'
-import { createEmptyCanvasState } from '@/lib/infinite-canvas'
-import type { PersistedWorkspaceState, WorkspaceWindowDefinition } from '@/lib/use-workspace'
+import { applyWorkspacePathMutation } from '@/workspace/model/workspace-path-mutation'
+import { applyCanvasPathMutation } from '@/canvas/model/canvas-path-mutation'
+import { parsePathMutation, type PathMutation } from '@/lib/files/path-mutation'
+import { createEmptyCanvasState } from '@/canvas/model/infinite-canvas'
+import type {
+  PersistedWorkspaceState,
+  WorkspaceWindowDefinition,
+} from '@/workspace/model/use-workspace'
 
 function window(
   id: string,
@@ -39,14 +39,14 @@ function state(windows: WorkspaceWindowDefinition[]): PersistedWorkspaceState {
 describe('workspace path mutations', () => {
   test('accepts only complete path mutation events', () => {
     expect(
-      parseWorkspacePathMutation({
+      parsePathMutation({
         type: 'path-moved',
         oldPath: 'Old',
         newPath: 'New',
       }),
     ).toEqual({ type: 'path-moved', oldPath: 'Old', newPath: 'New' })
-    expect(parseWorkspacePathMutation({ type: 'path-moved', oldPath: 'Old' })).toBeNull()
-    expect(parseWorkspacePathMutation({ type: 'files-changed', path: 'Old' })).toBeNull()
+    expect(parsePathMutation({ type: 'path-moved', oldPath: 'Old' })).toBeNull()
+    expect(parsePathMutation({ type: 'files-changed', path: 'Old' })).toBeNull()
   })
 
   test('moves live local paths and pins', () => {
@@ -68,7 +68,7 @@ describe('workspace path mutations', () => {
         },
       ],
     }
-    const mutation: WorkspacePathMutation = {
+    const mutation: PathMutation = {
       type: 'path-moved',
       oldPath: 'Media/Old',
       newPath: 'Archive/New',

@@ -254,6 +254,8 @@ test.describe('Workspace Image Viewer', () => {
       await expect(viewer.locator('button:has(.lucide-zoom-in)')).toBeVisible()
       await expect(viewer.locator('button:has(.lucide-zoom-out)')).toBeVisible()
       await expect(viewer.getByText('Fit')).toBeVisible()
+      await expect(viewer.getByRole('button', { name: 'Previous image' })).toBeVisible()
+      await expect(viewer.getByRole('button', { name: 'Next image' })).toBeVisible()
     })
 
     await test.step('zooms in and out on button click', async () => {

@@ -4,15 +4,15 @@ import {
   assistGridSpanToBounds,
   expandEdgeAssistSpanToAvailableTracks,
   type AssistGridSpan,
-} from '@/lib/workspace-assist-grid'
+} from '@/workspace/model/workspace-assist-grid'
 import {
   defaultWorkspaceGridLines,
   scaleSnappedWindowsBoundsForCanvasResize,
   tilingPlacementToBounds,
-} from '@/lib/workspace-geometry'
-import { computeSnappedResizeWindows } from '@/lib/workspace-session-store'
-import { MediaType } from '@/lib/types'
-import type { WorkspaceWindowDefinition } from '@/lib/use-workspace'
+} from '@/workspace/model/workspace-geometry'
+import { computeSnappedResizeWindows } from '@/workspace/model/workspace-session-store'
+import { MediaType } from '@/lib/files/types'
+import type { WorkspaceWindowDefinition } from '@/workspace/model/use-workspace'
 
 const CANVAS = { width: 1280, height: 688 }
 

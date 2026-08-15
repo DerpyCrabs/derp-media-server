@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { buildResolveMarkdownImageUrl } from '@/lib/resolve-markdown-image-url'
+import { buildResolveMarkdownImageUrl } from '@/lib/markdown/resolve-markdown-image-url'
 
 describe('buildResolveMarkdownImageUrl', () => {
   test('resolves knowledge-base attachments through the media API', () => {

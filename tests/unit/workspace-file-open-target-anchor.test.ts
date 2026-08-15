@@ -1,11 +1,11 @@
 import { describe, expect, test } from 'bun:test'
-import { MediaType } from '@/lib/types'
+import { MediaType } from '@/lib/files/types'
 import {
   normalizePersistedWorkspaceState,
   resolveNewTabAnchorWindowId,
   type PersistedWorkspaceState,
-} from '@/lib/use-workspace'
-import { DEFAULT_WORKSPACE_SOURCE } from '@/src/workspace/workspace-page-persistence'
+} from '@/workspace/model/use-workspace'
+import { DEFAULT_WORKSPACE_SOURCE } from '@/workspace/page/workspace-page-persistence'
 
 function minimalState(windows: PersistedWorkspaceState['windows']): PersistedWorkspaceState {
   return {

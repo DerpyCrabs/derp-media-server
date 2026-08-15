@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'bun:test'
-import { applyAssistCustomSnapToWindows } from '@/lib/workspace-assist-grid'
-import { normalizePersistedWorkspaceState } from '@/lib/use-workspace'
-import { MediaType } from '@/lib/types'
-import { migrateLegacyAssistCustomToTiling } from '@/lib/workspace-tiling-migrate'
-import type { WorkspaceWindowDefinition } from '@/lib/use-workspace'
+import { applyAssistCustomSnapToWindows } from '@/workspace/model/workspace-assist-grid'
+import { normalizePersistedWorkspaceState } from '@/workspace/model/use-workspace'
+import { MediaType } from '@/lib/files/types'
+import { migrateLegacyAssistCustomToTiling } from '@/workspace/model/workspace-tiling-migrate'
+import type { WorkspaceWindowDefinition } from '@/workspace/model/use-workspace'
 
 /** Bounds from the saved "Obsidian" admin preset (assist-custom, no tiling). */
 function obsidianLegacyWindows(): WorkspaceWindowDefinition[] {

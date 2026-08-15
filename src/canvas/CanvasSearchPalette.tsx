@@ -1,4 +1,4 @@
-import { api } from '@/lib/api'
+import { api } from '@/lib/api/client'
 import {
   FILE_SEARCH_DEFAULT_LIMIT,
   FILE_SEARCH_MIN_QUERY_LENGTH,
@@ -7,10 +7,10 @@ import {
   normalizeFileSearchText,
   type FileSearchResponse,
   type FileSearchResult,
-} from '@/lib/file-search'
-import type { CanvasWindow } from '@/lib/infinite-canvas'
-import { queryKeys } from '@/lib/query-keys'
-import { fileItemIcon, type FileIconContext } from '@/src/lib/use-file-icon'
+} from '@/lib/files/file-search'
+import type { CanvasWindow } from '@/canvas/model/infinite-canvas'
+import { queryKeys } from '@/lib/api/query-keys'
+import { fileItemIcon, type FileIconContext } from '@/features/explorer/use-file-icon'
 import { useQuery } from '@tanstack/solid-query'
 import Search from 'lucide-solid/icons/search'
 import SquareStack from 'lucide-solid/icons/square-stack'

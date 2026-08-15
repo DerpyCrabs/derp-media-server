@@ -1,8 +1,8 @@
 import { Window as HappyWindow } from 'happy-dom'
 import { afterAll, afterEach, describe, expect, test } from 'bun:test'
 
-import type { MarkdownEditorController } from '@/src/media/markdown/create-editor'
-import type { MarkdownEditorRuntime } from '@/src/media/markdown/types'
+import type { MarkdownEditorController } from '@/lib/markdown/create-editor'
+import type { MarkdownEditorRuntime } from '@/lib/markdown/types'
 
 const testWindow = new HappyWindow({ url: 'http://localhost/' })
 const installedGlobals = [
@@ -78,9 +78,9 @@ const [
   taskModule,
 ] = await Promise.all([
   import('@codemirror/commands'),
-  import('@/lib/extract-paste-data'),
-  import('@/src/media/markdown/create-editor'),
-  import('@/src/media/markdown/task-lists'),
+  import('@/lib/files/extract-paste-data'),
+  import('@/lib/markdown/create-editor'),
+  import('@/lib/markdown/task-lists'),
 ])
 const { createMarkdownEditor } = editorModule
 const { TaskCheckboxWidget } = taskModule

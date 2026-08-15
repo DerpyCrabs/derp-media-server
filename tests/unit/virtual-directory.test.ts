@@ -1,11 +1,11 @@
 import { describe, expect, test } from 'bun:test'
 import {
   hasVirtualCapability,
-  virtualAppearanceForPath,
   virtualEntrySubtitle,
   virtualFileSizeVisible,
   type VirtualEntry,
-} from '@/lib/virtual-directory'
+} from '@/lib/files/virtual-directory'
+import { virtualAppearanceForPath } from '@/features/explorer/virtual-directory-appearance'
 
 describe('virtual-directory interface', () => {
   test('drives behavior from capabilities instead of provider paths', () => {

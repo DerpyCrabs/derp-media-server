@@ -3,9 +3,9 @@ import { EditorState } from '@codemirror/state'
 import type { SyntaxNode } from '@lezer/common'
 import { describe, expect, test } from 'bun:test'
 
-import { collectMarkdownImageTargets } from '@/lib/markdown-parser'
-import { syntaxNodeIsActive, markdownModeFacet } from '@/src/media/markdown/live-preview'
-import { markdownLanguage } from '@/src/media/markdown/markdown-language'
+import { collectMarkdownImageTargets } from '@/lib/markdown/markdown-parser'
+import { syntaxNodeIsActive, markdownModeFacet } from '@/lib/markdown/live-preview'
+import { markdownLanguage } from '@/lib/markdown/markdown-language'
 
 function markdownState(
   doc: string,

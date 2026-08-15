@@ -6,8 +6,8 @@ import {
   continueMarkdownList,
   indentMarkdownList,
   toggleMarkdownDelimiter,
-} from '@/src/media/markdown/commands'
-import { markdownLanguage } from '@/src/media/markdown/markdown-language'
+} from '@/lib/markdown/commands'
+import { markdownLanguage } from '@/lib/markdown/markdown-language'
 
 type Selection = number | { anchor: number; head: number }
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { readerAiPrompt } from '../../src/reader/reader-ai'
+import { readerAiPrompt } from '../../src/features/reader/reader-ai'
 
 describe('reader AI prompts', () => {
   test('keeps compact results to the requested answer', () => {

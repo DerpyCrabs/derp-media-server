@@ -1,13 +1,16 @@
 import { describe, expect, test } from 'bun:test'
-import { MediaType } from '@/lib/types'
-import type { PersistedWorkspaceState, WorkspaceWindowDefinition } from '@/lib/use-workspace'
+import { MediaType } from '@/lib/files/types'
+import type {
+  PersistedWorkspaceState,
+  WorkspaceWindowDefinition,
+} from '@/workspace/model/use-workspace'
 import {
   clampTabInsertIndex,
   leadingPinnedTabCount,
   openInNewTabInGroupState,
   setTabPinnedAndReorderState,
   tabsInGroup,
-} from '@/src/workspace/tab-group-ops'
+} from '@/workspace/tabs/tab-group-ops'
 
 function browserTab(
   id: string,

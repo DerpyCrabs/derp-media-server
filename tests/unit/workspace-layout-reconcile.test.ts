@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'bun:test'
-import { reconcileLayoutBoundsFromSnapZones } from '@/lib/workspace-geometry'
-import type { WorkspaceWindowDefinition } from '@/lib/use-workspace'
-import { workspaceTabIconColorKeyToHex } from '@/lib/workspace-tab-icon-colors'
+import { reconcileLayoutBoundsFromSnapZones } from '@/workspace/model/workspace-geometry'
+import type { WorkspaceWindowDefinition } from '@/workspace/model/use-workspace'
+import { workspaceTabIconColorKeyToHex } from '@/workspace/model/workspace-tab-icon-colors'
 import {
   normalizePersistedWorkspaceState,
   serializeWorkspaceLayoutState,
   serializeWorkspacePersistedState,
-} from '@/lib/use-workspace'
+} from '@/workspace/model/use-workspace'
 
 function win(
   id: string,

@@ -181,6 +181,8 @@ test.describe('Folder Navigation', () => {
     await page.locator('table').getByText('unsupported.xyz').click()
     await page.waitForURL(/viewing=/)
     await expect(page.getByRole('heading', { name: 'Unsupported File Type' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'unsupported.xyz' })).toBeVisible()
+    await expect(page.getByText('.XYZ file • 4 Bytes')).toBeVisible()
     await page.getByRole('button', { name: 'Close' }).click()
     await expect(page).not.toHaveURL(/viewing=/)
     await expect(page.locator('table').getByText('unsupported.xyz')).toBeVisible()

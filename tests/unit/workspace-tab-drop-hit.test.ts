@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   TAB_DROP_BEFORE_FRACTION,
   insertIndexFromTabBodyPointer,
-} from '@/src/workspace/tab-drop-hit'
+} from '@/workspace/tabs/tab-drop-hit'
 
 describe('insertIndexFromTabBodyPointer', () => {
   test('inserts before tab when pointer is in left fraction of tab width', () => {

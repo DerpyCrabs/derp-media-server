@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'bun:test'
-import { MediaType } from '@/lib/types'
-import type { PersistedWorkspaceState, WorkspaceSource } from '@/lib/use-workspace'
+import { MediaType } from '@/lib/files/types'
+import type { PersistedWorkspaceState, WorkspaceSource } from '@/workspace/model/use-workspace'
 import {
   buildWorkspaceFromDirParam,
   resolveWorkspaceDeferredPresetApply,
   resolveWorkspaceInitialHydration,
-} from '@/lib/workspace-bootstrap'
-import type { WorkspaceLayoutPreset } from '@/lib/workspace-layout-presets'
+} from '@/workspace/page/workspace-bootstrap'
+import type { WorkspaceLayoutPreset } from '@/workspace/model/workspace-layout-presets'
 
 const localSource: WorkspaceSource = { kind: 'local', rootPath: null }
 

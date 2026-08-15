@@ -3,8 +3,8 @@ import {
   fileSearchCodePointLength,
   fileSearchResultToFileItem,
   normalizeFileSearchText,
-} from '@/lib/file-search'
-import { MediaType } from '@/lib/types'
+} from '@/lib/files/file-search'
+import { MediaType } from '@/lib/files/types'
 
 describe('file search helpers', () => {
   test('normalizes case, separators and diacritics without changing result paths', () => {

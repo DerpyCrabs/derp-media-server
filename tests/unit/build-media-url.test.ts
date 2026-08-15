@@ -6,7 +6,7 @@ import {
   buildImageUrl,
   buildMediaUrl,
   buildThumbnailUrl,
-} from '@/src/lib/build-media-url'
+} from '@/lib/media/build-media-url'
 
 describe('media URLs', () => {
   test('encodes media paths by segment', () => {
