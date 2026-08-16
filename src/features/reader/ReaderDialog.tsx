@@ -77,7 +77,7 @@ const naturalCompare = (left: FileItem, right: FileItem) =>
     sensitivity: 'base',
   })
 const estimatedPageBlockHeight = (page: ReaderPage | undefined, zoom: number) =>
-  (page?.height ?? 900) * zoom + 44
+  (page?.height ?? 900) * zoom + (page?.kind === 'pdf' ? 10 : 8)
 const estimateOffsetForPage = (pages: ReaderPage[], pageIndex: number, zoom: number) =>
   pages
     .slice(0, Math.min(pageIndex, pages.length))
@@ -114,12 +114,15 @@ function PdfPage(props: {
   let host!: HTMLDivElement
   let canvas!: HTMLCanvasElement
   const [near, setNear] = createSignal(false)
-  const [size, setSize] = createSignal({ width: 0, height: 0 })
 
   createEffect(
-    () => ({ width: props.page.width, height: props.page.height }),
-    (pageSize) => {
-      setSize(pageSize)
+    () => ({ width: props.page.width, height: props.page.height, zoom: props.zoom }),
+    ({ width, height, zoom }) => {
+      if (!host || !canvas) return
+      host.style.width = `${width * zoom}px`
+      host.style.height = `${height * zoom}px`
+      canvas.style.width = `${width * zoom}px`
+      canvas.style.height = `${height * zoom}px`
     },
   )
 
@@ -128,7 +131,7 @@ function PdfPage(props: {
     const observer = new IntersectionObserver(
       ([entry]) => setNear(Boolean(entry?.isIntersecting)),
       {
-        rootMargin: '1200px 0px',
+        rootMargin: '3600px 0px',
       },
     )
     observer.observe(host)
@@ -159,7 +162,6 @@ function PdfPage(props: {
         canvas.height = Math.floor(viewport.height * ratio)
         canvas.style.width = `${viewport.width}px`
         canvas.style.height = `${viewport.height}px`
-        setSize({ width: viewport.width, height: viewport.height })
         context.setTransform(ratio, 0, 0, ratio, 0, 0)
         renderTask = page.render({ canvas, canvasContext: context, viewport })
         try {
@@ -197,8 +199,8 @@ function PdfPage(props: {
       }}
       class='relative box-content touch-none overflow-hidden rounded-lg border border-[#c6d0ca] bg-white shadow-[0_7px_20px_rgb(0_0_0/28%)]'
       style={{
-        width: `${size().width}px`,
-        height: `${size().height}px`,
+        width: `${props.page.width * props.zoom}px`,
+        height: `${props.page.height * props.zoom}px`,
         '--scale-factor': String(props.zoom),
         '--user-unit': '1',
         '--total-scale-factor': String(props.zoom),
@@ -209,7 +211,7 @@ function PdfPage(props: {
           canvas = element
         }}
         data-testid='pdf-canvas'
-        class='block h-auto w-full'
+        class='block'
       />
       <RegionLayer
         active={props.selectionMode === 'image'}

@@ -443,6 +443,32 @@ test.describe('Reader', () => {
     await expect(page.getByRole('button', { name: 'Next page' })).toHaveCount(0)
   })
 
+  test('keeps fit-width PDF placeholders at rendered size while scrolling', async ({ page }) => {
+    await openSamplePdf(page)
+    await page.getByTestId('reader-settings-button').click()
+    await page.getByRole('button', { name: 'width', exact: true }).click()
+
+    await expect
+      .poll(() =>
+        page
+          .getByTestId('pdf-canvas')
+          .first()
+          .evaluate((canvas) => canvas.getBoundingClientRect().width),
+      )
+      .toBeGreaterThan(900)
+
+    await page.getByTestId('reader-viewport').evaluate((viewport) => {
+      viewport.scrollTop = viewport.scrollHeight
+      viewport.dispatchEvent(new Event('scroll', { bubbles: true }))
+    })
+
+    const widths = await page
+      .getByTestId('pdf-canvas')
+      .evaluateAll((canvases) => canvases.map((canvas) => canvas.getBoundingClientRect().width))
+    expect(widths).toHaveLength(4)
+    expect(Math.max(...widths) - Math.min(...widths), JSON.stringify(widths)).toBeLessThan(2)
+  })
+
   test('fullscreens reader instead of whole application', async ({ page }) => {
     await openSamplePdf(page)
     await page.evaluate(() => {

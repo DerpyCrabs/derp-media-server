@@ -71,6 +71,22 @@ export function ViewerPane(props: Props) {
   const viewingPath = createMemo(() => props.viewingPath())
   const readerKind = createMemo(() => props.readerKind?.() ?? null)
 
+  createEffect(
+    () => props.presentation === 'modal' && Boolean(viewingPath()),
+    (active) => {
+      if (!active) return undefined
+      const html = document.documentElement
+      const body = document.body
+      const previous = { html: html.style.overflow, body: body.style.overflow }
+      html.style.overflow = 'hidden'
+      body.style.overflow = 'hidden'
+      return () => {
+        html.style.overflow = previous.html
+        body.style.overflow = previous.body
+      }
+    },
+  )
+
   const mediaType = createMemo(() => getMediaTypeFromPath(viewingPath()))
 
   const downloadHref = createMemo(() => {

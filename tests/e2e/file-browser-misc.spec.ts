@@ -7,6 +7,71 @@ const mediaDir = batchId ? `test-media-${batchId}` : 'test-media'
 const UPLOAD_DIR = 'MediaContent'
 
 test.describe('File browser misc', () => {
+  test('main media-center listing has no nested vertical scroll surface', async ({ page }) => {
+    await page.goto('/?dir=Documents')
+    const nestedScrollers = await page
+      .locator('[data-testid="file-browser"] *')
+      .evaluateAll((elements) =>
+        elements
+          .filter((element) => {
+            const style = getComputedStyle(element)
+            return (
+              (style.overflowY === 'auto' || style.overflowY === 'scroll') &&
+              element.scrollHeight > element.clientHeight + 1
+            )
+          })
+          .map((element) => ({
+            tag: element.tagName,
+            className: typeof element.className === 'string' ? element.className : '',
+          })),
+      )
+    expect(nestedScrollers).toEqual([])
+  })
+
+  test('modal reader does not leave media-center scroll behind it', async ({ page }) => {
+    const folderName = `ScrollProbe-${Date.now()}`
+    const folderPath = path.resolve(mediaDir, folderName)
+    fs.mkdirSync(folderPath, { recursive: true })
+    for (let index = 0; index < 500; index += 1) {
+      fs.writeFileSync(
+        path.join(folderPath, `item-${String(index).padStart(4, '0')}.txt`),
+        `${index}`,
+      )
+    }
+    fs.copyFileSync(
+      path.resolve(mediaDir, 'Documents', 'sample.pdf'),
+      path.join(folderPath, 'sample.pdf'),
+    )
+
+    try {
+      await page.goto(
+        `/?dir=${encodeURIComponent(folderName)}&viewing=${encodeURIComponent(`${folderName}/sample.pdf`)}`,
+      )
+      await expect(page.getByTestId('reader-viewport')).toBeVisible()
+      await expect(page.getByTestId('pdf-canvas')).toBeVisible()
+      const scrollSurfaces = await page.evaluate(() =>
+        [...document.querySelectorAll<HTMLElement>('*')]
+          .filter((element) => {
+            const style = getComputedStyle(element)
+            return (
+              (style.overflowY === 'auto' || style.overflowY === 'scroll') &&
+              element.scrollHeight > element.clientHeight + 1
+            )
+          })
+          .map((element) => ({
+            testId: element.dataset.testid ?? '',
+            tag: element.tagName,
+            className: typeof element.className === 'string' ? element.className : '',
+          })),
+      )
+      expect(scrollSurfaces).toEqual([
+        { testId: 'reader-viewport', tag: 'DIV', className: expect.any(String) },
+      ])
+    } finally {
+      fs.rmSync(folderPath, { recursive: true, force: true })
+    }
+  })
+
   test('uploads a folder via upload menu', async ({ page }) => {
     await page.goto(`/?dir=${UPLOAD_DIR}`)
     const tmpRoot = fs.mkdtempSync(path.join(mediaDir, 'upload-dir-'))

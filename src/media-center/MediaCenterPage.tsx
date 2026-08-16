@@ -1147,7 +1147,7 @@ export function MediaCenterPage() {
                                   gridContainerClass='py-4 px-4'
                                   listContainerClass='sm:px-4 py-2'
                                   gridClass='gap-4'
-                                  listClass='relative w-full overflow-x-auto'
+                                  listClass='relative w-full overflow-x-auto overflow-y-hidden'
                                   listColSpan={4}
                                   listSizeColumnClass='w-28'
                                   showEmpty={showEmptyFolder}
