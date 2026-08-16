@@ -446,7 +446,7 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
                 Add to taskbar
               </button>
             </Show>
-            <Show when={ctx.file.isDirectory && !ctx.file.isVirtual && !!props.onToggleFavorite}>
+            <Show when={!ctx.file.isVirtual && !!props.onToggleFavorite}>
               <button
                 type='button'
                 data-slot='context-menu-item'

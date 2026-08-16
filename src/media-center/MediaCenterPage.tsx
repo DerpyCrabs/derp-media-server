@@ -1234,7 +1234,7 @@ export function MediaCenterPage() {
                                         <button
                                           type='button'
                                           aria-label={'More actions for ' + file.name}
-                                          class='absolute right-1.5 bottom-1.5 z-20 inline-flex h-11 w-11 items-center justify-center rounded-full bg-background/90 text-foreground shadow-sm'
+                                          class='absolute right-1.5 bottom-1.5 z-20 inline-flex h-11 w-11 items-center justify-center rounded-full bg-background/90 text-foreground shadow-sm lg:hidden'
                                           onClick={(event) =>
                                             fileRowMenu.openRowMenuFromButton(event, file)
                                           }
@@ -1247,8 +1247,8 @@ export function MediaCenterPage() {
                                             class={cn(
                                               'absolute top-1.5 left-1.5 z-10 rounded-full p-1 transition-all',
                                               isFav()
-                                                ? 'bg-background/90 shadow-sm hover:bg-background'
-                                                : 'bg-background/70 opacity-60 hover:bg-background/90 group-hover:opacity-100',
+                                                ? 'pointer-events-auto bg-background/90 opacity-100 shadow-sm hover:bg-background'
+                                                : 'pointer-events-none bg-background/70 opacity-0',
                                             )}
                                             title={
                                               isFav() ? 'Remove from favorites' : 'Add to favorites'

@@ -13,6 +13,22 @@ test.describe('mobile media management', () => {
     expect(box?.height).toBeGreaterThanOrEqual(44)
     await more.click()
     await expect(page.getByRole('menu')).toBeVisible()
+    await expect(page.getByRole('menu').getByText('Favorite', { exact: true })).toBeVisible()
+    await Promise.all([
+      page.waitForResponse(
+        (resp) => resp.url().includes('/api/settings/favorite') && resp.status() === 200,
+      ),
+      page.getByRole('menu').getByText('Favorite', { exact: true }).click(),
+    ])
+    await expect(page.getByTitle('Remove from favorites')).toBeVisible()
+    await more.click()
+    await expect(page.getByRole('menu').getByText('Unfavorite', { exact: true })).toBeVisible()
+    await Promise.all([
+      page.waitForResponse(
+        (resp) => resp.url().includes('/api/settings/favorite') && resp.status() === 200,
+      ),
+      page.getByRole('menu').getByText('Unfavorite', { exact: true }).click(),
+    ])
     await page.keyboard.press('Escape')
     await page.getByRole('button', { name: 'List view' }).click()
     await page.reload()
