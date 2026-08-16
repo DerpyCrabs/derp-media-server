@@ -1200,13 +1200,28 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
           else if (!props.embedded || props.onClose) void close()
           return
         }
+        if (target?.closest('[data-testid="reader-selection-menu"]')) return
         if (target?.closest('input, textarea, button, [contenteditable=true]')) return
+        if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+          event.preventDefault()
+          viewport?.scrollBy({ top: event.key === 'ArrowDown' ? 40 : -40 })
+          return
+        }
+        if (event.key === 'PageUp' || event.key === 'PageDown') {
+          event.preventDefault()
+          if (viewMode() === 'page' && sourceKind() !== 'book') {
+            goToPage(currentPage() + (event.key === 'PageDown' ? 1 : -1))
+          } else {
+            viewport?.scrollBy({
+              top: (event.key === 'PageDown' ? 1 : -1) * (viewport?.clientHeight ?? 0),
+            })
+          }
+          return
+        }
         if (sourceKind() === 'book') return
         const targets: Record<string, number> = {
           ArrowRight: currentPage() + 1,
-          PageDown: currentPage() + 1,
           ArrowLeft: currentPage() - 1,
-          PageUp: currentPage() - 1,
           Home: 0,
           End: pages().length - 1,
         }

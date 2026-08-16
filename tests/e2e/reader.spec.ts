@@ -469,6 +469,44 @@ test.describe('Reader', () => {
     expect(Math.max(...widths) - Math.min(...widths), JSON.stringify(widths)).toBeLessThan(2)
   })
 
+  test('scrolls reader with arrow and page keys without hijacking selection controls', async ({
+    page,
+  }) => {
+    await openSamplePdf(page)
+    const viewport = page.getByTestId('reader-viewport')
+    await viewport.evaluate((element) => {
+      element.scrollTop = 0
+      element.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+    })
+
+    await page.keyboard.press('ArrowDown')
+    await expect.poll(() => viewport.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
+    const afterArrow = await viewport.evaluate((element) => element.scrollTop)
+
+    await page.keyboard.press('PageDown')
+    await expect
+      .poll(() => viewport.evaluate((element) => element.scrollTop))
+      .toBeGreaterThan(afterArrow)
+
+    await viewport.evaluate((element) => {
+      element.scrollTop = 0
+      element.dispatchEvent(new Event('scroll', { bubbles: true }))
+    })
+    await disableAutomaticSelectionAction(page)
+    await selectPdfLines(page, 'Selectable reader text')
+    const selectionMenu = page.getByTestId('reader-selection-menu')
+    const selectionInput = page.getByRole('textbox', { name: 'Selected text' })
+    await expect(selectionInput).toBeVisible()
+    await selectionMenu.evaluate((element) => {
+      element.setAttribute('tabindex', '-1')
+      element.focus()
+    })
+    const beforeSelectionKey = await viewport.evaluate((element) => element.scrollTop)
+    await page.keyboard.press('ArrowDown')
+    await page.keyboard.press('PageDown')
+    expect(await viewport.evaluate((element) => element.scrollTop)).toBe(beforeSelectionKey)
+  })
+
   test('fullscreens reader instead of whole application', async ({ page }) => {
     await openSamplePdf(page)
     await page.evaluate(() => {
