@@ -5,6 +5,7 @@ import type {
   FileSortOrder,
   SortDirection,
 } from '@/lib/models/settings-types'
+import { isVirtualFolderPath } from '@/lib/files/constants'
 
 export const DEFAULT_FILE_SORT: FileSortOrder = { field: 'name', direction: 'asc' }
 export const DEFAULT_FILE_COLUMNS: FileColumnVisibility = { createdDate: false, size: true }
@@ -39,6 +40,9 @@ function compareOptionalNumbers(
 
 export function sortFileItems(files: FileItem[], order: FileSortOrder): FileItem[] {
   return [...files].sort((a, b) => {
+    const virtualOrder = Number(Boolean(b.isVirtual)) - Number(Boolean(a.isVirtual))
+    if (virtualOrder !== 0) return virtualOrder
+
     const directoryOrder = Number(b.isDirectory) - Number(a.isDirectory)
     if (directoryOrder !== 0) return directoryOrder
 
@@ -56,6 +60,16 @@ export function sortFileItems(files: FileItem[], order: FileSortOrder): FileItem
     }
     return compareNames(a, b)
   })
+}
+
+export function sortFilesForPath(
+  files: FileItem[],
+  path: string,
+  sortOrders?: Record<string, FileSortOrder>,
+  sortingDisabled = false,
+): FileItem[] {
+  if (sortingDisabled || isVirtualFolderPath(path)) return files
+  return sortFileItems(files, sortOrders?.[path] ?? DEFAULT_FILE_SORT)
 }
 
 const createdDateFormatter = new Intl.DateTimeFormat(undefined, {

@@ -17,7 +17,6 @@ type VirtualDirectoryListProps = {
   scrollTarget: ScrollTarget
   colSpan: number | Accessor<number>
   columns?: Accessor<{ class?: string }[]>
-  renderHeader?: () => JSX.Element
   tableClass?: string | Accessor<string>
   estimateSize?: number
   overscan?: number
@@ -221,9 +220,6 @@ export function VirtualDirectoryList(props: VirtualDirectoryListProps) {
             <For each={props.columns?.() ?? []}>{(column) => <col class={column.class} />}</For>
           </Show>
         </colgroup>
-        <Show when={props.renderHeader}>
-          <thead>{props.renderHeader?.()}</thead>
-        </Show>
         <tbody class='[&_tr:last-child]:border-0'>{children}</tbody>
       </table>
     </div>

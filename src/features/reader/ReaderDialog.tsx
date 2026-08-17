@@ -8,10 +8,9 @@ import {
   type ReaderViewMode,
 } from './reader-position'
 import { MediaType, type FileItem } from '@/lib/files/types'
-import { api, ApiError } from '@/lib/api/client'
-import type { GlobalSettings } from '@/lib/models/settings-types'
-import { isVirtualFolderPath } from '@/lib/files/constants'
-import { DEFAULT_FILE_SORT, sortFileItems } from '@/features/explorer/file-display-settings'
+import { ApiError } from '@/lib/api/client'
+import { sortFilesForPath } from '@/features/explorer/file-display-settings'
+import { useExplorerSettings } from '@/features/explorer/use-explorer-settings'
 import Maximize2 from 'lucide-solid/icons/maximize-2'
 import Minimize2 from 'lucide-solid/icons/minimize-2'
 import Settings from 'lucide-solid/icons/settings'
@@ -423,6 +422,7 @@ type ReaderDialogProps = {
 
 export function ReaderDialog(props: ReaderDialogProps = {}) {
   const history = useBrowserHistory()
+  const { settingsQuery } = useExplorerSettings()
   let readerRoot!: HTMLDivElement
   let viewport!: HTMLDivElement
   const menuHost = document.createElement('div')
@@ -732,15 +732,17 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
               const listUrl = `/api/files?dir=${encodeURIComponent(activePath)}`
               const [response, settings] = await Promise.all([
                 fetch(listUrl),
-                api<GlobalSettings>('/api/settings'),
+                (settingsQuery.data
+                  ? Promise.resolve(settingsQuery.data)
+                  : settingsQuery.refetch().then((result) => result.data)
+                ).catch(() => undefined),
               ])
               const payload = await response.json()
               if (!response.ok) throw new Error(payload?.error ?? 'Could not open image folder')
               const listed = (payload.files ?? []) as FileItem[]
-              const order = settings.sortOrders?.[activePath] ?? DEFAULT_FILE_SORT
-              const files = (
-                isVirtualFolderPath(activePath) ? listed : sortFileItems(listed, order)
-              ).filter((file) => !file.isDirectory && file.type === MediaType.IMAGE)
+              const files = sortFilesForPath(listed, activePath, settings?.sortOrders).filter(
+                (file) => !file.isDirectory && file.type === MediaType.IMAGE,
+              )
               if (files.length === 0) throw new Error('Folder contains no supported images')
               const loaded = await Promise.all(
                 files.map(async (file) => {

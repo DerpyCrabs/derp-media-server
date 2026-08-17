@@ -25,9 +25,8 @@ import {
 } from '@/features/playback'
 import { usePlaybackSession, usePlaybackSnapshot } from '@/features/playback/PlaybackProvider'
 import { parentPath } from '@/lib/files/path-utils'
-import type { GlobalSettings } from '@/lib/models/settings-types'
-import { isVirtualFolderPath } from '@/lib/files/constants'
-import { DEFAULT_FILE_SORT, sortFileItems } from '@/features/explorer/file-display-settings'
+import { sortFilesForPath } from '@/features/explorer/file-display-settings'
+import { useExplorerSettings } from '@/features/explorer/use-explorer-settings'
 
 type Props = {
   onShowVideo: (path: string, dir?: string) => void
@@ -38,6 +37,7 @@ type Props = {
 export function WorkspaceTaskbarAudio(props: Props) {
   const session = usePlaybackSession()
   const playback = usePlaybackSnapshot()
+  const { settingsQuery } = useExplorerSettings()
   const [detailsOpen, setDetailsOpen] = createSignal(false)
   const item = createMemo(() => playback().currentItem)
   const playingPath = createMemo(() => item()?.locator ?? null)
@@ -60,16 +60,9 @@ export function WorkspaceTaskbarAudio(props: Props) {
     queryFn: () => api<{ files: FileItem[] }>(`/api/files?dir=${encodeURIComponent(currentDir())}`),
     enabled: shouldHandleAudio() && !!playingPath(),
   }))
-  const settingsQuery = useQuery(() => ({
-    queryKey: queryKeys.settings(),
-    queryFn: () => api<GlobalSettings>('/api/settings'),
-  }))
   const allFiles = createMemo(() => {
     const files = filesQuery.data?.files ?? []
-    const directory = currentDir()
-    if (isVirtualFolderPath(directory)) return files
-    const order = settingsQuery.data?.sortOrders?.[directory] ?? DEFAULT_FILE_SORT
-    return sortFileItems(files, order)
+    return sortFilesForPath(files, currentDir(), settingsQuery.data?.sortOrders)
   })
   let queuedSignature = ''
   createEffect(

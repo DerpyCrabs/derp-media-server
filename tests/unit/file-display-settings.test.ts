@@ -4,7 +4,7 @@ import { sortFileItems } from '../../src/features/explorer/file-display-settings
 
 function item(
   name: string,
-  options: Partial<Pick<FileItem, 'isDirectory' | 'size' | 'createdDate'>> = {},
+  options: Partial<Pick<FileItem, 'isDirectory' | 'isVirtual' | 'size' | 'createdDate'>> = {},
 ): FileItem {
   const isDirectory = options.isDirectory ?? false
   return {
@@ -15,6 +15,7 @@ function item(
     createdDate: options.createdDate,
     extension: '',
     isDirectory,
+    isVirtual: options.isVirtual,
   }
 }
 
@@ -50,5 +51,17 @@ describe('file display sorting', () => {
     expect(
       sortFileItems(files, { field: 'createdDate', direction: 'desc' }).map((file) => file.name),
     ).toEqual(['new', 'old', 'missing'])
+  })
+
+  test('keeps virtual folders before real folders for every sort field', () => {
+    const files = [
+      item('Archive', { isDirectory: true, createdDate: 20 }),
+      item('Favorites', { isDirectory: true, isVirtual: true }),
+      item('Most Played', { isDirectory: true, isVirtual: true }),
+    ]
+
+    expect(
+      sortFileItems(files, { field: 'createdDate', direction: 'desc' }).map((file) => file.name),
+    ).toEqual(['Favorites', 'Most Played', 'Archive'])
   })
 })

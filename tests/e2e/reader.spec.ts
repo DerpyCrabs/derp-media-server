@@ -42,6 +42,11 @@ async function disableAutomaticSelectionAction(page: Page) {
   await page.getByRole('button', { name: 'none', exact: true }).click()
 }
 
+async function useContinuousReaderView(page: Page) {
+  await page.getByTestId('reader-settings-button').click()
+  await page.getByRole('button', { name: 'continuous', exact: true }).click()
+}
+
 async function chooseReaderFromOpenWith(page: Page) {
   await page.getByTestId('open-with-menu').click()
   await expect(page.getByTestId('open-with-submenu')).toBeVisible()
@@ -421,6 +426,7 @@ test.describe('Reader', () => {
       await page.goto('/')
       await page.locator('tr', { hasText: 'Images' }).click({ button: 'right' })
       await chooseReaderFromOpenWith(page)
+      await useContinuousReaderView(page)
       await expect(page.getByTestId('reader-image-page')).toHaveCount(2)
       await expect
         .poll(() =>

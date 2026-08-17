@@ -1,8 +1,6 @@
 import { api, post } from '@/lib/api/client'
 import { queryKeys } from '@/lib/api/query-keys'
 import { MediaType, type FileItem } from '@/lib/files/types'
-import type { GlobalSettings } from '@/lib/models/settings-types'
-import { isVirtualFolderPath } from '@/lib/files/constants'
 import { useQuery } from '@tanstack/solid-query'
 import Monitor from 'lucide-solid/icons/monitor'
 import Pause from 'lucide-solid/icons/pause'
@@ -29,13 +27,15 @@ import {
 } from '@/lib/media/build-media-url'
 import { setAudioOnly } from '@/lib/browser/url-state-actions'
 import { parentPath } from '@/lib/files/path-utils'
-import { DEFAULT_FILE_SORT, sortFileItems } from '@/features/explorer/file-display-settings'
+import { sortFilesForPath } from '@/features/explorer/file-display-settings'
+import { useExplorerSettings } from '@/features/explorer/use-explorer-settings'
 
 export function AudioPlayer() {
   const history = useBrowserHistory()
   const urlSearchParams = createUrlSearchParamsMemo(history)
   const session = usePlaybackSession()
   const snapshot = usePlaybackSnapshot()
+  const { settingsQuery } = useExplorerSettings()
 
   const currentItem = createMemo(() => snapshot().currentItem)
   const playbackMode = createMemo(() => snapshot().mode)
@@ -49,16 +49,9 @@ export function AudioPlayer() {
     queryKey: queryKeys.files(currentDir()),
     queryFn: () => api<{ files: FileItem[] }>(`/api/files?dir=${encodeURIComponent(currentDir())}`),
   }))
-  const settingsQuery = useQuery(() => ({
-    queryKey: queryKeys.settings(),
-    queryFn: () => api<GlobalSettings>('/api/settings'),
-  }))
   const allFiles = createMemo(() => {
     const files = filesQuery.data?.files ?? []
-    const directory = currentDir()
-    if (isVirtualFolderPath(directory)) return files
-    const order = settingsQuery.data?.sortOrders?.[directory] ?? DEFAULT_FILE_SORT
-    return sortFileItems(files, order)
+    return sortFilesForPath(files, currentDir(), settingsQuery.data?.sortOrders)
   })
 
   createEffect(

@@ -10,12 +10,58 @@ use axum::{
 };
 use serde_json::{Value, json};
 
+fn complete_settings(mut value: Value) -> Value {
+    let defaults = default_settings();
+    if !value.is_object() {
+        return defaults;
+    }
+
+    let Some(object) = value.as_object_mut() else {
+        return defaults;
+    };
+    let Some(defaults) = defaults.as_object() else {
+        return value;
+    };
+
+    for (key, default) in defaults {
+        object.entry(key.clone()).or_insert_with(|| default.clone());
+    }
+
+    for key in ["viewModes", "sortOrders", "customIcons", "autoSave"] {
+        if !object[key].is_object() {
+            object[key] = defaults[key].clone();
+        }
+    }
+    for key in [
+        "favorites",
+        "knowledgeBases",
+        "workspaceTaskbarPins",
+        "workspaceLayoutPresets",
+    ] {
+        if !object[key].is_array() {
+            object[key] = defaults[key].clone();
+        }
+    }
+
+    if !object["fileColumns"].is_object() {
+        object["fileColumns"] = defaults["fileColumns"].clone();
+    } else if let Some(columns) = object["fileColumns"].as_object_mut() {
+        for (key, default) in defaults["fileColumns"].as_object().into_iter().flatten() {
+            if !columns.get(key).is_some_and(Value::is_boolean) {
+                columns.insert(key.clone(), default.clone());
+            }
+        }
+    }
+
+    value
+}
+
 pub(crate) fn sanitized(state: &AppState) -> Value {
-    let value = store::section(
+    let value = complete_settings(store::section(
         &settings_path(state),
         &state.config.library_key,
         default_settings(),
-    );
+    ));
     let mut result = serde_json::Map::new();
     for key in [
         "viewModes",
@@ -53,7 +99,10 @@ async fn mutate(
         &settings_path(state),
         &state.config.library_key,
         default_settings(),
-        update,
+        |value| {
+            *value = complete_settings(value.take());
+            update(value)
+        },
     )?;
     emit_admin(state, "settings-changed");
     Ok(Json(result))
@@ -235,4 +284,24 @@ pub fn router() -> Router<Shared> {
         .route("/api/settings/favorite", post(favorite))
         .route("/api/settings/knowledgeBase", post(knowledge_base))
         .route("/api/settings/{*kind}", post(generic))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn complete_settings_fills_and_repairs_display_defaults() {
+        let result = complete_settings(json!({
+            "viewModes": {},
+            "fileColumns": {"size": false},
+        }));
+
+        assert_eq!(result["sortOrders"], json!({}));
+        assert_eq!(
+            result["fileColumns"],
+            json!({"createdDate": false, "size": false})
+        );
+        assert!(result["favorites"].is_array());
+    }
 }

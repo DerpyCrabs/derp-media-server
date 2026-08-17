@@ -20,11 +20,6 @@ import { queryKeys } from '@/lib/api/query-keys'
 import { shouldOfferPasteAsNewFile } from '@/lib/files/should-offer-paste-as-new-file'
 import { fileDownloadHref } from '@/lib/files/download-urls'
 import type { FileItem } from '@/lib/files/types'
-import type {
-  FileColumnVisibility,
-  FileSortOrder,
-  GlobalSettings,
-} from '@/lib/models/settings-types'
 import {
   hasVirtualCapability,
   virtualFileSizeVisible,
@@ -59,15 +54,8 @@ import { BrowserWindowModalLayer } from './BrowserWindowModalLayer'
 import { modalDialogBackdropClass } from '@/features/explorer/modal-overlay-scope'
 import { SOLID_AVAILABLE_ICONS } from '@/lib/ui/solid-available-icons'
 import { ExplorerDisplayOptions } from '@/features/explorer/ExplorerDisplayOptions'
-import {
-  DEFAULT_FILE_COLUMNS,
-  DEFAULT_FILE_SORT,
-  sortFileItems,
-} from '@/features/explorer/file-display-settings'
-import {
-  persistFileColumns,
-  persistFileSortOrder,
-} from '@/features/explorer/file-display-persistence'
+import { sortFilesForPath } from '@/features/explorer/file-display-settings'
+import { useFileDisplaySettings } from '@/features/explorer/use-file-display-settings'
 import { FileExplorerView } from '@/features/explorer/FileExplorerView'
 import { FileBrowserPane } from '@/features/explorer/FileBrowserPane'
 import { createFileBrowserDragController } from '@/features/explorer/file-browser-drag'
@@ -409,33 +397,17 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
     return s?.viewModes?.[currentPath()] ?? 'list'
   })
 
-  const sortOrder = createMemo(
-    () => settingsQuery.data?.sortOrders?.[currentPath()] ?? DEFAULT_FILE_SORT,
-  )
-  const fileColumns = createMemo(() => settingsQuery.data?.fileColumns ?? DEFAULT_FILE_COLUMNS)
   const sortingDisabled = createMemo(() => isVirtualFolder() || !!virtualDirectory())
+  // The hook tracks this accessor in its own memos and mutation handlers.
+  // eslint-disable-next-line solid/reactivity
+  const displaySettings = useFileDisplaySettings(currentPath, settingsQuery)
   const displayedFiles = createMemo(() =>
-    sortingDisabled() ? files() : sortFileItems(files(), sortOrder()),
+    sortFilesForPath(files(), currentPath(), settingsQuery.data?.sortOrders, sortingDisabled()),
   )
 
   const viewModeMutation = useMutation(() => ({
     mutationFn: (vars: { path: string; viewMode: 'list' | 'grid' }) =>
       persistViewMode(vars.path, vars.viewMode),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
-    },
-  }))
-
-  const sortOrderMutation = useMutation(() => ({
-    mutationFn: (vars: { path: string; sortOrder: FileSortOrder }) =>
-      persistFileSortOrder(vars.path, vars.sortOrder),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
-    },
-  }))
-
-  const fileColumnsMutation = useMutation(() => ({
-    mutationFn: persistFileColumns,
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
     },
@@ -760,21 +732,6 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
 
   function setViewMode(mode: 'list' | 'grid') {
     viewModeMutation.mutate({ path: currentPath(), viewMode: mode })
-  }
-
-  function setSortOrder(next: FileSortOrder) {
-    const path = currentPath()
-    queryClient.setQueryData(queryKeys.settings(), (current: GlobalSettings | undefined) =>
-      current ? { ...current, sortOrders: { ...current.sortOrders, [path]: next } } : current,
-    )
-    sortOrderMutation.mutate({ path, sortOrder: next })
-  }
-
-  function setFileColumns(next: FileColumnVisibility) {
-    queryClient.setQueryData(queryKeys.settings(), (current: GlobalSettings | undefined) =>
-      current ? { ...current, fileColumns: next } : current,
-    )
-    fileColumnsMutation.mutate(next)
   }
 
   function unsupportedDownloadHref(file: FileItem) {
@@ -1383,13 +1340,13 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
               <div class='bg-border mx-1 h-5 w-px shrink-0' />
             </Show>
             <ExplorerDisplayOptions
-              sortOrder={sortOrder()}
-              columns={fileColumns()}
+              sortOrder={displaySettings.sortOrder()}
+              columns={displaySettings.fileColumns()}
               sortingDisabled={sortingDisabled()}
               compact
               viewMode={viewMode()}
-              onSortChange={setSortOrder}
-              onColumnsChange={setFileColumns}
+              onSortChange={displaySettings.setSortOrder}
+              onColumnsChange={displaySettings.setFileColumns}
               onViewModeChange={setViewMode}
             />
           </div>
@@ -1486,7 +1443,7 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
                     <FileBrowserPane
                       files={displayedFiles}
                       viewMode={viewMode}
-                      columns={fileColumns}
+                      columns={displaySettings.fileColumns}
                       includeParent={() => !!currentPath()}
                       scrollTarget={{
                         kind: 'element',
@@ -1495,7 +1452,6 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
                       gridContainerClass='px-2 py-2'
                       gridClass='gap-4'
                       listClass='relative w-full'
-                      listColSpan={3}
                       showEmpty={showEmptyFolder}
                       canUpload={allowUpload}
                       onParentClick={handleParentDirectory}
@@ -1614,7 +1570,7 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
                           </Show>
                         </div>
                       )}
-                      renderListMeta={(file) => (
+                      renderListSize={(file) => (
                         <span class='inline-block w-20 tabular-nums'>
                           {virtualFileSizeVisible(file, virtualEntry(file))
                             ? formatFileSize(file.size)

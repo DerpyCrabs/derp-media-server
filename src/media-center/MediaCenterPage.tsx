@@ -18,11 +18,6 @@ import { queryKeys } from '@/lib/api/query-keys'
 import { VIRTUAL_FOLDERS, isVirtualFolderPath } from '@/lib/files/constants'
 import type { PasteData } from '@/lib/files/paste-data'
 import { MediaType, type FileItem } from '@/lib/files/types'
-import type {
-  FileColumnVisibility,
-  FileSortOrder,
-  GlobalSettings,
-} from '@/lib/models/settings-types'
 import { normalizeNewFilePath } from '@/lib/files/new-file-name'
 import { formatFileSize } from '@/lib/media/media-utils'
 import { cn } from '@/lib/ui/cn'
@@ -53,15 +48,8 @@ import { FloatingScrollActions } from '@/features/explorer/FloatingScrollActions
 import { useInlineModeInputFocus } from '@/features/explorer/use-inline-mode-input-focus'
 import { registerKbSearchHotkeys } from '@/features/explorer/use-kb-search-hotkey'
 import { ExplorerDisplayOptions } from '@/features/explorer/ExplorerDisplayOptions'
-import {
-  DEFAULT_FILE_COLUMNS,
-  DEFAULT_FILE_SORT,
-  sortFileItems,
-} from '@/features/explorer/file-display-settings'
-import {
-  persistFileColumns,
-  persistFileSortOrder,
-} from '@/features/explorer/file-display-persistence'
+import { sortFilesForPath } from '@/features/explorer/file-display-settings'
+import { useFileDisplaySettings } from '@/features/explorer/use-file-display-settings'
 import { FileExplorerView } from '@/features/explorer/FileExplorerView'
 import { FileBrowserPane } from '@/features/explorer/FileBrowserPane'
 import { createFileBrowserDragController } from '@/features/explorer/file-browser-drag'
@@ -165,10 +153,12 @@ export function MediaCenterPage() {
   })
 
   function filesInActiveSortOrder(): FileItem[] {
-    const listed = files()
-    if (isVirtualFolder()) return listed
-    const order = settingsQuery.data?.sortOrders?.[currentPath()] ?? DEFAULT_FILE_SORT
-    return sortFileItems(listed, order)
+    return sortFilesForPath(
+      files(),
+      currentPath(),
+      settingsQuery.data?.sortOrders,
+      isVirtualFolder(),
+    )
   }
 
   function playbackItemForPath(path: string): PlaybackItem | null {
@@ -296,10 +286,9 @@ export function MediaCenterPage() {
       .getViewMode(`admin-viewmode-${currentPath()}`, s?.viewModes?.[currentPath()] ?? 'list')
   })
 
-  const sortOrder = createMemo(
-    () => settingsQuery.data?.sortOrders?.[currentPath()] ?? DEFAULT_FILE_SORT,
-  )
-  const fileColumns = createMemo(() => settingsQuery.data?.fileColumns ?? DEFAULT_FILE_COLUMNS)
+  // The hook tracks this accessor in its own memos and mutation handlers.
+  // eslint-disable-next-line solid/reactivity
+  const displaySettings = useFileDisplaySettings(currentPath, settingsQuery)
   const displayedFiles = createMemo(filesInActiveSortOrder)
 
   const favorites = createMemo(() => settingsQuery.data?.favorites ?? [])
@@ -308,21 +297,6 @@ export function MediaCenterPage() {
   const viewModeMutation = useMutation(() => ({
     mutationFn: (vars: { path: string; viewMode: 'list' | 'grid' }) =>
       persistViewMode(vars.path, vars.viewMode),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
-    },
-  }))
-
-  const sortOrderMutation = useMutation(() => ({
-    mutationFn: (vars: { path: string; sortOrder: FileSortOrder }) =>
-      persistFileSortOrder(vars.path, vars.sortOrder),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
-    },
-  }))
-
-  const fileColumnsMutation = useMutation(() => ({
-    mutationFn: persistFileColumns,
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
     },
@@ -990,21 +964,6 @@ export function MediaCenterPage() {
     viewModeMutation.mutate({ path: currentPath(), viewMode: mode })
   }
 
-  function setSortOrder(next: FileSortOrder) {
-    const path = currentPath()
-    queryClient.setQueryData(queryKeys.settings(), (current: GlobalSettings | undefined) =>
-      current ? { ...current, sortOrders: { ...current.sortOrders, [path]: next } } : current,
-    )
-    sortOrderMutation.mutate({ path, sortOrder: next })
-  }
-
-  function setFileColumns(next: FileColumnVisibility) {
-    queryClient.setQueryData(queryKeys.settings(), (current: GlobalSettings | undefined) =>
-      current ? { ...current, fileColumns: next } : current,
-    )
-    fileColumnsMutation.mutate(next)
-  }
-
   function handleKbResultClick(filePath: string) {
     setSearchQuery('')
     setSearchPopoverOpen(false)
@@ -1135,12 +1094,12 @@ export function MediaCenterPage() {
                       onSelect={handleLibrarySearchResult}
                     />
                     <ExplorerDisplayOptions
-                      sortOrder={sortOrder()}
-                      columns={fileColumns()}
+                      sortOrder={displaySettings.sortOrder()}
+                      columns={displaySettings.fileColumns()}
                       sortingDisabled={isVirtualFolder()}
                       viewMode={viewMode()}
-                      onSortChange={setSortOrder}
-                      onColumnsChange={setFileColumns}
+                      onSortChange={displaySettings.setSortOrder}
+                      onColumnsChange={displaySettings.setFileColumns}
                       onViewModeChange={setViewMode}
                     />
                     <ThemeSwitcher />
@@ -1206,7 +1165,7 @@ export function MediaCenterPage() {
                                 <FileBrowserPane
                                   files={displayedFiles}
                                   viewMode={viewMode}
-                                  columns={fileColumns}
+                                  columns={displaySettings.fileColumns}
                                   includeParent={() => !!currentPath()}
                                   scrollTarget={{ kind: 'window' }}
                                   scrollScope={fileBrowserScrollScope}
@@ -1214,7 +1173,6 @@ export function MediaCenterPage() {
                                   listContainerClass='sm:px-4 py-2'
                                   gridClass='gap-4'
                                   listClass='relative w-full overflow-x-auto overflow-y-hidden'
-                                  listColSpan={4}
                                   listSizeColumnClass='w-28'
                                   showEmpty={showEmptyFolder}
                                   canUpload={isEditable}
@@ -1429,24 +1387,26 @@ export function MediaCenterPage() {
                                       </div>
                                     )
                                   }}
-                                  renderListMeta={(file) => (
-                                    <div class='flex items-center justify-end gap-2'>
-                                      <Show when={!file.isDirectory}>
-                                        <Show when={viewStats.getViewCount(file.path) > 0}>
-                                          <div
-                                            class='flex items-center gap-1 text-xs'
-                                            title={viewStats.getViewCount(file.path) + ' views'}
-                                            data-testid='file-view-count'
-                                          >
-                                            <Eye class='h-3.5 w-3.5 shrink-0' stroke-width={2} />
-                                            <span>{viewStats.getViewCount(file.path)}</span>
-                                          </div>
-                                        </Show>
-                                      </Show>
-                                      <span class='inline-block w-20 tabular-nums shrink-0'>
-                                        {file.isDirectory ? '' : formatFileSize(file.size)}
+                                  renderListNameTrailing={(file) => (
+                                    <Show
+                                      when={
+                                        !file.isDirectory && viewStats.getViewCount(file.path) > 0
+                                      }
+                                    >
+                                      <span
+                                        class='text-muted-foreground flex shrink-0 items-center gap-1 text-xs'
+                                        title={viewStats.getViewCount(file.path) + ' views'}
+                                        data-testid='file-view-count'
+                                      >
+                                        <Eye class='h-3.5 w-3.5 shrink-0' stroke-width={2} />
+                                        <span>{viewStats.getViewCount(file.path)}</span>
                                       </span>
-                                    </div>
+                                    </Show>
+                                  )}
+                                  renderListSize={(file) => (
+                                    <span class='inline-block w-20 tabular-nums shrink-0'>
+                                      {file.isDirectory ? '' : formatFileSize(file.size)}
+                                    </span>
                                   )}
                                   renderListActions={(file) => (
                                     <td class='p-1 align-middle'>

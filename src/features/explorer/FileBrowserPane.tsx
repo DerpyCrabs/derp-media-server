@@ -32,7 +32,6 @@ export type FileBrowserPaneProps = Readonly<{
   listContainerClass?: string
   gridClass?: string
   listClass?: string
-  listColSpan?: number
   listSizeColumnClass?: string
   onParentClick: () => void
   onFileClick: (file: FileItem) => void
@@ -45,7 +44,8 @@ export type FileBrowserPaneProps = Readonly<{
   renderGridOverlay?: (file: FileItem) => JSX.Element
   renderGridDetails?: (file: FileItem) => JSX.Element
   renderListName?: (file: FileItem) => JSX.Element
-  renderListMeta?: (file: FileItem) => JSX.Element
+  renderListNameTrailing?: (file: FileItem) => JSX.Element
+  renderListSize?: (file: FileItem) => JSX.Element
   renderListActions?: (file: FileItem) => JSX.Element
   parentGridSubtitle?: JSX.Element
   renderParentRowEnd?: () => JSX.Element
@@ -62,7 +62,7 @@ export function FileBrowserPane(props: FileBrowserPaneProps) {
     {},
     ...(props.columns().createdDate ? [{ class: 'w-40' }] : []),
     ...(props.columns().size ? [{ class: props.listSizeColumnClass ?? 'w-24' }] : []),
-    ...(props.renderListActions ? [{ class: 'w-[52px]' }] : []),
+    ...(props.renderListActions || props.renderParentRowEnd ? [{ class: 'w-[52px]' }] : []),
   ]
   const listColSpan = () => tableColumns().length
   const tableClass = () => {
@@ -168,7 +168,12 @@ export function FileBrowserPane(props: FileBrowserPaneProps) {
           <div class='flex items-center justify-center'>{props.renderListIcon(file)}</div>
         </td>
         <td class='min-w-0 p-2 align-middle font-medium'>
-          {props.renderListName?.(file) ?? <span class='block truncate'>{file.name}</span>}
+          <div class='flex min-w-0 items-center gap-2'>
+            <div class='min-w-0 flex-1'>
+              {props.renderListName?.(file) ?? <span class='block truncate'>{file.name}</span>}
+            </div>
+            <Show when={props.renderListNameTrailing}>{props.renderListNameTrailing?.(file)}</Show>
+          </div>
         </td>
         <Show when={props.columns().createdDate}>
           <td class='min-w-0 p-2 align-middle text-muted-foreground tabular-nums'>
@@ -177,7 +182,7 @@ export function FileBrowserPane(props: FileBrowserPaneProps) {
         </Show>
         <Show when={props.columns().size}>
           <td class='min-w-0 p-2 align-middle text-right text-muted-foreground'>
-            {props.renderListMeta?.(file) ?? (
+            {props.renderListSize?.(file) ?? (
               <span class='inline-block w-20 tabular-nums'>
                 {file.isDirectory ? '' : file.size}
               </span>

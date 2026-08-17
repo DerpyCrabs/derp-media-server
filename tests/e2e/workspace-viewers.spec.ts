@@ -32,6 +32,13 @@ function getBrowserContent(page: Page) {
   return getWindowGroups(page).first().locator('.workspace-window-content')
 }
 
+async function chooseDisplayOption(page: Page, content: Locator, label: 'List view' | 'Grid view') {
+  await content.getByRole('button', { name: 'Display options' }).click()
+  const menu = page.getByTestId('explorer-display-options')
+  await expect(menu).toBeVisible()
+  await menu.getByRole('menuitem', { name: label }).click()
+}
+
 function getMarkdownEditor(container: Locator) {
   return container.getByRole('textbox', { name: / Markdown editor$/ })
 }
@@ -181,18 +188,15 @@ test.describe('Workspace File Browser', () => {
     ) {
       // Already in list mode
     } else {
-      await content.getByRole('button', { name: 'Display options' }).click()
-      await content.getByRole('menuitem', { name: 'List view' }).click()
+      await chooseDisplayOption(page, content, 'List view')
     }
     await expect(content.locator('table')).toBeVisible()
 
-    await content.getByRole('button', { name: 'Display options' }).click()
-    await content.getByRole('menuitem', { name: 'Grid view' }).click()
+    await chooseDisplayOption(page, content, 'Grid view')
     await expect(content.locator('table')).not.toBeVisible()
     await expect(content.getByText('sample.mp4')).toBeVisible()
 
-    await content.getByRole('button', { name: 'Display options' }).click()
-    await content.getByRole('menuitem', { name: 'List view' }).click()
+    await chooseDisplayOption(page, content, 'List view')
     await expect(content.locator('table')).toBeVisible()
   })
 
