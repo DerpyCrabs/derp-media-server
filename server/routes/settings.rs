@@ -19,6 +19,8 @@ pub(crate) fn sanitized(state: &AppState) -> Value {
     let mut result = serde_json::Map::new();
     for key in [
         "viewModes",
+        "sortOrders",
+        "fileColumns",
         "favorites",
         "knowledgeBases",
         "customIcons",
@@ -60,6 +62,47 @@ async fn mutate(
 async fn view_mode(State(state): State<Shared>, Json(body): Json<Value>) -> AppResult<Json<Value>> {
     mutate(&state, |value| {
         value["viewModes"][body["path"].as_str().unwrap_or("")] = body["viewMode"].clone();
+        Ok(json!({"success":true}))
+    })
+    .await
+}
+
+async fn sort_order(State(state): State<Shared>, Json(body): Json<Value>) -> AppResult<Json<Value>> {
+    let path = body["path"]
+        .as_str()
+        .ok_or_else(|| AppError::bad("Folder path is required"))?;
+    let field = body["field"]
+        .as_str()
+        .filter(|field| ["name", "createdDate", "size"].contains(field))
+        .ok_or_else(|| AppError::bad("Invalid sort field"))?;
+    let direction = body["direction"]
+        .as_str()
+        .filter(|direction| ["asc", "desc"].contains(direction))
+        .ok_or_else(|| AppError::bad("Invalid sort direction"))?;
+    let path = path.to_string();
+    let order = json!({"field":field,"direction":direction});
+    mutate(&state, |value| {
+        if !value["sortOrders"].is_object() {
+            value["sortOrders"] = json!({});
+        }
+        value["sortOrders"][path] = order;
+        Ok(json!({"success":true}))
+    })
+    .await
+}
+
+async fn file_columns(
+    State(state): State<Shared>,
+    Json(body): Json<Value>,
+) -> AppResult<Json<Value>> {
+    let created_date = body["createdDate"]
+        .as_bool()
+        .ok_or_else(|| AppError::bad("createdDate must be a boolean"))?;
+    let size = body["size"]
+        .as_bool()
+        .ok_or_else(|| AppError::bad("size must be a boolean"))?;
+    mutate(&state, |value| {
+        value["fileColumns"] = json!({"createdDate":created_date,"size":size});
         Ok(json!({"success":true}))
     })
     .await
@@ -187,6 +230,8 @@ pub fn router() -> Router<Shared> {
     Router::new()
         .route("/api/settings", get(get_settings))
         .route("/api/settings/viewMode", post(view_mode))
+        .route("/api/settings/sortOrder", post(sort_order))
+        .route("/api/settings/fileColumns", post(file_columns))
         .route("/api/settings/favorite", post(favorite))
         .route("/api/settings/knowledgeBase", post(knowledge_base))
         .route("/api/settings/{*kind}", post(generic))

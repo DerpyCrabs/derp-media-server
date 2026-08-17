@@ -6,7 +6,7 @@ const VIDEO_FILE = 'Videos/sample.mp4'
 test.describe('Video Player', () => {
   test('opens video player when clicking a video file', async ({ page }) => {
     await page.goto(`/?dir=${VIDEO_DIR}`)
-    await page.locator('table').getByText('sample.mp4').click()
+    await page.locator(`[data-file-path="${VIDEO_FILE}"]`).click()
     await page.waitForURL(/playing=/)
     await expect(page.locator('video')).toBeVisible()
   })
@@ -56,7 +56,7 @@ test.describe('Video Player', () => {
 
   test('reflects playing file in URL', async ({ page }) => {
     await page.goto(`/?dir=${VIDEO_DIR}`)
-    await page.locator('table').getByText('sample.mp4').click()
+    await page.locator(`[data-file-path="${VIDEO_FILE}"]`).click()
     await expect(page).toHaveURL(/playing=/)
   })
 
@@ -69,7 +69,7 @@ test.describe('Video Player', () => {
 
   test('seeking a playing video does not pause it', async ({ page }) => {
     await page.goto(`/?dir=${VIDEO_DIR}`)
-    await page.locator('table').getByText('sample.mp4').click()
+    await page.locator(`[data-file-path="${VIDEO_FILE}"]`).click()
     await page.waitForURL(/playing=/)
     const video = page.locator('video')
     await expect(video).toBeVisible()
@@ -114,7 +114,7 @@ test.describe('Video Player', () => {
 
   test('native video playback can resume after pausing', async ({ page }) => {
     await page.goto(`/?dir=${VIDEO_DIR}`)
-    await page.locator('table').getByText('sample.mp4').click()
+    await page.locator(`[data-file-path="${VIDEO_FILE}"]`).click()
     await page.waitForURL(/playing=/)
     const video = page.locator('video')
     await expect(video).toBeVisible()
@@ -153,7 +153,8 @@ test.describe('Video Player', () => {
 
   test('video thumbnails appear in grid view', async ({ page }) => {
     await page.goto(`/?dir=${VIDEO_DIR}`)
-    await page.locator('button:has(.lucide-layout-grid)').click()
+    await page.getByRole('button', { name: 'Display options' }).click()
+    await page.getByRole('menuitem', { name: 'Grid view' }).click()
     const card = page
       .locator('[data-testid=file-browser] .file-browser-grid [role=button]')
       .filter({

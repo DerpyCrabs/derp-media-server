@@ -18,6 +18,11 @@ import { queryKeys } from '@/lib/api/query-keys'
 import { VIRTUAL_FOLDERS, isVirtualFolderPath } from '@/lib/files/constants'
 import type { PasteData } from '@/lib/files/paste-data'
 import { MediaType, type FileItem } from '@/lib/files/types'
+import type {
+  FileColumnVisibility,
+  FileSortOrder,
+  GlobalSettings,
+} from '@/lib/models/settings-types'
 import { normalizeNewFilePath } from '@/lib/files/new-file-name'
 import { formatFileSize } from '@/lib/media/media-utils'
 import { cn } from '@/lib/ui/cn'
@@ -47,7 +52,16 @@ import type { ServerConfig, UploadToastState } from '@/features/explorer/types'
 import { FloatingScrollActions } from '@/features/explorer/FloatingScrollActions'
 import { useInlineModeInputFocus } from '@/features/explorer/use-inline-mode-input-focus'
 import { registerKbSearchHotkeys } from '@/features/explorer/use-kb-search-hotkey'
-import { ViewModeToggle } from '@/features/explorer/ViewModeToggle'
+import { ExplorerDisplayOptions } from '@/features/explorer/ExplorerDisplayOptions'
+import {
+  DEFAULT_FILE_COLUMNS,
+  DEFAULT_FILE_SORT,
+  sortFileItems,
+} from '@/features/explorer/file-display-settings'
+import {
+  persistFileColumns,
+  persistFileSortOrder,
+} from '@/features/explorer/file-display-persistence'
 import { FileExplorerView } from '@/features/explorer/FileExplorerView'
 import { FileBrowserPane } from '@/features/explorer/FileBrowserPane'
 import { createFileBrowserDragController } from '@/features/explorer/file-browser-drag'
@@ -150,6 +164,13 @@ export function MediaCenterPage() {
     }
   })
 
+  function filesInActiveSortOrder(): FileItem[] {
+    const listed = files()
+    if (isVirtualFolder()) return listed
+    const order = settingsQuery.data?.sortOrders?.[currentPath()] ?? DEFAULT_FILE_SORT
+    return sortFileItems(listed, order)
+  }
+
   function playbackItemForPath(path: string): PlaybackItem | null {
     const normalizedPath = playbackPathKey(path)
     const listed = files().find((file) => playbackPathKey(file.path) === normalizedPath)
@@ -158,7 +179,7 @@ export function MediaCenterPage() {
 
   function playbackQueueFor(item: PlaybackItem): PlaybackItem[] {
     if (item.media === 'video') return [item]
-    const queue = audioPlaybackQueueFromFiles(files(), item)
+    const queue = audioPlaybackQueueFromFiles(filesInActiveSortOrder(), item)
     return queue.some((candidate) => playbackPathMatches(candidate, item.locator))
       ? queue
       : [...queue, item]
@@ -275,12 +296,33 @@ export function MediaCenterPage() {
       .getViewMode(`admin-viewmode-${currentPath()}`, s?.viewModes?.[currentPath()] ?? 'list')
   })
 
+  const sortOrder = createMemo(
+    () => settingsQuery.data?.sortOrders?.[currentPath()] ?? DEFAULT_FILE_SORT,
+  )
+  const fileColumns = createMemo(() => settingsQuery.data?.fileColumns ?? DEFAULT_FILE_COLUMNS)
+  const displayedFiles = createMemo(filesInActiveSortOrder)
+
   const favorites = createMemo(() => settingsQuery.data?.favorites ?? [])
   const favoriteSet = createMemo(() => new Set(favorites()))
 
   const viewModeMutation = useMutation(() => ({
     mutationFn: (vars: { path: string; viewMode: 'list' | 'grid' }) =>
       persistViewMode(vars.path, vars.viewMode),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
+    },
+  }))
+
+  const sortOrderMutation = useMutation(() => ({
+    mutationFn: (vars: { path: string; sortOrder: FileSortOrder }) =>
+      persistFileSortOrder(vars.path, vars.sortOrder),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
+    },
+  }))
+
+  const fileColumnsMutation = useMutation(() => ({
+    mutationFn: persistFileColumns,
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
     },
@@ -948,6 +990,21 @@ export function MediaCenterPage() {
     viewModeMutation.mutate({ path: currentPath(), viewMode: mode })
   }
 
+  function setSortOrder(next: FileSortOrder) {
+    const path = currentPath()
+    queryClient.setQueryData(queryKeys.settings(), (current: GlobalSettings | undefined) =>
+      current ? { ...current, sortOrders: { ...current.sortOrders, [path]: next } } : current,
+    )
+    sortOrderMutation.mutate({ path, sortOrder: next })
+  }
+
+  function setFileColumns(next: FileColumnVisibility) {
+    queryClient.setQueryData(queryKeys.settings(), (current: GlobalSettings | undefined) =>
+      current ? { ...current, fileColumns: next } : current,
+    )
+    fileColumnsMutation.mutate(next)
+  }
+
   function handleKbResultClick(filePath: string) {
     setSearchQuery('')
     setSearchPopoverOpen(false)
@@ -1077,7 +1134,15 @@ export function MediaCenterPage() {
                       testId='classic-file-search-trigger'
                       onSelect={handleLibrarySearchResult}
                     />
-                    <ViewModeToggle viewMode={viewMode()} onChange={setViewMode} />
+                    <ExplorerDisplayOptions
+                      sortOrder={sortOrder()}
+                      columns={fileColumns()}
+                      sortingDisabled={isVirtualFolder()}
+                      viewMode={viewMode()}
+                      onSortChange={setSortOrder}
+                      onColumnsChange={setFileColumns}
+                      onViewModeChange={setViewMode}
+                    />
                     <ThemeSwitcher />
                   </div>
                 </div>
@@ -1139,8 +1204,9 @@ export function MediaCenterPage() {
                               </Show>
                               <Show when={!isFilesLoadingInitial()}>
                                 <FileBrowserPane
-                                  files={files}
+                                  files={displayedFiles}
                                   viewMode={viewMode}
+                                  columns={fileColumns}
                                   includeParent={() => !!currentPath()}
                                   scrollTarget={{ kind: 'window' }}
                                   scrollScope={fileBrowserScrollScope}

@@ -72,6 +72,7 @@ async fn list(
             path: path.clone(),
             media_type: "folder".into(),
             size: 0,
+            created_date: None,
             extension: String::new(),
             is_directory: true,
             is_virtual: Some(true),
@@ -217,6 +218,11 @@ pub(crate) fn legacy_virtual_items(
                     media::media_type(&extension).into()
                 },
                 size: if metadata.is_dir() { 0 } else { metadata.len() },
+                created_date: metadata
+                    .created()
+                    .ok()
+                    .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|duration| duration.as_secs_f64() * 1000.0),
                 extension,
                 is_directory: metadata.is_dir(),
                 is_virtual: None,

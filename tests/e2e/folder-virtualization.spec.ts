@@ -31,7 +31,8 @@ test.describe('Folder virtualization', () => {
 
   test('list view only mounts visible rows and scrolls to far files', async ({ page }) => {
     await page.goto(`/?dir=${encodeURIComponent(folderName)}`)
-    await page.getByRole('button', { name: 'List view' }).click()
+    await page.getByRole('button', { name: 'Display options' }).click()
+    await page.getByRole('menuitem', { name: 'List view' }).click()
     await expect(page.locator('table').getByText('item-0000.txt')).toBeVisible()
 
     expect(await page.locator('[data-file-path]').count()).toBeLessThan(80)
@@ -43,7 +44,8 @@ test.describe('Folder virtualization', () => {
 
   test('grid view only mounts visible cards and scrolls to far files', async ({ page }) => {
     await page.goto(`/?dir=${encodeURIComponent(folderName)}`)
-    await page.getByRole('button', { name: 'Grid view' }).click()
+    await page.getByRole('button', { name: 'Display options' }).click()
+    await page.getByRole('menuitem', { name: 'Grid view' }).click()
     await expect(page.locator('[data-testid=file-browser] .file-browser-grid')).toBeVisible()
     await expect(page.getByText('item-0000.txt')).toBeVisible()
 
@@ -68,7 +70,8 @@ test.describe('Folder virtualization', () => {
 
   test('grid thumbnails load while virtualized cards are remounted', async ({ page }) => {
     await page.goto(`/?dir=${encodeURIComponent(mediaFolderName)}`)
-    await page.getByRole('button', { name: 'Grid view' }).click()
+    await page.getByRole('button', { name: 'Display options' }).click()
+    await page.getByRole('menuitem', { name: 'Grid view' }).click()
     const thumbnails = page.locator(
       '[data-testid=file-browser] img[data-testid=file-browser-image-thumbnail]',
     )

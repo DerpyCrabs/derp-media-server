@@ -6,6 +6,9 @@ import { getMediaTypeFromPath } from '@/lib/media/media-utils'
 import { formatFileSize } from '@/lib/media/media-utils'
 import type { FileItem } from '@/lib/files/types'
 import { MediaType } from '@/lib/files/types'
+import type { GlobalSettings } from '@/lib/models/settings-types'
+import { isVirtualFolderPath } from '@/lib/files/constants'
+import { DEFAULT_FILE_SORT, sortFileItems } from '@/features/explorer/file-display-settings'
 import Download from 'lucide-solid/icons/download'
 import FileQuestion from 'lucide-solid/icons/file-question-mark'
 import FileText from 'lucide-solid/icons/file-text'
@@ -234,8 +237,21 @@ export function ViewerPane(props: Props) {
     }
   })
 
+  const settingsQuery = useQuery(() => ({
+    queryKey: queryKeys.settings(),
+    queryFn: () => api<GlobalSettings>('/api/settings'),
+  }))
+
+  const orderedFolderFiles = createMemo(() => {
+    const files = filesQuery.data?.files ?? []
+    const directory = listDirForFiles()
+    if (isVirtualFolderPath(directory)) return files
+    const order = settingsQuery.data?.sortOrders?.[directory] ?? DEFAULT_FILE_SORT
+    return sortFileItems(files, order)
+  })
+
   const folderAudioFiles = createMemo(() =>
-    (filesQuery.data?.files ?? []).filter((file) => file.type === MediaType.AUDIO),
+    orderedFolderFiles().filter((file) => file.type === MediaType.AUDIO),
   )
 
   const audioQueue = createMemo(() => {
@@ -663,7 +679,7 @@ export function ViewerPane(props: Props) {
       <Show when={!readerKind() && mediaType() === MediaType.IMAGE && viewingPath()}>
         <ImageViewerPane
           viewingPath={viewingPath()}
-          allFiles={() => filesQuery.data?.files ?? []}
+          allFiles={orderedFolderFiles}
           directory={dirFromWindow}
           embedded={props.presentation !== 'modal'}
           showClose={props.presentation === 'modal'}

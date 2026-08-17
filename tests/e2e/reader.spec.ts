@@ -411,6 +411,29 @@ test.describe('Reader', () => {
     await expect(page.getByTestId('reader-page-indicator')).toContainText('Page 2 / 2')
   })
 
+  test('uses folder sort order for image-folder pages', async ({ page }) => {
+    const setSort = (direction: 'asc' | 'desc') =>
+      page.request.post('/api/settings/sortOrder', {
+        data: { path: 'Images', field: 'name', direction },
+      })
+    expect((await setSort('desc')).ok()).toBe(true)
+    try {
+      await page.goto('/')
+      await page.locator('tr', { hasText: 'Images' }).click({ button: 'right' })
+      await chooseReaderFromOpenWith(page)
+      await expect(page.getByTestId('reader-image-page')).toHaveCount(2)
+      await expect
+        .poll(() =>
+          page
+            .getByTestId('reader-image-page')
+            .evaluateAll((images) => images.map((image) => (image as HTMLImageElement).alt)),
+        )
+        .toEqual(['photo.png', 'photo.jpg'])
+    } finally {
+      await setSort('asc')
+    }
+  })
+
   test('selects PDF text and opens reader actions', async ({ page }) => {
     await openSamplePdf(page)
     await disableAutomaticSelectionAction(page)

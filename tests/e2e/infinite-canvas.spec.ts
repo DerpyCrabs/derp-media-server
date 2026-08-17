@@ -801,6 +801,45 @@ test('keeps file-browser directory and file clicks interactive', async ({ page }
   await expect(page.getByTestId('canvas-window')).toHaveCount(2)
 })
 
+test('dismisses file-browser display options when canvas is clicked or panned', async ({
+  page,
+}) => {
+  const canvas = page.getByTestId('infinite-canvas')
+  await canvas.click({ button: 'right', position: { x: 40, y: 40 } })
+  await page.getByRole('button', { name: 'Open file browser' }).click()
+  const browserWindow = page.getByTestId('canvas-window')
+  await browserWindow.evaluate((element: HTMLElement) => {
+    element.style.height = '224px'
+  })
+  const displayOptions = browserWindow.getByRole('button', { name: 'Display options' })
+  const menu = page.getByTestId('explorer-display-options')
+  const box = await canvas.boundingBox()
+  if (!box) throw new Error('Canvas viewport not laid out')
+  const blankPoint = { x: box.x + box.width - 24, y: box.y + box.height - 24 }
+
+  await displayOptions.click()
+  await expect(menu).toBeVisible()
+  await expect(menu.getByRole('checkbox', { name: 'Created' })).toBeVisible()
+  const viewport = page.viewportSize()
+  if (!viewport) throw new Error('Canvas viewport not laid out')
+  await expect
+    .poll(async () => {
+      const menuBox = await menu.boundingBox()
+      return !!menuBox && menuBox.y >= 8 && menuBox.y + menuBox.height <= viewport.height - 8
+    })
+    .toBe(true)
+  await page.mouse.click(blankPoint.x, blankPoint.y)
+  await expect(menu).toBeHidden()
+
+  await displayOptions.click()
+  await expect(menu).toBeVisible()
+  await page.mouse.move(blankPoint.x, blankPoint.y)
+  await page.mouse.down()
+  await page.mouse.move(blankPoint.x - 80, blankPoint.y - 40, { steps: 4 })
+  await expect(menu).toBeHidden()
+  await page.mouse.up()
+})
+
 test('restores an image-folder reader after reload', async ({ page }) => {
   const canvas = page.getByTestId('infinite-canvas')
   await canvas.click({ button: 'right', position: { x: 40, y: 40 } })

@@ -8,7 +8,10 @@ import {
   type ReaderViewMode,
 } from './reader-position'
 import { MediaType, type FileItem } from '@/lib/files/types'
-import { ApiError } from '@/lib/api/client'
+import { api, ApiError } from '@/lib/api/client'
+import type { GlobalSettings } from '@/lib/models/settings-types'
+import { isVirtualFolderPath } from '@/lib/files/constants'
+import { DEFAULT_FILE_SORT, sortFileItems } from '@/features/explorer/file-display-settings'
 import Maximize2 from 'lucide-solid/icons/maximize-2'
 import Minimize2 from 'lucide-solid/icons/minimize-2'
 import Settings from 'lucide-solid/icons/settings'
@@ -71,11 +74,6 @@ type ReaderPage = {
 
 const basename = (path: string) => path.split(/[/\\]/).filter(Boolean).at(-1) ?? path
 const clampZoom = (value: number) => Math.max(0.35, Math.min(3, Number(value.toFixed(2))))
-const naturalCompare = (left: FileItem, right: FileItem) =>
-  left.name.localeCompare(right.name, undefined, {
-    numeric: true,
-    sensitivity: 'base',
-  })
 const estimatedPageBlockHeight = (page: ReaderPage | undefined, zoom: number) =>
   (page?.height ?? 900) * zoom + (page?.kind === 'pdf' ? 10 : 8)
 const estimateOffsetForPage = (pages: ReaderPage[], pageIndex: number, zoom: number) =>
@@ -732,12 +730,17 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
 
             if (kind === 'folder') {
               const listUrl = `/api/files?dir=${encodeURIComponent(activePath)}`
-              const response = await fetch(listUrl)
+              const [response, settings] = await Promise.all([
+                fetch(listUrl),
+                api<GlobalSettings>('/api/settings'),
+              ])
               const payload = await response.json()
               if (!response.ok) throw new Error(payload?.error ?? 'Could not open image folder')
-              const files = ((payload.files ?? []) as FileItem[])
-                .filter((file) => !file.isDirectory && file.type === MediaType.IMAGE)
-                .sort(naturalCompare)
+              const listed = (payload.files ?? []) as FileItem[]
+              const order = settings.sortOrders?.[activePath] ?? DEFAULT_FILE_SORT
+              const files = (
+                isVirtualFolderPath(activePath) ? listed : sortFileItems(listed, order)
+              ).filter((file) => !file.isDirectory && file.type === MediaType.IMAGE)
               if (files.length === 0) throw new Error('Folder contains no supported images')
               const loaded = await Promise.all(
                 files.map(async (file) => {

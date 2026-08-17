@@ -24,6 +24,8 @@ pub struct FileItem {
     #[serde(rename = "type")]
     pub media_type: String,
     pub size: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_date: Option<f64>,
     pub extension: String,
     pub is_directory: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -240,6 +242,7 @@ fn virtual_item(name: &str) -> FileItem {
         path: name.into(),
         media_type: "folder".into(),
         size: 0,
+        created_date: None,
         extension: String::new(),
         is_directory: true,
         is_virtual: Some(true),
@@ -263,6 +266,11 @@ pub fn list(config: &Config, input: &str) -> AppResult<Vec<FileItem>> {
                 path: r.name.clone(),
                 media_type: "folder".into(),
                 size: 0,
+                created_date: fs::metadata(&r.path)
+                    .ok()
+                    .and_then(|metadata| metadata.created().ok())
+                    .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+                    .map(|duration| duration.as_secs_f64() * 1000.0),
                 extension: String::new(),
                 is_directory: true,
                 is_virtual: None,
@@ -298,6 +306,11 @@ pub fn list(config: &Config, input: &str) -> AppResult<Vec<FileItem>> {
             .ok()
             .and_then(|x| x.duration_since(UNIX_EPOCH).ok())
             .map(|x| x.as_secs_f64() * 1000.0);
+        let created_date = meta
+            .created()
+            .ok()
+            .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+            .map(|duration| duration.as_secs_f64() * 1000.0);
         items.push(FileItem {
             name,
             path,
@@ -307,6 +320,7 @@ pub fn list(config: &Config, input: &str) -> AppResult<Vec<FileItem>> {
                 media_type(&ext).into()
             },
             size: if meta.is_dir() { 0 } else { meta.len() },
+            created_date,
             extension: ext,
             is_directory: meta.is_dir(),
             is_virtual: None,

@@ -42,7 +42,7 @@ export const BATCHES = [
   },
   {
     id: '5',
-    tests: ['audio-player', 'sse-live-updates'],
+    tests: ['audio-player', 'file-display-settings', 'sse-live-updates'],
   },
   {
     id: '6',

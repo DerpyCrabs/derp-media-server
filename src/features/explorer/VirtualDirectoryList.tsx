@@ -15,7 +15,10 @@ type VirtualDirectoryListProps = {
   files: Accessor<FileItem[]>
   includeParent: Accessor<boolean>
   scrollTarget: ScrollTarget
-  colSpan: number
+  colSpan: number | Accessor<number>
+  columns?: Accessor<{ class?: string }[]>
+  renderHeader?: () => JSX.Element
+  tableClass?: string | Accessor<string>
   estimateSize?: number
   overscan?: number
   scrollScope?: Accessor<string | undefined>
@@ -100,6 +103,9 @@ export function VirtualDirectoryList(props: VirtualDirectoryListProps) {
   let containerEl: HTMLDivElement | undefined
   const [scrollMargin, setScrollMargin] = createSignal(0)
   const count = () => props.files().length + (props.includeParent() ? 1 : 0)
+  const colSpan = () => (typeof props.colSpan === 'function' ? props.colSpan() : props.colSpan)
+  const tableClass = () =>
+    typeof props.tableClass === 'function' ? props.tableClass() : props.tableClass
   const virtualizer = makeVirtualizer(props, { count, scrollMargin })
 
   createEffect(
@@ -197,15 +203,27 @@ export function VirtualDirectoryList(props: VirtualDirectoryListProps) {
       }}
       class={props.class}
     >
-      <table class='w-full table-fixed caption-bottom text-sm'>
+      <table class={`w-full table-fixed caption-bottom text-sm ${tableClass() ?? ''}`}>
         <colgroup>
-          <col class='w-[40px]' />
-          <col />
-          <col class={props.sizeColumnClass ?? 'w-24'} />
-          <Show when={props.colSpan >= 4}>
-            <col class='w-[52px]' />
+          <Show
+            when={props.columns}
+            fallback={
+              <>
+                <col class='w-[40px]' />
+                <col />
+                <col class={props.sizeColumnClass ?? 'w-24'} />
+                <Show when={colSpan() >= 4}>
+                  <col class='w-[52px]' />
+                </Show>
+              </>
+            }
+          >
+            <For each={props.columns?.() ?? []}>{(column) => <col class={column.class} />}</For>
           </Show>
         </colgroup>
+        <Show when={props.renderHeader}>
+          <thead>{props.renderHeader?.()}</thead>
+        </Show>
         <tbody class='[&_tr:last-child]:border-0'>{children}</tbody>
       </table>
     </div>
@@ -226,7 +244,7 @@ export function VirtualDirectoryList(props: VirtualDirectoryListProps) {
           <>
             <Show when={topPadding() > 0}>
               <tr aria-hidden='true'>
-                <td colspan={props.colSpan} style={{ height: `${topPadding()}px`, padding: '0' }} />
+                <td colspan={colSpan()} style={{ height: `${topPadding()}px`, padding: '0' }} />
               </tr>
             </Show>
             <For each={virtualizer.getVirtualItems()}>
@@ -243,10 +261,7 @@ export function VirtualDirectoryList(props: VirtualDirectoryListProps) {
             {props.renderEmptyRow?.()}
             <Show when={bottomPadding() > 0}>
               <tr aria-hidden='true'>
-                <td
-                  colspan={props.colSpan}
-                  style={{ height: `${bottomPadding()}px`, padding: '0' }}
-                />
+                <td colspan={colSpan()} style={{ height: `${bottomPadding()}px`, padding: '0' }} />
               </tr>
             </Show>
           </>

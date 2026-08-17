@@ -1,14 +1,16 @@
 import { test, expect, type Page } from '@playwright/test'
 
 async function useListView(page: Page) {
-  await page.getByRole('button', { name: 'List view' }).click()
+  await page.getByRole('button', { name: 'Display options' }).click()
+  await page.getByRole('menuitem', { name: 'List view' }).click()
   await expect(page.locator('table')).toBeVisible()
 }
 
 test.describe('Image Viewer', () => {
   test('image thumbnails appear in grid view', async ({ page }) => {
     await page.goto('/?dir=Images')
-    await page.locator('button:has(.lucide-layout-grid)').click()
+    await page.getByRole('button', { name: 'Display options' }).click()
+    await page.getByRole('menuitem', { name: 'Grid view' }).click()
     const card = page
       .locator('[data-testid=file-browser] .file-browser-grid [role=button]')
       .filter({
@@ -21,7 +23,8 @@ test.describe('Image Viewer', () => {
     const response = await page.request.get('/api/thumbnail/Images/photo.jpg')
     expect(response.headers()['content-type']).toContain('image/jpeg')
 
-    await page.getByRole('button', { name: 'List view' }).click()
+    await page.getByRole('button', { name: 'Display options' }).click()
+    await page.getByRole('menuitem', { name: 'List view' }).click()
   })
 
   test('opens image viewer when clicking an image file', async ({ page }) => {

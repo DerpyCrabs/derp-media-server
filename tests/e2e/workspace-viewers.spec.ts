@@ -173,7 +173,6 @@ test.describe('Workspace File Browser', () => {
     await content.getByText('Videos', { exact: true }).click()
     await expect(content.getByText('sample.mp4')).toBeVisible()
 
-    const listBtn = content.locator('button:has(.lucide-list)')
     if (
       await content
         .locator('table')
@@ -182,15 +181,18 @@ test.describe('Workspace File Browser', () => {
     ) {
       // Already in list mode
     } else {
-      await listBtn.click()
+      await content.getByRole('button', { name: 'Display options' }).click()
+      await content.getByRole('menuitem', { name: 'List view' }).click()
     }
     await expect(content.locator('table')).toBeVisible()
 
-    await content.locator('button:has(.lucide-layout-grid)').click()
+    await content.getByRole('button', { name: 'Display options' }).click()
+    await content.getByRole('menuitem', { name: 'Grid view' }).click()
     await expect(content.locator('table')).not.toBeVisible()
     await expect(content.getByText('sample.mp4')).toBeVisible()
 
-    await listBtn.click()
+    await content.getByRole('button', { name: 'Display options' }).click()
+    await content.getByRole('menuitem', { name: 'List view' }).click()
     await expect(content.locator('table')).toBeVisible()
   })
 
@@ -202,6 +204,34 @@ test.describe('Workspace File Browser', () => {
     const row = content.locator('table tr').filter({ hasText: 'readme.txt' })
     await expect(row).toBeVisible()
     await expect(row).toContainText(/\d+\s*(B|KB|MB)/)
+  })
+
+  test('keeps headerless list and horizontal scrollbar at window bottom', async () => {
+    await gotoWorkspace(page)
+    const content = getBrowserContent(page)
+    const table = content.locator('table')
+    await expect(table).toBeVisible()
+
+    const metrics = await table.evaluate((element) => {
+      element.style.minWidth = '1200px'
+      const tableContainer = element.parentElement
+      let scrollHost: HTMLElement | null = tableContainer
+      while (scrollHost && getComputedStyle(scrollHost).overflowX !== 'auto') {
+        scrollHost = scrollHost.parentElement
+      }
+      const dropZone = element.closest<HTMLElement>('[data-testid="workspace-upload-drop-zone"]')
+      return {
+        hasHeader: !!element.querySelector('thead'),
+        scrollBottom: scrollHost?.getBoundingClientRect().bottom ?? 0,
+        dropZoneBottom: dropZone?.getBoundingClientRect().bottom ?? 0,
+        scrollWidth: scrollHost?.scrollWidth ?? 0,
+        clientWidth: scrollHost?.clientWidth ?? 0,
+      }
+    })
+
+    expect(metrics.hasHeader).toBe(false)
+    expect(metrics.scrollWidth).toBeGreaterThan(metrics.clientWidth)
+    expect(Math.abs(metrics.scrollBottom - metrics.dropZoneBottom)).toBeLessThanOrEqual(1)
   })
 
   test('unsupported file dialog is contained inside file browser window', async () => {

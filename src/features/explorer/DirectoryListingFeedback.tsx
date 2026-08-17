@@ -57,11 +57,15 @@ export function DirectoryListingEmpty(props: { show: boolean; canUpload: boolean
   )
 }
 
-export function DirectoryListingEmptyTableRow(props: { show: boolean; canUpload: boolean }) {
+export function DirectoryListingEmptyTableRow(props: {
+  show: boolean
+  canUpload: boolean
+  colSpan?: number
+}) {
   return (
     <Show when={props.show}>
       <tr data-testid='directory-empty'>
-        <td colspan={3} class='p-8 text-center'>
+        <td colspan={props.colSpan ?? 3} class='p-8 text-center'>
           <p class='text-foreground text-sm font-medium'>This folder is empty</p>
           <Show when={props.canUpload}>
             <p class='text-muted-foreground mt-1 text-xs'>

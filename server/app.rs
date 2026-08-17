@@ -134,7 +134,7 @@ pub(crate) fn stats_path(state: &AppState) -> PathBuf {
 }
 
 pub(crate) fn default_settings() -> Value {
-    json!({"viewModes":{},"favorites":[],"knowledgeBases":[],"customIcons":{},"autoSave":{},"workspaceTaskbarPins":[],"workspaceLayoutPresets":[]})
+    json!({"viewModes":{},"sortOrders":{},"fileColumns":{"createdDate":false,"size":true},"favorites":[],"knowledgeBases":[],"customIcons":{},"autoSave":{},"workspaceTaskbarPins":[],"workspaceLayoutPresets":[]})
 }
 
 pub(crate) fn parent_logical(path: &str) -> String {

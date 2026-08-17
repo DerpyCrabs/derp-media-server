@@ -184,7 +184,7 @@ pub async fn moved(state: &AppState, old_path: &str, new_path: &str) -> AppResul
         &state.config.library_key,
         default_settings(),
         |settings| {
-            for key in ["viewModes", "customIcons", "autoSave"] {
+            for key in ["viewModes", "sortOrders", "customIcons", "autoSave"] {
                 move_map(&mut settings[key], old_path, new_path);
             }
             for key in ["favorites", "knowledgeBases"] {
@@ -238,7 +238,7 @@ pub async fn removed(state: &AppState, path: &str) -> AppResult<()> {
         &state.config.library_key,
         default_settings(),
         |settings| {
-            for key in ["viewModes", "customIcons", "autoSave"] {
+            for key in ["viewModes", "sortOrders", "customIcons", "autoSave"] {
                 remove_map(&mut settings[key], path);
             }
             for key in ["favorites", "knowledgeBases"] {
@@ -290,6 +290,26 @@ pub fn content_replaced(state: &AppState, path: &str) -> AppResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn per_folder_sort_orders_follow_rename_and_delete() {
+        let mut orders = json!({
+            "Books/Old":{"field":"size","direction":"desc"},
+            "Books/Old/Child":{"field":"createdDate","direction":"asc"},
+            "Keep":{"field":"name","direction":"asc"}
+        });
+
+        move_map(&mut orders, "Books/Old", "Books/New");
+        assert!(orders.get("Books/Old").is_none());
+        assert_eq!(orders["Books/New"]["field"], "size");
+        assert_eq!(orders["Books/New/Child"]["field"], "createdDate");
+
+        remove_map(&mut orders, "Books/New");
+        assert_eq!(
+            orders,
+            json!({"Keep":{"field":"name","direction":"asc"}})
+        );
+    }
 
     #[test]
     fn workspace_paths_follow_renames() {

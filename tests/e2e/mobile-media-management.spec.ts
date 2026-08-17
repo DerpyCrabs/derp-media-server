@@ -5,7 +5,8 @@ test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true
 test.describe('mobile media management', () => {
   test('exposes 44px action targets and preserves the chosen view', async ({ page }) => {
     await page.goto('/?dir=Images')
-    await page.getByRole('button', { name: 'Grid view' }).click()
+    await page.getByRole('button', { name: 'Display options' }).click()
+    await page.getByRole('menuitem', { name: 'Grid view' }).click()
     await expect(page.locator('.file-browser-grid')).toBeVisible()
     const more = page.getByRole('button', { name: 'More actions for photo.jpg', exact: true })
     const box = await more.boundingBox()
@@ -30,7 +31,8 @@ test.describe('mobile media management', () => {
       page.getByRole('menu').getByText('Unfavorite', { exact: true }).click(),
     ])
     await page.keyboard.press('Escape')
-    await page.getByRole('button', { name: 'List view' }).click()
+    await page.getByRole('button', { name: 'Display options' }).click()
+    await page.getByRole('menuitem', { name: 'List view' }).click()
     await page.reload()
     await expect(page.locator('table')).toBeVisible()
   })

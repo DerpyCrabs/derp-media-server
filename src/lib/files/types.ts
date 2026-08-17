@@ -14,6 +14,7 @@ export interface FileItem {
   path: string // Logical media path; root-prefixed when multiple media roots are configured
   type: MediaType
   size: number
+  createdDate?: number
   extension: string
   isDirectory: boolean
   isVirtual?: boolean

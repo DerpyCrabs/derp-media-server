@@ -54,11 +54,13 @@ test.describe('Folder Navigation', () => {
     await page.goto('/?dir=Videos')
     await expect(page.locator('table')).toBeVisible()
 
-    await page.locator('button:has(.lucide-layout-grid)').click()
+    await page.getByRole('button', { name: 'Display options' }).click()
+    await page.getByRole('menuitem', { name: 'Grid view' }).click()
     await expect(page.locator('table')).not.toBeVisible()
     await expect(page.getByText('sample.mp4')).toBeVisible()
 
-    await page.locator('button:has(.lucide-list)').click()
+    await page.getByRole('button', { name: 'Display options' }).click()
+    await page.getByRole('menuitem', { name: 'List view' }).click()
     await expect(page.locator('table')).toBeVisible()
   })
 

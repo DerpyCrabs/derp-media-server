@@ -38,6 +38,7 @@ fn item(name: String, path: String, folder: bool) -> media::FileItem {
         path,
         media_type: if folder { "folder" } else { "other" }.into(),
         size: 0,
+        created_date: None,
         extension: String::new(),
         is_directory: folder,
         is_virtual: Some(true),
