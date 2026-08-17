@@ -281,7 +281,7 @@ async fn create(
         fs::create_dir_all(parent).await.map_err(AppError::io)?;
     }
     let data = match (body.base64_content, body.content) {
-        (Some(value), _) if !value.is_empty() => crate::app::decode_node_base64(&value),
+        (Some(value), _) if !value.is_empty() => crate::app::decode_node_base64(&value)?,
         (_, Some(content)) => content.into_bytes(),
         (Some(_), None) => Vec::new(),
         (None, None) => unreachable!(),
@@ -342,7 +342,7 @@ async fn edit(State(state): State<Shared>, Json(body): Json<EditBody>) -> AppRes
         }
     }
     let data = match (body.base64_content, body.content) {
-        (Some(value), _) if !value.is_empty() => crate::app::decode_node_base64(&value),
+        (Some(value), _) if !value.is_empty() => crate::app::decode_node_base64(&value)?,
         (_, Some(content)) => content.into_bytes(),
         (Some(_), None) => Vec::new(),
         (None, None) => unreachable!(),

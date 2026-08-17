@@ -1,6 +1,6 @@
 use crate::{
     config::Config,
-    error::AppResult,
+    error::{AppError, AppResult},
     file_search::FileSearch,
     image_variants, media, store, thumbnails,
 };
@@ -42,18 +42,16 @@ pub(crate) struct FileEvent {
 
 pub(crate) type Shared = Arc<AppState>;
 
-pub(crate) fn decode_node_base64(value: &str) -> Vec<u8> {
-    let mut normalized = value
-        .bytes()
-        .filter_map(|byte| match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'+' | b'/' | b'=' => Some(byte),
-            b'-' => Some(b'+'),
-            b'_' => Some(b'/'),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    if normalized.len() % 4 == 1 {
-        normalized.pop();
+pub(crate) fn decode_node_base64(value: &str) -> AppResult<Vec<u8>> {
+    let mut normalized = Vec::with_capacity(value.len());
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'+' | b'/' | b'=' => normalized.push(byte),
+            b'-' => normalized.push(b'+'),
+            b'_' => normalized.push(b'/'),
+            b' ' | b'\r' | b'\n' | b'\t' => {}
+            _ => return Err(AppError::bad("Invalid base64 content")),
+        }
     }
     base64::engine::general_purpose::GeneralPurpose::new(
         &base64::alphabet::STANDARD,
@@ -62,7 +60,32 @@ pub(crate) fn decode_node_base64(value: &str) -> Vec<u8> {
             .with_decode_allow_trailing_bits(true),
     )
     .decode(normalized)
-    .unwrap_or_default()
+    .map_err(|_| AppError::bad("Invalid base64 content"))
+}
+
+pub(crate) fn server_config(state: &AppState) -> Value {
+    let roots = &state.config.roots;
+    let editable_folders = match roots.as_slice() {
+        [] => Vec::new(),
+        [root] => root.editable_folders.clone(),
+        [first, ..] => {
+            let mut values = first.editable_folders.clone();
+            values.extend(roots.iter().flat_map(|root| {
+                root.editable_folders
+                    .iter()
+                    .map(move |folder| format!("{}/{}", root.name, folder.replace('\\', "/")))
+            }));
+            values
+        }
+    };
+    json!({
+        "editableFolders": editable_folders,
+        "mediaRoots": roots.iter().map(|root| json!({
+            "id": root.id,
+            "name": root.name,
+            "editableFolders": root.editable_folders,
+        })).collect::<Vec<_>>(),
+    })
 }
 
 pub(crate) fn emit(state: &AppState, path: &str) {
@@ -221,4 +244,19 @@ pub(crate) fn search_snippet(content: &str, query: &str) -> String {
         String::from_utf16_lossy(&line_utf16[start..end]),
         if end < line_utf16.len() { "..." } else { "" }
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn base64_decoder_accepts_url_safe_unpadded_data() {
+        assert_eq!(decode_node_base64("aGk").unwrap(), b"hi");
+    }
+
+    #[test]
+    fn base64_decoder_rejects_invalid_input_instead_of_returning_empty_bytes() {
+        assert!(decode_node_base64("not base64!").is_err());
+    }
 }

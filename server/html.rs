@@ -32,22 +32,6 @@ fn query(key: Value, data: Value) -> Value {
     json!({"dehydratedAt":now,"queryKey":key,"queryHash":serde_json::to_string(&key).unwrap(),"state":{"data":data,"dataUpdateCount":1,"dataUpdatedAt":now,"error":null,"errorUpdateCount":0,"errorUpdatedAt":0,"fetchFailureCount":0,"fetchFailureReason":null,"fetchMeta":null,"isInvalidated":false,"status":"success","fetchStatus":"idle"}})
 }
 
-fn server_config(state: &AppState) -> Value {
-    let all = &state.config.roots;
-    let editable = if all.len() == 1 {
-        all[0].editable_folders.clone()
-    } else {
-        let mut values = state.config.roots[0].editable_folders.clone();
-        values.extend(all.iter().flat_map(|root| {
-            root.editable_folders
-                .iter()
-                .map(move |folder| format!("{}/{}", root.name, folder.replace('\\', "/")))
-        }));
-        values
-    };
-    json!({"editableFolders":editable,"mediaRoots":all.iter().map(|root|json!({"name":root.name,"editableFolders":root.editable_folders})).collect::<Vec<_>>()})
-}
-
 fn parent(path: &str) -> String {
     path.replace('\\', "/")
         .rsplit_once('/')
@@ -137,7 +121,10 @@ async fn dehydrated(state: &AppState, uri: &axum::http::Uri) -> Value {
             json!(["stats"]),
             json!({"views":stats["views"].as_object().cloned().unwrap_or_default()}),
         ));
-        queries.push(query(json!(["server-config"]), server_config(state)));
+        queries.push(query(
+            json!(["server-config"]),
+            crate::app::server_config(state),
+        ));
         if path == "/" && knowledge_base_root(state, &dir).is_some() {
             queries.push(query(
                 json!(["content", "admin", "kb-recent", dir]),
