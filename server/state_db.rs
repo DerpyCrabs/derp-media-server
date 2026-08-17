@@ -326,17 +326,26 @@ pub fn document(
         .map(|value| value.unwrap_or(default))
 }
 
-pub fn update_document<T>(
+pub fn run_transaction<T>(
     database: &Path,
-    kind: &str,
-    library_key: &str,
-    default: Value,
-    update: impl FnOnce(&mut Value) -> AppResult<T>,
+    update: impl FnOnce(&Transaction<'_>) -> AppResult<T>,
 ) -> AppResult<T> {
     let mut connection = connection(database)?;
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(error)?;
+    let result = update(&transaction)?;
+    transaction.commit().map_err(error)?;
+    Ok(result)
+}
+
+pub fn mutate_document_in_transaction<T>(
+    transaction: &Transaction<'_>,
+    kind: &str,
+    library_key: &str,
+    default: Value,
+    update: impl FnOnce(&mut Value) -> AppResult<T>,
+) -> AppResult<T> {
     let raw: Option<String> = transaction
         .query_row(
             "SELECT value_json FROM state_documents WHERE kind=?1 AND library_key=?2",
@@ -360,8 +369,19 @@ pub fn update_document<T>(
             params![kind, library_key, serialized, now_ms()],
         )
         .map_err(error)?;
-    transaction.commit().map_err(error)?;
     Ok(result)
+}
+
+pub fn update_document<T>(
+    database: &Path,
+    kind: &str,
+    library_key: &str,
+    default: Value,
+    update: impl FnOnce(&mut Value) -> AppResult<T>,
+) -> AppResult<T> {
+    run_transaction(database, |transaction| {
+        mutate_document_in_transaction(transaction, kind, library_key, default, update)
+    })
 }
 
 #[cfg(test)]
@@ -390,6 +410,34 @@ mod tests {
 
     fn temp_data(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!("derp-state-{name}-{}", uuid::Uuid::new_v4()))
+    }
+
+    #[test]
+    fn multi_document_transaction_rolls_back_on_error() {
+        let data_path = temp_data("transaction");
+        let config = test_config(data_path.clone());
+        initialize(&config).unwrap();
+
+        let result: AppResult<()> = run_transaction(&database(&config), |transaction| {
+            mutate_document_in_transaction(
+                transaction,
+                "settings",
+                "library",
+                serde_json::json!({"favorites": ["old.md"]}),
+                |settings| {
+                    settings["favorites"] = serde_json::json!(["new.md"]);
+                    Ok(())
+                },
+            )?;
+            Err(AppError::bad("abort metadata update"))
+        });
+
+        assert!(result.is_err());
+        assert_eq!(
+            document(&database(&config), "settings", "library", Value::Null).unwrap(),
+            Value::Null
+        );
+        fs::remove_dir_all(data_path).unwrap();
     }
 
     #[test]

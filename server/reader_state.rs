@@ -2,7 +2,7 @@ use crate::{
     error::{AppError, AppResult},
     state_db,
 };
-use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use serde_json::Value;
 use std::path::Path;
 
@@ -100,16 +100,19 @@ pub fn put(
     Ok(revision)
 }
 
-pub fn remove_prefix(database: &Path, scope: Option<&str>, path: &str) -> AppResult<()> {
-    let connection = connection(database)?;
+pub fn remove_prefix_in_transaction(
+    transaction: &Transaction<'_>,
+    scope: Option<&str>,
+    path: &str,
+) -> AppResult<()> {
     let like = like_prefix(path);
     if let Some(scope) = scope {
-        connection.execute(
+        transaction.execute(
             "DELETE FROM reader_state WHERE scope=?1 AND (path=?2 OR path LIKE ?3 ESCAPE '\\')",
             params![scope, path, like],
         )
     } else {
-        connection.execute(
+        transaction.execute(
             "DELETE FROM reader_state WHERE path=?1 OR path LIKE ?2 ESCAPE '\\'",
             params![path, like],
         )
@@ -137,11 +140,11 @@ pub fn remove_exact_all(database: &Path, path: &str) -> AppResult<()> {
     Ok(())
 }
 
-pub fn move_prefix(database: &Path, old_path: &str, new_path: &str) -> AppResult<()> {
-    let mut connection = connection(database)?;
-    let transaction = connection
-        .transaction()
-        .map_err(|error| AppError::internal(error.to_string()))?;
+pub fn move_prefix_in_transaction(
+    transaction: &Transaction<'_>,
+    old_path: &str,
+    new_path: &str,
+) -> AppResult<()> {
     let old_like = like_prefix(old_path);
     let new_like = like_prefix(new_path);
     transaction
@@ -156,9 +159,6 @@ pub fn move_prefix(database: &Path, old_path: &str, new_path: &str) -> AppResult
              WHERE path=?2 OR path LIKE ?3 ESCAPE '\\'",
             params![new_path, old_path, old_like],
         )
-        .map_err(|error| AppError::internal(error.to_string()))?;
-    transaction
-        .commit()
         .map_err(|error| AppError::internal(error.to_string()))?;
     Ok(())
 }

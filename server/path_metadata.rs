@@ -2,7 +2,7 @@ use crate::{
     app::{AppState, canvases_path, default_settings, settings_path, stats_path, timestamp_ms},
     canvas_persistence,
     error::AppResult,
-    reader_state, store,
+    reader_state, state_db, store,
 };
 use serde_json::{Value, json};
 
@@ -178,109 +178,91 @@ fn remove_workspace_metadata(settings: &mut Value, path: &str) {
 }
 
 pub async fn moved(state: &AppState, old_path: &str, new_path: &str) -> AppResult<()> {
-    let mut failure = None;
-    if let Err(error) = store::mutate_section(
-        &settings_path(state),
-        &state.config.library_key,
-        default_settings(),
-        |settings| {
-            for key in ["viewModes", "sortOrders", "customIcons", "autoSave"] {
-                move_map(&mut settings[key], old_path, new_path);
-            }
-            for key in ["favorites", "knowledgeBases"] {
-                move_list(&mut settings[key], old_path, new_path);
-            }
-            move_workspace_metadata(settings, old_path, new_path);
-            Ok(())
-        },
-    ) {
-        failure = Some(error);
-    }
-    if let Err(error) = store::mutate_section(
-        &canvases_path(state),
-        &state.config.library_key,
-        json!([]),
-        |canvases| {
-            canvas_persistence::move_paths(canvases, old_path, new_path, timestamp_ms());
-            Ok(())
-        },
-    ) && failure.is_none()
-    {
-        failure = Some(error);
-    }
-    if let Err(error) = store::mutate_section(
-        &stats_path(state),
-        &state.config.library_key,
-        json!({"views":{}}),
-        |stats| {
-            move_map(&mut stats["views"], old_path, new_path);
-            Ok(())
-        },
-    ) && failure.is_none()
-    {
-        failure = Some(error);
-    }
-    if let Err(error) = reader_state::move_prefix(
-        &state.config.data_path.join("app.sqlite3"),
-        old_path,
-        new_path,
-    ) && failure.is_none()
-    {
-        failure = Some(error);
-    }
-    failure.map_or(Ok(()), Err)
+    let database = state.config.data_path.join("app.sqlite3");
+    let changed_at = timestamp_ms();
+    state_db::run_transaction(&database, |transaction| {
+        store::mutate_section_in_transaction(
+            transaction,
+            &settings_path(state),
+            &state.config.library_key,
+            default_settings(),
+            |settings| {
+                for key in ["viewModes", "sortOrders", "customIcons", "autoSave"] {
+                    move_map(&mut settings[key], old_path, new_path);
+                }
+                for key in ["favorites", "knowledgeBases"] {
+                    move_list(&mut settings[key], old_path, new_path);
+                }
+                move_workspace_metadata(settings, old_path, new_path);
+                Ok(())
+            },
+        )?;
+        store::mutate_section_in_transaction(
+            transaction,
+            &canvases_path(state),
+            &state.config.library_key,
+            json!([]),
+            |canvases| {
+                canvas_persistence::move_paths(canvases, old_path, new_path, changed_at);
+                Ok(())
+            },
+        )?;
+        store::mutate_section_in_transaction(
+            transaction,
+            &stats_path(state),
+            &state.config.library_key,
+            json!({"views":{}}),
+            |stats| {
+                move_map(&mut stats["views"], old_path, new_path);
+                Ok(())
+            },
+        )?;
+        reader_state::move_prefix_in_transaction(transaction, old_path, new_path)
+    })
 }
 
 pub async fn removed(state: &AppState, path: &str) -> AppResult<()> {
-    let mut failure = None;
-    if let Err(error) = store::mutate_section(
-        &settings_path(state),
-        &state.config.library_key,
-        default_settings(),
-        |settings| {
-            for key in ["viewModes", "sortOrders", "customIcons", "autoSave"] {
-                remove_map(&mut settings[key], path);
-            }
-            for key in ["favorites", "knowledgeBases"] {
-                remove_list(&mut settings[key], path);
-            }
-            remove_workspace_metadata(settings, path);
-            Ok(())
-        },
-    ) {
-        failure = Some(error);
-    }
-    if let Err(error) = store::mutate_section(
-        &canvases_path(state),
-        &state.config.library_key,
-        json!([]),
-        |canvases| {
-            canvas_persistence::remove_paths(canvases, path, timestamp_ms());
-            Ok(())
-        },
-    ) && failure.is_none()
-    {
-        failure = Some(error);
-    }
-    if let Err(error) = store::mutate_section(
-        &stats_path(state),
-        &state.config.library_key,
-        json!({"views":{}}),
-        |stats| {
-            remove_map(&mut stats["views"], path);
-            Ok(())
-        },
-    ) && failure.is_none()
-    {
-        failure = Some(error);
-    }
-    if let Err(error) =
-        reader_state::remove_prefix(&state.config.data_path.join("app.sqlite3"), None, path)
-        && failure.is_none()
-    {
-        failure = Some(error);
-    }
-    failure.map_or(Ok(()), Err)
+    let database = state.config.data_path.join("app.sqlite3");
+    let changed_at = timestamp_ms();
+    state_db::run_transaction(&database, |transaction| {
+        store::mutate_section_in_transaction(
+            transaction,
+            &settings_path(state),
+            &state.config.library_key,
+            default_settings(),
+            |settings| {
+                for key in ["viewModes", "sortOrders", "customIcons", "autoSave"] {
+                    remove_map(&mut settings[key], path);
+                }
+                for key in ["favorites", "knowledgeBases"] {
+                    remove_list(&mut settings[key], path);
+                }
+                remove_workspace_metadata(settings, path);
+                Ok(())
+            },
+        )?;
+        store::mutate_section_in_transaction(
+            transaction,
+            &canvases_path(state),
+            &state.config.library_key,
+            json!([]),
+            |canvases| {
+                canvas_persistence::remove_paths(canvases, path, changed_at);
+                Ok(())
+            },
+        )?;
+        store::mutate_section_in_transaction(
+            transaction,
+            &stats_path(state),
+            &state.config.library_key,
+            json!({"views":{}}),
+            |stats| {
+                remove_map(&mut stats["views"], path);
+                Ok(())
+            },
+        )?;
+        reader_state::remove_prefix_in_transaction(transaction, None, path)
+    })
 }
 
 pub fn content_replaced(state: &AppState, path: &str) -> AppResult<()> {

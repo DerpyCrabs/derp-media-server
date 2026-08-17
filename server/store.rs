@@ -1,4 +1,5 @@
 use crate::{error::AppResult, state_db};
+use rusqlite::Transaction;
 use serde_json::Value;
 use std::path::Path;
 
@@ -20,4 +21,14 @@ pub fn mutate_section<T>(
 ) -> AppResult<T> {
     let database = path.with_file_name("app.sqlite3");
     state_db::update_document(&database, kind(path), key, default, update)
+}
+
+pub fn mutate_section_in_transaction<T>(
+    transaction: &Transaction<'_>,
+    path: &Path,
+    key: &str,
+    default: Value,
+    update: impl FnOnce(&mut Value) -> AppResult<T>,
+) -> AppResult<T> {
+    state_db::mutate_document_in_transaction(transaction, kind(path), key, default, update)
 }
