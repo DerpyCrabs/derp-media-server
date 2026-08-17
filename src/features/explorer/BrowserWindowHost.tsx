@@ -32,7 +32,7 @@ import { virtualAppearanceForPath } from './virtual-directory-appearance'
 import { MediaType } from '@/lib/files/types'
 import { normalizeNewFilePath } from '@/lib/files/new-file-name'
 import { formatFileSize, getMediaType } from '@/lib/media/media-utils'
-import { persistViewMode } from '@/features/explorer/view-mode-persistence'
+import { useFileBrowserMutations } from '@/features/explorer/use-file-browser-mutations'
 import { fileOpenTargetStore } from './file-open-target'
 import { cn } from '@/lib/ui/cn'
 import { getKnowledgeBaseRoot, isPathEditable } from '@/lib/files/path-utils'
@@ -233,18 +233,29 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
     void queryClient.invalidateQueries({ queryKey: queryKeys.adminContent() })
   }
 
-  const moveItemMutation = useMutation(() => ({
-    mutationFn: (vars: { oldPath: string; newPath: string }) => post('/api/files/rename', vars),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
-      invalidateKbQueries()
+  const {
+    renameMutation,
+    moveMutation,
+    createFileMutation,
+    createFolderMutation,
+    pasteMutation,
+    deleteMutation,
+    viewModeMutation,
+    knowledgeBaseMutation,
+    setCustomIconMutation,
+    removeCustomIconMutation,
+  } = useFileBrowserMutations({
+    onFileSaved: (path) => {
+      setShowPasteDialog(false)
+      setPasteData(null)
+      props.onOpenViewer(props.windowId, fileItemFromPath(path))
     },
-  }))
+  })
 
   function handleMoveFile(sourcePath: string, destinationDir: string) {
     const fileName = sourcePath.split(/[/\\]/).pop()!
     const newPath = destinationDir ? `${destinationDir}/${fileName}` : fileName
-    moveItemMutation.mutate({ oldPath: sourcePath, newPath })
+    moveMutation.mutate({ oldPath: sourcePath, newPath })
   }
 
   const allowMoveFile = createMemo(() => {
@@ -275,14 +286,6 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
     handleFolderRowDrop,
     resetDrag,
   } = dragController
-
-  const renameItemMutation = useMutation(() => ({
-    mutationFn: (vars: { oldPath: string; newPath: string }) => post('/api/files/rename', vars),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
-      invalidateKbQueries()
-    },
-  }))
 
   const { settingsQuery, knowledgeBases, customIcons } = useExplorerSettings()
 
@@ -325,24 +328,6 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
 
   const showInlineCreate = createMemo(() => inKb() && isAdminPaneEditable())
 
-  const createFileMutation = useMutation(() => ({
-    mutationFn: (vars: { path: string; content: string }) =>
-      post('/api/files/create', { type: 'file', path: vars.path, content: vars.content }),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
-      if (inKb()) invalidateKbQueries()
-    },
-  }))
-
-  const createFolderMutation = useMutation(() => ({
-    mutationFn: (vars: { path: string }) =>
-      post('/api/files/create', { type: 'folder', path: vars.path }),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
-      if (inKb()) invalidateKbQueries()
-    },
-  }))
-
   const virtualActionMutation = useMutation(() => ({
     mutationFn: (body: {
       action: string
@@ -354,41 +339,7 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
       setVirtualOffset(0)
       setVirtualPages([])
       void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
-    },
-  }))
-
-  const pasteMutation = useMutation(() => ({
-    mutationFn: (vars: {
-      path: string
-      content?: string
-      base64Content?: string
-      mode: 'create' | 'replace'
-      expectedVersion?: number
-    }) =>
-      post(vars.mode === 'replace' ? '/api/files/edit' : '/api/files/create', {
-        ...(vars.mode === 'create' ? { type: 'file' as const } : {}),
-        path: vars.path,
-        content: vars.content,
-        base64Content: vars.base64Content,
-        expectedVersion: vars.expectedVersion,
-      }),
-    onSuccess: (_d, variables) => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
-      if (inKb()) invalidateKbQueries()
-      setShowPasteDialog(false)
-      setPasteData(null)
-      const pathToOpen = variables.path
-      const popName = pathToOpen.split(/[/\\]/).filter(Boolean).pop() ?? 'file'
-      const lower = popName.toLowerCase()
-      const ext = lower.includes('.') ? (lower.split('.').pop() ?? '') : ''
-      props.onOpenViewer(props.windowId, {
-        path: pathToOpen,
-        name: popName,
-        isDirectory: false,
-        size: 0,
-        extension: ext,
-        type: getMediaType(ext),
-      })
+      invalidateKbQueries()
     },
   }))
 
@@ -404,28 +355,6 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
   const displayedFiles = createMemo(() =>
     sortFilesForPath(files(), currentPath(), settingsQuery.data?.sortOrders, sortingDisabled()),
   )
-
-  const viewModeMutation = useMutation(() => ({
-    mutationFn: (vars: { path: string; viewMode: 'list' | 'grid' }) =>
-      persistViewMode(vars.path, vars.viewMode),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
-    },
-  }))
-
-  const setCustomIconMutation = useMutation(() => ({
-    mutationFn: (vars: { path: string; iconName: string }) => post('/api/settings/icon', vars),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
-    },
-  }))
-
-  const removeCustomIconMutation = useMutation(() => ({
-    mutationFn: (path: string) => post('/api/settings/icon/remove', { path }),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
-    },
-  }))
 
   createEffect(
     () => searchQuery(),
@@ -508,20 +437,6 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
     },
   )
 
-  const deleteMutation = useMutation(() => ({
-    mutationFn: (itemPath: string) => post('/api/files/delete', { path: itemPath }),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
-    },
-  }))
-
-  const knowledgeBaseMutation = useMutation(() => ({
-    mutationFn: (filePath: string) => post('/api/settings/knowledgeBase', { filePath }),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
-    },
-  }))
-
   function handleContextToggleKnowledgeBase(file: FileItem) {
     knowledgeBaseMutation.mutate(file.path.replace(/\\/g, '/'))
   }
@@ -529,7 +444,7 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
   const renameTargetExists = createMemo(() => {
     const item = renamingItem()
     const name = renameNewName().trim()
-    if (!item || !name || renameItemMutation.isPending) return false
+    if (!item || !name || renameMutation.isPending) return false
     const entry = virtualEntry(item)
     if (entry?.kind === 'session') return false
     if (entry?.kind === 'project') {
@@ -676,7 +591,7 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
     setShowRename(false)
     setRenamingItem(null)
     setRenameNewName('')
-    renameItemMutation.reset()
+    renameMutation.reset()
   }
 
   function submitRename() {
@@ -693,17 +608,17 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
     const oldPath = item.path.replace(/\\/g, '/')
     const par = browserPaneParentDir(oldPath)
     const newPath = par ? `${par}/${newName}` : newName
-    renameItemMutation.mutate({ oldPath, newPath }, { onSuccess: () => cancelRename() })
+    renameMutation.mutate({ oldPath, newPath }, { onSuccess: () => cancelRename() })
   }
 
   function openContextMove(file: FileItem) {
     setMoveTarget(file)
-    moveItemMutation.reset()
+    moveMutation.reset()
   }
 
   function closeMoveDialog() {
     setMoveTarget(null)
-    moveItemMutation.reset()
+    moveMutation.reset()
   }
 
   function confirmMoveTo(destinationDir: string) {
@@ -711,10 +626,7 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
     if (!target) return
     const fileName = target.path.split(/[/\\]/).pop()!
     const newPath = destinationDir ? `${destinationDir}/${fileName}` : fileName
-    moveItemMutation.mutate(
-      { oldPath: target.path, newPath },
-      { onSuccess: () => closeMoveDialog() },
-    )
+    moveMutation.mutate({ oldPath: target.path, newPath }, { onSuccess: () => closeMoveDialog() })
   }
 
   const moveDialogFilePath = createMemo(() => {
@@ -1913,17 +1825,15 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
             setRenameNewName={setRenameNewName}
             submitRename={submitRename}
             cancelRename={cancelRename}
-            renamePending={renameItemMutation.isPending || virtualActionMutation.isPending}
-            renameError={
-              (renameItemMutation.error ?? virtualActionMutation.error) as Error | undefined
-            }
+            renamePending={renameMutation.isPending || virtualActionMutation.isPending}
+            renameError={(renameMutation.error ?? virtualActionMutation.error) as Error | undefined}
             renameTargetExists={renameTargetExists}
             moveTarget={moveTarget}
             closeMoveDialog={closeMoveDialog}
             moveDialogFilePath={moveDialogFilePath}
             confirmMoveTo={confirmMoveTo}
-            movePending={moveItemMutation.isPending}
-            moveError={moveItemMutation.error as Error | undefined}
+            movePending={moveMutation.isPending}
+            moveError={moveMutation.error as Error | undefined}
             onPickNewTabTarget={
               fileOpenMode() === 'new-tab' && props.onBeginFileOpenTargetPick
                 ? () => props.onBeginFileOpenTargetPick?.()

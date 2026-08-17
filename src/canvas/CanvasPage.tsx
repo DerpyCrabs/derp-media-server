@@ -40,10 +40,8 @@ import {
   type InfiniteCanvasState,
 } from '@/canvas/model/infinite-canvas'
 import { getMediaTypeFromPath } from '@/lib/media/media-utils'
-import { queryKeys } from '@/lib/api/query-keys'
 import { MediaType, type FileItem } from '@/lib/files/types'
 import { fileNameFromPath, parentPath } from '@/lib/files/path-utils'
-import type { GlobalSettings } from '@/lib/models/settings-types'
 import type {
   PersistedWindowState,
   WindowSource,
@@ -54,7 +52,7 @@ import { applyCanvasPathMutation } from '@/canvas/model/canvas-path-mutation'
 import type { PathMutation } from '@/lib/files/path-mutation'
 import type { VirtualOpenTarget } from '@/lib/files/virtual-directory'
 import { canCloseHermesWindow, discardHermesDraft } from '@/features/hermes/hermes-session-store'
-import { useQuery } from '@tanstack/solid-query'
+import { useServerConfigQuery, useSettingsQuery } from '@/lib/api/use-app-data'
 import ChevronRight from 'lucide-solid/icons/chevron-right'
 import CircleAlert from 'lucide-solid/icons/circle-alert'
 import Download from 'lucide-solid/icons/download'
@@ -405,16 +403,8 @@ export function CanvasPage() {
     commit: (camera) => setState((current) => ({ ...current, camera })),
   })
 
-  const settingsQuery = useQuery(() => ({
-    queryKey: queryKeys.settings(),
-    queryFn: () => api<GlobalSettings>('/api/settings'),
-    staleTime: Infinity,
-  }))
-  const serverConfigQuery = useQuery(() => ({
-    queryKey: queryKeys.serverConfig(),
-    queryFn: () => api<{ editableFolders: string[] }>('/api/config'),
-    staleTime: Infinity,
-  }))
+  const settingsQuery = useSettingsQuery()
+  const serverConfigQuery = useServerConfigQuery()
   const editableFolders = createMemo(() => serverConfigQuery.data?.editableFolders ?? [])
   const knowledgeBases = createMemo(() => settingsQuery.data?.knowledgeBases ?? [])
   const writableDirectories = createMemo(() =>

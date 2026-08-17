@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
+import { useServerConfigQuery } from '@/lib/api/use-app-data'
 import { hasFileDragData } from '@/lib/files/file-drag-data'
 import { collectDroppedUploadFiles } from '@/lib/files/collect-dropped-upload-files'
 import { extractPasteDataFromClipboardData } from '@/lib/files/extract-paste-data'
@@ -43,7 +44,7 @@ import { KbSearchResults } from '@/features/explorer/KbSearchResults'
 import { navigateToFolder } from '@/features/explorer/navigate-folder'
 import { useFileRowContextMenu } from '@/features/explorer/use-file-row-context-menu'
 import { UploadMenu } from '@/features/explorer/UploadMenu'
-import type { ServerConfig, UploadToastState } from '@/features/explorer/types'
+import type { UploadToastState } from '@/features/explorer/types'
 import { FloatingScrollActions } from '@/features/explorer/FloatingScrollActions'
 import { useInlineModeInputFocus } from '@/features/explorer/use-inline-mode-input-focus'
 import { registerKbSearchHotkeys } from '@/features/explorer/use-kb-search-hotkey'
@@ -62,7 +63,7 @@ import { useDynamicFavicon } from '@/media-center/use-dynamic-favicon'
 import { useStoreSync } from '@/lib/state/solid-store-sync'
 import { useBrowserViewModeStore } from '@/features/explorer/browser-view-mode-store'
 import { openInReader } from '@/features/reader/reader-url'
-import { persistViewMode } from '@/features/explorer/view-mode-persistence'
+import { useFileBrowserMutations } from '@/features/explorer/use-file-browser-mutations'
 import { useViewStats } from '@/features/explorer/use-view-stats'
 import { createLongPressContextMenuHandlers } from '@/features/explorer/long-press-context-menu'
 import { useDeferredLoading } from '@/lib/ui/use-deferred-loading'
@@ -98,11 +99,7 @@ export function MediaCenterPage() {
     (Object.values(VIRTUAL_FOLDERS) as string[]).includes(currentPath()),
   )
 
-  const serverConfigQuery = useQuery(() => ({
-    queryKey: queryKeys.serverConfig(),
-    queryFn: () => api<ServerConfig>('/api/config'),
-    staleTime: Infinity,
-  }))
+  const serverConfigQuery = useServerConfigQuery()
 
   const editableFolders = createMemo(() => serverConfigQuery.data?.editableFolders ?? [])
   const mediaRoots = createMemo(() => serverConfigQuery.data?.mediaRoots ?? [])
@@ -294,14 +291,6 @@ export function MediaCenterPage() {
   const favorites = createMemo(() => settingsQuery.data?.favorites ?? [])
   const favoriteSet = createMemo(() => new Set(favorites()))
 
-  const viewModeMutation = useMutation(() => ({
-    mutationFn: (vars: { path: string; viewMode: 'list' | 'grid' }) =>
-      persistViewMode(vars.path, vars.viewMode),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
-    },
-  }))
-
   const favoriteMutation = useMutation(() => ({
     mutationFn: (vars: { filePath: string }) => post('/api/settings/favorite', vars),
     onSettled: () => {
@@ -353,74 +342,27 @@ export function MediaCenterPage() {
   )
 
   const isUploading = createMemo(() => uploadToast().kind === 'uploading')
-  const invalidateContent = () =>
-    void queryClient.invalidateQueries({ queryKey: queryKeys.adminContent() })
 
-  const deleteMutation = useMutation(() => ({
-    mutationFn: (itemPath: string) => post('/api/files/delete', { path: itemPath }),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
-      invalidateContent()
-    },
-  }))
-
-  const createFolderMutation = useMutation(() => ({
-    mutationFn: (vars: { type: 'folder'; path: string }) => post('/api/files/create', vars),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
-      invalidateContent()
-    },
-  }))
-
-  const createFileMutation = useMutation(() => ({
-    mutationFn: (vars: { type: 'file'; path: string; content: string }) =>
-      post('/api/files/create', vars),
-    onSuccess: (_d, variables) => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
-      invalidateContent()
-      viewFile(variables.path, currentPath())
-    },
-  }))
-
-  const renameMutation = useMutation(() => ({
-    mutationFn: (vars: { oldPath: string; newPath: string }) => post('/api/files/rename', vars),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
-      invalidateContent()
-    },
-  }))
-
-  const moveMutation = useMutation(() => ({
-    mutationFn: (vars: { oldPath: string; newPath: string }) => post('/api/files/rename', vars),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
-      invalidateContent()
-    },
-  }))
-
-  const pasteMutation = useMutation(() => ({
-    mutationFn: (vars: {
-      path: string
-      content?: string
-      base64Content?: string
-      mode: 'create' | 'replace'
-      expectedVersion?: number
-    }) =>
-      post(vars.mode === 'replace' ? '/api/files/edit' : '/api/files/create', {
-        ...(vars.mode === 'create' ? { type: 'file' as const } : {}),
-        path: vars.path,
-        content: vars.content,
-        base64Content: vars.base64Content,
-        expectedVersion: vars.expectedVersion,
-      }),
-    onSuccess: (_d, variables) => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
-      invalidateContent()
+  const {
+    renameMutation,
+    moveMutation,
+    createFileMutation,
+    createFolderMutation,
+    pasteMutation,
+    deleteMutation,
+    copyMutation,
+    viewModeMutation,
+    knowledgeBaseMutation,
+    setCustomIconMutation,
+    removeCustomIconMutation,
+  } = useFileBrowserMutations({
+    onFileCreated: (path) => viewFile(path, currentPath()),
+    onFileSaved: (path) => {
       setShowPasteDialog(false)
       setPasteData(null)
-      viewFile(variables.path, currentPath())
+      viewFile(path, currentPath())
     },
-  }))
+  })
 
   function closePasteDialog() {
     setShowPasteDialog(false)
@@ -489,35 +431,6 @@ export function MediaCenterPage() {
     handleFolderRowDrop,
   } = dragController
 
-  const copyMutation = useMutation(() => ({
-    mutationFn: (vars: { sourcePath: string; destinationDir: string }) =>
-      post('/api/files/copy', vars),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
-    },
-  }))
-
-  const knowledgeBaseMutation = useMutation(() => ({
-    mutationFn: (filePath: string) => post('/api/settings/knowledgeBase', { filePath }),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
-    },
-  }))
-
-  const setCustomIconMutation = useMutation(() => ({
-    mutationFn: (vars: { path: string; iconName: string }) => post('/api/settings/icon', vars),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
-    },
-  }))
-
-  const removeCustomIconMutation = useMutation(() => ({
-    mutationFn: (path: string) => post('/api/settings/icon/remove', { path }),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
-    },
-  }))
-
   const folderExists = createMemo(() => {
     const n = newItemName().trim()
     if (!n) return false
@@ -554,7 +467,7 @@ export function MediaCenterPage() {
     const base = currentPath() ? `${currentPath()}/${stem}` : stem
     const finalPath = normalizeNewFilePath(base, inKb())
     createFileMutation.mutate(
-      { type: 'file', path: finalPath, content: '' },
+      { path: finalPath, content: '' },
       {
         onSuccess: () => {
           setInlineMode(null)
@@ -570,7 +483,7 @@ export function MediaCenterPage() {
     if (!name || inlineFolderExists() || !showInlineCreate()) return
     const folderPath = currentPath() ? `${currentPath()}/${name}` : name
     createFolderMutation.mutate(
-      { type: 'folder', path: folderPath },
+      { path: folderPath },
       {
         onSuccess: () => {
           setInlineMode(null)
@@ -818,7 +731,7 @@ export function MediaCenterPage() {
     const name = newItemName().trim()
     const folderPath = currentPath() ? `${currentPath()}/${name}` : name
     createFolderMutation.mutate(
-      { type: 'folder', path: folderPath },
+      { path: folderPath },
       {
         onSuccess: () => {
           setShowCreateFolder(false)
@@ -835,7 +748,7 @@ export function MediaCenterPage() {
     filePath = currentPath() ? `${currentPath()}/${filePath}` : filePath
     filePath = normalizeNewFilePath(filePath, inKb())
     createFileMutation.mutate(
-      { type: 'file', path: filePath, content: '' },
+      { path: filePath, content: '' },
       {
         onSuccess: () => {
           setShowCreateFile(false)

@@ -1,12 +1,11 @@
-import { api, post } from '@/lib/api/client'
+import { post } from '@/lib/api/client'
+import { useServerConfigQuery, useSettingsQuery } from '@/lib/api/use-app-data'
 import type { WorkspaceSettings } from '@/workspace/model/workspace-settings-types'
 import type { PinnedTaskbarItem } from '@/workspace/model/use-workspace'
 import { queryKeys } from '@/lib/api/query-keys'
 import type { WorkspaceLayoutPreset } from '@/workspace/model/workspace-layout-presets'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
+import { useMutation, useQueryClient } from '@tanstack/solid-query'
 import { createMemo, snapshot } from 'solid-js'
-
-type ServerConfig = { editableFolders: string[] }
 
 function fromQueryData<T>(value: T): T {
   return structuredClone(snapshot(value))
@@ -15,17 +14,8 @@ function fromQueryData<T>(value: T): T {
 export function useWorkspacePageServerData() {
   const queryClient = useQueryClient()
 
-  const settingsQuery = useQuery(() => ({
-    queryKey: queryKeys.settings(),
-    queryFn: () => api<WorkspaceSettings>('/api/settings'),
-    staleTime: Infinity,
-  }))
-
-  const serverConfigQuery = useQuery(() => ({
-    queryKey: queryKeys.serverConfig(),
-    queryFn: () => api<ServerConfig>('/api/config'),
-    staleTime: Infinity,
-  }))
+  const settingsQuery = useSettingsQuery<WorkspaceSettings>()
+  const serverConfigQuery = useServerConfigQuery()
 
   const editableFolders = createMemo((): string[] => {
     const folders = serverConfigQuery.data?.editableFolders

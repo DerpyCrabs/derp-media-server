@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
-import { api, post } from '@/lib/api/client'
+import { useSettingsQuery } from '@/lib/api/use-app-data'
+import { post } from '@/lib/api/client'
 import {
   createTextDocumentTarget,
   enqueueTextDocumentSave,
@@ -51,11 +52,7 @@ export type TextEditorPaneProps = {
 export function TextEditorPane(props: TextEditorPaneProps): JSX.Element {
   const queryClient = useQueryClient()
 
-  const settingsQuery = useQuery(() => ({
-    queryKey: queryKeys.settings(),
-    queryFn: () => api<GlobalSettings>('/api/settings'),
-    staleTime: Infinity,
-  }))
+  const settingsQuery = useSettingsQuery()
 
   const autoSaveMutation = useMutation(() => ({
     mutationFn: (vars: { filePath: string; enabled: boolean; readOnly?: boolean }) =>
