@@ -5,6 +5,7 @@ import {
   loadCanvasCollection,
   mergeCanvasRecords,
   parseCanvasRecords,
+  saveCanvasCollection,
   type PersistedCanvas,
 } from '@/canvas/model/canvas-persistence'
 import {
@@ -14,7 +15,15 @@ import {
 } from '@/canvas/model/infinite-canvas'
 
 function storage(values: Record<string, string>) {
-  return { getItem: (key: string) => values[key] ?? null }
+  return {
+    getItem: (key: string) => values[key] ?? null,
+    removeItem: (key: string) => {
+      delete values[key]
+    },
+    setItem: (key: string, value: string) => {
+      values[key] = value
+    },
+  }
 }
 
 function record(overrides: Partial<PersistedCanvas> = {}): PersistedCanvas {
@@ -56,6 +65,33 @@ describe('canvas persistence', () => {
       }),
     )
     expect(collection.canvases[0]?.name).toBe('Saved')
+  })
+
+  test('writes the collection as the canonical local state and removes the legacy key', () => {
+    const values: Record<string, string> = {
+      [CANVAS_STORAGE_KEY]: serializeInfiniteCanvasState(createEmptyCanvasState()),
+    }
+    const saved = { ...record(), name: 'Canonical' }
+
+    saveCanvasCollection(storage(values), {
+      version: 1,
+      activeId: saved.id,
+      writerId: saved.writerId,
+      lastTimestamp: saved.updatedAt,
+      canvases: [saved],
+    })
+
+    expect(values[CANVAS_STORAGE_KEY]).toBeUndefined()
+    const stored = JSON.parse(values[CANVAS_COLLECTION_STORAGE_KEY]!)
+    expect(stored).toMatchObject({
+      version: 1,
+      activeId: saved.id,
+      writerId: saved.writerId,
+      lastTimestamp: saved.updatedAt,
+    })
+    expect(stored.canvases[0]?.state).toEqual(
+      JSON.parse(serializeInfiniteCanvasState(saved.state!)),
+    )
   })
 
   test('newer tombstone wins merge and prevents resurrection', () => {

@@ -8,6 +8,7 @@ import {
   mergeCanvasRecords,
   nextCanvasTimestamp,
   parseCanvasRecords,
+  saveCanvasCollection,
   serializeCanvasCollection,
   type CanvasCollection,
   type PersistedCanvas,
@@ -24,7 +25,6 @@ import {
   CANVAS_MIN_WINDOW_HEIGHT,
   CANVAS_MIN_WINDOW_WIDTH,
   CANVAS_MIN_ZOOM,
-  CANVAS_STORAGE_KEY,
   canvasWindowVisualBounds,
   cloneInfiniteCanvasState,
   equalInfiniteCanvasState,
@@ -348,12 +348,12 @@ export function CanvasPage() {
   const playback = usePlaybackSnapshot()
   const browserStorage =
     typeof localStorage === 'undefined'
-      ? ({ getItem: () => null } as Pick<Storage, 'getItem'>)
+      ? ({ getItem: () => null, removeItem: () => {}, setItem: () => {} } as Pick<
+          Storage,
+          'getItem' | 'removeItem' | 'setItem'
+        >)
       : localStorage
-  const hadLocalCanvas = Boolean(
-    browserStorage.getItem(CANVAS_COLLECTION_STORAGE_KEY) ??
-    browserStorage.getItem(CANVAS_STORAGE_KEY),
-  )
+  const hadLocalCanvas = Boolean(browserStorage.getItem(CANVAS_COLLECTION_STORAGE_KEY))
   const loadedCollection = loadCanvasCollection(browserStorage)
   const initialCollection = loadedCollection
   const initialCanvas = initialCollection.canvases.find(
@@ -499,8 +499,7 @@ export function CanvasPage() {
   )
 
   function storeCollection(next: CanvasCollection) {
-    localStorage.setItem(CANVAS_COLLECTION_STORAGE_KEY, serializeCanvasCollection(next))
-    localStorage.setItem(CANVAS_STORAGE_KEY, serializeInfiniteCanvasState(state()))
+    saveCanvasCollection(browserStorage, next)
   }
 
   function persistActiveState(): CanvasCollection {

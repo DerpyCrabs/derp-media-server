@@ -27,6 +27,7 @@ export type CanvasCollection = {
 }
 
 type ReadStorage = Pick<Storage, 'getItem'>
+type WriteStorage = Pick<Storage, 'removeItem' | 'setItem'>
 
 function randomId(): string {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
@@ -154,6 +155,11 @@ export function serializeCanvasCollection(collection: CanvasCollection): string 
         : canvas,
     ),
   })
+}
+
+export function saveCanvasCollection(storage: WriteStorage, collection: CanvasCollection): void {
+  storage.setItem(CANVAS_COLLECTION_STORAGE_KEY, serializeCanvasCollection(collection))
+  storage.removeItem(CANVAS_STORAGE_KEY)
 }
 
 export function createCanvasRecord(
