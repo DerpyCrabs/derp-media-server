@@ -159,14 +159,7 @@ export function serializeCanvasCollection(collection: CanvasCollection): string 
 
 export function saveCanvasCollection(storage: WriteStorage, collection: CanvasCollection): void {
   storage.setItem(CANVAS_COLLECTION_STORAGE_KEY, serializeCanvasCollection(collection))
-  const active =
-    collection.canvases.find((canvas) => canvas.id === collection.activeId && !canvas.deleted) ??
-    collection.canvases.find((canvas) => !canvas.deleted)
-  if (active?.state) {
-    storage.setItem(CANVAS_STORAGE_KEY, serializeInfiniteCanvasState(active.state))
-  } else {
-    storage.removeItem(CANVAS_STORAGE_KEY)
-  }
+  storage.removeItem(CANVAS_STORAGE_KEY)
 }
 
 export function createCanvasRecord(

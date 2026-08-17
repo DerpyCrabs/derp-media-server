@@ -144,19 +144,23 @@ test('keeps canvas camera fixed with an unmodified wheel', async ({ page }) => {
   const canvas = page.getByTestId('infinite-canvas')
   await canvas.hover({ position: { x: 900, y: 500 } })
   const before = await page.evaluate(() => {
-    const raw = JSON.parse(localStorage.getItem('infinite-canvas-state-v1') ?? '{}') as {
-      camera?: { x?: number; y?: number }
+    const raw = JSON.parse(localStorage.getItem('infinite-canvases-v1') ?? '{}') as {
+      activeId?: string
+      canvases?: Array<{ id?: string; deleted?: boolean; state?: { camera?: unknown } | null }>
     }
-    return raw.camera ?? { x: 0, y: 0 }
+    const active = raw.canvases?.find((canvas) => canvas.id === raw.activeId && !canvas.deleted)
+    return (active?.state?.camera as { x?: number; y?: number } | undefined) ?? { x: 0, y: 0 }
   })
   await page.mouse.wheel(40, 80)
   await expect
     .poll(() =>
       page.evaluate(() => {
-        const raw = JSON.parse(localStorage.getItem('infinite-canvas-state-v1') ?? '{}') as {
-          camera?: { x?: number; y?: number }
+        const raw = JSON.parse(localStorage.getItem('infinite-canvases-v1') ?? '{}') as {
+          activeId?: string
+          canvases?: Array<{ id?: string; deleted?: boolean; state?: { camera?: unknown } | null }>
         }
-        return raw.camera
+        const active = raw.canvases?.find((canvas) => canvas.id === raw.activeId && !canvas.deleted)
+        return active?.state?.camera ?? null
       }),
     )
     .toEqual({ x: before.x ?? 0, y: before.y ?? 0, zoom: 1 })
@@ -310,10 +314,20 @@ test('locally restores canvas windows', async ({ page }) => {
   await expect
     .poll(() =>
       page.evaluate(() => {
-        const raw = localStorage.getItem('infinite-canvas-state-v1')
+        const raw = localStorage.getItem('infinite-canvases-v1')
         if (!raw) return null
-        const state = JSON.parse(raw) as { windows?: unknown[] }
-        return state.windows?.length ?? 0
+        const collection = JSON.parse(raw) as {
+          activeId?: string
+          canvases?: Array<{
+            id?: string
+            deleted?: boolean
+            state?: { windows?: unknown[] } | null
+          }>
+        }
+        const active = collection.canvases?.find(
+          (canvas) => canvas.id === collection.activeId && !canvas.deleted,
+        )
+        return active?.state?.windows?.length ?? 0
       }),
     )
     .toBe(1)
@@ -1143,12 +1157,20 @@ test('loads large virtualized directories inside canvas browser', async ({ page 
   await expect
     .poll(() =>
       page.evaluate(() => {
-        const raw = localStorage.getItem('infinite-canvas-state-v1')
+        const raw = localStorage.getItem('infinite-canvases-v1')
         if (!raw) return null
-        const state = JSON.parse(raw) as {
-          windows?: Array<{ definition?: { initialState?: { dir?: string } } }>
+        const collection = JSON.parse(raw) as {
+          activeId?: string
+          canvases?: Array<{
+            id?: string
+            deleted?: boolean
+            state?: { windows?: Array<{ definition?: { initialState?: { dir?: string } } }> } | null
+          }>
         }
-        return state.windows?.[0]?.definition?.initialState?.dir ?? null
+        const active = collection.canvases?.find(
+          (canvas) => canvas.id === collection.activeId && !canvas.deleted,
+        )
+        return active?.state?.windows?.[0]?.definition?.initialState?.dir ?? null
       }),
     )
     .toBe(folderName)
