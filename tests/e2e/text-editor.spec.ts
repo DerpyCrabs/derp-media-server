@@ -317,6 +317,15 @@ test.describe('Text Editor', () => {
     await expect(markdownDocument(page, 'edit')).not.toContainText('unsaved mode probe')
   })
 
+  test('renders first Markdown list marker before editor focus', async ({ page, request }) => {
+    await writeFile(request, TODO_PATH, '- [ ] First task\n- [ ] Second task\n- [x] Done task\n')
+    await page.goto(`/?dir=Notes&viewing=${encodeURIComponent(TODO_PATH)}`)
+
+    const document = markdownDocument(page, 'edit')
+    await expect(markdownEditor(page)).toBeVisible()
+    await expect(document.locator('.cm-md-list-marker')).toHaveCount(3)
+  })
+
   test('uses CodeMirror for editable Markdown outside a knowledge base', async ({
     page,
     request,

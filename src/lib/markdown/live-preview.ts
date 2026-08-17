@@ -274,7 +274,7 @@ function buildDecorations(
       to: visible.to,
       enter(ref: SyntaxNodeRef): boolean | void {
         const node = ref.node
-        const active = syntaxNodeIsActive(state, node)
+        const active = view.hasFocus && syntaxNodeIsActive(state, node)
 
         if (node.name === 'Entity') {
           if (!active) {
@@ -576,6 +576,7 @@ export function livePreviewExtension(runtime: MarkdownEditorRuntime) {
           if (
             update.docChanged ||
             update.selectionSet ||
+            update.focusChanged ||
             update.viewportChanged ||
             syntaxTreeChanged ||
             modeChanged ||
