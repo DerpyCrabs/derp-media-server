@@ -67,7 +67,7 @@ describe('canvas persistence', () => {
     expect(collection.canvases[0]?.name).toBe('Saved')
   })
 
-  test('writes the collection as the canonical local state and removes the legacy key', () => {
+  test('writes the collection canonically and mirrors its active state for compatibility', () => {
     const values: Record<string, string> = {
       [CANVAS_STORAGE_KEY]: serializeInfiniteCanvasState(createEmptyCanvasState()),
     }
@@ -81,7 +81,7 @@ describe('canvas persistence', () => {
       canvases: [saved],
     })
 
-    expect(values[CANVAS_STORAGE_KEY]).toBeUndefined()
+    expect(values[CANVAS_STORAGE_KEY]).toBe(serializeInfiniteCanvasState(saved.state!))
     const stored = JSON.parse(values[CANVAS_COLLECTION_STORAGE_KEY]!)
     expect(stored).toMatchObject({
       version: 1,
