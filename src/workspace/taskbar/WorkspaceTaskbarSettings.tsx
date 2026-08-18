@@ -12,8 +12,6 @@ import Settings from 'lucide-solid/icons/settings'
 import Sun from 'lucide-solid/icons/sun'
 import type { Accessor } from 'solid-js'
 import { For, Show, createEffect, createMemo, createSignal } from 'solid-js'
-import { WORKSPACE_TAB_ICON_SWATCHES } from '@/workspace/model/workspace-tab-icon-colors'
-import { SOLID_AVAILABLE_ICONS } from '@/lib/ui/solid-available-icons'
 import { useStoreSync } from '@/lib/state/solid-store-sync'
 import { cn } from '@/lib/ui/cn'
 
@@ -52,13 +50,9 @@ const triggerClass =
 export type WorkspaceTaskbarSettingsProps = {
   reopenClosedTab?: () => void
   canReopenClosed?: Accessor<boolean>
-  browserTabTitle: Accessor<string>
-  browserTabIcon: Accessor<string>
-  browserTabIconColor: Accessor<string>
-  onBrowserTabTitleChange: (value: string) => void
-  onBrowserTabIconChange: (value: string) => void
-  onBrowserTabIconColorChange: (value: string) => void
   onWorkspaceFileOpenTargetChange?: (value: FileOpenTarget) => void
+  workspaceTransition?: () => 'instant' | 'fade'
+  onWorkspaceTransitionChange?: (value: 'instant' | 'fade') => void
 }
 
 export function WorkspaceTaskbarSettings(props: WorkspaceTaskbarSettingsProps) {
@@ -144,86 +138,6 @@ export function WorkspaceTaskbarSettings(props: WorkspaceTaskbarSettingsProps) {
             Settings
           </h2>
           <div class='mt-6 grid gap-6'>
-            <div>
-              <div class='mb-2 text-xs font-medium text-muted-foreground'>Browser tab</div>
-              <label class='mb-2 block text-sm font-medium'>Title</label>
-              <input
-                type='text'
-                class='mb-3 flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm'
-                placeholder='Workspace'
-                maxlength={120}
-                value={props.browserTabTitle()}
-                onInput={(e) => props.onBrowserTabTitleChange(e.currentTarget.value)}
-              />
-              <label class='mb-2 block text-sm font-medium'>Icon</label>
-              <div class='grid grid-cols-4 gap-2 sm:grid-cols-5 md:grid-cols-6'>
-                <For each={SOLID_AVAILABLE_ICONS}>
-                  {(icon) => {
-                    const Icon = icon.Icon
-                    const selected = () => props.browserTabIcon() === icon.name
-                    return (
-                      <button
-                        type='button'
-                        title={icon.name}
-                        class={cn(
-                          'flex items-center justify-center rounded-lg border-2 p-3 transition-all hover:bg-muted/50',
-                          selected()
-                            ? 'border-primary bg-primary/10'
-                            : 'border-border hover:border-primary/50',
-                        )}
-                        onClick={() => props.onBrowserTabIconChange(icon.name)}
-                      >
-                        <Icon class='h-6 w-6' size={24} stroke-width={2} />
-                      </button>
-                    )
-                  }}
-                </For>
-              </div>
-              <label class='mb-2 mt-3 block text-sm font-medium'>Icon color</label>
-              <div class='flex flex-wrap gap-2'>
-                <button
-                  type='button'
-                  disabled={!props.browserTabIcon()}
-                  class={cn(
-                    'h-8 min-w-8 shrink-0 rounded-md border-2 px-2 text-xs font-medium disabled:opacity-40',
-                    !props.browserTabIconColor()
-                      ? 'border-primary bg-primary/10'
-                      : 'border-border bg-muted/60 hover:bg-muted',
-                  )}
-                  onClick={() => props.onBrowserTabIconColorChange('')}
-                >
-                  Auto
-                </button>
-                <For each={WORKSPACE_TAB_ICON_SWATCHES}>
-                  {(s) => (
-                    <button
-                      type='button'
-                      disabled={!props.browserTabIcon()}
-                      title={s.key}
-                      class={cn(
-                        'h-8 w-8 shrink-0 rounded-md border-2 disabled:opacity-40',
-                        s.twBg,
-                        props.browserTabIconColor() === s.key
-                          ? 'border-primary'
-                          : 'border-black/25 dark:border-white/30',
-                      )}
-                      onClick={() => props.onBrowserTabIconColorChange(s.key)}
-                    />
-                  )}
-                </For>
-              </div>
-              <button
-                type='button'
-                class='mt-3 text-xs font-medium text-muted-foreground underline decoration-muted-foreground/50 underline-offset-2 hover:text-foreground'
-                onClick={() => {
-                  props.onBrowserTabTitleChange('')
-                  props.onBrowserTabIconChange('')
-                  props.onBrowserTabIconColorChange('')
-                }}
-              >
-                Reset tab appearance
-              </button>
-            </div>
             <Show when={props.reopenClosedTab}>
               <div>
                 <div class='mb-2 text-xs font-medium text-muted-foreground'>Tabs</div>
@@ -271,6 +185,27 @@ export function WorkspaceTaskbarSettings(props: WorkspaceTaskbarSettingsProps) {
                       </button>
                     )
                   }}
+                </For>
+              </div>
+            </div>
+            <div>
+              <div class='mb-2 text-xs font-medium text-muted-foreground'>Workspace transition</div>
+              <div class='flex gap-2'>
+                <For each={['instant', 'fade'] as const}>
+                  {(transition) => (
+                    <button
+                      type='button'
+                      class={cn(
+                        'rounded-md border px-3 py-2 text-sm capitalize',
+                        (props.workspaceTransition?.() ?? 'fade') === transition
+                          ? 'border-primary bg-primary/10 text-primary'
+                          : 'border-border hover:bg-muted',
+                      )}
+                      onClick={() => props.onWorkspaceTransitionChange?.(transition)}
+                    >
+                      {transition}
+                    </button>
+                  )}
                 </For>
               </div>
             </div>

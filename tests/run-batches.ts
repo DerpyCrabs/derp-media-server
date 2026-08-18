@@ -31,7 +31,7 @@ export const BATCHES = [
       'workspace-taskbar-pins',
       'workspace-taskbar-chrome',
       'workspace-layout-sessions',
-      'workspace-named-layouts',
+      'workspace-registry',
       'workspace-file-open-target',
       'hermes-chat',
     ],

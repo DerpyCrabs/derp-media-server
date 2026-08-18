@@ -34,7 +34,7 @@ test.afterEach(async () => {
 })
 
 async function gotoWorkspace(page: Page) {
-  await page.goto('/workspace')
+  await page.goto(`/workspace?ws=e2e-${crypto.randomUUID()}`)
   await expect(page.locator(WORKSPACE_VISIBLE_WINDOW_GROUP).first()).toBeVisible()
 }
 

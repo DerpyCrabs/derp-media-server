@@ -8,3 +8,4 @@ pub mod search;
 pub mod settings;
 pub mod sse;
 pub mod stats;
+pub mod workspaces;

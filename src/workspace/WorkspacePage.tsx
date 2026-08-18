@@ -3,7 +3,6 @@ import type { FileItem } from '@/lib/files/types'
 import { MediaType } from '@/lib/files/types'
 import { getMediaType } from '@/lib/media/media-utils'
 import type { AssistGridSpan } from '@/workspace/model/workspace-assist-grid'
-import type { WorkspaceLayoutPreset } from '@/workspace/model/workspace-settings-types'
 import {
   createDefaultBounds,
   createWindowLayout,
@@ -24,16 +23,13 @@ import type {
 import { applyWorkspacePathMutation } from '@/workspace/model/workspace-path-mutation'
 import {
   resolveNewTabAnchorWindowId,
-  serializeWorkspaceLayoutState,
+  sanitizePersistedWorkspaceState,
   workspaceStorageBaseKey,
   workspaceStorageSessionKey,
 } from '@/workspace/model/use-workspace'
 import { rememberVideoIntrinsics } from '@/lib/media/video-intrinsics'
 import { viewerBoundsForVideoOpen } from '@/workspace/model/workspace-video-bounds'
-import {
-  resolveWorkspaceDeferredPresetApply,
-  resolveWorkspaceInitialHydration,
-} from './page/workspace-bootstrap'
+import { buildWorkspaceFromDirParam } from './page/workspace-bootstrap'
 import { useWorkspacePreferredSnapStore } from '@/workspace/model/workspace-preferred-snap-store'
 import { fileOpenTargetStore, getFileOpenTarget } from '@/features/explorer/file-open-target'
 import {
@@ -55,9 +51,10 @@ import { WorkspacePageCanvas } from './page/WorkspacePageCanvas'
 import { WorkspacePageTaskbar } from './page/WorkspacePageTaskbar'
 import { createWorkspaceSnapDragModel } from './layout/create-workspace-snap-drag-model'
 import { useWorkspacePageDocumentChrome } from './page/use-workspace-page-document-chrome'
-import { useWorkspacePageLayoutBaseline } from './page/use-workspace-page-layout-baseline'
 import { useWorkspacePageLocalPersistence } from './page/use-workspace-page-local-persistence'
 import { useWorkspacePageServerData } from './page/use-workspace-page-server-data'
+import { useWorkspaceRegistry } from './page/use-workspace-registry'
+import { WorkspaceSwitcher } from './page/WorkspaceSwitcher'
 
 export type { WorkspacePageProps } from './page/workspace-page-types'
 import {
@@ -79,6 +76,7 @@ import {
 import { TaskbarGroupRow } from './taskbar/WorkspaceTaskbarRows'
 import {
   DEFAULT_WORKSPACE_SOURCE,
+  defaultPersistedState,
   isWorkspaceRoute,
   loadPersisted,
 } from './page/workspace-page-persistence'
@@ -87,6 +85,7 @@ import type { VirtualOpenTarget } from '@/lib/files/virtual-directory'
 import { canCloseHermesWindow, discardHermesDraft } from '@/features/hermes/hermes-session-store'
 import { createFilesystemPlaybackItem, playbackPathMatches } from '@/features/playback/items'
 import { usePlaybackSession, usePlaybackSnapshot } from '@/features/playback/PlaybackProvider'
+import { post } from '@/lib/api/client'
 
 export function WorkspacePage() {
   const history = useBrowserHistory()
@@ -104,6 +103,43 @@ export function WorkspacePage() {
   })
 
   const [workspace, setWorkspace] = createSignal<PersistedWorkspaceState | null>(null)
+  type CrossWorkspaceTransfer = {
+    sourceId: string
+    sourceState: PersistedWorkspaceState
+    sourceNext: PersistedWorkspaceState
+    sourceRevision: number
+    destinationId: string
+    destinationRevision: number
+    destinationWasCreated: boolean
+    draggedWindowId: string
+  }
+  let crossTransferStart: {
+    target: string
+    released: boolean
+    promise: Promise<boolean>
+  } | null = null
+  const [crossDragCandidate, setCrossDragCandidate] = createSignal<{
+    sourceId: string
+    sourceState: PersistedWorkspaceState
+    sourceRevision: number
+    draggedWindowId: string
+  } | null>(null)
+  const [crossTransfer, setCrossTransfer] = createSignal<CrossWorkspaceTransfer | null>(null)
+  const workspaceId = () => storageSessionKeyFull().sid
+  const workspaceRegistry = useWorkspaceRegistry({
+    workspaceId,
+    workspace,
+    setWorkspace,
+    savingBlocked: () => crossDragCandidate() != null || crossTransfer() != null,
+  })
+
+  function ifEditable(action: () => void) {
+    if (workspaceRegistry.editable()) action()
+  }
+
+  const setEditableWorkspace: typeof setWorkspace = (value) => {
+    if (workspaceRegistry.editable()) setWorkspace(value)
+  }
   useAdminEventsStream(true, (mutation) => {
     setWorkspace((current) => (current ? applyWorkspacePathMutation(current, mutation) : current))
   })
@@ -120,14 +156,83 @@ export function WorkspacePage() {
 
   const preferredSnapTick = useStoreSync(useWorkspacePreferredSnapStore)
   const themeTick = useStoreSync(useThemeStore)
-  const baseline = useWorkspacePageLayoutBaseline(workspace, setWorkspace)
   const snap = createWorkspaceSnapDragModel({ workspace, setWorkspace, preferredSnapTick })
+
+  const editableOpenBrowser = () => ifEditable(() => openBrowser())
+  const editableFocusWindow = (id: string) => ifEditable(() => focusWindow(id))
+  const editableSetWindowMinimized = (id: string, minimized: boolean) =>
+    ifEditable(() => snap.setWindowMinimized(id, minimized))
+  const editableCloseWindow = (id: string) => ifEditable(() => closeWindow(id))
+  const editableAddPinnedItem = (file: FileItem) => ifEditable(() => addPinnedItem(file))
+  const editableSelectPinned = (pin: PinnedTaskbarItem) => ifEditable(() => selectPinned(pin))
+  const editableRemovePinnedItem = (id: string) => ifEditable(() => removePinnedItem(id))
+  const editableOpenSearchResult = (result: FileSearchResult) =>
+    ifEditable(() => openGlobalSearchResult(result))
+  const editableToggleFullscreen = (id: string) => ifEditable(() => snap.toggleFullscreenWindow(id))
+  const editableSetActiveTab = (groupId: string, tabId: string) =>
+    ifEditable(() => setActiveTab(groupId, tabId))
+  const editableCloseTab = (id: string, options?: { ignoreTabPinForListenOnlyDismiss?: boolean }) =>
+    ifEditable(() => closeTab(id, options))
+  const editableToggleTabPinned = (id: string) => ifEditable(() => toggleTabPinned(id))
+  const editableHandleTabPullStart = (groupId: string, tabId: string, event: PointerEvent) =>
+    ifEditable(() => handleTabPullStart(groupId, tabId, event))
+  const editableDropFileToTabBar = (leaderId: string, data: FileDragData) =>
+    ifEditable(() => dropFileToTabBar(leaderId, data))
+  const editableStartSplitPaneDrag = (groupId: string, event: PointerEvent) =>
+    ifEditable(() => startSplitPaneDrag(groupId, event))
+  const editableNavigateDir = (windowId: string, dir: string) =>
+    ifEditable(() => navigateDir(windowId, dir))
+  const editableOpenViewerFromBrowser = (windowId: string, file: FileItem) =>
+    ifEditable(() => openViewerFromBrowser(windowId, file))
+  const editableOpenReaderFromBrowser = (windowId: string, file: FileItem) =>
+    ifEditable(() => openReaderFromBrowser(windowId, file))
+  const editableOpenHermesFromBrowser = (
+    windowId: string,
+    file: FileItem,
+    target: VirtualOpenTarget,
+  ) => ifEditable(() => openHermesFromBrowser(windowId, file, target))
+  const editableBindHermesSession = (windowId: string, sessionId: string) =>
+    ifEditable(() => bindHermesSession(windowId, sessionId))
+  const editableOpenHermesBranch = (windowId: string, sessionId: string, title: string) =>
+    ifEditable(() => openHermesBranch(windowId, sessionId, title))
+  const editableRenameHermesWindow = (windowId: string, title: string) =>
+    ifEditable(() => renameHermesWindow(windowId, title))
+  const editableOpenInNewTabInSameWindow = (
+    windowId: string,
+    file: { path: string; isDirectory: boolean; isVirtual?: boolean },
+    currentPath: string,
+    insertIndex?: number,
+    sourceOverride?: WorkspaceSource,
+  ) =>
+    ifEditable(() =>
+      openInNewTabInSameWindow(windowId, file, currentPath, insertIndex, sourceOverride),
+    )
+  const editableOpenInSplitViewFromBrowserPane = (windowId: string, file: FileItem) =>
+    ifEditable(() => openInSplitViewFromBrowserPane(windowId, file))
+  const editableRequestPlay = (source: WorkspaceSource, path: string, dir?: string) =>
+    ifEditable(() => requestPlay(source, path, dir))
+  const editableUpdateWindowViewing = (windowId: string, viewing: string) =>
+    ifEditable(() => updateWindowViewing(windowId, viewing))
+  const editableResizeViewerWindowForVideoMetadata = (
+    windowId: string,
+    width: number,
+    height: number,
+  ) => ifEditable(() => resizeViewerWindowForVideoMetadata(windowId, width, height))
+  const editableBeginFileOpenTargetPick = (windowId: string) =>
+    ifEditable(() => beginFileOpenTargetPick(windowId))
+  const editableOpenFileInNewFloatingWindow = (windowId: string, file: FileItem) =>
+    ifEditable(() => openFileInNewFloatingWindow(windowId, file))
+  const editableHandleWorkspaceTilingPick = (windowId: string, span: AssistGridSpan) =>
+    ifEditable(() => handleWorkspaceTilingPick(windowId, span))
+  const editableOpenLayoutPicker = (windowId: string, anchor: DOMRect) =>
+    ifEditable(() => setLayoutPicker({ windowId, anchor }))
 
   useWorkspacePageDocumentChrome(workspace, themeTick)
 
   useWorkspacePageLocalPersistence({
     storageSessionKeyFull,
     workspace,
+    editable: workspaceRegistry.editable,
   })
 
   createEffect(
@@ -158,124 +263,107 @@ export function WorkspacePage() {
   )
 
   const [pinsHydratedFor, setPinsHydratedFor] = createSignal('')
+  const [workspacePanelOpen, setWorkspacePanelOpen] = createSignal(false)
+  const dismissWorkspacePanel = () => {
+    setWorkspacePanelOpen(false)
+  }
+  const toggleWorkspacePanelFromTaskbar = () => {
+    setWorkspacePanelOpen((open) => !open)
+  }
+  const [crossHoverTarget, setCrossHoverTarget] = createSignal('')
+  let crossHoverTimer: ReturnType<typeof setTimeout> | undefined
+  let crossTransferCommitting = false
+  let crossDragReleaseListening = false
+  let crossTransferStartGeneration = 0
 
   let lastHydratedStorageKey = ''
-  const [generatedWorkspaceSession, setGeneratedWorkspaceSession] = createSignal<{
-    pathname: string
-    id: string
-  } | null>(null)
-
-  type WorkspaceHydration =
-    | { kind: 'generate-session'; pathname: string }
-    | {
-        kind: 'hydrate'
-        sid: string
-        hasSid: boolean
-        key: string
-        dirParam: string | null
-        presetParam: string | null
-        loaded: PersistedWorkspaceState | null
-        hasPersistedDraft: boolean
-        presetsReadyNow: boolean
-        presetsList: WorkspaceLayoutPreset[]
-        scope: string
-        source: WorkspaceSource
-      }
 
   createEffect(
-    (): WorkspaceHydration | null => {
+    () => workspacePanelOpen(),
+    (open) => {
+      if (!open) return undefined
+      const closeOutside = (event: PointerEvent) => {
+        const insideWorkspaceUi = event
+          .composedPath()
+          .some(
+            (node) =>
+              node instanceof Element &&
+              node.matches(
+                '[data-testid="workspace-switcher"], [data-testid="workspace-context-menu"], [data-workspace-toggle]',
+              ),
+          )
+        if (insideWorkspaceUi) return
+        setWorkspacePanelOpen(false)
+      }
+      document.addEventListener('pointerdown', closeOutside)
+      // eslint-disable-next-line solid/reactivity
+      return () => document.removeEventListener('pointerdown', closeOutside)
+    },
+  )
+
+  createEffect(
+    () => {
       const location = history()
       if (!isWorkspaceRoute(location.pathname)) return null
       const params = urlSearchParams()
       const sidParam = params.get('ws') ?? ''
-      const generated = generatedWorkspaceSession()
-      const generatedId = generated?.pathname === location.pathname ? generated.id : undefined
-      if (!sidParam && !generatedId)
-        return { kind: 'generate-session', pathname: location.pathname }
-      const sid = sidParam || generatedId!
+      if (!sidParam) {
+        if (!workspaceRegistry.ready()) return null
+        const records = Object.values(workspaceRegistry.registry().records)
+        const last = records.sort((a, b) => b.lastOpenedAt - a.lastOpenedAt)[0]
+        return { kind: 'navigate' as const, sid: last?.id ?? crypto.randomUUID() }
+      }
+      const sid = sidParam
       const base = workspaceStorageBaseKey()
       const key = workspaceStorageSessionKey(base, sid)
-      const presetsReadyNow = server.settingsQuery.isSuccess
-      const presetsList = server.serverLayoutPresets()
-      const scope = server.layoutScope()
       const loaded = loadPersisted(key)
+      const remoteSnapshot = workspaceRegistry.registry().records[sid]?.snapshot
+      const remote = remoteSnapshot ? sanitizePersistedWorkspaceState(remoteSnapshot) : null
       return {
+        kind: 'hydrate' as const,
         sid,
-        kind: 'hydrate',
-        hasSid: !!sidParam,
         key,
         dirParam: params.get('dir'),
-        presetParam: params.get('preset'),
-        loaded,
-        hasPersistedDraft: !!loaded,
-        presetsReadyNow,
-        presetsList,
-        scope,
-        source: browserSource(),
+        loaded: remote ?? loaded,
       }
     },
     (hydration) => {
       if (!hydration) return
-      if (hydration.kind === 'generate-session') {
-        setGeneratedWorkspaceSession({ pathname: hydration.pathname, id: crypto.randomUUID() })
-        return
-      }
-      if (!hydration.hasSid) {
+      if (hydration.kind === 'navigate') {
         navigateSearchParams({ ws: hydration.sid }, 'replace')
-      }
-
-      if (lastHydratedStorageKey !== hydration.key) {
-        lastHydratedStorageKey = hydration.key
-        const initial = resolveWorkspaceInitialHydration({
-          dirParam: hydration.dirParam,
-          presetParam: hydration.presetParam,
-          loaded: hydration.loaded,
-          presetsReadyNow: hydration.presetsReadyNow,
-          presetsList: hydration.presetsList,
-          layoutScope: hydration.scope,
-          source: hydration.source,
-        })
-        if (initial.kind === 'defer-preset') {
-          setPinsHydratedFor('')
-          return
-        }
-        if (initial.baselineSnapshot && initial.baselinePresetId) {
-          baseline.setLayoutBaselinePresetId(initial.baselinePresetId)
-          baseline.setLayoutBaselineSerialized(
-            serializeWorkspaceLayoutState(initial.baselineSnapshot),
-          )
-          baseline.setLayoutBaselineSnapshot(initial.baselineSnapshot)
-        } else {
-          baseline.resetLayoutBaseline()
-        }
-        setWorkspace(initial.workspace)
-        if (initial.stripPresetFromUrl) {
-          navigateSearchParams({ preset: null }, 'replace')
-        }
-        setPinsHydratedFor('')
         return
       }
-
-      const deferred = resolveWorkspaceDeferredPresetApply({
-        presetParam: hydration.presetParam,
-        presetsReadyNow: hydration.presetsReadyNow,
-        hasPersistedDraft: hydration.hasPersistedDraft,
-        presetsList: hydration.presetsList,
-        layoutScope: hydration.scope,
-      })
-      if (!deferred) return
-      if (deferred.kind === 'apply') {
-        baseline.setLayoutBaselinePresetId(deferred.baselinePresetId)
-        baseline.setLayoutBaselineSerialized(
-          serializeWorkspaceLayoutState(deferred.baselineSnapshot),
-        )
-        baseline.setLayoutBaselineSnapshot(deferred.baselineSnapshot)
-        setWorkspace(deferred.workspace)
+      if (crossTransfer()?.destinationId === hydration.sid) {
+        lastHydratedStorageKey = hydration.key
+        return
       }
-      if (deferred.stripPresetFromUrl) {
-        navigateSearchParams({ preset: null }, 'replace')
-      }
+      if (lastHydratedStorageKey === hydration.key) return
+      lastHydratedStorageKey = hydration.key
+      const initial = hydration.dirParam
+        ? buildWorkspaceFromDirParam(hydration.dirParam, browserSource())
+        : (hydration.loaded ?? defaultPersistedState(browserSource()))
+      setWorkspace(initial)
       setPinsHydratedFor('')
+    },
+  )
+
+  createEffect(
+    () => workspaceRegistry.registry().records[workspaceId()],
+    (record) => {
+      if (!record) return
+      setWorkspace((current) => {
+        if (!current) return current
+        const browserTabTitle = record.name || undefined
+        const browserTabIcon = record.icon || undefined
+        const browserTabIconColor = record.iconColor || undefined
+        if (
+          current.browserTabTitle === browserTabTitle &&
+          current.browserTabIcon === browserTabIcon &&
+          current.browserTabIconColor === browserTabIconColor
+        )
+          return current
+        return { ...current, browserTabTitle, browserTabIcon, browserTabIconColor }
+      })
     },
   )
 
@@ -1030,6 +1118,7 @@ export function WorkspacePage() {
   }
 
   function setSplitPaneFraction(groupId: string, fraction: number) {
+    if (!workspaceRegistry.editable()) return
     setWorkspace((prev) => (prev ? setSplitFractionState(prev, groupId, fraction) : prev))
   }
 
@@ -1277,9 +1366,9 @@ export function WorkspacePage() {
           playingPath={playbackPlayingPath}
           fileIconContext={workspaceFileIconContext}
           taskbarMouseHandled={taskbarMouseHandled}
-          focusWindow={focusWindow}
-          setWindowMinimized={snap.setWindowMinimized}
-          closeWindow={closeWindow}
+          focusWindow={editableFocusWindow}
+          setWindowMinimized={editableSetWindowMinimized}
+          closeWindow={editableCloseWindow}
         />
       )}
     </For>
@@ -1329,6 +1418,10 @@ export function WorkspacePage() {
   function commitFileOpenTargetPick(targetWindowId: string) {
     const pick = fileOpenTargetPick()
     if (!pick) return
+    if (!workspaceRegistry.editable()) {
+      cancelFileOpenTargetPick()
+      return
+    }
     if (targetWindowId === pick.sourceBrowserId) {
       clearBrowserFileOpenTarget(pick.sourceBrowserId)
       cancelFileOpenTargetPick()
@@ -1380,15 +1473,327 @@ export function WorkspacePage() {
     },
   )
 
+  function workspaceWithoutGroup(
+    state: PersistedWorkspaceState,
+    windowId: string,
+  ): PersistedWorkspaceState {
+    const window = state.windows.find((item) => item.id === windowId)
+    if (!window) return state
+    const groupId = groupIdForWindow(window)
+    const removed = new Set(
+      state.windows.filter((item) => groupIdForWindow(item) === groupId).map((item) => item.id),
+    )
+    const windows = state.windows.filter((item) => !removed.has(item.id))
+    const activeTabMap = { ...state.activeTabMap }
+    delete activeTabMap[groupId]
+    const tabGroupSplits = { ...state.tabGroupSplits }
+    delete tabGroupSplits[groupId]
+    return {
+      ...state,
+      windows,
+      activeWindowId: removed.has(state.activeWindowId ?? '')
+        ? (windows.at(-1)?.id ?? null)
+        : state.activeWindowId,
+      activeTabMap,
+      tabGroupSplits: Object.keys(tabGroupSplits).length ? tabGroupSplits : undefined,
+    }
+  }
+
+  function destinationWithGroup(
+    destination: PersistedWorkspaceState,
+    source: PersistedWorkspaceState,
+    windowId: string,
+  ): PersistedWorkspaceState {
+    const dragged = source.windows.find((item) => item.id === windowId)
+    if (!dragged) return destination
+    const groupId = groupIdForWindow(dragged)
+    const payload = source.windows.filter((item) => groupIdForWindow(item) === groupId)
+    const conflicts = new Set(payload.map((item) => item.id))
+    const remap = new Map<string, string>()
+    for (const item of destination.windows) {
+      if (conflicts.has(item.id)) remap.set(item.id, `${item.id}-${crypto.randomUUID()}`)
+    }
+    const mappedGroup = (id: string) => remap.get(id) ?? id
+    const windows = destination.windows.map((item) => ({
+      ...item,
+      id: mappedGroup(item.id),
+      tabGroupId: item.tabGroupId ? mappedGroup(item.tabGroupId) : item.tabGroupId,
+      fileOpenTargetWindowId: item.fileOpenTargetWindowId
+        ? mappedGroup(item.fileOpenTargetWindowId)
+        : item.fileOpenTargetWindowId,
+    }))
+    const activeTabMap = Object.fromEntries(
+      Object.entries(destination.activeTabMap).map(([key, value]) => [
+        mappedGroup(key),
+        mappedGroup(value),
+      ]),
+    )
+    const tabGroupSplits = Object.fromEntries(
+      Object.entries(destination.tabGroupSplits ?? {}).map(([key, value]) => [
+        mappedGroup(key),
+        { ...value, leftTabId: mappedGroup(value.leftTabId) },
+      ]),
+    )
+    const topZ = maxWorkspaceWindowZ(windows)
+    const moved = payload.map((item, index) => ({
+      ...structuredClone(item),
+      layout: item.layout
+        ? { ...item.layout, zIndex: topZ + index + 1, minimized: false }
+        : item.layout,
+    }))
+    const sourceActive = source.activeTabMap[groupId]
+    return {
+      ...destination,
+      windows: [...windows, ...moved],
+      activeWindowId: windowId,
+      activeTabMap: {
+        ...activeTabMap,
+        ...(sourceActive ? { [groupId]: sourceActive } : {}),
+      },
+      tabGroupSplits: {
+        ...tabGroupSplits,
+        ...(source.tabGroupSplits?.[groupId]
+          ? { [groupId]: structuredClone(source.tabGroupSplits[groupId]) }
+          : {}),
+      },
+      nextWindowId: Math.max(destination.nextWindowId, source.nextWindowId),
+    }
+  }
+
+  function clearCrossWorkspaceHover() {
+    if (crossHoverTimer) clearTimeout(crossHoverTimer)
+    crossHoverTimer = undefined
+    setCrossHoverTarget('')
+  }
+
+  function cancelCrossWorkspaceStart() {
+    crossTransferStartGeneration += 1
+    crossTransferStart = null
+  }
+
+  async function startCrossWorkspaceTransfer(destinationTarget: string, released = false) {
+    const candidate = crossDragCandidate()
+    if (!candidate || !destinationTarget || destinationTarget === workspaceId() || crossTransfer())
+      return false
+    if (crossTransferStart) {
+      if (crossTransferStart.target !== destinationTarget) {
+        cancelCrossWorkspaceStart()
+      } else {
+        crossTransferStart.released ||= released
+        return crossTransferStart.promise
+      }
+    }
+    const generation = ++crossTransferStartGeneration
+    const destinationId = destinationTarget === '__new__' ? crypto.randomUUID() : destinationTarget
+    const destination = workspaceRegistry.registry().records[destinationId]
+    const emptyDestination: PersistedWorkspaceState = {
+      ...defaultPersistedState(browserSource()),
+      windows: [],
+      activeWindowId: null,
+      nextWindowId: 1,
+    }
+    const request = {
+      target: destinationTarget,
+      released,
+      promise: Promise.resolve(false),
+    }
+    crossTransferStart = request
+    const promise = (async () => {
+      try {
+        const opened = await workspaceRegistry.acquire(
+          destinationId,
+          destination?.snapshot ?? emptyDestination,
+        )
+        if (
+          generation !== crossTransferStartGeneration ||
+          !crossDragCandidate() ||
+          crossDragCandidate()!.sourceId !== candidate.sourceId ||
+          crossDragCandidate()!.draggedWindowId !== candidate.draggedWindowId
+        )
+          return false
+        if (!opened?.editable) return false
+        await workspaceRegistry.flush()
+        if (
+          generation !== crossTransferStartGeneration ||
+          !crossDragCandidate() ||
+          crossDragCandidate()!.sourceId !== candidate.sourceId ||
+          crossDragCandidate()!.draggedWindowId !== candidate.draggedWindowId
+        )
+          return false
+        const liveSourceState = workspace()
+        const liveSourceRevision = workspaceRegistry.revision()
+        if (!liveSourceState || workspaceId() !== candidate.sourceId) return false
+        const sourceNext = workspaceWithoutGroup(liveSourceState, candidate.draggedWindowId)
+        const destinationNext = destinationWithGroup(
+          opened.record.snapshot,
+          liveSourceState,
+          candidate.draggedWindowId,
+        )
+        workspaceRegistry.adoptOpen(destinationId, opened)
+        setCrossTransfer({
+          ...candidate,
+          sourceState: liveSourceState,
+          sourceRevision: liveSourceRevision,
+          sourceNext,
+          destinationId,
+          destinationRevision: opened.record.revision,
+          destinationWasCreated: destinationTarget === '__new__',
+        })
+        setCrossHoverTarget(destinationTarget)
+        setWorkspace(destinationNext)
+        navigateSearchParams({ ws: destinationId, dir: null, preset: null }, 'replace')
+        if (!request.released) {
+          document.addEventListener('pointerup', () => void commitCrossWorkspaceTransfer(), {
+            capture: true,
+            once: true,
+          })
+        }
+        return true
+      } catch {
+        return false
+      }
+    })()
+    request.promise = promise
+    try {
+      return await promise
+    } finally {
+      if (crossTransferStart === request) {
+        crossTransferStart = null
+      }
+    }
+  }
+
+  function beginCrossWorkspaceHover(destinationId: string) {
+    if (crossTransfer()) return
+    if (!destinationId || destinationId === workspaceId()) {
+      cancelCrossWorkspaceStart()
+      clearCrossWorkspaceHover()
+      return
+    }
+    if (!crossDragCandidate()) return
+    if (crossHoverTarget() === destinationId && crossHoverTimer) return
+    clearCrossWorkspaceHover()
+    setCrossHoverTarget(destinationId)
+    crossHoverTimer = setTimeout(() => {
+      crossHoverTimer = undefined
+      void startCrossWorkspaceTransfer(destinationId)
+    }, 1_000)
+  }
+
+  async function commitCrossWorkspaceTransfer() {
+    if (crossTransferCommitting) return false
+    const transfer = crossTransfer()
+    const destinationState = workspace()
+    if (!transfer || !destinationState) return false
+    crossTransferCommitting = true
+    try {
+      await workspaceRegistry.flushMetadata()
+      const sourceRecord = workspaceRegistry.registry().records[transfer.sourceId]
+      const deleteSource = !sourceRecord?.name && transfer.sourceNext.windows.length === 0
+      const result = await post<{ destinationRevision: number }>('/api/workspaces/move', {
+        sourceId: transfer.sourceId,
+        destinationId: transfer.destinationId,
+        clientId: workspaceRegistry.clientId,
+        sourceRevision: transfer.sourceRevision,
+        destinationRevision: transfer.destinationRevision,
+        sourceSnapshot: sanitizePersistedWorkspaceState(transfer.sourceNext),
+        destinationSnapshot: sanitizePersistedWorkspaceState(destinationState),
+        deleteSource,
+      })
+      workspaceRegistry.setRevision(result.destinationRevision)
+      setCrossTransfer(null)
+      setCrossDragCandidate(null)
+      clearCrossWorkspaceHover()
+      setWorkspacePanelOpen(false)
+      await workspaceRegistry.refresh()
+      return true
+    } catch {
+      if (transfer.destinationWasCreated) {
+        try {
+          await workspaceRegistry.deleteWorkspace(transfer.destinationId)
+        } catch {}
+      }
+      setWorkspace(transfer.sourceState)
+      navigateSearchParams({ ws: transfer.sourceId, dir: null, preset: null }, 'replace')
+      setCrossTransfer(null)
+      setCrossDragCandidate(null)
+      clearCrossWorkspaceHover()
+      return false
+    } finally {
+      crossTransferCommitting = false
+    }
+  }
+
+  async function leaveForWorkspace(id: string, mode: 'push' | 'replace' = 'push') {
+    const currentId = workspaceId()
+    const currentRecord = workspaceRegistry.registry().records[currentId]
+    if (!currentRecord?.name && (workspace()?.windows.length ?? 0) === 0) {
+      try {
+        await workspaceRegistry.deleteWorkspace(currentId)
+      } catch {
+        // Leaving remains available offline; empty draft stays recoverable.
+      }
+    }
+    setWorkspacePanelOpen(false)
+    navigateSearchParams({ ws: id, dir: null, preset: null }, mode)
+  }
+
+  createEffect(
+    () => ({ transfer: crossTransfer(), candidate: crossDragCandidate() }),
+    ({ transfer, candidate }) => {
+      if (!transfer && !candidate) return undefined
+      const onKey = (event: KeyboardEvent) => {
+        if (event.key !== 'Escape') return
+        if (crossTransferCommitting) return
+        const activeTransfer = crossTransfer()
+        if (!activeTransfer) {
+          cancelCrossWorkspaceStart()
+          setCrossDragCandidate(null)
+          clearCrossWorkspaceHover()
+          setWorkspacePanelOpen(false)
+          return
+        }
+        if (activeTransfer.destinationWasCreated) {
+          void workspaceRegistry.deleteWorkspace(activeTransfer.destinationId)
+        }
+        setWorkspace(activeTransfer.sourceState)
+        navigateSearchParams({ ws: activeTransfer.sourceId, dir: null, preset: null }, 'replace')
+        setCrossTransfer(null)
+        setCrossDragCandidate(null)
+        clearCrossWorkspaceHover()
+        setWorkspacePanelOpen(false)
+      }
+      window.addEventListener('keydown', onKey)
+      // eslint-disable-next-line solid/reactivity
+      return () => window.removeEventListener('keydown', onKey)
+    },
+  )
+
   return (
-    <div class='workspace-layout pointer-events-auto fixed inset-0 flex flex-col overflow-hidden bg-background select-none'>
+    <div
+      data-workspace-opened={workspaceRegistry.opened() ? '' : undefined}
+      class={`workspace-layout fixed inset-0 flex flex-col overflow-hidden bg-background select-none ${
+        workspaceRegistry.opened() || workspaceRegistry.offline()
+          ? 'pointer-events-auto'
+          : 'pointer-events-none'
+      } ${
+        server.settingsQuery.data?.workspaceTransition !== 'instant'
+          ? 'transition-opacity duration-150'
+          : ''
+      }`}
+    >
       <div
         class='relative min-h-0 flex-1 overflow-hidden'
         ref={(el) => snap.bindWorkspaceAreaRoot(el)}
       >
+        <Show when={!workspaceRegistry.editable() && !workspaceRegistry.offline()}>
+          <div class='absolute left-1/2 top-2 z-[100002] -translate-x-1/2 rounded-md border border-border bg-popover px-3 py-1.5 text-xs shadow-lg'>
+            Read only — workspace is open elsewhere
+          </div>
+        </Show>
         <WorkspacePageCanvas
           hasWorkspaceWindows={hasWorkspaceWindows}
-          onOpenBrowser={() => openBrowser()}
+          onOpenBrowser={editableOpenBrowser}
           bindSnapPreview={(el) => snap.bindSnapPreview(el)}
           workspaceAreaNode={snap.workspaceAreaNode}
           getWorkspaceAreaElement={snap.getWorkspaceAreaElement}
@@ -1399,47 +1804,136 @@ export function WorkspacePage() {
           bindSnapAssistRoot={(el) => snap.bindSnapAssistRoot(el)}
           renderedGroupIds={orderedWindowGroupIds}
           workspace={workspace}
-          setWorkspace={setWorkspace}
+          setWorkspace={setEditableWorkspace}
           mergeTargetPreview={snap.mergeTargetPreview}
           dragSnapWindowId={snap.dragSnapWindowId}
           layoutPicker={layoutPicker}
           closeLayoutPicker={() => setLayoutPicker(null)}
-          onTilingPick={handleWorkspaceTilingPick}
+          onTilingPick={editableHandleWorkspaceTilingPick}
           setTilingPickerHoverPreview={snap.setTilingPickerHoverPreview}
-          openLayoutPicker={(windowId, anchor) => setLayoutPicker({ windowId, anchor })}
+          openLayoutPicker={editableOpenLayoutPicker}
           editableFolders={server.editableFolders}
           knowledgeBases={() => server.settingsQuery.data?.knowledgeBases ?? []}
           workspaceFileIconContext={workspaceFileIconContext}
-          focusWindow={focusWindow}
-          closeWindow={closeWindow}
-          setWindowMinimized={snap.setWindowMinimized}
-          toggleFullscreenWindow={snap.toggleFullscreenWindow}
-          restoreDrag={snap.restoreDrag}
-          handleDragPointerMove={snap.handleDragPointerMove}
-          onDragPointerEnd={snap.onDragPointerEnd}
-          updateWindowBounds={snap.updateWindowBounds}
-          resizeSnappedWindowBounds={snap.resizeSnappedWindowBounds}
-          setActiveTab={setActiveTab}
-          closeTab={closeTab}
-          toggleTabPinned={toggleTabPinned}
-          handleTabPullStart={handleTabPullStart}
-          dropFileToTabBar={dropFileToTabBar}
-          startSplitPaneDrag={startSplitPaneDrag}
-          navigateDir={navigateDir}
-          openViewerFromBrowser={openViewerFromBrowser}
-          openReaderFromBrowser={openReaderFromBrowser}
-          openHermesFromBrowser={openHermesFromBrowser}
-          bindHermesSession={bindHermesSession}
-          openHermesBranch={openHermesBranch}
-          renameHermesWindow={renameHermesWindow}
-          addPinnedItem={addPinnedItem}
-          openInNewTabInSameWindow={openInNewTabInSameWindow}
-          openInSplitViewFromBrowserPane={openInSplitViewFromBrowserPane}
-          requestPlay={requestPlay}
-          updateWindowViewing={updateWindowViewing}
-          resizeViewerWindowForVideoMetadata={resizeViewerWindowForVideoMetadata}
-          onBeginFileOpenTargetPick={beginFileOpenTargetPick}
-          openFileInNewFloatingWindow={openFileInNewFloatingWindow}
+          focusWindow={editableFocusWindow}
+          closeWindow={editableCloseWindow}
+          setWindowMinimized={editableSetWindowMinimized}
+          toggleFullscreenWindow={editableToggleFullscreen}
+          restoreDrag={(id, x, y) =>
+            workspaceRegistry.editable() ? snap.restoreDrag(id, x, y) : undefined
+          }
+          handleDragPointerMove={(windowId, clientX, clientY) => {
+            if (!workspaceRegistry.editable()) return
+            snap.handleDragPointerMove(windowId, clientX, clientY)
+            setCrossDragCandidate(
+              (current) =>
+                current ??
+                (workspace()
+                  ? {
+                      sourceId: workspaceId(),
+                      sourceState: structuredClone(workspace()!),
+                      sourceRevision: workspaceRegistry.revision(),
+                      draggedWindowId: windowId,
+                    }
+                  : null),
+            )
+            if (workspacePanelOpen() && clientX > 300) {
+              cancelCrossWorkspaceStart()
+              clearCrossWorkspaceHover()
+              setWorkspacePanelOpen(false)
+              if (!crossTransfer()) setCrossDragCandidate(null)
+              return
+            }
+            const railTarget = document
+              .elementFromPoint(clientX, clientY)
+              ?.closest<HTMLElement>('[data-workspace-id]')?.dataset.workspaceId
+            if (crossDragCandidate()) beginCrossWorkspaceHover(railTarget ?? '')
+            if (clientX <= 12 && !crossTransfer()) {
+              setWorkspacePanelOpen(true)
+              if (!crossDragReleaseListening) {
+                crossDragReleaseListening = true
+                document.addEventListener(
+                  'pointerdown',
+                  () => {
+                    if (crossTransfer()) return
+                    crossDragReleaseListening = false
+                    cancelCrossWorkspaceStart()
+                    setCrossDragCandidate(null)
+                    setWorkspacePanelOpen(false)
+                  },
+                  { capture: true, once: true },
+                )
+                document.addEventListener(
+                  'pointerup',
+                  () => {
+                    crossDragReleaseListening = false
+                    setTimeout(() => {
+                      if (crossTransfer() || crossTransferStart) return
+                      cancelCrossWorkspaceStart()
+                      setCrossDragCandidate(null)
+                      setWorkspacePanelOpen(false)
+                    }, 100)
+                  },
+                  { capture: true, once: true },
+                )
+              }
+            }
+          }}
+          onDragPointerEnd={(windowId, bounds, clientX, clientY) => {
+            if (!workspaceRegistry.editable()) return
+            const dropTarget = document
+              .elementFromPoint(clientX, clientY)
+              ?.closest<HTMLElement>('[data-workspace-id]')?.dataset.workspaceId
+            snap.onDragPointerEnd(windowId, bounds, clientX, clientY)
+            if (crossTransfer()) void commitCrossWorkspaceTransfer()
+            else if (dropTarget && dropTarget !== workspaceId()) {
+              if (crossTransferStart && crossTransferStart.target !== dropTarget)
+                cancelCrossWorkspaceStart()
+              // eslint-disable-next-line solid/reactivity
+              void startCrossWorkspaceTransfer(dropTarget, true).then((started) => {
+                if (crossDragCandidate()?.draggedWindowId !== windowId) return
+                if (started) void commitCrossWorkspaceTransfer()
+                else {
+                  cancelCrossWorkspaceStart()
+                  setCrossDragCandidate(null)
+                  clearCrossWorkspaceHover()
+                  setWorkspacePanelOpen(false)
+                }
+              })
+            } else {
+              cancelCrossWorkspaceStart()
+              setCrossDragCandidate(null)
+              clearCrossWorkspaceHover()
+              setTimeout(() => setWorkspacePanelOpen(false), 100)
+            }
+          }}
+          updateWindowBounds={(id, bounds) =>
+            workspaceRegistry.editable() && snap.updateWindowBounds(id, bounds)
+          }
+          resizeSnappedWindowBounds={(id, bounds, edges) =>
+            workspaceRegistry.editable() && snap.resizeSnappedWindowBounds(id, bounds, edges)
+          }
+          setActiveTab={editableSetActiveTab}
+          closeTab={editableCloseTab}
+          toggleTabPinned={editableToggleTabPinned}
+          handleTabPullStart={editableHandleTabPullStart}
+          dropFileToTabBar={editableDropFileToTabBar}
+          startSplitPaneDrag={editableStartSplitPaneDrag}
+          navigateDir={editableNavigateDir}
+          openViewerFromBrowser={editableOpenViewerFromBrowser}
+          openReaderFromBrowser={editableOpenReaderFromBrowser}
+          openHermesFromBrowser={editableOpenHermesFromBrowser}
+          bindHermesSession={editableBindHermesSession}
+          openHermesBranch={editableOpenHermesBranch}
+          renameHermesWindow={editableRenameHermesWindow}
+          addPinnedItem={editableAddPinnedItem}
+          openInNewTabInSameWindow={editableOpenInNewTabInSameWindow}
+          openInSplitViewFromBrowserPane={editableOpenInSplitViewFromBrowserPane}
+          requestPlay={editableRequestPlay}
+          updateWindowViewing={editableUpdateWindowViewing}
+          resizeViewerWindowForVideoMetadata={editableResizeViewerWindowForVideoMetadata}
+          onBeginFileOpenTargetPick={editableBeginFileOpenTargetPick}
+          openFileInNewFloatingWindow={editableOpenFileInNewFloatingWindow}
         />
         <Show when={fileOpenTargetPick()}>
           <Show when={fileOpenPickHoverId()} keyed fallback={null}>
@@ -1462,8 +1956,14 @@ export function WorkspacePage() {
         </Show>
       </div>
       <WorkspacePageTaskbar
-        onOpenBrowser={() => openBrowser()}
-        onOpenSearchResult={openGlobalSearchResult}
+        onOpenBrowser={editableOpenBrowser}
+        onOpenWorkspaces={toggleWorkspacePanelFromTaskbar}
+        onWorkspaceTransitionChange={(value) => {
+          void post('/api/settings/workspaceTransition', { value }).then(() =>
+            server.settingsQuery.refetch(),
+          )
+        }}
+        onOpenSearchResult={editableOpenSearchResult}
         hasAnyTaskbarItems={hasAnyTaskbarItems}
         pinnedItems={pinnedItems}
         taskbarGroupIds={orderedWindowGroupIds}
@@ -1471,27 +1971,71 @@ export function WorkspacePage() {
         storageSessionKey={() => storageSessionKeyFull().key}
         browserSource={browserSource}
         workspace={workspace}
-        setWorkspace={setWorkspace}
+        setWorkspace={setEditableWorkspace}
         settingsData={() => server.settingsQuery.data}
-        layoutScope={server.layoutScope}
-        serverLayoutPresets={server.serverLayoutPresets}
-        presetsReady={server.presetsReady}
-        collectLayoutSnapshot={baseline.collectLayoutSnapshot}
-        applyLayoutSnapshot={baseline.applyLayoutSnapshot}
-        syncLayoutBaselineToCurrent={baseline.syncLayoutBaselineToCurrent}
-        revertLayoutToBaseline={baseline.revertLayoutToBaseline}
-        declareBaselinePresetId={baseline.declareBaselinePresetId}
-        isLayoutDirty={baseline.isLayoutDirty}
-        layoutBaselinePresetId={baseline.layoutBaselinePresetId}
         workspaceFileIconContext={workspaceFileIconContext}
-        selectPinned={selectPinned}
-        removePinnedItem={removePinnedItem}
+        selectPinned={editableSelectPinned}
+        removePinnedItem={editableRemovePinnedItem}
         pinMenu={pinMenu}
         setPinMenu={setPinMenu}
-        focusWindow={focusWindow}
+        focusWindow={editableFocusWindow}
         stopWorkspacePlaybackFromTaskbar={stopWorkspacePlaybackFromTaskbar}
-        requestPlay={requestPlay}
+        requestPlay={editableRequestPlay}
         suppressTaskbarAudioChrome={suppressWorkspaceTaskbarAudioForVideoViewer}
+      />
+      <WorkspaceSwitcher
+        open={workspacePanelOpen()}
+        activeId={workspaceId()}
+        registry={workspaceRegistry.registry()}
+        editable={workspaceRegistry.editable()}
+        offline={workspaceRegistry.offline()}
+        onToggle={() => setWorkspacePanelOpen((open) => !open)}
+        onReveal={() => setWorkspacePanelOpen(true)}
+        onDismiss={dismissWorkspacePanel}
+        onSelect={(id) => {
+          void leaveForWorkspace(id)
+        }}
+        onOpenNewTab={(id) => {
+          if (id === workspaceId()) return
+          window.open(`/workspace?ws=${encodeURIComponent(id)}`, '_blank', 'noopener,noreferrer')
+        }}
+        onCreate={() => {
+          const id = crypto.randomUUID()
+          setWorkspacePanelOpen(false)
+          setWorkspace(defaultPersistedState(browserSource()))
+          navigateSearchParams({ ws: id, dir: null, preset: null }, 'push')
+        }}
+        onTakeControl={workspaceRegistry.takeControl}
+        onRename={(id, name) => workspaceRegistry.updateMetadataFor(id, { name })}
+        onIcon={(id, icon, iconColor) =>
+          workspaceRegistry.updateMetadataFor(id, { icon, iconColor })
+        }
+        onDelete={(id) => {
+          const record = workspaceRegistry.registry().records[id]
+          if (!record) return Promise.resolve()
+          if (
+            !window.confirm(
+              `Delete “${record.name || 'Unnamed workspace'}” and close ${record.snapshot.windows.length} windows?`,
+            )
+          )
+            return Promise.resolve()
+          const order = workspaceRegistry.registry().order
+          const index = order.indexOf(id)
+          const deletingActive = id === workspaceId()
+          return workspaceRegistry.deleteWorkspace(id).then(() => {
+            if (deletingActive) {
+              const next = order[index + 1] ?? order[index - 1] ?? crypto.randomUUID()
+              navigateSearchParams({ ws: next, dir: null, preset: null }, 'replace')
+            }
+          })
+        }}
+        onReorder={(order) =>
+          workspaceRegistry.editable() ? workspaceRegistry.reorder(order) : Promise.resolve()
+        }
+        draggingWindow={crossDragCandidate() != null || crossTransfer() != null}
+        onDragHover={beginCrossWorkspaceHover}
+        hoverTarget={crossHoverTarget()}
+        transferReady={crossTransfer() != null}
       />
     </div>
   )

@@ -415,7 +415,12 @@ export async function refreshHermesChat(key: string) {
     const externallyActive = detail.externallyActive === true
     const refreshed = normalizeMessages(payload.messages ?? payload.data)
     const current = sessions[key]?.messages ?? []
-    const retainedCount = Math.max(0, current.length - historyLimit)
+    const refreshedIds = new Set(refreshed.map((message) => message.id))
+    const firstRefreshedIndex = current.findIndex((message) => refreshedIds.has(message.id))
+    const retainedCount = Math.max(
+      Math.max(0, current.length - historyLimit),
+      firstRefreshedIndex > 0 ? firstRefreshedIndex : 0,
+    )
     const messages = retainedCount ? [...current.slice(0, retainedCount), ...refreshed] : refreshed
     if (!sameHermesMessages(current, messages))
       updateHermesState(key, (state) => {

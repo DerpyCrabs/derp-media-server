@@ -1,6 +1,4 @@
-use crate::{
-    app::{Shared, timestamp_ms},
-};
+use crate::app::{Shared, timestamp_ms};
 use axum::{
     Router,
     extract::State,

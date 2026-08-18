@@ -81,6 +81,7 @@ fn router(state: Shared) -> Router {
         .merge(routes::settings::router())
         .merge(routes::search::router())
         .merge(routes::stats::router())
+        .merge(routes::workspaces::router())
         .merge(routes::media::router())
         .merge(routes::reader_state::router())
         .merge(routes::sse::router())

@@ -23,6 +23,8 @@ fn complete_settings(mut value: Value) -> Value {
         return value;
     };
 
+    object.remove("workspaceLayoutPresets");
+
     for (key, default) in defaults {
         object.entry(key.clone()).or_insert_with(|| default.clone());
     }
@@ -32,12 +34,7 @@ fn complete_settings(mut value: Value) -> Value {
             object[key] = defaults[key].clone();
         }
     }
-    for key in [
-        "favorites",
-        "knowledgeBases",
-        "workspaceTaskbarPins",
-        "workspaceLayoutPresets",
-    ] {
+    for key in ["favorites", "knowledgeBases", "workspaceTaskbarPins"] {
         if !object[key].is_array() {
             object[key] = defaults[key].clone();
         }
@@ -71,6 +68,7 @@ pub(crate) fn sanitized(state: &AppState) -> Value {
         "knowledgeBases",
         "customIcons",
         "autoSave",
+        "workspaceTransition",
     ] {
         if let Some(field) = value.get(key) {
             result.insert(key.into(), field.clone());
@@ -79,10 +77,6 @@ pub(crate) fn sanitized(state: &AppState) -> Value {
     result.insert(
         "workspaceTaskbarPins".into(),
         workspace_persistence::admin_pins(&value["workspaceTaskbarPins"]),
-    );
-    result.insert(
-        "workspaceLayoutPresets".into(),
-        workspace_persistence::presets(&value["workspaceLayoutPresets"]),
     );
     Value::Object(result)
 }
@@ -116,7 +110,10 @@ async fn view_mode(State(state): State<Shared>, Json(body): Json<Value>) -> AppR
     .await
 }
 
-async fn sort_order(State(state): State<Shared>, Json(body): Json<Value>) -> AppResult<Json<Value>> {
+async fn sort_order(
+    State(state): State<Shared>,
+    Json(body): Json<Value>,
+) -> AppResult<Json<Value>> {
     let path = body["path"]
         .as_str()
         .ok_or_else(|| AppError::bad("Folder path is required"))?;
@@ -255,10 +252,13 @@ async fn generic(
                 workspace_persistence::admin_pins(body.get("items").unwrap_or(&Value::Null));
             Ok(json!({"success":true,"workspaceTaskbarPins":value["workspaceTaskbarPins"]}))
         }
-        "workspaceLayoutPresets" => {
-            value["workspaceLayoutPresets"] =
-                workspace_persistence::presets(body.get("presets").unwrap_or(&Value::Null));
-            Ok(json!({"success":true,"workspaceLayoutPresets":value["workspaceLayoutPresets"]}))
+        "workspaceTransition" => {
+            let transition = body["value"]
+                .as_str()
+                .filter(|value| ["instant", "fade"].contains(value))
+                .ok_or_else(|| AppError::bad("Invalid workspace transition"))?;
+            value["workspaceTransition"] = Value::String(transition.into());
+            Ok(json!({"success":true,"workspaceTransition":transition}))
         }
         _ => Err(AppError::not_found("Not found")),
     })

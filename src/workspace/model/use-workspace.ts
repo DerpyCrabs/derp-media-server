@@ -85,9 +85,15 @@ function parseBrowserTabIconColor(v: unknown): string | undefined {
 }
 
 export function serializeWorkspacePersistedState(state: PersistedWorkspaceState): string {
+  return JSON.stringify(toPersistentWorkspaceState(state))
+}
+
+export function toPersistentWorkspaceState(
+  state: PersistedWorkspaceState,
+): PersistedWorkspaceState {
   const { windows, activeWindowId, activeTabMap, tabGroupSplits } =
     persistentWorkspaceProjection(state)
-  return JSON.stringify({
+  return {
     windows,
     activeWindowId,
     activeTabMap: sortTabMapKeys(activeTabMap),
@@ -98,7 +104,14 @@ export function serializeWorkspacePersistedState(state: PersistedWorkspaceState)
     ...(state.browserTabIcon ? { browserTabIcon: state.browserTabIcon } : {}),
     ...(state.browserTabIconColor ? { browserTabIconColor: state.browserTabIconColor } : {}),
     ...(state.fileOpenTarget ? { fileOpenTarget: state.fileOpenTarget } : {}),
-  })
+  }
+}
+
+export function sanitizePersistedWorkspaceState(
+  state: PersistedWorkspaceState,
+): PersistedWorkspaceState {
+  const projected = toPersistentWorkspaceState(state)
+  return normalizePersistedWorkspaceState(projected, { reconcileSnapZones: false }) ?? projected
 }
 
 export function serializeWorkspaceLayoutState(state: PersistedWorkspaceState): string {

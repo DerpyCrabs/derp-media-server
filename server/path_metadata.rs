@@ -1,5 +1,8 @@
 use crate::{
-    app::{AppState, canvases_path, default_settings, settings_path, stats_path, timestamp_ms},
+    app::{
+        AppState, canvases_path, default_settings, settings_path, stats_path, timestamp_ms,
+        workspaces_path,
+    },
     canvas_persistence,
     error::AppResult,
     reader_state, state_db, store,
@@ -157,11 +160,6 @@ fn move_workspace_metadata(settings: &mut Value, old_path: &str, new_path: &str)
             move_path_value(&mut pin["path"], old_path, new_path);
         }
     }
-    if let Some(presets) = settings["workspaceLayoutPresets"].as_array_mut() {
-        for preset in presets {
-            move_workspace_snapshot(&mut preset["snapshot"], old_path, new_path);
-        }
-    }
 }
 
 fn remove_workspace_metadata(settings: &mut Value, path: &str) {
@@ -171,9 +169,6 @@ fn remove_workspace_metadata(settings: &mut Value, path: &str) {
                 .as_str()
                 .is_some_and(|value| matches(value, path))
         });
-    }
-    if let Some(presets) = settings["workspaceLayoutPresets"].as_array_mut() {
-        presets.retain_mut(|preset| remove_workspace_snapshot(&mut preset["snapshot"], path));
     }
 }
 
@@ -204,6 +199,26 @@ pub async fn moved(state: &AppState, old_path: &str, new_path: &str) -> AppResul
             json!([]),
             |canvases| {
                 canvas_persistence::move_paths(canvases, old_path, new_path, changed_at);
+                Ok(())
+            },
+        )?;
+        store::mutate_section_in_transaction(
+            transaction,
+            &workspaces_path(state),
+            &state.config.library_key,
+            json!({"version":1,"order":[],"records":{}}),
+            |registry| {
+                if let Some(records) = registry["records"].as_object_mut() {
+                    for record in records.values_mut() {
+                        let previous = record["snapshot"].clone();
+                        move_workspace_snapshot(&mut record["snapshot"], old_path, new_path);
+                        if record["snapshot"] != previous {
+                            let revision = record["revision"].as_u64().unwrap_or(0) + 1;
+                            record["revision"] = Value::from(revision);
+                            record["updatedAt"] = Value::from(changed_at as u64);
+                        }
+                    }
+                }
                 Ok(())
             },
         )?;
@@ -253,6 +268,27 @@ pub async fn removed(state: &AppState, path: &str) -> AppResult<()> {
         )?;
         store::mutate_section_in_transaction(
             transaction,
+            &workspaces_path(state),
+            &state.config.library_key,
+            json!({"version":1,"order":[],"records":{}}),
+            |registry| {
+                if let Some(records) = registry["records"].as_object_mut() {
+                    records.retain(|_, record| {
+                        let previous = record["snapshot"].clone();
+                        let keep = remove_workspace_snapshot(&mut record["snapshot"], path);
+                        if keep && record["snapshot"] != previous {
+                            let revision = record["revision"].as_u64().unwrap_or(0) + 1;
+                            record["revision"] = Value::from(revision);
+                            record["updatedAt"] = Value::from(changed_at as u64);
+                        }
+                        keep
+                    });
+                }
+                Ok(())
+            },
+        )?;
+        store::mutate_section_in_transaction(
+            transaction,
             &stats_path(state),
             &state.config.library_key,
             json!({"views":{}}),
@@ -287,30 +323,27 @@ mod tests {
         assert_eq!(orders["Books/New/Child"]["field"], "createdDate");
 
         remove_map(&mut orders, "Books/New");
-        assert_eq!(
-            orders,
-            json!({"Keep":{"field":"name","direction":"asc"}})
-        );
+        assert_eq!(orders, json!({"Keep":{"field":"name","direction":"asc"}}));
     }
 
     #[test]
     fn workspace_paths_follow_renames() {
         let mut settings = json!({
-            "workspaceTaskbarPins":[{"path":"Books/Old/chapter.pdf"}],
-            "workspaceLayoutPresets":[{"snapshot":{
-                "windows":[{"id":"reader","iconPath":"Books/Old/chapter.pdf","initialState":{"dir":"Books/Old","viewing":"Books/Old/chapter.pdf"}}],
-                "activeWindowId":"reader","activeTabMap":{"reader":"reader"},
-                "pinnedTaskbarItems":[{"path":"Books/Old"}]
-            }}]
+            "workspaceTaskbarPins":[{"path":"Books/Old/chapter.pdf"}]
+        });
+        let mut snapshot = json!({
+            "windows":[{"id":"reader","iconPath":"Books/Old/chapter.pdf","initialState":{"dir":"Books/Old","viewing":"Books/Old/chapter.pdf"}}],
+            "activeWindowId":"reader","activeTabMap":{"reader":"reader"},
+            "pinnedTaskbarItems":[{"path":"Books/Old"}]
         });
 
         move_workspace_metadata(&mut settings, "Books/Old", "Books/New");
+        move_workspace_snapshot(&mut snapshot, "Books/Old", "Books/New");
 
         assert_eq!(
             settings["workspaceTaskbarPins"][0]["path"],
             "Books/New/chapter.pdf"
         );
-        let snapshot = &settings["workspaceLayoutPresets"][0]["snapshot"];
         assert_eq!(snapshot["windows"][0]["initialState"]["dir"], "Books/New");
         assert_eq!(
             snapshot["windows"][0]["initialState"]["viewing"],
@@ -322,25 +355,25 @@ mod tests {
     #[test]
     fn workspace_deletes_prune_references_and_repair_focus() {
         let mut settings = json!({
-            "workspaceTaskbarPins":[{"path":"Books/Old/chapter.pdf"},{"path":"Keep"}],
-            "workspaceLayoutPresets":[{"snapshot":{
-                "windows":[
-                    {"id":"removed","iconPath":"Books/Old/chapter.pdf","initialState":{}},
-                    {"id":"kept","iconPath":"Keep/file.pdf","initialState":{}}
-                ],
-                "activeWindowId":"removed","activeTabMap":{"group":"removed"},
-                "tabGroupSplits":{"group":{"leftTabId":"removed","leftPaneFraction":0.5}},
-                "pinnedTaskbarItems":[{"path":"Books/Old"},{"path":"Keep"}]
-            }}]
+            "workspaceTaskbarPins":[{"path":"Books/Old/chapter.pdf"},{"path":"Keep"}]
+        });
+        let mut snapshot = json!({
+            "windows":[
+                {"id":"removed","iconPath":"Books/Old/chapter.pdf","initialState":{}},
+                {"id":"kept","iconPath":"Keep/file.pdf","initialState":{}}
+            ],
+            "activeWindowId":"removed","activeTabMap":{"group":"removed"},
+            "tabGroupSplits":{"group":{"leftTabId":"removed","leftPaneFraction":0.5}},
+            "pinnedTaskbarItems":[{"path":"Books/Old"},{"path":"Keep"}]
         });
 
         remove_workspace_metadata(&mut settings, "Books/Old");
+        remove_workspace_snapshot(&mut snapshot, "Books/Old");
 
         assert_eq!(
             settings["workspaceTaskbarPins"].as_array().unwrap().len(),
             1
         );
-        let snapshot = &settings["workspaceLayoutPresets"][0]["snapshot"];
         assert_eq!(snapshot["windows"].as_array().unwrap().len(), 1);
         assert_eq!(snapshot["activeWindowId"], "kept");
         assert_eq!(snapshot["activeTabMap"], json!({}));
@@ -350,20 +383,18 @@ mod tests {
 
     #[test]
     fn workspace_delete_keeps_viewer_that_navigated_away_from_stale_icon() {
-        let mut settings = json!({
-            "workspaceLayoutPresets":[{"snapshot":{
-                "windows":[{
-                    "id":"reader",
-                    "iconPath":"Books/Old.pdf",
-                    "initialState":{"viewing":"Books/Current.pdf"}
-                }],
-                "activeWindowId":"reader"
-            }}]
+        let mut snapshot = json!({
+            "windows":[{
+                "id":"reader",
+                "iconPath":"Books/Old.pdf",
+                "initialState":{"viewing":"Books/Current.pdf"}
+            }],
+            "activeWindowId":"reader"
         });
 
-        remove_workspace_metadata(&mut settings, "Books/Old.pdf");
+        remove_workspace_snapshot(&mut snapshot, "Books/Old.pdf");
 
-        let window = &settings["workspaceLayoutPresets"][0]["snapshot"]["windows"][0];
+        let window = &snapshot["windows"][0];
         assert_eq!(window["initialState"]["viewing"], "Books/Current.pdf");
         assert_eq!(window["iconPath"], Value::Null);
     }

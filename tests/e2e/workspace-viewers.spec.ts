@@ -260,14 +260,13 @@ test.describe('Workspace clipboard paste', () => {
     const dropZone = content.getByTestId('workspace-upload-drop-zone')
     await dropZone.focus()
     const marker = `ws paste e2e ${Date.now()}`
-    await page.evaluate(async (text) => {
-      await navigator.clipboard.write([
-        new ClipboardItem({
-          'text/plain': new Blob([text], { type: 'text/plain' }),
-        }),
-      ])
+    await dropZone.evaluate((element, text) => {
+      const data = new DataTransfer()
+      data.setData('text/plain', text)
+      element.dispatchEvent(
+        new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: data }),
+      )
     }, marker)
-    await page.keyboard.press('Control+v')
     await expect(page.getByRole('heading', { name: /Paste Text/i })).toBeVisible()
     await page.getByRole('button', { name: 'Paste' }).click()
     await expect(getWindowGroups(page)).toHaveCount(2)

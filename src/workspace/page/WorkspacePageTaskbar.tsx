@@ -1,18 +1,13 @@
 import { setFileDragData, type FileDragData } from '@/lib/files/file-drag-data'
 import { FLOATING_Z_PIN_MENU } from '@/lib/ui/floating-z-index'
 import type { PinnedTaskbarItem } from '@/workspace/model/use-workspace'
-import { isWorkspaceTabIconColorKey } from '@/workspace/model/workspace-tab-icon-colors'
-import {
-  type WorkspaceLayoutPreset,
-  type WorkspaceLayoutScope,
-} from '@/workspace/model/workspace-layout-presets'
 import FolderOpen from 'lucide-solid/icons/folder-open'
+import PanelsTopLeft from 'lucide-solid/icons/panels-top-left'
 import { For, Show } from 'solid-js'
 import type { JSX } from '@solidjs/web'
 import { FloatingContextMenu } from '@/features/explorer/FloatingContextMenu'
 import { pinnedItemIcon } from '@/features/explorer/use-file-icon'
 import type { GlobalSettings } from '@/lib/models/settings-types'
-import { WorkspaceNamedLayoutMenu } from '@/workspace/layout/WorkspaceNamedLayoutMenu'
 import { WorkspaceTaskbarAudio } from '@/workspace/taskbar/WorkspaceTaskbarAudio'
 import { WorkspaceTaskbarSettings } from '@/workspace/taskbar/WorkspaceTaskbarSettings'
 import type { PersistedWorkspaceState, WorkspaceSource } from '@/workspace/model/use-workspace'
@@ -21,6 +16,8 @@ import type { FileSearchResult } from '@/lib/files/file-search'
 
 export type WorkspacePageTaskbarProps = {
   onOpenBrowser: () => void
+  onOpenWorkspaces: () => void
+  onWorkspaceTransitionChange: (value: 'instant' | 'fade') => void
   hasAnyTaskbarItems: () => boolean
   pinnedItems: () => PinnedTaskbarItem[]
   taskbarGroupIds: () => string[]
@@ -32,19 +29,6 @@ export type WorkspacePageTaskbarProps = {
     fn: (prev: PersistedWorkspaceState | null) => PersistedWorkspaceState | null,
   ) => void
   settingsData: () => GlobalSettings | undefined
-  layoutScope: () => WorkspaceLayoutScope
-  serverLayoutPresets: () => WorkspaceLayoutPreset[]
-  presetsReady: () => boolean
-  collectLayoutSnapshot: () => PersistedWorkspaceState
-  applyLayoutSnapshot: (
-    snapshot: PersistedWorkspaceState,
-    options?: { baselinePresetId?: string | null },
-  ) => void
-  syncLayoutBaselineToCurrent: () => void
-  revertLayoutToBaseline: () => void
-  declareBaselinePresetId: (id: string | null) => void
-  isLayoutDirty: () => boolean
-  layoutBaselinePresetId: () => string | null
   workspaceFileIconContext: () => import('@/features/explorer/use-file-icon').FileIconContext
   selectPinned: (pin: PinnedTaskbarItem) => void
   removePinnedItem: (id: string) => void
@@ -69,6 +53,16 @@ export function WorkspacePageTaskbar(props: WorkspacePageTaskbarProps) {
             onClick={() => props.onOpenBrowser()}
           >
             <FolderOpen class='h-5 w-5' stroke-width={1.75} />
+          </button>
+          <button
+            type='button'
+            title='Workspaces'
+            aria-label='Open workspaces'
+            data-workspace-toggle
+            class='flex h-7 w-7 shrink-0 items-center justify-center rounded-none text-muted-foreground hover:bg-muted hover:text-foreground'
+            onClick={() => props.onOpenWorkspaces()}
+          >
+            <PanelsTopLeft class='h-5 w-5' stroke-width={1.75} />
           </button>
 
           <div class='flex min-w-0 flex-1 items-center overflow-x-auto'>
@@ -162,47 +156,9 @@ export function WorkspacePageTaskbar(props: WorkspacePageTaskbarProps) {
               }}
               onStopPlayback={props.stopWorkspacePlaybackFromTaskbar}
             />
-            <WorkspaceNamedLayoutMenu
-              scope={props.layoutScope()}
-              presets={props.serverLayoutPresets()}
-              presetsReady={props.presetsReady()}
-              collectLayoutSnapshot={props.collectLayoutSnapshot}
-              applyLayoutSnapshot={props.applyLayoutSnapshot}
-              syncLayoutBaselineToCurrent={props.syncLayoutBaselineToCurrent}
-              revertLayoutToBaseline={props.revertLayoutToBaseline}
-              declareBaselinePresetId={props.declareBaselinePresetId}
-              isLayoutDirty={props.isLayoutDirty()}
-              layoutBaselinePresetId={props.layoutBaselinePresetId()}
-            />
             <WorkspaceTaskbarSettings
-              browserTabTitle={() => props.workspace()?.browserTabTitle ?? ''}
-              browserTabIcon={() => props.workspace()?.browserTabIcon ?? ''}
-              browserTabIconColor={() => props.workspace()?.browserTabIconColor ?? ''}
-              onBrowserTabTitleChange={(value) => {
-                const t = value.trim()
-                props.setWorkspace((prev) =>
-                  prev ? { ...prev, browserTabTitle: t ? t.slice(0, 120) : undefined } : prev,
-                )
-              }}
-              onBrowserTabIconChange={(value) => {
-                const icon = value.trim().slice(0, 64)
-                props.setWorkspace((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        browserTabIcon: icon || undefined,
-                        ...(!icon ? { browserTabIconColor: undefined } : {}),
-                      }
-                    : prev,
-                )
-              }}
-              onBrowserTabIconColorChange={(value) => {
-                const raw = value.trim()
-                if (raw && !isWorkspaceTabIconColorKey(raw)) return
-                props.setWorkspace((prev) =>
-                  prev ? { ...prev, browserTabIconColor: raw || undefined } : prev,
-                )
-              }}
+              workspaceTransition={() => props.settingsData()?.workspaceTransition ?? 'fade'}
+              onWorkspaceTransitionChange={props.onWorkspaceTransitionChange}
               onWorkspaceFileOpenTargetChange={(value) => {
                 props.setWorkspace((prev) => (prev ? { ...prev, fileOpenTarget: value } : prev))
               }}

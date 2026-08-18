@@ -247,17 +247,18 @@ fn validate_document(
         "canvases" if !document.is_array() => Err(invalid()),
         "settings" => {
             let value = document.as_object().ok_or_else(invalid)?;
-            for key in ["viewModes", "sortOrders", "customIcons", "autoSave", "fileColumns"] {
+            for key in [
+                "viewModes",
+                "sortOrders",
+                "customIcons",
+                "autoSave",
+                "fileColumns",
+            ] {
                 if value.get(key).is_some_and(|field| !field.is_object()) {
                     return Err(invalid());
                 }
             }
-            for key in [
-                "favorites",
-                "knowledgeBases",
-                "workspaceTaskbarPins",
-                "workspaceLayoutPresets",
-            ] {
+            for key in ["favorites", "knowledgeBases", "workspaceTaskbarPins"] {
                 if value.get(key).is_some_and(|field| !field.is_array()) {
                     return Err(invalid());
                 }

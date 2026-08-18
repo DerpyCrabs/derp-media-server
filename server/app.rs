@@ -152,12 +152,16 @@ pub(crate) fn canvases_path(state: &AppState) -> PathBuf {
     state.config.data_path.join("canvases.json")
 }
 
+pub(crate) fn workspaces_path(state: &AppState) -> PathBuf {
+    state.config.data_path.join("workspaces.json")
+}
+
 pub(crate) fn stats_path(state: &AppState) -> PathBuf {
     state.config.data_path.join("stats.json")
 }
 
 pub(crate) fn default_settings() -> Value {
-    json!({"viewModes":{},"sortOrders":{},"fileColumns":{"createdDate":false,"size":true},"favorites":[],"knowledgeBases":[],"customIcons":{},"autoSave":{},"workspaceTaskbarPins":[],"workspaceLayoutPresets":[]})
+    json!({"viewModes":{},"sortOrders":{},"fileColumns":{"createdDate":false,"size":true},"favorites":[],"knowledgeBases":[],"customIcons":{},"autoSave":{},"workspaceTaskbarPins":[],"workspaceTransition":"fade"})
 }
 
 pub(crate) fn parent_logical(path: &str) -> String {

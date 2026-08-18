@@ -30,7 +30,7 @@ test.describe('File search palette', () => {
   })
 
   test('uses only the global workspace entry point', async ({ page }) => {
-    await page.goto('/workspace')
+    await page.goto(`/workspace?ws=e2e-${crypto.randomUUID()}`)
     await expect(page.locator(WORKSPACE_VISIBLE_WINDOW_GROUP).first()).toBeVisible()
     await expect(page.getByTestId('workspace-pane-file-search-trigger')).toHaveCount(0)
 

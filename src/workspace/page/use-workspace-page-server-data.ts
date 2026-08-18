@@ -3,7 +3,6 @@ import { useServerConfigQuery, useSettingsQuery } from '@/lib/api/use-app-data'
 import type { WorkspaceSettings } from '@/workspace/model/workspace-settings-types'
 import type { PinnedTaskbarItem } from '@/workspace/model/use-workspace'
 import { queryKeys } from '@/lib/api/query-keys'
-import type { WorkspaceLayoutPreset } from '@/workspace/model/workspace-layout-presets'
 import { useMutation, useQueryClient } from '@tanstack/solid-query'
 import { createMemo, snapshot } from 'solid-js'
 
@@ -29,14 +28,6 @@ export function useWorkspacePageServerData() {
     return pins ? fromQueryData(pins) : []
   })
 
-  const serverLayoutPresets = createMemo((): WorkspaceLayoutPreset[] => {
-    const presets = settingsQuery.data?.workspaceLayoutPresets
-    return presets ? fromQueryData(presets) : []
-  })
-
-  const presetsReady = createMemo(() => settingsQuery.isSuccess)
-  const layoutScope = createMemo(() => 'admin' as const)
-
   const persistPinsMutation = useMutation(() => ({
     mutationFn: (items: PinnedTaskbarItem[]) =>
       post('/api/settings/workspaceTaskbarPins', { items }),
@@ -51,9 +42,6 @@ export function useWorkspacePageServerData() {
     editableFolders,
     serverPinsReady,
     serverPinsList,
-    serverLayoutPresets,
-    presetsReady,
-    layoutScope,
     persistPinsMutation,
   }
 }

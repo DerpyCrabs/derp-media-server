@@ -857,3 +857,16 @@ body {
 .canvas-layout [data-slot='input'] {
   user-select: text;
 }
+
+@keyframes workspace-dwell {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.workspace-dwell-progress {
+  animation: workspace-dwell 1s linear forwards;
+}

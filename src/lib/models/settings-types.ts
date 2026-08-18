@@ -25,4 +25,5 @@ export interface GlobalSettings {
   knowledgeBases: string[]
   customIcons: Record<string, string>
   autoSave: Record<string, AutoSaveSettings>
+  workspaceTransition?: 'instant' | 'fade'
 }
