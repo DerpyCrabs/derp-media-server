@@ -15,9 +15,10 @@ import {
 import type { FileExplorerScrollTarget } from './FileExplorerView'
 import { formatCreatedDate } from './file-display-settings'
 
-type FileBrowserElementAttributes<Element extends HTMLElement> = JSX.HTMLAttributes<Element> & {
-  [attribute: string]: unknown
-}
+export type FileBrowserElementAttributes<Element extends HTMLElement> =
+  JSX.HTMLAttributes<Element> & {
+    [attribute: string]: unknown
+  }
 
 export type FileBrowserPaneProps = Readonly<{
   files: Accessor<FileItem[]>

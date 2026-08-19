@@ -1,11 +1,8 @@
 import { VIRTUAL_FOLDERS, isVirtualFolderPath } from '@/lib/files/constants'
-import { hasFileDragData } from '@/lib/files/file-drag-data'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
-import { collectDroppedUploadFiles } from '@/lib/files/collect-dropped-upload-files'
 import { preloadVideoIntrinsics } from '@/lib/media/video-intrinsics'
 import {
   breadcrumbFloating,
-  resetBreadcrumbFloating,
   setBreadcrumbFolderMenu,
 } from '@/features/explorer/breadcrumb-floating-store'
 import { api, post } from '@/lib/api/client'
@@ -14,10 +11,7 @@ import {
   prefetchParentDirectoryHover,
   type PrefetchFolderHoverContext,
 } from '@/features/explorer/prefetch-folder-hover'
-import { extractPasteDataFromClipboardData } from '@/lib/files/extract-paste-data'
-import type { PasteData } from '@/lib/files/paste-data'
 import { queryKeys } from '@/lib/api/query-keys'
-import { shouldOfferPasteAsNewFile } from '@/lib/files/should-offer-paste-as-new-file'
 import { fileDownloadHref } from '@/lib/files/download-urls'
 import type { FileItem } from '@/lib/files/types'
 import {
@@ -32,42 +26,26 @@ import { virtualAppearanceForPath } from './virtual-directory-appearance'
 import { MediaType } from '@/lib/files/types'
 import { normalizeNewFilePath } from '@/lib/files/new-file-name'
 import { formatFileSize, getMediaType } from '@/lib/media/media-utils'
-import { useFileBrowserMutations } from '@/features/explorer/use-file-browser-mutations'
 import { fileOpenTargetStore } from './file-open-target'
 import { cn } from '@/lib/ui/cn'
-import { getKnowledgeBaseRoot, isPathEditable } from '@/lib/files/path-utils'
-import FilePlus from 'lucide-solid/icons/file-plus'
-import FolderPlus from 'lucide-solid/icons/folder-plus'
-import BookOpenText from 'lucide-solid/icons/book-open-text'
-import Upload from 'lucide-solid/icons/upload'
+import { isPathEditable } from '@/lib/files/path-utils'
 import { For, Show, createEffect, createMemo, createSignal } from 'solid-js'
 import type { BreadcrumbMenuTarget } from '@/features/explorer/BreadcrumbContextMenu'
-import { Breadcrumbs } from '@/features/explorer/Breadcrumbs'
-import { DirectoryBackgroundContextMenu } from '@/features/explorer/DirectoryBackgroundContextMenu'
-import { KbDashboard } from '@/features/explorer/KbDashboard'
-import { KbInlineCreateFooter } from '@/features/explorer/KbInlineCreateFooter'
-import { KbSearchResults } from '@/features/explorer/KbSearchResults'
-import type { UploadToastState } from '@/features/explorer/types'
-import { UploadMenu } from '@/features/explorer/UploadMenu'
 import { DEFAULT_WINDOW_SOURCE } from '@/lib/models/window-model'
 import { BrowserWindowModalLayer } from './BrowserWindowModalLayer'
 import { modalDialogBackdropClass } from '@/features/explorer/modal-overlay-scope'
 import { SOLID_AVAILABLE_ICONS } from '@/lib/ui/solid-available-icons'
-import { ExplorerDisplayOptions } from '@/features/explorer/ExplorerDisplayOptions'
 import { sortFilesForPath } from '@/features/explorer/file-display-settings'
-import { useFileDisplaySettings } from '@/features/explorer/use-file-display-settings'
-import { FileExplorerView } from '@/features/explorer/FileExplorerView'
-import { FileBrowserPane } from '@/features/explorer/FileBrowserPane'
-import { createFileBrowserDragController } from '@/features/explorer/file-browser-drag'
-import { registerKbSearchHotkeys } from '@/features/explorer/use-kb-search-hotkey'
-import { useInlineModeInputFocus } from '@/features/explorer/use-inline-mode-input-focus'
+import { useFileBrowserController } from '@/features/explorer/use-file-browser-controller'
+import {
+  FileBrowserSurface,
+  type FileBrowserSurfaceRows,
+} from '@/features/explorer/FileBrowserSurface'
 import { useFileRowContextMenu } from '@/features/explorer/use-file-row-context-menu'
-import { createLongPressContextMenuHandlers } from '@/features/explorer/long-press-context-menu'
 import { useDeferredLoading } from '@/lib/ui/use-deferred-loading'
 import { useStoreSync } from '@/lib/state/solid-store-sync'
 import { useViewStats } from '@/features/explorer/use-view-stats'
 import { fileItemIcon, gridHeroIcon } from '@/features/explorer/use-file-icon'
-import { useExplorerSettings } from './use-explorer-settings'
 import { browserPaneParentDir } from './browser-pane-paths'
 import type { BrowserWindowHostProps } from './browser-window-host-types'
 
@@ -79,26 +57,12 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
   const [newFileName, setNewFileName] = createSignal('')
   const [showCreateFolder, setShowCreateFolder] = createSignal(false)
   const [newFolderName, setNewFolderName] = createSignal('')
-  const [searchQuery, setSearchQuery] = createSignal('')
-  const [debouncedSearch, setDebouncedSearch] = createSignal('')
-  const [searchPopoverOpen, setSearchPopoverOpen] = createSignal(false)
-  const [uploadToast, setUploadToast] = createSignal<UploadToastState>({ kind: 'hidden' })
-  let externalUploadDragDepth = 0
   const [directoryScrollEl, setDirectoryScrollEl] = createSignal<HTMLDivElement | undefined>()
-  const [externalUploadDragOver, setExternalUploadDragOver] = createSignal(false)
-  const [inlineMode, setInlineMode] = createSignal<'file' | 'folder' | null>(null)
-  const [inlineName, setInlineName] = createSignal('')
-  const [directoryBackgroundMenu, setDirectoryBackgroundMenu] = createSignal<{
-    x: number
-    y: number
-  } | null>(null)
   const [showRename, setShowRename] = createSignal(false)
   const [renamingItem, setRenamingItem] = createSignal<FileItem | null>(null)
   const [renameNewName, setRenameNewName] = createSignal('')
   const [moveTarget, setMoveTarget] = createSignal<FileItem | null>(null)
   const [iconEditTarget, setIconEditTarget] = createSignal<FileItem | null>(null)
-  const [showPasteDialog, setShowPasteDialog] = createSignal(false)
-  const [pasteData, setPasteData] = createSignal<PasteData | null>(null)
   const [virtualOffset, setVirtualOffset] = createSignal(0)
   const [virtualRefreshEnabled, setVirtualRefreshEnabled] = createSignal(false)
   const [virtualPages, setVirtualPages] = createSignal<DirectoryListing[]>([])
@@ -130,16 +94,6 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
   >([])
   const [virtualProjectChoicesLoading, setVirtualProjectChoicesLoading] = createSignal(false)
   const breadcrumbMenu = () => breadcrumbFloating.folderMenu
-  let inlineFileInputEl: HTMLInputElement | undefined
-  let inlineFolderInputEl: HTMLInputElement | undefined
-  let kbSearchInputEl: HTMLInputElement | undefined
-  let browserRootEl: HTMLDivElement | undefined
-
-  useInlineModeInputFocus(
-    inlineMode,
-    () => inlineFileInputEl,
-    () => inlineFolderInputEl,
-  )
 
   const win = createMemo(() => props.windowState()?.windows.find((w) => w.id === props.windowId))
 
@@ -215,8 +169,6 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
   )
   const showFilesDeferredLoading = useDeferredLoading(() => isFilesLoadingInitial())
 
-  const pasteExistingFiles = createMemo(() => files())
-
   const isVirtualFolder = createMemo(() =>
     (Object.values(VIRTUAL_FOLDERS) as string[]).includes(currentPath()),
   )
@@ -228,12 +180,34 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
       isPathEditable(currentPath(), props.editableFolders),
   )
   const isContextDirEditable = createMemo(() => isAdminPaneEditable())
+  const isActivePane = createMemo(() => props.windowState()?.activeWindowId === props.windowId)
 
-  function invalidateKbQueries() {
-    void queryClient.invalidateQueries({ queryKey: queryKeys.adminContent() })
-  }
-
+  const browser = useFileBrowserController({
+    currentPath,
+    files,
+    editable: isAdminPaneEditable,
+    editableFolders: () => props.editableFolders,
+    isActive: isActivePane,
+    virtualEntry,
+    onFileSaved: (path) => props.onOpenViewer(props.windowId, fileItemFromPath(path)),
+    onInlineFileCreated: (path) => props.onOpenViewer(props.windowId, fileItemFromPath(path)),
+    onInlineFolderCreated: (path) => props.onNavigateDir(props.windowId, path),
+  })
   const {
+    settingsQuery,
+    knowledgeBases,
+    customIcons,
+    inKb,
+    clearSearch,
+    showKbSearchResults,
+    uploadToast,
+    setUploadError,
+    setUploadToastHidden,
+    pasteData,
+    showPasteDialog,
+    pasteExistingFiles,
+    handlePasteFileSubmit,
+    closePasteDialog,
     renameMutation,
     moveMutation,
     createFileMutation,
@@ -244,50 +218,11 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
     knowledgeBaseMutation,
     setCustomIconMutation,
     removeCustomIconMutation,
-  } = useFileBrowserMutations({
-    onFileSaved: (path) => {
-      setShowPasteDialog(false)
-      setPasteData(null)
-      props.onOpenViewer(props.windowId, fileItemFromPath(path))
-    },
-  })
+  } = browser
 
-  function handleMoveFile(sourcePath: string, destinationDir: string) {
-    const fileName = sourcePath.split(/[/\\]/).pop()!
-    const newPath = destinationDir ? `${destinationDir}/${fileName}` : fileName
-    moveMutation.mutate({ oldPath: sourcePath, newPath })
+  function invalidateKbQueries() {
+    void queryClient.invalidateQueries({ queryKey: queryKeys.adminContent() })
   }
-
-  const allowMoveFile = createMemo(() => {
-    return isAdminPaneEditable() ? handleMoveFile : undefined
-  })
-
-  const dragController = createFileBrowserDragController({
-    files,
-    currentPath,
-    editableFolders: () => props.editableFolders,
-    allowMoveFile,
-    virtualOpenTarget: (file) => virtualEntry(file)?.openTarget,
-  })
-  const {
-    draggedPath,
-    dragOverPath,
-    enableDrag,
-    parentRowDragOver,
-    parentRowDragLeave,
-    parentRowDrop,
-    onFileDragStart,
-    onFileDragEnd,
-    onFolderDragOver,
-    onFolderDragLeave,
-    onFolderDrop,
-    handleFolderRowDragOver,
-    handleFolderRowDragLeave,
-    handleFolderRowDrop,
-    resetDrag,
-  } = dragController
-
-  const { settingsQuery, knowledgeBases, customIcons } = useExplorerSettings()
 
   const gatewayDirectoryQuery = useQuery(() => ({
     queryKey: ['virtual-directory', 'gateway-fs', gatewayPickerPath()],
@@ -311,23 +246,6 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
     return file.isDirectory && knowledgeBases().includes(file.path.replace(/\\/g, '/'))
   }
 
-  const kbRootPath = createMemo(() => {
-    return getKnowledgeBaseRoot(currentPath(), knowledgeBases())
-  })
-
-  const inKb = createMemo(() => kbRootPath() !== null)
-  const isActivePane = createMemo(() => props.windowState()?.activeWindowId === props.windowId)
-
-  function setKbSearchOpen(open: boolean) {
-    setSearchPopoverOpen(open)
-    if (!open) {
-      setSearchQuery('')
-      setDebouncedSearch('')
-    }
-  }
-
-  const showInlineCreate = createMemo(() => inKb() && isAdminPaneEditable())
-
   const virtualActionMutation = useMutation(() => ({
     mutationFn: (body: {
       action: string
@@ -349,62 +267,8 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
   })
 
   const sortingDisabled = createMemo(() => isVirtualFolder() || !!virtualDirectory())
-  // The hook tracks this accessor in its own memos and mutation handlers.
-  // eslint-disable-next-line solid/reactivity
-  const displaySettings = useFileDisplaySettings(currentPath, settingsQuery)
   const displayedFiles = createMemo(() =>
     sortFilesForPath(files(), currentPath(), settingsQuery.data?.sortOrders, sortingDisabled()),
-  )
-
-  createEffect(
-    () => searchQuery(),
-    (query) => {
-      const id = window.setTimeout(() => setDebouncedSearch(query), 300)
-      // eslint-disable-next-line solid/reactivity
-      return () => clearTimeout(id)
-    },
-  )
-
-  createEffect(
-    () => currentPath(),
-    () => {
-      setSearchQuery('')
-      setDebouncedSearch('')
-      setSearchPopoverOpen(false)
-      setInlineMode(null)
-      setInlineName('')
-      resetDrag()
-      resetBreadcrumbFloating()
-      setShowPasteDialog(false)
-      setPasteData(null)
-      pasteMutation.reset()
-      externalUploadDragDepth = 0
-      setExternalUploadDragOver(false)
-    },
-  )
-
-  registerKbSearchHotkeys({
-    active: () => inKb() && isActivePane(),
-    isOpen: searchPopoverOpen,
-    setOpen: setKbSearchOpen,
-    focusInput: () => kbSearchInputEl?.focus(),
-  })
-
-  const adminKbSearchQuery = useQuery(() => ({
-    queryKey: queryKeys.kbSearch(kbRootPath()!, debouncedSearch()),
-    queryFn: () =>
-      api<{ results: { path: string; name: string; snippet: string }[] }>(
-        `/api/kb/search?root=${encodeURIComponent(kbRootPath()!)}&q=${encodeURIComponent(debouncedSearch())}`,
-      ),
-    enabled: !!kbRootPath() && searchPopoverOpen() && debouncedSearch().trim().length > 0,
-  }))
-
-  const kbSearchResults = createMemo(() => adminKbSearchQuery.data?.results ?? [])
-
-  const kbSearchLoading = createMemo(() => adminKbSearchQuery.isLoading)
-
-  const showKbSearchResults = createMemo(
-    () => inKb() && searchPopoverOpen() && debouncedSearch().trim().length > 0,
   )
 
   const showEmptyFolder = createMemo(
@@ -416,26 +280,11 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
   )
 
   const showAdminCreateToolbar = isAdminPaneEditable
-  const showVirtualCreateToolbar = createMemo(
-    () =>
-      hasVirtualCapability(virtualDirectory(), 'createFile') ||
-      hasVirtualCapability(virtualDirectory(), 'createFolder'),
-  )
-
   const allowUpload = createMemo(() => showAdminCreateToolbar())
-
-  const isUploading = createMemo(() => uploadToast().kind === 'uploading')
 
   const fileRowMenu = useFileRowContextMenu({
     onDeleteRequest: (f) => setDeleteTarget(f),
   })
-
-  createEffect(
-    () => fileRowMenu.menu(),
-    (menu) => {
-      if (menu) setDirectoryBackgroundMenu(null)
-    },
-  )
 
   function handleContextToggleKnowledgeBase(file: FileItem) {
     knowledgeBaseMutation.mutate(file.path.replace(/\\/g, '/'))
@@ -496,10 +345,7 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
           if (choices[0]) setVirtualActionValue(choices[0].name)
         })
         .catch((error) =>
-          setUploadToast({
-            kind: 'error',
-            message: error instanceof Error ? error.message : 'Could not load Hermes projects',
-          }),
+          setUploadError(error instanceof Error ? error.message : 'Could not load Hermes projects'),
         )
         .finally(() => setVirtualProjectChoicesLoading(false))
       return
@@ -887,45 +733,6 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
     })
   }
 
-  function closePasteDialog() {
-    setShowPasteDialog(false)
-    setPasteData(null)
-    pasteMutation.reset()
-  }
-
-  function handlePasteFileSubmit(
-    fileName: string,
-    mode: 'create' | 'replace',
-    expectedVersion?: number,
-  ) {
-    const pd = pasteData()
-    if (!pd) return
-    const rel = currentPath() ? `${currentPath()}/${fileName}` : fileName
-    if (pd.type === 'image') {
-      pasteMutation.mutate({ path: rel, base64Content: pd.content, mode, expectedVersion })
-    } else if (pd.type === 'file') {
-      if (pd.isTextContent) {
-        pasteMutation.mutate({ path: rel, content: pd.content, mode, expectedVersion })
-      } else {
-        pasteMutation.mutate({ path: rel, base64Content: pd.content, mode, expectedVersion })
-      }
-    } else {
-      pasteMutation.mutate({ path: rel, content: pd.content, mode, expectedVersion })
-    }
-  }
-
-  async function handlePasteEvent(e: ClipboardEvent) {
-    if (!allowUpload()) return
-    if (!shouldOfferPasteAsNewFile(e)) return
-    e.preventDefault()
-    const data = await extractPasteDataFromClipboardData(e.clipboardData, {
-      textSuggestedExtension: inKb() ? 'md' : 'txt',
-    })
-    if (!data) return
-    setPasteData(data)
-    setShowPasteDialog(true)
-  }
-
   const fileExists = createMemo(() => {
     const stem = newFileName().trim()
     if (!stem) return false
@@ -958,77 +765,8 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
   }
 
   function handleKbResultClick(filePath: string, displayName?: string) {
-    setSearchQuery('')
-    setDebouncedSearch('')
-    setSearchPopoverOpen(false)
+    clearSearch()
     props.onOpenViewer(props.windowId, fileItemFromPath(filePath, displayName))
-  }
-
-  function handleKbResultClickFromSearch(path: string) {
-    const r = kbSearchResults().find((x) => x.path === path)
-    handleKbResultClick(path, r?.name)
-  }
-
-  const inlineFileExists = createMemo(() => {
-    if (inlineMode() !== 'file') return false
-    const stem = inlineName().trim()
-    if (!stem) return false
-    const finalName = normalizeNewFilePath(stem, inKb())
-    return files().some((f) => !f.isDirectory && f.name.toLowerCase() === finalName.toLowerCase())
-  })
-
-  const inlineFolderExists = createMemo(() => {
-    if (inlineMode() !== 'folder') return false
-    const n = inlineName().trim().toLowerCase()
-    if (!n) return false
-    return files().some((f) => f.isDirectory && f.name.toLowerCase() === n)
-  })
-
-  async function submitInlineFile() {
-    const stem = inlineName().trim()
-    if (!stem || inlineFileExists() || !showInlineCreate()) return
-    try {
-      const base = currentPath() ? `${currentPath()}/${stem}` : stem
-      const finalPath = normalizeNewFilePath(base, inKb())
-      await createFileMutation.mutateAsync({ path: finalPath, content: '' })
-      setInlineMode(null)
-      setInlineName('')
-      createFileMutation.reset()
-      props.onOpenViewer(props.windowId, fileItemFromPath(finalPath))
-    } catch {
-      /* createFileMutation.isError surfaces failures */
-    }
-  }
-
-  function submitInlineFolder() {
-    const name = inlineName().trim()
-    if (!name || inlineFolderExists() || !showInlineCreate()) return
-    const base = currentPath() ? `${currentPath()}/${name}` : name
-    const afterFolderCreate = () => {
-      setInlineMode(null)
-      setInlineName('')
-      createFolderMutation.reset()
-      props.onNavigateDir(props.windowId, base)
-    }
-    void createFolderMutation.mutateAsync({ path: base }).then(afterFolderCreate)
-  }
-
-  function resetInlineCreate() {
-    setInlineMode(null)
-    setInlineName('')
-    createFileMutation.reset()
-    createFolderMutation.reset()
-  }
-
-  function openDirectoryBackgroundContextMenu(e: MouseEvent) {
-    if (!showInlineCreate()) return
-    const target = e.target
-    if (!(target instanceof Element)) return
-    if (target.closest('[data-file-path]')) return
-    e.preventDefault()
-    e.stopPropagation()
-    fileRowMenu.dismiss()
-    setDirectoryBackgroundMenu({ x: e.clientX, y: e.clientY })
   }
 
   function prefetchContext(): PrefetchFolderHoverContext {
@@ -1090,843 +828,487 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
     },
   )
 
-  async function uploadFilesToServer(files: File[]) {
-    if (files.length === 0 || !allowUpload()) return
-    const targetDir = currentPath()
-    const url = '/api/files/upload'
-    setUploadToast({ kind: 'uploading', fileCount: files.length })
-    try {
-      const formData = new FormData()
-      formData.append('targetDir', targetDir)
-      for (const file of files) {
-        formData.append('files', file, file.name)
-      }
-      const res = await fetch(url, { method: 'POST', body: formData })
-      if (!res.ok) {
-        const data = (await res.json().catch(() => null)) as { error?: string } | null
-        const message = data?.error || `Upload failed (${res.status})`
-        setUploadToast({ kind: 'error', message })
-        return
-      }
-      void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
-      setUploadToast({ kind: 'success' })
-      window.setTimeout(() => setUploadToast({ kind: 'hidden' }), 2000)
-    } catch (err) {
-      setUploadToast({
-        kind: 'error',
-        message: err instanceof Error ? err.message : 'Upload failed',
-      })
-    }
-  }
-
-  function isOsFileUploadDrag(e: globalThis.DragEvent) {
-    const dtr = e.dataTransfer
-    return !!(dtr && dtr.types.includes('Files') && !hasFileDragData(dtr))
-  }
-
-  function onExternalUploadDragEnter(e: globalThis.DragEvent) {
-    if (!allowUpload() || !isOsFileUploadDrag(e)) return
-    e.preventDefault()
-    externalUploadDragDepth++
-    if (externalUploadDragDepth === 1) setExternalUploadDragOver(true)
-  }
-
-  function onExternalUploadDragLeave(e: globalThis.DragEvent) {
-    if (!isOsFileUploadDrag(e)) return
-    e.preventDefault()
-    if (externalUploadDragDepth <= 0) return
-    externalUploadDragDepth--
-    if (externalUploadDragDepth <= 0) {
-      externalUploadDragDepth = 0
-      setExternalUploadDragOver(false)
-    }
-  }
-
-  function onExternalUploadDragOver(e: globalThis.DragEvent) {
-    if (!allowUpload() || !isOsFileUploadDrag(e)) return
-    e.preventDefault()
-    const dtr = e.dataTransfer
-    if (dtr) dtr.dropEffect = 'copy'
-  }
-
-  async function onExternalUploadDrop(e: globalThis.DragEvent) {
-    e.preventDefault()
-    externalUploadDragDepth = 0
-    setExternalUploadDragOver(false)
-    if (!allowUpload()) return
-    const dtr = e.dataTransfer
-    if (!dtr || dtr.files.length === 0) return
-    const dropped = await collectDroppedUploadFiles(dtr)
-    if (dropped.length > 0) void uploadFilesToServer(dropped)
+  const surfaceRows: FileBrowserSurfaceRows = {
+    onParentPointerEnter: () =>
+      prefetchParentDirectoryHover(prefetchContext(), {
+        currentPath: currentPath(),
+        isVirtualFolder: isVirtualFolder(),
+      }),
+    onFilePointerEnter: prefetchFileRowHover,
+    renderGridIcon: (file) =>
+      gridHeroIcon(
+        file,
+        props.fileIconContext(),
+        virtualEntry(file)?.appearance ?? virtualAppearanceForPath(file.path),
+      ),
+    renderGridDetails: (file) => (
+      <div class='flex flex-col gap-1 p-3'>
+        <p class='truncate text-sm font-medium' title={file.name}>
+          {file.name}
+        </p>
+        <div class='flex items-center justify-between gap-2 text-xs text-muted-foreground'>
+          <span class='truncate'>{virtualEntrySubtitle(virtualEntry(file))}</span>
+          <span>
+            {virtualFileSizeVisible(file, virtualEntry(file)) ? formatFileSize(file.size) : ''}
+          </span>
+        </div>
+      </div>
+    ),
+    renderListIcon: (file) =>
+      fileItemIcon(
+        file,
+        props.fileIconContext(),
+        'md',
+        virtualEntry(file)?.appearance ?? virtualAppearanceForPath(file.path),
+      ),
+    renderListName: (file) => (
+      <div class='min-w-0'>
+        <div class='truncate'>{file.name}</div>
+        <Show when={virtualEntrySubtitle(virtualEntry(file))}>
+          <div class='truncate text-[11px] font-normal text-muted-foreground'>
+            {virtualEntrySubtitle(virtualEntry(file))}
+          </div>
+        </Show>
+      </div>
+    ),
+    renderListSize: (file) => (
+      <span class='inline-block w-20 tabular-nums'>
+        {virtualFileSizeVisible(file, virtualEntry(file)) ? formatFileSize(file.size) : ''}
+      </span>
+    ),
+    dragGrid: true,
+    highlightGridDrop: true,
   }
 
   return (
-    <div
-      ref={(el) => (browserRootEl = el)}
-      class='relative flex h-full min-h-0 flex-1 flex-col overflow-hidden'
+    <FileBrowserSurface
+      layout='workspace'
+      controller={browser}
+      currentPath={currentPath}
+      files={files}
+      displayedFiles={displayedFiles}
+      viewMode={viewMode}
+      isVirtualFolder={isVirtualFolder}
+      sortingDisabled={sortingDisabled}
+      isFilesLoadingInitial={isFilesLoadingInitial}
+      showFilesDeferredLoading={showFilesDeferredLoading}
+      error={() => (filesQuery.isError ? filesQuery.error?.message : undefined)}
+      onRetry={() => void filesQuery.refetch()}
+      showEmpty={showEmptyFolder}
+      scrollTarget={{ kind: 'element', getScrollElement: directoryScrollEl }}
+      scrollScope={undefined}
+      setScrollElement={setDirectoryScrollEl}
+      onScroll={(event) => {
+        const el = event.currentTarget
+        const next = listing()?.virtualDirectory?.nextOffset
+        if (next === undefined || filesQuery.isFetching) return
+        if (el.scrollHeight - el.scrollTop - el.clientHeight < 320) setVirtualOffset(next)
+      }}
+      onParentClick={handleParentDirectory}
+      onFileClick={handleFileClick}
+      onViewModeChange={setViewMode}
+      onBreadcrumbNavigate={handleBreadcrumbNavigate}
+      onBreadcrumbContextMenu={handleBreadcrumbContextMenu}
+      onKbResultClick={handleKbResultClick}
+      recentDragCanMove={(path) =>
+        !!browser.allowMoveFile() && isPathEditable(path, props.editableFolders)
+      }
+      canUpload={allowUpload}
+      toolbar={{
+        canCreate: showAdminCreateToolbar,
+        onCreateFolder: openCreateFolderDialog,
+        onCreateFile: openCreateFileDialog,
+        virtualCreate: {
+          canCreateFolder: () => hasVirtualCapability(virtualDirectory(), 'createFolder'),
+          canCreateFile: () => hasVirtualCapability(virtualDirectory(), 'createFile'),
+          onCreateFolder: openCreateFolderDialog,
+          onCreateFile: openCreateFileDialog,
+        },
+      }}
+      fileRowMenu={fileRowMenu}
+      noWindowDrag
+      rows={surfaceRows}
     >
-      <div
-        data-no-window-drag
-        class='relative flex h-9 shrink-0 items-center bg-muted/50 px-2 py-0'
-      >
-        <div
-          class='pointer-events-none absolute inset-x-0 bottom-0 h-px bg-border'
-          aria-hidden='true'
-        />
-        <div class='flex w-full min-w-0 flex-wrap items-center justify-between gap-1'>
-          <div
-            data-breadcrumb-slot
-            class='relative flex min-h-0 min-w-0 max-w-full flex-1 overflow-hidden'
-          >
-            <Breadcrumbs
-              currentPath={currentPath()}
-              onNavigate={handleBreadcrumbNavigate}
-              mode='Workspace'
-              onCrumbContextMenu={handleBreadcrumbContextMenu}
-            />
-          </div>
-          <div class='flex shrink-0 flex-wrap items-center justify-end gap-1 md:justify-start'>
-            <Show when={inKb()}>
-              <button
-                type='button'
-                aria-label='Search note contents'
-                title='Search note contents (Ctrl+K)'
-                aria-pressed={searchPopoverOpen() ? 'true' : 'false'}
-                class={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md outline-none transition-colors ${
-                  searchPopoverOpen()
-                    ? 'bg-accent text-accent-foreground shadow-sm'
-                    : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                }`}
-                onClick={() => setKbSearchOpen(!searchPopoverOpen())}
-              >
-                <BookOpenText class='h-3.5 w-3.5' stroke-width={2} aria-hidden='true' />
-              </button>
-            </Show>
-            <Show when={showAdminCreateToolbar()}>
-              <button
-                type='button'
-                title='Create new folder'
-                class='inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-sm font-medium transition-colors hover:bg-muted hover:text-foreground dark:hover:bg-input/50'
-                onClick={openCreateFolderDialog}
-              >
-                <FolderPlus class='h-3.5 w-3.5' stroke-width={2} />
-              </button>
-              <button
-                type='button'
-                title='Create new file'
-                class='inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-sm font-medium transition-colors hover:bg-muted hover:text-foreground dark:hover:bg-input/50'
-                onClick={openCreateFileDialog}
-              >
-                <FilePlus class='h-3.5 w-3.5' stroke-width={2} />
-              </button>
-              <UploadMenu
-                compact
-                disabled={isUploading()}
-                onUpload={(files) => void uploadFilesToServer(files)}
-              />
-              <div class='bg-border mx-1 h-5 w-px shrink-0' />
-            </Show>
-            <Show when={showVirtualCreateToolbar()}>
-              <Show when={hasVirtualCapability(virtualDirectory(), 'createFolder')}>
-                <button
-                  type='button'
-                  title='Create new project'
-                  aria-label='Create new project'
-                  class='inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-muted hover:text-foreground'
-                  onClick={openCreateFolderDialog}
-                >
-                  <FolderPlus class='h-3.5 w-3.5' stroke-width={2} />
-                </button>
-              </Show>
-              <Show when={hasVirtualCapability(virtualDirectory(), 'createFile')}>
-                <button
-                  type='button'
-                  title='Create new session'
-                  aria-label='Create new session'
-                  class='inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-muted hover:text-foreground'
-                  onClick={openCreateFileDialog}
-                >
-                  <FilePlus class='h-3.5 w-3.5' stroke-width={2} />
-                </button>
-              </Show>
-              <div class='bg-border mx-1 h-5 w-px shrink-0' />
-            </Show>
-            <ExplorerDisplayOptions
-              sortOrder={displaySettings.sortOrder()}
-              columns={displaySettings.fileColumns()}
-              sortingDisabled={sortingDisabled()}
-              compact
-              viewMode={viewMode()}
-              onSortChange={displaySettings.setSortOrder}
-              onColumnsChange={displaySettings.setFileColumns}
-              onViewModeChange={setViewMode}
-            />
-          </div>
-        </div>
-      </div>
-
-      <Show when={inKb() && searchPopoverOpen()}>
-        <div class='shrink-0 border-b border-border bg-muted/20 p-2' data-testid='kb-search-bar'>
-          <input
-            ref={(el) => {
-              kbSearchInputEl = el ?? undefined
-            }}
-            type='text'
-            placeholder='Search notes...'
-            autocomplete='off'
-            class='border-input bg-background focus-visible:ring-ring h-10 w-full rounded-md border px-3 text-sm focus-visible:ring-2 focus-visible:outline-none'
-            value={searchQuery()}
-            onInput={(e) => setSearchQuery(e.currentTarget.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-                e.preventDefault()
-                const buttons =
-                  browserRootEl?.querySelectorAll<HTMLButtonElement>('[data-kb-search-result]')
-                const target = e.key === 'ArrowDown' ? buttons?.[0] : buttons?.[buttons.length - 1]
-                target?.focus()
-              } else if (e.key === 'Enter') {
-                const first =
-                  browserRootEl?.querySelector<HTMLButtonElement>('[data-kb-search-result]')
-                if (first) {
-                  e.preventDefault()
-                  first.click()
-                }
-              }
-            }}
-          />
-        </div>
-      </Show>
-
-      <FileExplorerView
-        files={files}
-        viewMode={viewMode}
-        includeParent={() => !!currentPath()}
-        scrollTarget={{ kind: 'element', getScrollElement: directoryScrollEl }}
-        loading={() => isFilesLoadingInitial()}
-        deferredLoading={showFilesDeferredLoading}
-        error={() => (filesQuery.isError ? filesQuery.error?.message : undefined)}
-        onRetry={() => void filesQuery.refetch()}
-        showEmpty={showEmptyFolder}
-        canUpload={allowUpload}
-      >
-        <div
-          class='relative flex min-h-0 flex-1 flex-col overflow-hidden outline-none'
-          data-testid='workspace-upload-drop-zone'
-          tabindex={0}
-          title={
-            inKb() && allowUpload()
-              ? 'Focus this pane and paste (Ctrl+V) to create a file from the clipboard.'
-              : undefined
-          }
-          onDragEnter={onExternalUploadDragEnter}
-          onDragLeave={onExternalUploadDragLeave}
-          onDragOver={onExternalUploadDragOver}
-          onDrop={(e) => void onExternalUploadDrop(e)}
-          onPaste={(e) => void handlePasteEvent(e)}
-          onContextMenu={openDirectoryBackgroundContextMenu}
-        >
-          <div
-            ref={(el) => {
-              setDirectoryScrollEl(el)
-            }}
-            class='min-h-0 flex-1 overflow-auto'
-            onScroll={(event) => {
-              const el = event.currentTarget
-              const next = listing()?.virtualDirectory?.nextOffset
-              if (next === undefined || filesQuery.isFetching) return
-              if (el.scrollHeight - el.scrollTop - el.clientHeight < 320) setVirtualOffset(next)
-            }}
-          >
-            <Show
-              when={showKbSearchResults()}
-              fallback={
-                <>
-                  <Show when={inKb() && !!currentPath()}>
-                    <KbDashboard
-                      mode='Workspace'
-                      scopePath={currentPath()}
-                      onFileClick={(p) => handleKbResultClick(p)}
-                      recentDragCanMove={(p) =>
-                        !!(allowMoveFile() && isPathEditable(p, props.editableFolders))
-                      }
-                    />
-                  </Show>
-                  <Show when={!isFilesLoadingInitial()}>
-                    <FileBrowserPane
-                      files={displayedFiles}
-                      viewMode={viewMode}
-                      columns={displaySettings.fileColumns}
-                      includeParent={() => !!currentPath()}
-                      scrollTarget={{
-                        kind: 'element',
-                        getScrollElement: directoryScrollEl,
-                      }}
-                      gridContainerClass='px-2 py-2'
-                      gridClass='gap-4'
-                      listClass='relative w-full'
-                      showEmpty={showEmptyFolder}
-                      canUpload={allowUpload}
-                      onParentClick={handleParentDirectory}
-                      onFileClick={handleFileClick}
-                      parentGridAttributes={{
-                        'data-no-window-drag': '',
-                        class: dragOverPath() === '__parent__' ? 'bg-primary/20' : '',
-                        onPointerEnter: () =>
-                          prefetchParentDirectoryHover(prefetchContext(), {
-                            currentPath: currentPath(),
-                            isVirtualFolder: isVirtualFolder(),
-                          }),
-                        onDragOver: allowMoveFile() ? parentRowDragOver : undefined,
-                        onDragLeave: allowMoveFile() ? parentRowDragLeave : undefined,
-                        onDrop: allowMoveFile() ? parentRowDrop : undefined,
-                      }}
-                      parentRowAttributes={{
-                        'data-no-window-drag': '',
-                        class: dragOverPath() === '__parent__' ? 'bg-primary/20' : '',
-                        onPointerEnter: () =>
-                          prefetchParentDirectoryHover(prefetchContext(), {
-                            currentPath: currentPath(),
-                            isVirtualFolder: isVirtualFolder(),
-                          }),
-                        onDragOver: allowMoveFile() ? parentRowDragOver : undefined,
-                        onDragLeave: allowMoveFile() ? parentRowDragLeave : undefined,
-                        onDrop: allowMoveFile() ? parentRowDrop : undefined,
-                      }}
-                      fileGridAttributes={(file) => ({
-                        'data-no-window-drag': '',
-                        class: cn(
-                          file.isDirectory && dragOverPath() === file.path ? 'bg-primary/20' : '',
-                          draggedPath() === file.path ? 'opacity-50' : '',
-                        ),
-                        draggable: enableDrag() ? 'true' : 'false',
-                        onPointerEnter: () => prefetchFileRowHover(file),
-                        onContextMenu: (event) => fileRowMenu.openRowContextMenu(event, file),
-                        ...createLongPressContextMenuHandlers(),
-                        onDragStart: (event) => onFileDragStart(file, event),
-                        onDragEnd: onFileDragEnd,
-                        onDragOver: (event) => {
-                          if (!file.isDirectory || !allowMoveFile()) return
-                          onFolderDragOver(file, event)
-                        },
-                        onDragLeave: (event) => {
-                          if (!file.isDirectory || !allowMoveFile()) return
-                          onFolderDragLeave(file, event)
-                        },
-                        onDrop: (event) => {
-                          if (!file.isDirectory || !allowMoveFile()) return
-                          onFolderDrop(file, event)
-                        },
-                      })}
-                      fileRowAttributes={(file) => ({
-                        'data-no-window-drag': '',
-                        class: cn(
-                          file.isDirectory && dragOverPath() === file.path ? 'bg-primary/20' : '',
-                          draggedPath() === file.path ? 'opacity-50' : '',
-                        ),
-                        draggable: enableDrag() ? 'true' : 'false',
-                        onPointerEnter: () => prefetchFileRowHover(file),
-                        onContextMenu: (event) => fileRowMenu.openRowContextMenu(event, file),
-                        ...createLongPressContextMenuHandlers(),
-                        onDragStart: (event) => onFileDragStart(file, event),
-                        onDragEnd: onFileDragEnd,
-                        onDragOver: (event) => {
-                          if (!file.isDirectory || !allowMoveFile()) return
-                          handleFolderRowDragOver(file.path, event)
-                        },
-                        onDragLeave: (event) => {
-                          if (!file.isDirectory || !allowMoveFile()) return
-                          handleFolderRowDragLeave(file.path, event)
-                        },
-                        onDrop: (event) => {
-                          if (!file.isDirectory || !allowMoveFile()) return
-                          handleFolderRowDrop(file.path, event)
-                        },
-                      })}
-                      renderGridIcon={(file) =>
-                        gridHeroIcon(
-                          file,
-                          props.fileIconContext(),
-                          virtualEntry(file)?.appearance ?? virtualAppearanceForPath(file.path),
-                        )
-                      }
-                      renderGridDetails={(file) => (
-                        <div class='flex flex-col gap-1 p-3'>
-                          <p class='truncate text-sm font-medium' title={file.name}>
-                            {file.name}
-                          </p>
-                          <div class='flex items-center justify-between gap-2 text-xs text-muted-foreground'>
-                            <span class='truncate'>{virtualEntrySubtitle(virtualEntry(file))}</span>
-                            <span>
-                              {virtualFileSizeVisible(file, virtualEntry(file))
-                                ? formatFileSize(file.size)
-                                : ''}
-                            </span>
-                          </div>
-                        </div>
-                      )}
-                      renderListIcon={(file) =>
-                        fileItemIcon(
-                          file,
-                          props.fileIconContext(),
-                          'md',
-                          virtualEntry(file)?.appearance ?? virtualAppearanceForPath(file.path),
-                        )
-                      }
-                      renderListName={(file) => (
-                        <div class='min-w-0'>
-                          <div class='truncate'>{file.name}</div>
-                          <Show when={virtualEntrySubtitle(virtualEntry(file))}>
-                            <div class='truncate text-[11px] font-normal text-muted-foreground'>
-                              {virtualEntrySubtitle(virtualEntry(file))}
-                            </div>
-                          </Show>
-                        </div>
-                      )}
-                      renderListSize={(file) => (
-                        <span class='inline-block w-20 tabular-nums'>
-                          {virtualFileSizeVisible(file, virtualEntry(file))
-                            ? formatFileSize(file.size)
-                            : ''}
-                        </span>
-                      )}
-                    />
-                  </Show>
-                </>
-              }
+      <>
+        <Show when={unsupportedFile()} keyed>
+          {(file) => (
+            <div
+              data-no-window-drag
+              class='bg-background/85 absolute inset-0 z-20 flex items-center justify-center p-4 backdrop-blur-sm'
+              role='presentation'
+              onClick={(e) => e.target === e.currentTarget && setUnsupportedFile(null)}
             >
-              <KbSearchResults
-                results={kbSearchResults()}
-                query={debouncedSearch()}
-                isLoading={kbSearchLoading()}
-                currentPath={currentPath()}
-                onResultClick={handleKbResultClickFromSearch}
-              />
-            </Show>
-          </div>
-
-          <Show when={showInlineCreate()}>
-            <KbInlineCreateFooter
-              noWindowDrag
-              inlineMode={inlineMode}
-              setInlineMode={setInlineMode}
-              inlineName={inlineName}
-              setInlineName={setInlineName}
-              inlineFileExists={inlineFileExists}
-              inlineFolderExists={inlineFolderExists}
-              createFilePending={() => createFileMutation.isPending}
-              createFileIsError={() => createFileMutation.isError}
-              createFileError={() => createFileMutation.error as Error | undefined}
-              createFolderPending={() => createFolderMutation.isPending}
-              createFolderIsError={() => createFolderMutation.isError}
-              createFolderError={() => createFolderMutation.error as Error | undefined}
-              submitInlineFile={submitInlineFile}
-              submitInlineFolder={submitInlineFolder}
-              resetInlineCreate={resetInlineCreate}
-              onFileInputRef={(el) => {
-                inlineFileInputEl = el
-              }}
-              onFolderInputRef={(el) => {
-                inlineFolderInputEl = el
-              }}
-            />
-          </Show>
-
-          <Show when={externalUploadDragOver()}>
-            <div class='pointer-events-none absolute inset-0 z-50 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-primary/10'>
-              <div class='text-primary flex flex-col items-center gap-2'>
-                <Upload class='h-10 w-10' stroke-width={2} />
-                <span class='text-lg font-medium'>Drop files to upload</span>
+              <div
+                class='bg-card border-border w-full max-w-sm rounded-lg border p-6 shadow-lg'
+                role='dialog'
+                aria-modal='true'
+                onClick={(e) => e.stopPropagation()}
+              >
+                <p class='text-muted-foreground mb-4 text-center text-sm'>
+                  This file type cannot be previewed.
+                </p>
+                <a
+                  href={unsupportedDownloadHref(file)}
+                  download={file.name}
+                  class='bg-primary text-primary-foreground hover:bg-primary/90 inline-flex h-9 w-full items-center justify-center rounded-md px-4 text-sm font-medium shadow-sm'
+                >
+                  Download File
+                </a>
               </div>
             </div>
-          </Show>
+          )}
+        </Show>
 
-          <Show when={unsupportedFile()} keyed>
-            {(file) => (
+        <Show when={virtualDetail()}>
+          {(getDetail) => (
+            <div
+              data-no-window-drag
+              class='absolute inset-0 z-50 flex items-center justify-center bg-black/45 p-4'
+              role='presentation'
+              onClick={() => setVirtualDetail(null)}
+            >
               <div
-                data-no-window-drag
-                class='bg-background/85 absolute inset-0 z-20 flex items-center justify-center p-4 backdrop-blur-sm'
-                role='presentation'
-                onClick={(e) => e.target === e.currentTarget && setUnsupportedFile(null)}
+                role='dialog'
+                aria-modal='true'
+                class='max-h-[85%] w-full max-w-2xl overflow-auto rounded-lg border border-border bg-card p-5 text-card-foreground shadow-xl'
+                onClick={(event) => event.stopPropagation()}
               >
-                <div
-                  class='bg-card border-border w-full max-w-sm rounded-lg border p-6 shadow-lg'
-                  role='dialog'
-                  aria-modal='true'
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <p class='text-muted-foreground mb-4 text-center text-sm'>
-                    This file type cannot be previewed.
-                  </p>
-                  <a
-                    href={unsupportedDownloadHref(file)}
-                    download={file.name}
-                    class='bg-primary text-primary-foreground hover:bg-primary/90 inline-flex h-9 w-full items-center justify-center rounded-md px-4 text-sm font-medium shadow-sm'
-                  >
-                    Download File
-                  </a>
-                </div>
-              </div>
-            )}
-          </Show>
-
-          <DirectoryBackgroundContextMenu
-            menu={directoryBackgroundMenu}
-            onDismiss={() => setDirectoryBackgroundMenu(null)}
-            onNewFile={openCreateFileDialog}
-            onNewFolder={openCreateFolderDialog}
-          />
-
-          <Show when={virtualDetail()}>
-            {(getDetail) => (
-              <div
-                data-no-window-drag
-                class='absolute inset-0 z-50 flex items-center justify-center bg-black/45 p-4'
-                role='presentation'
-                onClick={() => setVirtualDetail(null)}
-              >
-                <div
-                  role='dialog'
-                  aria-modal='true'
-                  class='max-h-[85%] w-full max-w-2xl overflow-auto rounded-lg border border-border bg-card p-5 text-card-foreground shadow-xl'
-                  onClick={(event) => event.stopPropagation()}
-                >
-                  <div class='flex items-start justify-between gap-3'>
-                    <div>
-                      <h2 class='text-lg font-semibold'>{getDetail().file.name}</h2>
-                      <p class='text-xs text-muted-foreground'>
-                        {getDetail().entry.archived
-                          ? 'Archived · read-only'
-                          : 'Read-only Stage 1 session detail'}
-                      </p>
-                    </div>
-                    <button
-                      type='button'
-                      class='rounded border border-input px-3 py-1 text-sm'
-                      onClick={() => setVirtualDetail(null)}
-                    >
-                      Close
-                    </button>
+                <div class='flex items-start justify-between gap-3'>
+                  <div>
+                    <h2 class='text-lg font-semibold'>{getDetail().file.name}</h2>
+                    <p class='text-xs text-muted-foreground'>
+                      {getDetail().entry.archived
+                        ? 'Archived · read-only'
+                        : 'Read-only Stage 1 session detail'}
+                    </p>
                   </div>
-                  <Show when={getDetail().entry.kind === 'draft'}>
-                    <p class='mt-5 text-sm text-muted-foreground'>
-                      Untouched draft. Interactive composer arrives in Stage 2.
-                    </p>
-                  </Show>
-                  <Show when={virtualDetailQuery.isPending}>
-                    <p class='mt-5 text-sm text-muted-foreground'>Loading transcript…</p>
-                  </Show>
-                  <Show when={virtualDetailQuery.isError}>
-                    <p class='text-destructive mt-5 text-sm'>
-                      {(virtualDetailQuery.error as Error)?.message}
-                    </p>
-                  </Show>
-                  <Show when={virtualDetailQuery.data}>
-                    {(data) => (
-                      <pre class='mt-5 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-3 text-xs'>
-                        {JSON.stringify(data().messages, null, 2)}
-                      </pre>
-                    )}
-                  </Show>
-                </div>
-              </div>
-            )}
-          </Show>
-
-          <Show when={virtualActionDialog()}>
-            {(dialog) => (
-              <div
-                data-no-window-drag
-                class={modalDialogBackdropClass('window')}
-                role='presentation'
-                onClick={() => setVirtualActionDialog(null)}
-              >
-                <div
-                  role='dialog'
-                  aria-modal='true'
-                  aria-labelledby='hermes-virtual-action-title'
-                  class='w-full max-w-sm rounded-lg border border-border bg-card p-4 shadow-lg'
-                  onClick={(event) => event.stopPropagation()}
-                >
-                  <h2 id='hermes-virtual-action-title' class='text-base font-semibold'>
-                    {dialog().action === 'moveToProject'
-                      ? 'Move to Hermes project'
-                      : dialog().action === 'addProjectFolder'
-                        ? 'Add gateway directory'
-                        : dialog().action === 'removeProjectFolder'
-                          ? 'Remove gateway directory'
-                          : dialog().action === 'setPrimaryFolder'
-                            ? 'Set primary directory'
-                            : 'Project appearance'}
-                  </h2>
-                  <Show when={dialog().action === 'moveToProject'}>
-                    <p class='mt-1 truncate text-xs text-muted-foreground'>
-                      {dialog().file.name} will use destination project cwd.
-                    </p>
-                    <select
-                      class='mt-3 h-9 w-full rounded-md border border-input bg-background px-2 text-sm'
-                      value={virtualActionValue()}
-                      disabled={virtualProjectChoicesLoading() || !virtualProjectChoices().length}
-                      onChange={(event) => setVirtualActionValue(event.currentTarget.value)}
-                    >
-                      <For each={virtualProjectChoices()}>
-                        {(project) => <option value={project.name}>{project.name}</option>}
-                      </For>
-                    </select>
-                    <Show when={!virtualProjectChoicesLoading() && !virtualProjectChoices().length}>
-                      <p class='mt-2 text-xs text-muted-foreground'>
-                        No destination projects available.
-                      </p>
-                    </Show>
-                  </Show>
-                  <Show when={dialog().action === 'addProjectFolder'}>
-                    <input
-                      autofocus
-                      class='mt-3 h-9 w-full rounded-md border border-input bg-background px-2.5 text-sm'
-                      placeholder='Existing gateway directory path'
-                      value={virtualActionValue()}
-                      onInput={(event) => setVirtualActionValue(event.currentTarget.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter') submitVirtualActionDialog()
-                      }}
-                    />
-                  </Show>
-                  <Show
-                    when={
-                      dialog().action === 'removeProjectFolder' ||
-                      dialog().action === 'setPrimaryFolder'
-                    }
+                  <button
+                    type='button'
+                    class='rounded border border-input px-3 py-1 text-sm'
+                    onClick={() => setVirtualDetail(null)}
                   >
-                    <select
-                      class='mt-3 h-9 w-full rounded-md border border-input bg-background px-2 text-sm'
-                      value={virtualActionValue()}
-                      onChange={(event) => setVirtualActionValue(event.currentTarget.value)}
-                    >
-                      <For each={virtualProjectFolders(dialog().entry)}>
-                        {(folder) => <option value={folder}>{folder}</option>}
-                      </For>
-                    </select>
-                    <Show when={!virtualProjectFolders(dialog().entry).length}>
-                      <p class='mt-2 text-xs text-muted-foreground'>
-                        Project has no gateway directories.
-                      </p>
-                    </Show>
+                    Close
+                  </button>
+                </div>
+                <Show when={getDetail().entry.kind === 'draft'}>
+                  <p class='mt-5 text-sm text-muted-foreground'>
+                    Untouched draft. Interactive composer arrives in Stage 2.
+                  </p>
+                </Show>
+                <Show when={virtualDetailQuery.isPending}>
+                  <p class='mt-5 text-sm text-muted-foreground'>Loading transcript…</p>
+                </Show>
+                <Show when={virtualDetailQuery.isError}>
+                  <p class='text-destructive mt-5 text-sm'>
+                    {(virtualDetailQuery.error as Error)?.message}
+                  </p>
+                </Show>
+                <Show when={virtualDetailQuery.data}>
+                  {(data) => (
+                    <pre class='mt-5 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-3 text-xs'>
+                      {JSON.stringify(data().messages, null, 2)}
+                    </pre>
+                  )}
+                </Show>
+              </div>
+            </div>
+          )}
+        </Show>
+
+        <Show when={virtualActionDialog()}>
+          {(dialog) => (
+            <div
+              data-no-window-drag
+              class={modalDialogBackdropClass('window')}
+              role='presentation'
+              onClick={() => setVirtualActionDialog(null)}
+            >
+              <div
+                role='dialog'
+                aria-modal='true'
+                aria-labelledby='hermes-virtual-action-title'
+                class='w-full max-w-sm rounded-lg border border-border bg-card p-4 shadow-lg'
+                onClick={(event) => event.stopPropagation()}
+              >
+                <h2 id='hermes-virtual-action-title' class='text-base font-semibold'>
+                  {dialog().action === 'moveToProject'
+                    ? 'Move to Hermes project'
+                    : dialog().action === 'addProjectFolder'
+                      ? 'Add gateway directory'
+                      : dialog().action === 'removeProjectFolder'
+                        ? 'Remove gateway directory'
+                        : dialog().action === 'setPrimaryFolder'
+                          ? 'Set primary directory'
+                          : 'Project appearance'}
+                </h2>
+                <Show when={dialog().action === 'moveToProject'}>
+                  <p class='mt-1 truncate text-xs text-muted-foreground'>
+                    {dialog().file.name} will use destination project cwd.
+                  </p>
+                  <select
+                    class='mt-3 h-9 w-full rounded-md border border-input bg-background px-2 text-sm'
+                    value={virtualActionValue()}
+                    disabled={virtualProjectChoicesLoading() || !virtualProjectChoices().length}
+                    onChange={(event) => setVirtualActionValue(event.currentTarget.value)}
+                  >
+                    <For each={virtualProjectChoices()}>
+                      {(project) => <option value={project.name}>{project.name}</option>}
+                    </For>
+                  </select>
+                  <Show when={!virtualProjectChoicesLoading() && !virtualProjectChoices().length}>
+                    <p class='mt-2 text-xs text-muted-foreground'>
+                      No destination projects available.
+                    </p>
                   </Show>
-                  <Show when={dialog().action === 'setAppearance'}>
-                    <div class='mt-3 grid max-h-36 grid-cols-8 gap-1 overflow-y-auto'>
-                      <For each={SOLID_AVAILABLE_ICONS}>
-                        {(item) => (
-                          <button
-                            type='button'
-                            title={item.name}
-                            aria-label={item.name}
-                            class={cn(
-                              'flex h-8 w-8 items-center justify-center rounded-md border',
-                              virtualAppearanceIcon() === item.name
-                                ? 'border-primary bg-primary/10 text-primary'
-                                : 'border-transparent text-muted-foreground hover:bg-muted',
-                            )}
-                            onClick={() => setVirtualAppearanceIcon(item.name)}
-                          >
-                            <item.Icon class='h-4 w-4' />
-                          </button>
-                        )}
-                      </For>
-                    </div>
-                    <label class='mt-3 flex items-center justify-between gap-3 text-xs text-muted-foreground'>
-                      <span>Accent color</span>
-                      <span class='flex items-center gap-2'>
-                        <input
-                          type='color'
-                          aria-label='Project accent color'
-                          class='h-8 w-10 cursor-pointer rounded border border-input bg-background p-1'
-                          value={virtualAppearanceColor() || '#8b5cf6'}
-                          onInput={(event) => setVirtualAppearanceColor(event.currentTarget.value)}
-                        />
+                </Show>
+                <Show when={dialog().action === 'addProjectFolder'}>
+                  <input
+                    autofocus
+                    class='mt-3 h-9 w-full rounded-md border border-input bg-background px-2.5 text-sm'
+                    placeholder='Existing gateway directory path'
+                    value={virtualActionValue()}
+                    onInput={(event) => setVirtualActionValue(event.currentTarget.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') submitVirtualActionDialog()
+                    }}
+                  />
+                </Show>
+                <Show
+                  when={
+                    dialog().action === 'removeProjectFolder' ||
+                    dialog().action === 'setPrimaryFolder'
+                  }
+                >
+                  <select
+                    class='mt-3 h-9 w-full rounded-md border border-input bg-background px-2 text-sm'
+                    value={virtualActionValue()}
+                    onChange={(event) => setVirtualActionValue(event.currentTarget.value)}
+                  >
+                    <For each={virtualProjectFolders(dialog().entry)}>
+                      {(folder) => <option value={folder}>{folder}</option>}
+                    </For>
+                  </select>
+                  <Show when={!virtualProjectFolders(dialog().entry).length}>
+                    <p class='mt-2 text-xs text-muted-foreground'>
+                      Project has no gateway directories.
+                    </p>
+                  </Show>
+                </Show>
+                <Show when={dialog().action === 'setAppearance'}>
+                  <div class='mt-3 grid max-h-36 grid-cols-8 gap-1 overflow-y-auto'>
+                    <For each={SOLID_AVAILABLE_ICONS}>
+                      {(item) => (
                         <button
                           type='button'
-                          class='rounded border border-input px-2 py-1 text-foreground'
-                          onClick={() => setVirtualAppearanceColor('')}
+                          title={item.name}
+                          aria-label={item.name}
+                          class={cn(
+                            'flex h-8 w-8 items-center justify-center rounded-md border',
+                            virtualAppearanceIcon() === item.name
+                              ? 'border-primary bg-primary/10 text-primary'
+                              : 'border-transparent text-muted-foreground hover:bg-muted',
+                          )}
+                          onClick={() => setVirtualAppearanceIcon(item.name)}
                         >
-                          Default
+                          <item.Icon class='h-4 w-4' />
                         </button>
-                      </span>
-                    </label>
-                  </Show>
-                  <Show when={virtualActionMutation.isError}>
-                    <p class='mt-2 text-xs text-destructive'>
-                      {(virtualActionMutation.error as Error)?.message ?? 'Hermes action failed'}
-                    </p>
-                  </Show>
-                  <div class='mt-4 flex justify-end gap-2'>
-                    <button
-                      type='button'
-                      class='h-8 rounded-md border border-input px-3 text-sm'
-                      onClick={() => setVirtualActionDialog(null)}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type='button'
-                      class='h-8 rounded-md bg-primary px-3 text-sm text-primary-foreground disabled:opacity-50'
-                      disabled={
-                        virtualActionMutation.isPending ||
-                        (dialog().action !== 'setAppearance' && !virtualActionValue().trim())
-                      }
-                      onClick={submitVirtualActionDialog}
-                    >
-                      {virtualActionMutation.isPending
-                        ? 'Saving…'
-                        : dialog().action === 'moveToProject'
-                          ? 'Move'
-                          : 'Save'}
-                    </button>
+                      )}
+                    </For>
                   </div>
+                  <label class='mt-3 flex items-center justify-between gap-3 text-xs text-muted-foreground'>
+                    <span>Accent color</span>
+                    <span class='flex items-center gap-2'>
+                      <input
+                        type='color'
+                        aria-label='Project accent color'
+                        class='h-8 w-10 cursor-pointer rounded border border-input bg-background p-1'
+                        value={virtualAppearanceColor() || '#8b5cf6'}
+                        onInput={(event) => setVirtualAppearanceColor(event.currentTarget.value)}
+                      />
+                      <button
+                        type='button'
+                        class='rounded border border-input px-2 py-1 text-foreground'
+                        onClick={() => setVirtualAppearanceColor('')}
+                      >
+                        Default
+                      </button>
+                    </span>
+                  </label>
+                </Show>
+                <Show when={virtualActionMutation.isError}>
+                  <p class='mt-2 text-xs text-destructive'>
+                    {(virtualActionMutation.error as Error)?.message ?? 'Hermes action failed'}
+                  </p>
+                </Show>
+                <div class='mt-4 flex justify-end gap-2'>
+                  <button
+                    type='button'
+                    class='h-8 rounded-md border border-input px-3 text-sm'
+                    onClick={() => setVirtualActionDialog(null)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type='button'
+                    class='h-8 rounded-md bg-primary px-3 text-sm text-primary-foreground disabled:opacity-50'
+                    disabled={
+                      virtualActionMutation.isPending ||
+                      (dialog().action !== 'setAppearance' && !virtualActionValue().trim())
+                    }
+                    onClick={submitVirtualActionDialog}
+                  >
+                    {virtualActionMutation.isPending
+                      ? 'Saving…'
+                      : dialog().action === 'moveToProject'
+                        ? 'Move'
+                        : 'Save'}
+                  </button>
                 </div>
               </div>
-            )}
-          </Show>
+            </div>
+          )}
+        </Show>
 
-          <BrowserWindowModalLayer
-            iconEditTarget={iconEditTarget}
-            setIconEditTarget={setIconEditTarget}
-            customIcons={customIcons}
-            onSaveCustomIcon={handleSaveCustomIcon}
-            setCustomIconPending={setCustomIconMutation.isPending}
-            removeCustomIconPending={removeCustomIconMutation.isPending}
-            breadcrumbMenu={breadcrumbMenu}
-            setBreadcrumbMenu={setBreadcrumbFolderMenu}
-            breadcrumbMenuActions={breadcrumbMenuActions}
-            onBreadcrumbOpenInNewTab={handleBreadcrumbOpenInNewTab}
-            onBreadcrumbOpenInOtherSurface={handleBreadcrumbOpenInOtherSurface}
-            otherSurfaceLabel='Open in Media Server'
-            onBreadcrumbSetIcon={handleBreadcrumbSetIcon}
-            fileRowMenu={fileRowMenu}
-            editableFoldersList={props.editableFolders}
-            isContextDirEditable={isContextDirEditable}
-            onAddToTaskbar={props.onAddToTaskbar}
-            onFileRowRename={isContextDirEditable() ? openContextRename : undefined}
-            onFileRowMove={isContextDirEditable() ? openContextMove : undefined}
-            onSetRowIcon={(f) => setIconEditTarget(f)}
-            onOpenInNewTabFromRow={props.onOpenInNewTab ? openInNewTabFromRow : undefined}
-            openInNewTabLabel={props.openInNewTabLabel}
-            showOpenInNewTabForFiles={!!props.onOpenInNewTab}
-            onOpenInSplitViewFromRow={props.onOpenInSplitView ? openInSplitViewFromRow : undefined}
-            onOpenInOtherSurface={openDirectoryInOtherSurface}
-            onOpenWithBrowser={openWithBrowser}
-            onOpenWithReader={openWithReader}
-            onContextDownload={handleContextDownload}
-            getVirtualEntry={virtualEntry}
-            onVirtualAction={handleVirtualAction}
-            onContextToggleKnowledgeBase={handleContextToggleKnowledgeBase}
-            isRowKnowledgeBase={isRowKnowledgeBase}
-            showRename={showRename}
-            renamingItem={renamingItem}
-            renameNewName={renameNewName}
-            setRenameNewName={setRenameNewName}
-            submitRename={submitRename}
-            cancelRename={cancelRename}
-            renamePending={renameMutation.isPending || virtualActionMutation.isPending}
-            renameError={(renameMutation.error ?? virtualActionMutation.error) as Error | undefined}
-            renameTargetExists={renameTargetExists}
-            moveTarget={moveTarget}
-            closeMoveDialog={closeMoveDialog}
-            moveDialogFilePath={moveDialogFilePath}
-            confirmMoveTo={confirmMoveTo}
-            movePending={moveMutation.isPending}
-            moveError={moveMutation.error as Error | undefined}
-            onPickNewTabTarget={
-              fileOpenMode() === 'new-tab' && props.onBeginFileOpenTargetPick
-                ? () => props.onBeginFileOpenTargetPick?.()
+        <BrowserWindowModalLayer
+          iconEditTarget={iconEditTarget}
+          setIconEditTarget={setIconEditTarget}
+          customIcons={customIcons}
+          onSaveCustomIcon={handleSaveCustomIcon}
+          setCustomIconPending={setCustomIconMutation.isPending}
+          removeCustomIconPending={removeCustomIconMutation.isPending}
+          breadcrumbMenu={breadcrumbMenu}
+          setBreadcrumbMenu={setBreadcrumbFolderMenu}
+          breadcrumbMenuActions={breadcrumbMenuActions}
+          onBreadcrumbOpenInNewTab={handleBreadcrumbOpenInNewTab}
+          onBreadcrumbOpenInOtherSurface={handleBreadcrumbOpenInOtherSurface}
+          otherSurfaceLabel='Open in Media Server'
+          onBreadcrumbSetIcon={handleBreadcrumbSetIcon}
+          fileRowMenu={fileRowMenu}
+          editableFoldersList={props.editableFolders}
+          isContextDirEditable={isContextDirEditable}
+          onAddToTaskbar={props.onAddToTaskbar}
+          onFileRowRename={isContextDirEditable() ? openContextRename : undefined}
+          onFileRowMove={isContextDirEditable() ? openContextMove : undefined}
+          onSetRowIcon={(f) => setIconEditTarget(f)}
+          onOpenInNewTabFromRow={props.onOpenInNewTab ? openInNewTabFromRow : undefined}
+          openInNewTabLabel={props.openInNewTabLabel}
+          showOpenInNewTabForFiles={!!props.onOpenInNewTab}
+          onOpenInSplitViewFromRow={props.onOpenInSplitView ? openInSplitViewFromRow : undefined}
+          onOpenInOtherSurface={openDirectoryInOtherSurface}
+          onOpenWithBrowser={openWithBrowser}
+          onOpenWithReader={openWithReader}
+          onContextDownload={handleContextDownload}
+          getVirtualEntry={virtualEntry}
+          onVirtualAction={handleVirtualAction}
+          onContextToggleKnowledgeBase={handleContextToggleKnowledgeBase}
+          isRowKnowledgeBase={isRowKnowledgeBase}
+          showRename={showRename}
+          renamingItem={renamingItem}
+          renameNewName={renameNewName}
+          setRenameNewName={setRenameNewName}
+          submitRename={submitRename}
+          cancelRename={cancelRename}
+          renamePending={renameMutation.isPending || virtualActionMutation.isPending}
+          renameError={(renameMutation.error ?? virtualActionMutation.error) as Error | undefined}
+          renameTargetExists={renameTargetExists}
+          moveTarget={moveTarget}
+          closeMoveDialog={closeMoveDialog}
+          moveDialogFilePath={moveDialogFilePath}
+          confirmMoveTo={confirmMoveTo}
+          movePending={moveMutation.isPending}
+          moveError={moveMutation.error as Error | undefined}
+          onPickNewTabTarget={
+            fileOpenMode() === 'new-tab' && props.onBeginFileOpenTargetPick
+              ? () => props.onBeginFileOpenTargetPick?.()
+              : undefined
+          }
+          defaultFileOpen={fileOpenMode}
+          onOpenFileInNewWindow={
+            props.onOpenFileInNewFloatingWindow ? openFileInNewWindowFromRow : undefined
+          }
+          deleteTarget={deleteTarget}
+          setDeleteTarget={(value) => {
+            setDeleteTarget(value)
+            if (!value) setVirtualDeleteAction(null)
+          }}
+          deletePending={deleteMutation.isPending || virtualActionMutation.isPending}
+          deleteTitle={
+            virtualDeleteAction() === 'deletePermanently'
+              ? 'Delete Session Permanently?'
+              : virtualDeleteAction() === 'deleteProject'
+                ? 'Delete Project?'
                 : undefined
+          }
+          deleteDescription={
+            virtualDeleteAction() === 'deletePermanently'
+              ? 'This permanently deletes the archived Hermes session and cannot be undone.'
+              : virtualDeleteAction() === 'deleteProject'
+                ? 'This removes project metadata only. Directories and sessions are not deleted.'
+                : undefined
+          }
+          deleteConfirmLabel={
+            virtualDeleteAction() === 'deletePermanently'
+              ? 'Delete Permanently'
+              : virtualDeleteAction() === 'deleteProject'
+                ? 'Delete Project'
+                : undefined
+          }
+          onConfirmDelete={() => {
+            const it = deleteTarget()
+            if (!it) return
+            const virtualAction = virtualDeleteAction()
+            if (virtualAction) {
+              void virtualActionMutation
+                .mutateAsync({ action: virtualAction, path: it.path })
+                .then(() => {
+                  setDeleteTarget(null)
+                  setVirtualDeleteAction(null)
+                })
+              return
             }
-            defaultFileOpen={fileOpenMode}
-            onOpenFileInNewWindow={
-              props.onOpenFileInNewFloatingWindow ? openFileInNewWindowFromRow : undefined
-            }
-            deleteTarget={deleteTarget}
-            setDeleteTarget={(value) => {
-              setDeleteTarget(value)
-              if (!value) setVirtualDeleteAction(null)
-            }}
-            deletePending={deleteMutation.isPending || virtualActionMutation.isPending}
-            deleteTitle={
-              virtualDeleteAction() === 'deletePermanently'
-                ? 'Delete Session Permanently?'
-                : virtualDeleteAction() === 'deleteProject'
-                  ? 'Delete Project?'
-                  : undefined
-            }
-            deleteDescription={
-              virtualDeleteAction() === 'deletePermanently'
-                ? 'This permanently deletes the archived Hermes session and cannot be undone.'
-                : virtualDeleteAction() === 'deleteProject'
-                  ? 'This removes project metadata only. Directories and sessions are not deleted.'
-                  : undefined
-            }
-            deleteConfirmLabel={
-              virtualDeleteAction() === 'deletePermanently'
-                ? 'Delete Permanently'
-                : virtualDeleteAction() === 'deleteProject'
-                  ? 'Delete Project'
-                  : undefined
-            }
-            onConfirmDelete={() => {
-              const it = deleteTarget()
-              if (!it) return
-              const virtualAction = virtualDeleteAction()
-              if (virtualAction) {
-                void virtualActionMutation
-                  .mutateAsync({ action: virtualAction, path: it.path })
-                  .then(() => {
-                    setDeleteTarget(null)
-                    setVirtualDeleteAction(null)
-                  })
-                return
-              }
-              void deleteMutation.mutateAsync(it.path).then(() => setDeleteTarget(null))
-            }}
-            showCreateFolder={showCreateFolder}
-            setShowCreateFolder={setShowCreateFolder}
-            newFolderName={newFolderName}
-            setNewFolderName={setNewFolderName}
-            submitCreateFolder={submitCreateFolder}
-            createFolderPending={createFolderMutation.isPending || virtualActionMutation.isPending}
-            createFolderIsError={createFolderMutation.isError || virtualActionMutation.isError}
-            createFolderError={
-              (createFolderMutation.error ?? virtualActionMutation.error) as Error | undefined
-            }
-            folderExists={folderExists}
-            virtualProjectForm={() => hasVirtualCapability(virtualDirectory(), 'createFolder')}
-            projectPrimaryPath={projectPrimaryPath}
-            setProjectPrimaryPath={setProjectPrimaryPath}
-            projectAdditionalPaths={projectAdditionalPaths}
-            setProjectAdditionalPaths={setProjectAdditionalPaths}
-            gatewayPickerPath={gatewayPickerPath}
-            setGatewayPickerPath={setGatewayPickerPath}
-            gatewayDirectoryEntries={() => gatewayDirectoryQuery.data?.entries ?? []}
-            gatewayDirectoryError={() => gatewayDirectoryQuery.data?.error}
-            showCreateFile={showCreateFile}
-            setShowCreateFile={setShowCreateFile}
-            newFileName={newFileName}
-            setNewFileName={setNewFileName}
-            submitCreateFile={submitCreateFile}
-            createFilePending={createFileMutation.isPending}
-            createFileIsError={createFileMutation.isError}
-            createFileError={createFileMutation.error as Error | undefined}
-            fileExists={fileExists}
-            inKb={inKb}
-            showPasteDialog={showPasteDialog}
-            pasteData={pasteData}
-            pastePending={pasteMutation.isPending}
-            pasteError={(pasteMutation.error as Error) ?? null}
-            pasteExistingFiles={pasteExistingFiles}
-            onPasteFileSubmit={handlePasteFileSubmit}
-            closePasteDialog={closePasteDialog}
-            uploadToast={uploadToast}
-            setUploadToastHidden={() => setUploadToast({ kind: 'hidden' })}
-          />
-        </div>
-      </FileExplorerView>
-    </div>
+            void deleteMutation.mutateAsync(it.path).then(() => setDeleteTarget(null))
+          }}
+          showCreateFolder={showCreateFolder}
+          setShowCreateFolder={setShowCreateFolder}
+          newFolderName={newFolderName}
+          setNewFolderName={setNewFolderName}
+          submitCreateFolder={submitCreateFolder}
+          createFolderPending={createFolderMutation.isPending || virtualActionMutation.isPending}
+          createFolderIsError={createFolderMutation.isError || virtualActionMutation.isError}
+          createFolderError={
+            (createFolderMutation.error ?? virtualActionMutation.error) as Error | undefined
+          }
+          folderExists={folderExists}
+          virtualProjectForm={() => hasVirtualCapability(virtualDirectory(), 'createFolder')}
+          projectPrimaryPath={projectPrimaryPath}
+          setProjectPrimaryPath={setProjectPrimaryPath}
+          projectAdditionalPaths={projectAdditionalPaths}
+          setProjectAdditionalPaths={setProjectAdditionalPaths}
+          gatewayPickerPath={gatewayPickerPath}
+          setGatewayPickerPath={setGatewayPickerPath}
+          gatewayDirectoryEntries={() => gatewayDirectoryQuery.data?.entries ?? []}
+          gatewayDirectoryError={() => gatewayDirectoryQuery.data?.error}
+          showCreateFile={showCreateFile}
+          setShowCreateFile={setShowCreateFile}
+          newFileName={newFileName}
+          setNewFileName={setNewFileName}
+          submitCreateFile={submitCreateFile}
+          createFilePending={createFileMutation.isPending}
+          createFileIsError={createFileMutation.isError}
+          createFileError={createFileMutation.error as Error | undefined}
+          fileExists={fileExists}
+          inKb={inKb}
+          showPasteDialog={showPasteDialog}
+          pasteData={pasteData}
+          pastePending={pasteMutation.isPending}
+          pasteError={(pasteMutation.error as Error) ?? null}
+          pasteExistingFiles={pasteExistingFiles}
+          onPasteFileSubmit={handlePasteFileSubmit}
+          closePasteDialog={closePasteDialog}
+          uploadToast={uploadToast}
+          setUploadToastHidden={setUploadToastHidden}
+        />
+      </>
+    </FileBrowserSurface>
   )
 }
