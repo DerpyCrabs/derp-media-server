@@ -213,6 +213,37 @@ test.describe('Tab Merging and Splitting', () => {
     await expect(tabs.first()).toBeVisible()
   })
 
+  test('previews end merge immediately after last tab', async () => {
+    await gotoWorkspace(page)
+    await openBrowserWindow(page)
+
+    const groups = getWindowGroups(page)
+    const sourceHandle = getDragHandle(groups.nth(1))
+    const targetGroup = groups.first()
+    const targetStrip = targetGroup.locator('.workspace-tab-strip')
+    const lastTab = workspaceTabs(targetStrip).last()
+    const sourceBox = await sourceHandle.boundingBox()
+    const stripBox = await targetStrip.boundingBox()
+    const lastTabBox = await lastTab.boundingBox()
+    if (!sourceBox || !stripBox || !lastTabBox)
+      throw new Error('Merge preview geometry unavailable')
+
+    await page.mouse.move(sourceBox.x + sourceBox.width / 2, sourceBox.y + sourceBox.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(stripBox.x + stripBox.width - 6, stripBox.y + stripBox.height / 2, {
+      steps: 10,
+    })
+
+    const preview = targetStrip.locator('[data-tab-drop-slot][data-merge-highlight]')
+    await expect(preview).toHaveCount(1)
+    const previewBox = await preview.boundingBox()
+    if (!previewBox) throw new Error('Merge preview is not laid out')
+    expect(previewBox.x).toBeGreaterThanOrEqual(lastTabBox.x + lastTabBox.width - 2)
+    expect(previewBox.x).toBeLessThan(lastTabBox.x + lastTabBox.width + 4)
+
+    await page.mouse.up()
+  })
+
   test('shows correct tab count in taskbar after merge', async () => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)

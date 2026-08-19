@@ -627,8 +627,6 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
                 )
               }}
             </For>
-          </div>
-          <div class='relative flex h-full w-3 shrink-0 items-stretch justify-center'>
             <TabStripDropSlot
               groupId={props.groupId}
               groupSlotIndex={endGroupSlotIndex()}
@@ -640,6 +638,8 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
               onSlotDragLeave={handleSlotDragLeave}
               onSlotDrop={handleSlotDrop}
             />
+          </div>
+          <div class='relative flex h-full w-3 shrink-0 items-stretch justify-center'>
             <Show when={overflow().right}>
               <button
                 type='button'
