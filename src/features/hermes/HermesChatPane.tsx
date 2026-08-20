@@ -59,6 +59,13 @@ export function HermesChatPane(props: {
   const state = () => hermesSessions[key()]
   const owner = () => props.window()?.id ?? key()
   const ownsEditor = () => !state()?.editorOwner || state()?.editorOwner === owner()
+  function claimCurrentEditor() {
+    const claimKey = key()
+    const claimOwner = owner()
+    return claimHermesEditor(claimKey, claimOwner, {
+      isAlive: () => !disposed && key() === claimKey && owner() === claimOwner,
+    })
+  }
   const [decisionAnswer, setDecisionAnswer] = createSignal('')
   const [recording, setRecording] = createSignal(false)
   const [microphoneDenied, setMicrophoneDenied] = createSignal(false)
@@ -229,10 +236,17 @@ export function HermesChatPane(props: {
   createEffect(
     () => ({ currentKey: key(), currentOwner: owner() }),
     ({ currentKey, currentOwner }) => {
+      let alive = true
       untrack(() => {
-        if (!hermesSessions[currentKey]?.editorOwner) claimHermesEditor(currentKey, currentOwner)
+        if (!hermesSessions[currentKey]?.editorOwner)
+          void claimHermesEditor(currentKey, currentOwner, {
+            isAlive: () => alive && !disposed && key() === currentKey && owner() === currentOwner,
+          })
       })
-      return () => releaseHermesEditor(currentKey, currentOwner)
+      return () => {
+        alive = false
+        releaseHermesEditor(currentKey, currentOwner)
+      }
     },
   )
   createEffect(
@@ -271,7 +285,7 @@ export function HermesChatPane(props: {
   )
 
   async function submit(takeover = false) {
-    if (!claimHermesEditor(key(), owner())) return
+    if (!(await claimCurrentEditor())) return
     const command = state()?.composer.trim() ?? ''
     const unsupported = unsupportedHermesCommand(command)
     if (unsupported) {
@@ -749,7 +763,7 @@ export function HermesChatPane(props: {
               value={state()?.composer ?? ''}
               placeholder='Message Hermes…'
               disabled={!ownsEditor() || state()?.connection !== 'connected'}
-              onFocus={() => claimHermesEditor(key(), owner())}
+              onFocus={() => void claimCurrentEditor()}
               onInput={(event) => {
                 setHermesComposer(key(), event.currentTarget.value)
                 setPromptHistoryIndex(-1)
@@ -925,7 +939,7 @@ export function HermesChatPane(props: {
             <Show when={!ownsEditor()}>
               <button
                 class='rounded-md border border-border px-3 py-1.5 text-xs'
-                onClick={() => claimHermesEditor(key(), owner())}
+                onClick={() => void claimCurrentEditor()}
               >
                 Take editing control
               </button>

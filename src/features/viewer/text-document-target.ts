@@ -12,10 +12,6 @@ export function textDocumentTargetKey(target: TextDocumentTarget): string {
   return JSON.stringify(['admin', target.viewingPath])
 }
 
-export function textDocumentDraftScope(_target: TextDocumentTarget): string {
-  return 'admin'
-}
-
 export function enqueueTextDocumentSave<T>(
   target: TextDocumentTarget,
   task: () => Promise<T>,

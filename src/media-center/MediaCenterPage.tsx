@@ -44,7 +44,7 @@ import { useBrowserViewModeStore } from '@/features/explorer/browser-view-mode-s
 import { openInReader } from '@/features/reader/reader-url'
 import { useViewStats } from '@/features/explorer/use-view-stats'
 import { useDeferredLoading } from '@/lib/ui/use-deferred-loading'
-import { playFile, viewFile } from '@/lib/browser/url-state-actions'
+import { applyPathMutationToUrl, playFile, viewFile } from '@/lib/browser/url-state-actions'
 import { FileSearchButton } from '@/features/explorer/FileSearchPalette'
 import { fileSearchResultToFileItem, type FileSearchResult } from '@/lib/files/file-search'
 import {
@@ -64,7 +64,7 @@ export function MediaCenterPage() {
   const queryClient = useQueryClient()
   const playbackSession = usePlaybackSession()
   const playbackSnapshot = usePlaybackSnapshot()
-  useAdminEventsStream()
+  useAdminEventsStream(true, applyPathMutationToUrl)
 
   const currentPath = createMemo(() => urlSearchParams().get('dir') ?? '')
 

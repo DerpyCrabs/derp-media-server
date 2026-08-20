@@ -712,7 +712,7 @@ test.describe('Workspace Text Viewer', () => {
     }
   })
 
-  test('serializes rapid Ctrl+S saves and persists the latest Markdown exactly', async () => {
+  test('coalesces rapid Ctrl+S saves and persists the latest Markdown exactly', async () => {
     const { fileName, filePath } = uniqueWorkspaceMarkdownPath('workspace-save-order')
     const initial = '# Save ordering\n\nInitial.\n'
     const first = '# Save ordering\n\nFirst queued save.\n'
@@ -767,9 +767,9 @@ test.describe('Workspace Text Viewer', () => {
       expect(targetRequestCount).toBe(1)
 
       releaseFirstSave()
-      await expect.poll(() => completedTargetRequestCount).toBe(3)
+      await expect.poll(() => completedTargetRequestCount).toBe(2)
       await expect.poll(() => readWorkspaceMarkdown(filePath)).toBe(latest)
-      expect(await copyMarkdownSource(page, editor)).toBe(latest)
+      await expect.poll(() => copyMarkdownSource(page, editor)).toBe(latest)
     } finally {
       releaseFirstSave()
       page.off('response', onResponse)
@@ -901,14 +901,24 @@ test.describe('Workspace Text Viewer', () => {
     })
 
     await test.step('switches one CodeMirror document between edit and read modes', async () => {
-      await viewer.getByRole('button', { name: 'Read only' }).click()
+      await Promise.all([
+        page.waitForResponse(
+          (response) => response.url().includes('/api/settings/autoSave') && response.ok(),
+        ),
+        viewer.getByRole('button', { name: 'Read only' }).click(),
+      ])
       await expect(getMarkdownEditor(viewer)).not.toBeVisible()
       const document = getMarkdownDocument(viewer)
       await expect(document).toBeVisible()
       await expect(viewer.locator('.cm-md-heading-1')).toContainText('Todo List')
       await expect(viewer.locator('input[data-markdown-task="read"]').first()).toBeDisabled()
       expect(await copyMarkdownSource(page, document)).toContain('# Todo List')
-      await viewer.getByRole('button', { name: 'Edit', exact: true }).click()
+      await Promise.all([
+        page.waitForResponse(
+          (response) => response.url().includes('/api/settings/autoSave') && response.ok(),
+        ),
+        viewer.getByRole('button', { name: 'Edit', exact: true }).click(),
+      ])
       const editor = getMarkdownEditor(viewer)
       await expect(editor).toBeVisible()
       await editor.press('ArrowRight')

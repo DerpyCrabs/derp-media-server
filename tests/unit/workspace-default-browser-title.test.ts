@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'bun:test'
-import { defaultInitialBrowserTitle } from '@/workspace/page/workspace-page-persistence'
+import { DEFAULT_WORKSPACE_SOURCE } from '@/workspace/model/use-workspace'
+import { defaultPersistedState } from '@/workspace/shared/workspace-page-persistence'
 
-describe('defaultInitialBrowserTitle', () => {
+describe('default browser title', () => {
   test('uses the browser default title', () => {
-    expect(defaultInitialBrowserTitle()).toBe('Browser 1')
+    expect(defaultPersistedState(DEFAULT_WORKSPACE_SOURCE).windows[0]?.title).toBe('Browser 1')
   })
 })

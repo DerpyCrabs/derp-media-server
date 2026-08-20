@@ -4,7 +4,6 @@ import { post } from '@/lib/api/client'
 import {
   createTextDocumentTarget,
   enqueueTextDocumentSave,
-  textDocumentDraftScope,
   textDocumentTargetKey,
   type TextDocumentTarget,
 } from '@/features/viewer/text-document-target'
@@ -13,12 +12,6 @@ import type { GlobalSettings } from '@/lib/models/settings-types'
 import { buildResolveMarkdownImageUrl } from '@/lib/markdown/resolve-markdown-image-url'
 import { tryPasteKnowledgeBaseImage } from '@/features/viewer/handle-kb-image-paste'
 import { isPathEditable } from '@/lib/files/path-utils'
-import {
-  readTextEditorDraft,
-  removeTextEditorDraft,
-  textEditorDraftKey,
-  writeTextEditorDraft,
-} from '@/features/viewer/text-editor-draft'
 import AlertCircle from 'lucide-solid/icons/alert-circle'
 import Download from 'lucide-solid/icons/download'
 import Save from 'lucide-solid/icons/save'
@@ -27,15 +20,17 @@ import ZapOff from 'lucide-solid/icons/zap-off'
 import { Show, createEffect, createMemo, createSignal, onSettled, untrack } from 'solid-js'
 import type { JSX } from '@solidjs/web'
 import { closeViewer } from '@/lib/browser/url-state-actions'
-import { buildAdminMediaUrl } from '@/lib/media/build-media-url'
 import { fileDownloadHref } from '@/lib/files/download-urls'
 import { LazyMarkdownDocument } from '@/lib/markdown/LazyMarkdownDocument'
 import { completeMarkdownImagePaste } from '@/lib/markdown/paste-completion'
+import { showAppAlert } from '@/lib/ui/app-dialog'
 
 type TextSaveQueryKey = ReturnType<typeof queryKeys.textContent>
+type TextDocumentRemote = { content: string; version: string }
 
 type TextSaveVariables = {
   content: string
+  baseVersion: string
   target: TextDocumentTarget
   queryKey: TextSaveQueryKey
 }
@@ -59,7 +54,6 @@ export function TextEditorPane(props: TextEditorPaneProps): JSX.Element {
       post('/api/settings/autoSave', vars),
     onMutate: async (vars) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.settings() })
-      const prev = queryClient.getQueryData<GlobalSettings>(queryKeys.settings())
       queryClient.setQueryData<GlobalSettings>(queryKeys.settings(), (old) => {
         if (!old)
           return {
@@ -69,6 +63,7 @@ export function TextEditorPane(props: TextEditorPaneProps): JSX.Element {
             favorites: [],
             knowledgeBases: [],
             customIcons: {},
+            workspaceTransition: 'fade',
             autoSave: {
               [vars.filePath]: {
                 enabled: vars.enabled,
@@ -87,17 +82,11 @@ export function TextEditorPane(props: TextEditorPaneProps): JSX.Element {
           },
         }
       })
-      return { prev }
-    },
-    onError: (_err, _vars, context) => {
-      if (context?.prev) queryClient.setQueryData(queryKeys.settings(), context.prev)
     },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
     },
   }))
-
-  const mediaUrl = createMemo(() => buildAdminMediaUrl(props.viewingPath))
 
   const currentTextTarget = createMemo(() => createTextDocumentTarget(props.viewingPath))
   const currentTextTargetKey = createMemo(() => textDocumentTargetKey(currentTextTarget()))
@@ -109,10 +98,10 @@ export function TextEditorPane(props: TextEditorPaneProps): JSX.Element {
   const textQuery = useQuery(() => ({
     queryKey: queryKey(),
     queryFn: async () => {
-      const url = mediaUrl()
+      const url = `/api/files/text?path=${encodeURIComponent(currentTextTarget().viewingPath)}`
       const res = await fetch(url)
       if (!res.ok) throw new Error('Failed to load file')
-      return await res.text()
+      return (await res.json()) as TextDocumentRemote
     },
   }))
 
@@ -135,39 +124,22 @@ export function TextEditorPane(props: TextEditorPaneProps): JSX.Element {
   const [readOnlyView, setReadOnlyView] = createSignal(false)
   const [editContent, setEditContent] = createSignal('')
   const [editorBaseContent, setEditorBaseContent] = createSignal('')
-  const [savedContentAwaitingQuery, setSavedContentAwaitingQuery] = createSignal<string | null>(
-    null,
-  )
+  const [baseVersion, setBaseVersion] = createSignal('')
+  const [saveCount, setSaveCount] = createSignal(0)
   const [copied, setCopied] = createSignal(false)
   const [autoSaveError, setAutoSaveError] = createSignal<string | null>(null)
-  const [pendingSaveTargets, setPendingSaveTargets] = createSignal<ReadonlyMap<string, number>>(
-    new Map(),
-  )
 
   let lastDocumentKey = ''
   let hydratedDocumentKey = ''
   let autosaveTimer: ReturnType<typeof setTimeout> | null = null
-
   const isCurrentSaveTarget = (variables: TextSaveVariables) =>
     textDocumentTargetKey(variables.target) === currentTextTargetKey()
-  const currentSavePending = createMemo(
-    () => (pendingSaveTargets().get(currentTextTargetKey()) ?? 0) > 0,
-  )
-
-  const updatePendingSaveCount = (target: TextDocumentTarget, delta: 1 | -1) => {
-    const targetKey = textDocumentTargetKey(target)
-    setPendingSaveTargets((current) => {
-      const next = new Map(current)
-      const count = (next.get(targetKey) ?? 0) + delta
-      if (count > 0) next.set(targetKey, count)
-      else next.delete(targetKey)
-      return next
-    })
-  }
+  const currentSavePending = () => saveCount() > 0
 
   const textSaveVariables = (): TextSaveVariables => {
     return {
       content: editContent(),
+      baseVersion: baseVersion(),
       target: currentTextTarget(),
       queryKey: queryKey(),
     }
@@ -175,20 +147,26 @@ export function TextEditorPane(props: TextEditorPaneProps): JSX.Element {
 
   const saveMutation = useMutation(() => ({
     mutationFn: async (variables: TextSaveVariables) => {
-      updatePendingSaveCount(variables.target, 1)
+      setSaveCount((count) => count + 1)
       try {
         return await enqueueTextDocumentSave(variables.target, async () => {
-          const { content, target } = variables
-          await post('/api/files/edit', { path: target.viewingPath, content })
-          return content
+          const result = await post<{ version: string }>('/api/files/edit', {
+            path: variables.target.viewingPath,
+            content: variables.content,
+            expectedHash: variables.baseVersion,
+          })
+          return { content: variables.content, version: result.version }
         })
       } finally {
-        updatePendingSaveCount(variables.target, -1)
+        setSaveCount((count) => Math.max(0, count - 1))
       }
     },
-    onSuccess: (content: string, variables) => {
-      if (isCurrentSaveTarget(variables)) setSavedContentAwaitingQuery(content)
-      queryClient.setQueryData(variables.queryKey, content)
+    onSuccess: (saved: TextDocumentRemote, variables) => {
+      if (isCurrentSaveTarget(variables)) {
+        setEditorBaseContent(saved.content)
+        setBaseVersion(saved.version)
+      }
+      queryClient.setQueryData(variables.queryKey, saved)
       void queryClient.invalidateQueries({ queryKey: variables.queryKey })
     },
   }))
@@ -203,7 +181,8 @@ export function TextEditorPane(props: TextEditorPaneProps): JSX.Element {
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Failed to save file'
       if (isCurrentSaveTarget(variables)) setAutoSaveError(message)
-      if (!quiet && isCurrentSaveTarget(variables)) window.alert(message)
+      if (!quiet && isCurrentSaveTarget(variables))
+        void showAppAlert(message, 'Could not save file')
     }
   }
 
@@ -212,79 +191,40 @@ export function TextEditorPane(props: TextEditorPaneProps): JSX.Element {
       const target = currentTextTarget()
       if (!target.viewingPath) return null
       const documentKey = textDocumentTargetKey(target)
-      void textQuery.data
-      const data = queryClient.getQueryData<string>(queryKey())
       return {
         target,
         documentKey,
         readOnly: persistedReadOnly(),
-        data,
-        savedContent: savedContentAwaitingQuery(),
-        editorBase: editorBaseContent(),
-        edit: editContent(),
+        data: textQuery.data,
       }
     },
     (state) => {
       if (!state) return
-      const { target, documentKey, readOnly: pr, data } = state
+      const { documentKey, readOnly: pr, data } = state
       if (documentKey !== lastDocumentKey) {
         lastDocumentKey = documentKey
         hydratedDocumentKey = ''
-        setSavedContentAwaitingQuery(null)
         setReadOnlyView(pr)
         setEditContent('')
         setEditorBaseContent('')
+        setBaseVersion('')
         setCopied(false)
         setAutoSaveError(null)
       }
 
       if (data === undefined) return
-      if (documentKey !== hydratedDocumentKey) {
-        hydratedDocumentKey = documentKey
-        const draft = readTextEditorDraft(
-          textEditorDraftKey(textDocumentDraftScope(target), target.viewingPath),
-        )
-        setEditContent(draft?.content !== data ? (draft?.content ?? data) : data)
-        setEditorBaseContent(data)
-      } else {
-        const savedContent = state.savedContent
-        if (savedContent !== null && data === savedContent) {
-          setEditorBaseContent(savedContent)
-          setSavedContentAwaitingQuery(null)
-        } else if (data !== state.editorBase && state.edit === state.editorBase) {
-          setEditContent(data)
-          setEditorBaseContent(data)
-        }
+      if (documentKey !== hydratedDocumentKey || editContent() === editorBaseContent()) {
+        setEditContent(data.content)
+        setEditorBaseContent(data.content)
+        setBaseVersion(data.version)
       }
+      hydratedDocumentKey = documentKey
     },
   )
 
-  const draftKey = createMemo(() =>
-    textEditorDraftKey(textDocumentDraftScope(currentTextTarget()), props.viewingPath),
-  )
-  const dirty = createMemo(() => editContent() !== editorBaseContent())
-  const conflict = createMemo(
-    () => dirty() && textQuery.data !== undefined && textQuery.data !== editorBaseContent(),
-  )
-
-  createEffect(
-    () => {
-      const key = draftKey()
-      const content = editContent()
-      return {
-        ready: hydratedDocumentKey === currentTextTargetKey(),
-        dirty: dirty(),
-        autoSave: autoSaveEnabled(),
-        key,
-        content,
-      }
-    },
-    ({ ready, dirty: isDirty, autoSave, key, content }) => {
-      if (!ready) return
-      if (isDirty && autoSave) writeTextEditorDraft(key, content)
-      else removeTextEditorDraft(key)
-    },
-  )
+  const dirty = () => editContent() !== editorBaseContent()
+  const conflict = () =>
+    dirty() && textQuery.data !== undefined && textQuery.data.version !== baseVersion()
 
   onSettled(() => {
     const warnIfDirty = (event: BeforeUnloadEvent) => {
@@ -304,15 +244,16 @@ export function TextEditorPane(props: TextEditorPaneProps): JSX.Element {
       readOnly: readOnlyView(),
       autoSave: autoSaveEnabled(),
       hasConflict: conflict(),
+      saving: currentSavePending(),
       edit: editContent(),
       base: editorBaseContent(),
     }),
-    ({ ready, editable, readOnly, autoSave, hasConflict, edit, base }) => {
+    ({ ready, editable, readOnly, autoSave, hasConflict, saving, edit, base }) => {
       if (autosaveTimer) {
         clearTimeout(autosaveTimer)
         autosaveTimer = null
       }
-      if (!ready || !editable || readOnly || !autoSave || hasConflict || edit === base)
+      if (!ready || !editable || readOnly || !autoSave || hasConflict || saving || edit === base)
         return undefined
       autosaveTimer = setTimeout(() => {
         void saveInternal(true)
@@ -368,7 +309,7 @@ export function TextEditorPane(props: TextEditorPaneProps): JSX.Element {
   }
 
   async function handleCopy() {
-    const src = fileEditable() ? editContent() : (textQuery.data ?? '')
+    const src = fileEditable() ? editContent() : (textQuery.data?.content ?? '')
     if (!src) return
     try {
       await navigator.clipboard.writeText(src)
@@ -386,7 +327,8 @@ export function TextEditorPane(props: TextEditorPaneProps): JSX.Element {
 
   const fileName = createMemo(() => props.viewingPath.split(/[/\\]/).pop() || '')
   const showEditor = createMemo(() => fileEditable() && !readOnlyView())
-  const lineCount = createMemo(() => (textQuery.data ?? '').split('\n').length)
+  const remoteContent = () => textQuery.data?.content ?? ''
+  const lineCount = createMemo(() => remoteContent().split('\n').length)
   const downloadHref = createMemo(() => fileDownloadHref(props.viewingPath))
 
   function handleDownload() {
@@ -444,13 +386,13 @@ export function TextEditorPane(props: TextEditorPaneProps): JSX.Element {
                 fallback={
                   <>
                     {ext().toUpperCase()} File{' '}
-                    <Show when={(textQuery.data ?? '').length > 0}>
+                    <Show when={remoteContent().length > 0}>
                       <span>• {lineCount()} lines</span>
                     </Show>
                   </>
                 }
               >
-                <Show when={(textQuery.data ?? '').length > 0}>
+                <Show when={remoteContent().length > 0}>
                   <span>&middot; {lineCount()} lines</span>
                 </Show>
               </Show>
@@ -603,9 +545,11 @@ export function TextEditorPane(props: TextEditorPaneProps): JSX.Element {
               type='button'
               class='shrink-0 underline'
               onClick={() => {
-                const remote = textQuery.data ?? ''
-                setEditContent(remote)
-                setEditorBaseContent(remote)
+                const remote = textQuery.data
+                if (!remote) return
+                setEditContent(remote.content)
+                setEditorBaseContent(remote.content)
+                setBaseVersion(remote.version)
               }}
             >
               Reload remote version
@@ -633,7 +577,7 @@ export function TextEditorPane(props: TextEditorPaneProps): JSX.Element {
                           : 'wrap-break-word whitespace-pre-wrap font-sans text-base leading-[1.75] text-foreground'
                       }
                     >
-                      {textQuery.data ?? ''}
+                      {remoteContent()}
                     </pre>
                   </div>
                 }
@@ -674,7 +618,7 @@ export function TextEditorPane(props: TextEditorPaneProps): JSX.Element {
             <Show keyed when={currentTextTargetKey()}>
               {(_documentKey) => (
                 <LazyMarkdownDocument
-                  content={fileEditable() ? editContent() : (textQuery.data ?? '')}
+                  content={fileEditable() ? editContent() : remoteContent()}
                   mode={showEditor() ? 'edit' : 'read'}
                   onChange={setEditContent}
                   onBlur={() => {

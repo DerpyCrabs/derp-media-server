@@ -2,14 +2,18 @@ use crate::{
     config::Config,
     error::{AppError, AppResult},
     file_search::FileSearch,
-    image_variants, media, store, thumbnails,
+    image_variants, media,
+    settings_persistence::SettingsRepository,
+    state_db::AppDatabase,
+    stats_persistence::StatsRepository,
+    thumbnails,
+    workspace_persistence::WorkspaceRepository,
 };
 use base64::Engine;
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::{
     collections::{HashMap, HashSet},
-    path::PathBuf,
     sync::Arc,
     time::UNIX_EPOCH,
 };
@@ -23,12 +27,17 @@ pub(crate) struct AppState {
     pub events: tokio::sync::broadcast::Sender<FileEvent>,
     pub admin_events: tokio::sync::broadcast::Sender<Value>,
     pub hermes_events: tokio::sync::broadcast::Sender<Value>,
+    pub database: AppDatabase,
+    pub settings: SettingsRepository,
+    pub stats: StatsRepository,
+    pub workspaces: WorkspaceRepository,
     pub reader_state_db: Mutex<()>,
     pub thumbnails: thumbnails::Thumbnailer,
     pub image_variants: image_variants::ImageVariants,
     pub file_search: Arc<FileSearch>,
     pub hermes: Option<Arc<dyn crate::hermes::HermesTransport>>,
     pub hermes_project_operations: Mutex<()>,
+    pub file_mutations: Mutex<()>,
     pub hermes_runtime_ids: Mutex<HashMap<String, String>>,
     pub hermes_active_ids: Mutex<HashSet<String>>,
 }
@@ -144,26 +153,6 @@ pub(crate) fn list_directory(state: &AppState, path: &str) -> AppResult<Vec<medi
     Ok(files)
 }
 
-pub(crate) fn settings_path(state: &AppState) -> PathBuf {
-    state.config.data_path.join("settings.json")
-}
-
-pub(crate) fn canvases_path(state: &AppState) -> PathBuf {
-    state.config.data_path.join("canvases.json")
-}
-
-pub(crate) fn workspaces_path(state: &AppState) -> PathBuf {
-    state.config.data_path.join("workspaces.json")
-}
-
-pub(crate) fn stats_path(state: &AppState) -> PathBuf {
-    state.config.data_path.join("stats.json")
-}
-
-pub(crate) fn default_settings() -> Value {
-    json!({"viewModes":{},"sortOrders":{},"fileColumns":{"createdDate":false,"size":true},"favorites":[],"knowledgeBases":[],"customIcons":{},"autoSave":{},"workspaceTaskbarPins":[],"workspaceTransition":"fade"})
-}
-
 pub(crate) fn parent_logical(path: &str) -> String {
     path.replace('\\', "/")
         .rsplit_once('/')
@@ -178,25 +167,16 @@ pub(crate) fn timestamp_ms() -> u128 {
         .as_millis()
 }
 
-pub(crate) fn knowledge_bases(state: &AppState) -> Vec<String> {
-    store::section(
-        &settings_path(state),
-        &state.config.library_key,
-        default_settings(),
-    )["knowledgeBases"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|value| value.as_str().map(str::to_string))
-        .collect()
+pub(crate) fn knowledge_bases(state: &AppState) -> AppResult<Vec<String>> {
+    state.settings.knowledge_bases()
 }
 
-pub(crate) fn knowledge_base_root(state: &AppState, path: &str) -> Option<String> {
+pub(crate) fn knowledge_base_root(state: &AppState, path: &str) -> AppResult<Option<String>> {
     let normalized = path.replace('\\', "/");
-    knowledge_bases(state)
+    Ok(knowledge_bases(state)?
         .into_iter()
         .map(|root| root.replace('\\', "/"))
-        .find(|root| normalized == *root || normalized.starts_with(&format!("{root}/")))
+        .find(|root| normalized == *root || normalized.starts_with(&format!("{root}/"))))
 }
 
 pub(crate) fn safe_upload_name(name: &str) -> String {

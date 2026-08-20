@@ -189,8 +189,8 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
     editableFolders: () => props.editableFolders,
     isActive: isActivePane,
     virtualEntry,
-    onFileSaved: (path) => props.onOpenViewer(props.windowId, fileItemFromPath(path)),
-    onInlineFileCreated: (path) => props.onOpenViewer(props.windowId, fileItemFromPath(path)),
+    onFileSaved: (path) => openDefaultFile(fileItemFromPath(path)),
+    onInlineFileCreated: (path) => openDefaultFile(fileItemFromPath(path)),
     onInlineFolderCreated: (path) => props.onNavigateDir(props.windowId, path),
   })
   const {
@@ -766,7 +766,7 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
 
   function handleKbResultClick(filePath: string, displayName?: string) {
     clearSearch()
-    props.onOpenViewer(props.windowId, fileItemFromPath(filePath, displayName))
+    openDefaultFile(fileItemFromPath(filePath, displayName))
   }
 
   function prefetchContext(): PrefetchFolderHoverContext {
@@ -812,6 +812,18 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
       return
     }
     setUnsupportedFile(null)
+    openDefaultFile(file, sourceDir)
+  }
+
+  function openDefaultFile(file: FileItem, sourceDir = currentPath()) {
+    if (fileOpenMode() === 'new-tab' && props.onOpenInNewTab) {
+      props.onOpenInNewTab(
+        props.windowId,
+        { path: file.path, isDirectory: false, isVirtual: file.isVirtual },
+        sourceDir,
+      )
+      return
+    }
     props.onOpenViewer(props.windowId, file)
   }
 

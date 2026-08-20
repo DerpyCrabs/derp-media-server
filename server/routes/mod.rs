@@ -1,4 +1,3 @@
-pub mod canvases;
 pub mod config;
 pub mod files;
 pub mod hermes_chat;

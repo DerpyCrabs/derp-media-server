@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 import { computeSnappedResizeWindows } from '@/workspace/model/workspace-session-store'
-import type { SnapZone, WorkspaceWindowDefinition } from '@/workspace/model/use-workspace'
+import type {
+  SnapZone,
+  WindowDefinition as WorkspaceWindowDefinition,
+} from '@/lib/models/window-model'
 import { SNAP_SIBLING_MAP } from '@/workspace/model/workspace-geometry'
 
 /**

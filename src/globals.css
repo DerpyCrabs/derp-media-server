@@ -582,6 +582,10 @@ body {
   display: none;
 }
 
+.canvas-taskbar:has([aria-expanded='true']) {
+  overflow: visible;
+}
+
 .file-browser-grid {
   display: grid;
   width: 100%;

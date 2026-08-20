@@ -1,9 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { MediaType } from '@/lib/files/types'
-import type {
-  PersistedWorkspaceState,
-  WorkspaceWindowDefinition,
-} from '@/workspace/model/use-workspace'
+import type { PersistedWorkspaceState } from '@/workspace/model/use-workspace'
+import type { WindowDefinition as WorkspaceWindowDefinition } from '@/lib/models/window-model'
 import { normalizePersistedWorkspaceState } from '@/workspace/model/use-workspace'
 import {
   enterSplitViewState,
@@ -54,11 +52,11 @@ function viewerTab(id: string, gid = 'g1'): WorkspaceWindowDefinition {
 
 function baseState(windows: WorkspaceWindowDefinition[]): PersistedWorkspaceState {
   return {
+    workspaceType: 'desktop',
     windows,
     activeWindowId: windows[0]?.id ?? '',
     activeTabMap: { g1: windows.find((w) => (w.tabGroupId ?? w.id) === 'g1')?.id ?? '' },
     nextWindowId: 10,
-    pinnedTaskbarItems: [],
   }
 }
 
@@ -120,6 +118,7 @@ describe('workspace split view', () => {
 
   test('normalizePersistedWorkspaceState drops invalid split metadata', () => {
     const raw = {
+      workspaceType: 'desktop',
       windows: [
         {
           id: 'a',
@@ -134,7 +133,6 @@ describe('workspace split view', () => {
       activeWindowId: 'a',
       activeTabMap: { g1: 'a' },
       nextWindowId: 2,
-      pinnedTaskbarItems: [],
       tabGroupSplits: { g1: { leftTabId: 'a', leftPaneFraction: 0.5 } },
     }
     const n = normalizePersistedWorkspaceState(raw, { reconcileSnapZones: false })
@@ -147,11 +145,11 @@ describe('workspace split view', () => {
     a.tabGroupId = 'g1'
     b.tabGroupId = 'b-alone'
     let state: PersistedWorkspaceState = {
+      workspaceType: 'desktop',
       windows: [a, { ...b, id: 'b', tabGroupId: 'b-alone' }],
       activeWindowId: 'a',
       activeTabMap: { g1: 'a' },
       nextWindowId: 10,
-      pinnedTaskbarItems: [],
       tabGroupSplits: { g1: { leftTabId: 'a', leftPaneFraction: 0.5 } },
     }
     const v = viewerTab('v2', 'g1')

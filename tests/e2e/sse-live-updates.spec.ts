@@ -56,4 +56,63 @@ test.describe('SSE Live Updates', () => {
     await admin2.close()
     await ctx2.close()
   })
+
+  test('reconnect catches up files and settings missed while offline', async ({ browser }) => {
+    const id = randomUUID().slice(0, 10)
+    const fileName = `sse-reconnect-${id}.txt`
+    const filePath = `MediaContent/${fileName}`
+    const pin = {
+      id: `sse-reconnect-pin-${id}`,
+      path: filePath,
+      isDirectory: false,
+      title: fileName,
+      source: { kind: 'local' },
+    }
+    const onlineContext = await createAdminContext(browser)
+    const online = await onlineContext.newPage()
+    const offlineContext = await createAdminContext(browser)
+    const filesPage = await offlineContext.newPage()
+    const workspacePage = await offlineContext.newPage()
+    try {
+      await Promise.all([
+        gotoWithSSE(filesPage, '/?dir=MediaContent'),
+        gotoWithSSE(workspacePage, `/workspace?ws=sse-reconnect-${id}`),
+      ])
+      await expect(filesPage.locator('table')).toBeVisible()
+      await expect(workspacePage.locator('[data-window-group]').first()).toBeVisible()
+      await expect(filesPage.locator('table').getByText(fileName)).not.toBeVisible()
+      await expect(workspacePage.locator(`[title="File: ${filePath}"]`)).not.toBeVisible()
+
+      await offlineContext.setOffline(true)
+      await createFile(online, filePath, 'created while peer was offline')
+      const pinUpdate = await online.request.post('/api/settings/workspaceTaskbarPins/add', {
+        data: { pin },
+      })
+      expect(pinUpdate.ok()).toBe(true)
+      await expect(filesPage.locator('table').getByText(fileName)).not.toBeVisible()
+      await expect(workspacePage.locator(`[title="File: ${filePath}"]`)).not.toBeVisible()
+
+      const reconnected = Promise.race([
+        filesPage.waitForEvent('console', {
+          predicate: (message) => message.text().includes('[Admin SSE] Connected'),
+        }),
+        workspacePage.waitForEvent('console', {
+          predicate: (message) => message.text().includes('[Admin SSE] Connected'),
+        }),
+      ])
+      await offlineContext.setOffline(false)
+      await reconnected
+
+      await expect(filesPage.locator('table').getByText(fileName)).toBeVisible()
+      await expect(workspacePage.locator(`[title="File: ${filePath}"]`)).toBeVisible()
+    } finally {
+      await offlineContext.setOffline(false)
+      await deleteFile(online, filePath).catch(() => {})
+      await online.request.post('/api/settings/workspaceTaskbarPins/remove', {
+        data: { id: pin.id },
+      })
+      await Promise.all([filesPage.close(), workspacePage.close(), online.close()])
+      await Promise.all([offlineContext.close(), onlineContext.close()])
+    }
+  })
 })

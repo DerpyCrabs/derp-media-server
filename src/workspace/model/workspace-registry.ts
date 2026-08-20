@@ -24,6 +24,16 @@ export type WorkspaceOpenResult = {
   leaseDurationMs: number
 }
 
+export type WorkspaceMoveInput = {
+  sourceId: string
+  destinationId: string
+  sourceRevision: number
+  destinationRevision: number
+  sourceSnapshot: PersistedWorkspaceState
+  destinationSnapshot: PersistedWorkspaceState
+  deleteSource: boolean
+}
+
 export function workspaceDisplayName(record: WorkspaceRecord, position = 1): string {
   const named = record.name?.trim()
   if (named) return named
@@ -33,8 +43,7 @@ export function workspaceDisplayName(record: WorkspaceRecord, position = 1): str
 export function workspaceClientId(): string {
   const key = 'workspace-client-id'
   const existing = sessionStorage.getItem(key)
-  if (existing) return existing
-  const id = crypto.randomUUID()
+  const id = existing || crypto.randomUUID()
   sessionStorage.setItem(key, id)
   return id
 }

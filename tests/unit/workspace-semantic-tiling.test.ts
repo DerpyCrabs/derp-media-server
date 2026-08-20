@@ -12,7 +12,7 @@ import {
 } from '@/workspace/model/workspace-geometry'
 import { computeSnappedResizeWindows } from '@/workspace/model/workspace-session-store'
 import { MediaType } from '@/lib/files/types'
-import type { WorkspaceWindowDefinition } from '@/workspace/model/use-workspace'
+import type { WindowDefinition as WorkspaceWindowDefinition } from '@/lib/models/window-model'
 
 const CANVAS = { width: 1280, height: 688 }
 

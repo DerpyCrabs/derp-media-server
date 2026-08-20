@@ -1,4 +1,5 @@
 import { createStore, reconcile } from 'solid-js'
+import { showAppConfirm } from '@/lib/ui/app-dialog'
 import type { FileDragData } from '@/lib/files/file-drag-data'
 import {
   extractHermesMessageImages,
@@ -89,7 +90,8 @@ export type HermesQueuedPrompt = { text: string; attachments: HermesAttachment[]
 
 const [sessions, setSessions] = createStore<Record<string, HermesChatState>>({})
 let eventSource: EventSource | null = null
-const activeHermesSends = new Set<string>()
+const editorClaimGenerations = new Map<string, Map<string, number>>()
+const durableSessionAliases = new Map<string, string>()
 
 function updateHermesState(key: string, update: (state: HermesChatState) => void) {
   setSessions((states) => {
@@ -112,12 +114,44 @@ function removeHermesState(key: string) {
   setSessions((states) => {
     delete states[key]
   })
+  for (const [alias, stableKey] of durableSessionAliases) {
+    if (stableKey === key) durableSessionAliases.delete(alias)
+  }
+}
+
+function durableSessionKey(sessionId: string): string {
+  return `session:${sessionId}`
+}
+
+function stableKeyForSessionId(sessionId: string): string | undefined {
+  const sessionKey = durableSessionKey(sessionId)
+  const alias = durableSessionAliases.get(sessionKey)
+  if (alias && sessions[alias]) return alias
+  if (alias) durableSessionAliases.delete(sessionKey)
+  return sessions[sessionKey] ? sessionKey : undefined
 }
 
 export function hermesChatKey(target: { sessionId?: string; draftId?: string }): string {
   return target.sessionId
-    ? `session:${target.sessionId}`
+    ? (stableKeyForSessionId(target.sessionId) ?? durableSessionKey(target.sessionId))
     : `draft:${target.draftId ?? crypto.randomUUID()}`
+}
+
+export function bindHermesSessionId(key: string, sessionId: string): string {
+  const state = sessions[key]
+  if (!state) return key
+  if (state.sessionId) durableSessionAliases.set(durableSessionKey(state.sessionId), key)
+  durableSessionAliases.set(durableSessionKey(sessionId), key)
+  updateHermesState(key, (current) => {
+    current.sessionId = sessionId
+    current.draftId = undefined
+  })
+  return key
+}
+
+export function hermesSessionForId(sessionId: string): HermesChatState | undefined {
+  const key = stableKeyForSessionId(sessionId)
+  return key ? sessions[key] : undefined
 }
 
 function messageText(value: unknown): string {
@@ -343,6 +377,7 @@ export function ensureHermesChat(target: {
     void refreshHermesModelOptions(key)
     void refreshHermesCapabilities(key)
   }
+  if (target.sessionId) durableSessionAliases.set(durableSessionKey(target.sessionId), key)
   connectEvents()
   return key
 }
@@ -582,26 +617,24 @@ function connectEvents() {
     const previousSessionId = event?.previous_durable_session_id
     const kind = String(event?.type ?? '')
     const routedKey =
-      typeof sessionId === 'string'
-        ? sessions[`session:${sessionId}`]
-          ? `session:${sessionId}`
-          : Object.keys(sessions).find(
-              (candidate) =>
-                sessions[candidate]?.sessionId === sessionId ||
-                sessions[candidate]?.sessionId === previousSessionId,
-            )
-        : typeof previousSessionId === 'string'
-          ? Object.keys(sessions).find(
-              (candidate) => sessions[candidate]?.sessionId === previousSessionId,
-            )
-          : undefined
+      (typeof sessionId === 'string' ? stableKeyForSessionId(sessionId) : undefined) ??
+      (typeof previousSessionId === 'string'
+        ? stableKeyForSessionId(previousSessionId)
+        : undefined) ??
+      (typeof sessionId === 'string' || typeof previousSessionId === 'string'
+        ? Object.keys(sessions).find(
+            (candidate) =>
+              sessions[candidate]?.sessionId === sessionId ||
+              sessions[candidate]?.sessionId === previousSessionId,
+          )
+        : undefined)
     const activeCandidates = Object.keys(sessions).filter(
       (candidate) =>
         sessions[candidate]?.awaitingResponse ||
         sessions[candidate]?.status === 'sending' ||
         sessions[candidate]?.status === 'streaming',
     )
-    let key = routedKey ?? (activeCandidates.length === 1 ? activeCandidates[0] : undefined)
+    const key = routedKey ?? (activeCandidates.length === 1 ? activeCandidates[0] : undefined)
     const payload = (event?.payload ?? {}) as Record<string, unknown>
 
     if (kind === 'transport.disconnected' || kind === 'transport.connected') {
@@ -623,25 +656,7 @@ function connectEvents() {
       typeof previousSessionId === 'string' &&
       sessionId !== previousSessionId
     ) {
-      const nextKey = `session:${sessionId}`
-      if (nextKey !== key) {
-        const previousKey = key
-        replaceHermesState(nextKey, {
-          ...sessions[key]!,
-          sessionId,
-          draftId: undefined,
-        })
-        // Keep the old entry long enough for mounted panes to persist the new durable id.
-        updateHermesState(key, (state) => {
-          state.sessionId = sessionId
-        })
-        key = nextKey
-        queueMicrotask(() => cleanupHermesAlias(previousKey))
-      } else {
-        updateHermesState(key, (state) => {
-          state.sessionId = sessionId
-        })
-      }
+      bindHermesSessionId(key, sessionId)
     }
     if (kind === 'message.start') {
       patchHermesState(key, { status: 'streaming', awaitingResponse: true })
@@ -789,16 +804,6 @@ export function setHermesError(key: string, error: unknown) {
 }
 
 const completionSequences = new Map<string, number>()
-
-function cleanupHermesAlias(key: string) {
-  if (activeHermesSends.has(key)) return
-  const state = sessions[key]
-  if (!state?.sessionId) return
-  const canonicalKey = `session:${state.sessionId}`
-  if (canonicalKey === key || !sessions[canonicalKey]) return
-  removeHermesState(key)
-  completionSequences.delete(key)
-}
 
 async function refreshHermesCompletions(key: string, value: string) {
   const word = value.split(/\s/).at(-1) ?? ''
@@ -1097,11 +1102,37 @@ export async function steerHermesPrompt(key: string) {
   patchHermesState(key, { composer: '', error: undefined })
 }
 
-export function claimHermesEditor(key: string, owner: string): boolean {
-  const current = sessions[key]?.editorOwner
+export type HermesEditorClaimOptions = {
+  /** Return false when caller pane was disposed or switched to another window. */
+  isAlive?: () => boolean
+}
+
+export async function claimHermesEditor(
+  key: string,
+  owner: string,
+  options: HermesEditorClaimOptions = {},
+): Promise<boolean> {
+  const generations = editorClaimGenerations.get(key) ?? new Map<string, number>()
+  editorClaimGenerations.set(key, generations)
+  const generation = (generations.get(owner) ?? 0) + 1
+  generations.set(owner, generation)
+  const claimIsCurrent = () =>
+    editorClaimGenerations.get(key)?.get(owner) === generation && options.isAlive?.() !== false
+  const currentState = sessions[key]
+  if (!currentState || !claimIsCurrent()) return false
+  const current = currentState.editorOwner
   if (current && current !== owner && sessions[key]?.composer.trim()) {
-    if (!window.confirm('Take editing control? Unsaved text in another window will remain shared.'))
-      return false
+    const confirmed = await showAppConfirm({
+      title: 'Take editing control?',
+      message: 'Unsaved text in the other window will remain shared.',
+      confirmLabel: 'Take control',
+    })
+    if (!confirmed) return false
+  }
+  const latest = sessions[key]
+  if (!latest || !claimIsCurrent()) return false
+  if (latest.editorOwner && latest.editorOwner !== owner && latest.editorOwner !== current) {
+    return false
   }
   updateHermesState(key, (state) => {
     state.editorOwner = owner
@@ -1110,6 +1141,9 @@ export function claimHermesEditor(key: string, owner: string): boolean {
 }
 
 export function releaseHermesEditor(key: string, owner: string) {
+  const generations = editorClaimGenerations.get(key) ?? new Map<string, number>()
+  generations.set(owner, (generations.get(owner) ?? 0) + 1)
+  editorClaimGenerations.set(key, generations)
   if (sessions[key]?.editorOwner === owner)
     updateHermesState(key, (state) => {
       state.editorOwner = undefined
@@ -1147,7 +1181,6 @@ export async function sendHermesPrompt(key: string, takeover = false): Promise<s
   updateHermesState(key, (state) => {
     state.messages.push(optimistic)
   })
-  activeHermesSends.add(key)
   try {
     const payload = await jsonRequest('/api/hermes/turn', {
       method: 'POST',
@@ -1171,8 +1204,8 @@ export async function sendHermesPrompt(key: string, takeover = false): Promise<s
       currentSessionId && currentSessionId !== requestedSessionId
         ? currentSessionId
         : responseSessionId
+    bindHermesSessionId(key, sessionId)
     patchHermesState(key, {
-      sessionId,
       lineageRootId: state.lineageRootId ?? sessionId,
       status: 'streaming',
       attachments: [],
@@ -1180,19 +1213,13 @@ export async function sendHermesPrompt(key: string, takeover = false): Promise<s
       takeoverPending: false,
       readOnly: false,
     })
-    const canonicalKey = `session:${sessionId}`
-    if (canonicalKey !== key)
-      replaceHermesState(canonicalKey, { ...sessions[key]!, sessionId, draftId: undefined })
     return sessionId
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    const currentSessionId = sessions[key]?.sessionId
-    const canonicalKey = currentSessionId ? `session:${currentSessionId}` : key
-    const targetKey = canonicalKey !== key && sessions[canonicalKey] ? canonicalKey : key
-    updateHermesState(targetKey, (state) => {
+    updateHermesState(key, (state) => {
       state.messages = state.messages.filter((item) => item.id !== optimistic.id)
     })
-    patchHermesState(targetKey, {
+    patchHermesState(key, {
       composer: text,
       status: 'error',
       awaitingResponse: false,
@@ -1200,9 +1227,6 @@ export async function sendHermesPrompt(key: string, takeover = false): Promise<s
       attachments: state.attachments.map((item) => ({ ...item, status: 'error', error: message })),
     })
     throw error
-  } finally {
-    activeHermesSends.delete(key)
-    cleanupHermesAlias(key)
   }
 }
 
@@ -1292,12 +1316,21 @@ export async function answerHermesDecision(key: string, answer: string) {
   }
 }
 
-export function canCloseHermesWindow(target?: { draftId?: string; sessionId?: string }): boolean {
+export async function canCloseHermesWindow(target?: {
+  draftId?: string
+  sessionId?: string
+}): Promise<boolean> {
   if (!target?.draftId || target.sessionId) return true
   const state = sessions[`draft:${target.draftId}`]
   const hasDraft =
     !!state?.composer.trim() || !!state?.attachments.length || !!state?.queuedPrompts.length
-  return !hasDraft || window.confirm('Discard unsent Hermes draft?')
+  if (!hasDraft) return true
+  return showAppConfirm({
+    title: 'Discard unsent draft?',
+    message: 'The unsent prompt and attachments will be permanently discarded.',
+    confirmLabel: 'Discard',
+    destructive: true,
+  })
 }
 
 export function discardHermesDraft(target?: { draftId?: string; sessionId?: string }) {

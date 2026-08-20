@@ -7,6 +7,8 @@ import {
   waitForWindowBoundsStable,
   dragFromTo,
   WORKSPACE_VISIBLE_WINDOW_GROUP,
+  dispatchRecordedPointerCancel,
+  recordNextPointerId,
 } from './workspace-layout-helpers'
 import { createWorkspaceE2EContext } from './workspace-e2e-context'
 
@@ -54,6 +56,24 @@ async function chooseWorkspaceOpenTarget(p: Page, label: 'New tab' | 'New window
 }
 
 test.describe('Workspace split view', () => {
+  test('tab activation focuses the group and close repairs the visible tab', async () => {
+    await gotoWorkspace(page)
+    await openBrowserWindow(page)
+    await mergeSecondBrowserIntoFirst(page)
+
+    const tabs = page.locator('.workspace-tab-strip [data-workspace-tab-id]')
+    const firstTab = tabs.first()
+    await firstTab.click()
+    await expect(firstTab).toHaveClass(/bg-background/)
+
+    await firstTab.getByTestId('workspace-tab-close').click()
+    await expect(page.locator('.workspace-tab-strip [data-workspace-tab-id]')).toHaveCount(1)
+    await expect(page.locator('.workspace-tab-strip [data-workspace-tab-id]')).toHaveClass(
+      /bg-background/,
+    )
+    await expect(getWindowGroups(page)).toHaveCount(1)
+  })
+
   test('enter split via tab context shows left and right panes', async () => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)
@@ -115,6 +135,34 @@ test.describe('Workspace split view', () => {
     expect(rb.width / row).toBeGreaterThanOrEqual(0.28)
   })
 
+  test('Escape restores the split fraction from before a divider drag', async () => {
+    await gotoWorkspace(page)
+    await openBrowserWindow(page)
+    await mergeSecondBrowserIntoFirst(page)
+
+    const tabStrip = page.locator('.workspace-tab-strip')
+    await tabStrip.locator('[data-workspace-tab-id]').first().click({ button: 'right' })
+    await page.getByTestId('workspace-tab-menu-use-split-left').click()
+
+    const leftPane = page.getByTestId('workspace-split-left-pane')
+    const divider = page.getByTestId('workspace-split-divider')
+    const before = await leftPane.boundingBox()
+    const dividerBox = await divider.boundingBox()
+    if (!before || !dividerBox) throw new Error('Split view not laid out')
+
+    const startX = dividerBox.x + dividerBox.width / 2
+    const startY = dividerBox.y + dividerBox.height / 2
+    await page.mouse.move(startX, startY)
+    await page.mouse.down()
+    await page.mouse.move(startX + 100, startY, { steps: 8 })
+    await expect.poll(async () => (await leftPane.boundingBox())?.width).not.toBe(before.width)
+
+    await page.keyboard.press('Escape')
+    await page.mouse.up()
+
+    await expect.poll(async () => (await leftPane.boundingBox())?.width).toBe(before.width)
+  })
+
   test('split left tab cannot be pulled into a new window', async () => {
     await gotoWorkspace(page)
     await openBrowserWindow(page)
@@ -166,6 +214,32 @@ test.describe('Workspace split view', () => {
     await waitForWindowBoundsStable(page, getWindowGroups(page).first())
 
     await expect(page.locator(WORKSPACE_VISIBLE_WINDOW_GROUP)).toHaveCount(2)
+  })
+
+  test('pointercancel puts a pulled tab back in its original group', async () => {
+    await gotoWorkspace(page)
+    await openBrowserWindow(page)
+    await mergeSecondBrowserIntoFirst(page)
+
+    const tabStrip = page.locator('.workspace-tab-strip')
+    const pulledTab = tabStrip.locator('[data-workspace-tab-id]').nth(1)
+    const box = await pulledTab.boundingBox()
+    if (!box) throw new Error('Tab not visible')
+
+    await recordNextPointerId(page)
+    const startX = box.x + box.width / 2
+    const startY = box.y + box.height / 2
+    const movedY = startY + 80
+    await page.mouse.move(startX, startY)
+    await page.mouse.down()
+    await page.mouse.move(startX, movedY, { steps: 8 })
+    await expect(page.locator(WORKSPACE_VISIBLE_WINDOW_GROUP)).toHaveCount(2)
+
+    await dispatchRecordedPointerCancel(page, { clientX: startX, clientY: movedY })
+    await page.mouse.up()
+
+    await expect(page.locator(WORKSPACE_VISIBLE_WINDOW_GROUP)).toHaveCount(1)
+    await expect(page.locator('.workspace-tab-strip [data-workspace-tab-id]')).toHaveCount(2)
   })
 
   test('with New window setting, opening from left browser stays in same group as split', async () => {

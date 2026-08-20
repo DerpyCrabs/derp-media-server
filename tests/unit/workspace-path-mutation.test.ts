@@ -1,12 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import { applyWorkspacePathMutation } from '@/workspace/model/workspace-path-mutation'
-import { applyCanvasPathMutation } from '@/canvas/model/canvas-path-mutation'
 import { parsePathMutation, type PathMutation } from '@/lib/files/path-mutation'
-import { createEmptyCanvasState } from '@/canvas/model/infinite-canvas'
-import type {
-  PersistedWorkspaceState,
-  WorkspaceWindowDefinition,
-} from '@/workspace/model/use-workspace'
+import type { PersistedWorkspaceState } from '@/workspace/model/use-workspace'
+import type { WindowDefinition as WorkspaceWindowDefinition } from '@/lib/models/window-model'
 
 function window(
   id: string,
@@ -28,11 +24,11 @@ function window(
 
 function state(windows: WorkspaceWindowDefinition[]): PersistedWorkspaceState {
   return {
+    workspaceType: 'desktop',
     windows,
     activeWindowId: windows[0]?.id ?? null,
     activeTabMap: {},
     nextWindowId: windows.length + 1,
-    pinnedTaskbarItems: [],
   }
 }
 
@@ -49,25 +45,14 @@ describe('workspace path mutations', () => {
     expect(parsePathMutation({ type: 'files-changed', path: 'Old' })).toBeNull()
   })
 
-  test('moves live local paths and pins', () => {
+  test('moves live local paths', () => {
     const local = window(
       'local',
       'viewer',
       { dir: 'Media/Old', viewing: 'Media/Old/movie.mp4' },
       'Media/Old/movie.mp4',
     )
-    const before = {
-      ...state([local]),
-      pinnedTaskbarItems: [
-        {
-          id: 'pin',
-          path: 'Media/Old/sub',
-          isDirectory: true,
-          title: 'Old',
-          source: { kind: 'local' as const },
-        },
-      ],
-    }
+    const before = state([local])
     const mutation: PathMutation = {
       type: 'path-moved',
       oldPath: 'Media/Old',
@@ -81,7 +66,6 @@ describe('workspace path mutations', () => {
       viewing: 'Archive/New/movie.mp4',
     })
     expect(next.windows[0]?.iconPath).toBe('Archive/New/movie.mp4')
-    expect(next.pinnedTaskbarItems[0]?.path).toBe('Archive/New/sub')
   })
 
   test('stale icon deletion does not remove viewer with another current file', () => {
@@ -113,18 +97,16 @@ describe('workspace path mutations', () => {
     )
     const before: PersistedWorkspaceState = {
       ...state([deleted, retained]),
+      workspaceType: 'canvas',
       activeWindowId: 'deleted',
       activeTabMap: { group: 'deleted' },
       tabGroupSplits: { group: { leftTabId: 'deleted', leftPaneFraction: 0.5 } },
-      pinnedTaskbarItems: [
-        {
-          id: 'pin',
-          path: 'Media/Old',
-          isDirectory: true,
-          title: 'Old',
-          source: { kind: 'local' },
-        },
-      ],
+      canvas: {
+        camera: { x: 0, y: 0, zoom: 1 },
+        maximizedWindowId: 'deleted',
+        windowSizeByType: {},
+        nextZIndex: 3,
+      },
     }
 
     const next = applyWorkspacePathMutation(before, {
@@ -133,44 +115,10 @@ describe('workspace path mutations', () => {
     })
 
     expect(next.windows.map((item) => item.id)).toEqual(['retained'])
+    expect(next.windows[0]?.tabGroupId).toBeNull()
     expect(next.activeWindowId).toBe('retained')
-    expect(next.activeTabMap).toEqual({ group: 'retained' })
+    expect(next.activeTabMap).toEqual({})
     expect(next.tabGroupSplits).toBeUndefined()
-    expect(next.pinnedTaskbarItems).toEqual([])
-  })
-
-  test('updates canvas definitions and clears removed maximized window', () => {
-    const definition = window(
-      'viewer',
-      'viewer',
-      { viewing: 'Media/Old/current.jpg' },
-      'Media/Old/current.jpg',
-    )
-    const before = {
-      ...createEmptyCanvasState(),
-      windows: [
-        {
-          id: 'viewer',
-          definition,
-          bounds: { x: 0, y: 0, width: 320, height: 224 },
-          zIndex: 1,
-        },
-      ],
-      maximizedWindowId: 'viewer',
-    }
-
-    const moved = applyCanvasPathMutation(before, {
-      type: 'path-moved',
-      oldPath: 'Media/Old',
-      newPath: 'Media/New',
-    })
-    expect(moved.windows[0]?.definition.initialState.viewing).toBe('Media/New/current.jpg')
-
-    const removed = applyCanvasPathMutation(moved, {
-      type: 'path-removed',
-      path: 'Media/New',
-    })
-    expect(removed.windows).toEqual([])
-    expect(removed.maximizedWindowId).toBeNull()
+    expect(next.canvas?.maximizedWindowId).toBeNull()
   })
 })

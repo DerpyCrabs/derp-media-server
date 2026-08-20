@@ -14,6 +14,7 @@ import type { Accessor } from 'solid-js'
 import { For, Show, createEffect, createMemo, createSignal } from 'solid-js'
 import { useStoreSync } from '@/lib/state/solid-store-sync'
 import { cn } from '@/lib/ui/cn'
+import type { WorkspaceTransition } from '@/lib/models/settings-types'
 
 const MODES: { value: ThemeMode; label: string; icon: typeof Sun }[] = [
   { value: 'light', label: 'Light', icon: Sun },
@@ -50,9 +51,8 @@ const triggerClass =
 export type WorkspaceTaskbarSettingsProps = {
   reopenClosedTab?: () => void
   canReopenClosed?: Accessor<boolean>
-  onWorkspaceFileOpenTargetChange?: (value: FileOpenTarget) => void
-  workspaceTransition?: () => 'instant' | 'fade'
-  onWorkspaceTransitionChange?: (value: 'instant' | 'fade') => void
+  workspaceTransition: () => WorkspaceTransition
+  onWorkspaceTransitionChange: (value: WorkspaceTransition) => void
 }
 
 export function WorkspaceTaskbarSettings(props: WorkspaceTaskbarSettingsProps) {
@@ -88,7 +88,6 @@ export function WorkspaceTaskbarSettings(props: WorkspaceTaskbarSettingsProps) {
 
   function setFileTarget(value: FileOpenTarget) {
     fileOpenTargetStore.getState().setTarget(value)
-    props.onWorkspaceFileOpenTargetChange?.(value)
   }
 
   function setTheme(p: ThemePalette, m: ThemeMode) {
@@ -197,11 +196,11 @@ export function WorkspaceTaskbarSettings(props: WorkspaceTaskbarSettingsProps) {
                       type='button'
                       class={cn(
                         'rounded-md border px-3 py-2 text-sm capitalize',
-                        (props.workspaceTransition?.() ?? 'fade') === transition
+                        props.workspaceTransition() === transition
                           ? 'border-primary bg-primary/10 text-primary'
                           : 'border-border hover:bg-muted',
                       )}
-                      onClick={() => props.onWorkspaceTransitionChange?.(transition)}
+                      onClick={() => props.onWorkspaceTransitionChange(transition)}
                     >
                       {transition}
                     </button>

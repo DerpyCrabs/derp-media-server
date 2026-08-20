@@ -20,6 +20,27 @@ test.afterEach(async () => {
   await page.close()
 })
 
+async function seedWorkspace(id: string, windows: unknown[]) {
+  const clientId = `hermes-e2e-${id}`
+  await page.addInitScript((value) => {
+    sessionStorage.setItem('workspace-client-id', value)
+  }, clientId)
+  const response = await page.request.post('/api/workspaces/open', {
+    data: {
+      id,
+      clientId,
+      snapshot: {
+        workspaceType: 'desktop',
+        windows,
+        activeWindowId: (windows.at(-1) as { id?: string } | undefined)?.id ?? null,
+        activeTabMap: {},
+        nextWindowId: windows.length + 1,
+      },
+    },
+  })
+  expect(response.ok()).toBe(true)
+}
+
 test('renders parity controls and native export, then archives read-only', async () => {
   let archived = false
   let archiveRequests = 0
@@ -125,29 +146,19 @@ test('renders parity controls and native export, then archives read-only', async
     await route.fulfill({ status: 404, json: { error: `Unhandled Hermes mock: ${url.pathname}` } })
   })
 
-  await page.addInitScript(() => {
-    localStorage.setItem(
-      'workspace-state-ws-hermes-e2e',
-      JSON.stringify({
-        windows: [
-          {
-            id: 'hermes-window',
-            type: 'hermes',
-            title: '20260808_212600_f9c4f6',
-            source: { kind: 'local' },
-            initialState: {},
-            hermes: { sessionId: 'session-1', readOnly: false },
-            layout: { bounds: { x: 40, y: 40, width: 760, height: 620 }, zIndex: 1 },
-          },
-        ],
-        activeWindowId: 'hermes-window',
-        activeTabMap: {},
-        nextWindowId: 2,
-        pinnedTaskbarItems: [],
-      }),
-    )
-  })
-  await page.goto('/workspace?ws=hermes-e2e')
+  const workspaceId = `hermes-e2e-${Date.now()}`
+  await seedWorkspace(workspaceId, [
+    {
+      id: 'hermes-window',
+      type: 'hermes',
+      title: '20260808_212600_f9c4f6',
+      source: { kind: 'local' },
+      initialState: {},
+      hermes: { sessionId: 'session-1', readOnly: false },
+      layout: { bounds: { x: 40, y: 40, width: 760, height: 620 }, zIndex: 1 },
+    },
+  ])
+  await page.goto(`/workspace?ws=${workspaceId}`)
 
   const chat = page.getByTestId('hermes-chat-pane')
   await expect(chat).toBeVisible()
@@ -298,6 +309,18 @@ test('matches Hermes Desktop optimistic, streaming, and stick-to-bottom behavior
     }
     await route.fulfill({ status: 404, json: { error: `Unhandled Hermes mock: ${url.pathname}` } })
   })
+  const workspaceId = `hermes-stable-${Date.now()}`
+  await seedWorkspace(workspaceId, [
+    {
+      id: 'hermes-stable',
+      type: 'hermes',
+      title: 'session-stable',
+      source: { kind: 'local' },
+      initialState: {},
+      hermes: { sessionId: 'session-stable', readOnly: false },
+      layout: { bounds: { x: 20, y: 20, width: 680, height: 520 }, zIndex: 1 },
+    },
+  ])
   await page.addInitScript(() => {
     class ControlledEventSource {
       onopen: (() => void) | null = null
@@ -315,28 +338,8 @@ test('matches Hermes Desktop optimistic, streaming, and stick-to-bottom behavior
       configurable: true,
       value: ControlledEventSource,
     })
-    localStorage.setItem(
-      'workspace-state-ws-hermes-stable',
-      JSON.stringify({
-        windows: [
-          {
-            id: 'hermes-stable',
-            type: 'hermes',
-            title: 'session-stable',
-            source: { kind: 'local' },
-            initialState: {},
-            hermes: { sessionId: 'session-stable', readOnly: false },
-            layout: { bounds: { x: 20, y: 20, width: 680, height: 520 }, zIndex: 1 },
-          },
-        ],
-        activeWindowId: 'hermes-stable',
-        activeTabMap: {},
-        nextWindowId: 2,
-        pinnedTaskbarItems: [],
-      }),
-    )
   })
-  await page.goto('/workspace?ws=hermes-stable')
+  await page.goto(`/workspace?ws=${workspaceId}`)
   const chat = page.getByTestId('hermes-chat-pane')
   const transcript = chat.getByTestId('hermes-transcript')
   await expect(chat.getByText('Transcript row 29')).toBeVisible()
@@ -433,10 +436,19 @@ test('matches Hermes Desktop optimistic, streaming, and stick-to-bottom behavior
 
   await expect
     .poll(() =>
-      page.evaluate(() => {
-        const saved = JSON.parse(localStorage.getItem('workspace-state-ws-hermes-stable') ?? 'null')
-        return saved?.windows?.[0]?.hermes?.sessionId
-      }),
+      page.evaluate(async (id) => {
+        const clientId = sessionStorage.getItem('workspace-client-id')
+        const response = await fetch(
+          `/api/workspaces?clientId=${encodeURIComponent(clientId ?? '')}`,
+        )
+        const registry = (await response.json()) as {
+          records?: Record<
+            string,
+            { snapshot?: { windows?: Array<{ hermes?: { sessionId?: string } }> } }
+          >
+        }
+        return registry.records?.[id]?.snapshot?.windows?.[0]?.hermes?.sessionId
+      }, workspaceId),
     )
     .toBe('session-rotated')
 })
@@ -490,29 +502,19 @@ test('pages older history and opens externally active sessions in observer mode'
     }
     await route.fulfill({ status: 404, json: { error: `Unhandled Hermes mock: ${url.pathname}` } })
   })
-  await page.addInitScript(() => {
-    localStorage.setItem(
-      'workspace-state-ws-hermes-paging',
-      JSON.stringify({
-        windows: [
-          {
-            id: 'hermes-paged',
-            type: 'hermes',
-            title: 'session-paged',
-            source: { kind: 'local' },
-            initialState: {},
-            hermes: { sessionId: 'session-paged', readOnly: false },
-            layout: { bounds: { x: 20, y: 20, width: 760, height: 620 }, zIndex: 1 },
-          },
-        ],
-        activeWindowId: 'hermes-paged',
-        activeTabMap: {},
-        nextWindowId: 2,
-        pinnedTaskbarItems: [],
-      }),
-    )
-  })
-  await page.goto('/workspace?ws=hermes-paging')
+  const workspaceId = `hermes-paging-${Date.now()}`
+  await seedWorkspace(workspaceId, [
+    {
+      id: 'hermes-paged',
+      type: 'hermes',
+      title: 'session-paged',
+      source: { kind: 'local' },
+      initialState: {},
+      hermes: { sessionId: 'session-paged', readOnly: false },
+      layout: { bounds: { x: 20, y: 20, width: 760, height: 620 }, zIndex: 1 },
+    },
+  ])
+  await page.goto(`/workspace?ws=${workspaceId}`)
   const chat = page.getByTestId('hermes-chat-pane')
   await expect(chat.getByText('Active in desktop — observer mode')).toBeVisible()
   await expect(chat.getByRole('button', { name: 'Take over' })).toBeVisible()
@@ -553,28 +555,18 @@ test('keeps the Hermes project dialog compact inside its browser window', async 
   await page.route('**/api/virtual-directory/fs?*', (route) =>
     route.fulfill({ json: { entries: [] } }),
   )
-  await page.addInitScript(() => {
-    localStorage.setItem(
-      'workspace-state-ws-hermes-project-dialog',
-      JSON.stringify({
-        windows: [
-          {
-            id: 'hermes-browser',
-            type: 'browser',
-            title: 'Hermes Sessions',
-            source: { kind: 'local' },
-            initialState: { dir: 'Hermes Sessions' },
-            layout: { bounds: { x: 30, y: 30, width: 760, height: 560 }, zIndex: 1 },
-          },
-        ],
-        activeWindowId: 'hermes-browser',
-        activeTabMap: {},
-        nextWindowId: 2,
-        pinnedTaskbarItems: [],
-      }),
-    )
-  })
-  await page.goto('/workspace?ws=hermes-project-dialog')
+  const workspaceId = `hermes-project-dialog-${Date.now()}`
+  await seedWorkspace(workspaceId, [
+    {
+      id: 'hermes-browser',
+      type: 'browser',
+      title: 'Hermes Sessions',
+      source: { kind: 'local' },
+      initialState: { dir: 'Hermes Sessions' },
+      layout: { bounds: { x: 30, y: 30, width: 760, height: 560 }, zIndex: 1 },
+    },
+  ])
+  await page.goto(`/workspace?ws=${workspaceId}`)
   await page.getByRole('button', { name: 'Create new project' }).click()
   const dialog = page.getByRole('dialog', { name: 'Create Hermes project' })
   await expect(dialog).toBeVisible()
@@ -661,28 +653,18 @@ test('uses in-window Hermes project actions with gateway-backed choices', async 
     actions.push(route.request().postDataJSON())
     await route.fulfill({ json: {} })
   })
-  await page.addInitScript(() => {
-    localStorage.setItem(
-      'workspace-state-ws-hermes-actions',
-      JSON.stringify({
-        windows: [
-          {
-            id: 'hermes-browser',
-            type: 'browser',
-            title: 'Hermes Sessions',
-            source: { kind: 'local' },
-            initialState: { dir: 'Hermes Sessions' },
-            layout: { bounds: { x: 30, y: 30, width: 760, height: 560 }, zIndex: 1 },
-          },
-        ],
-        activeWindowId: 'hermes-browser',
-        activeTabMap: {},
-        nextWindowId: 2,
-        pinnedTaskbarItems: [],
-      }),
-    )
-  })
-  await page.goto('/workspace?ws=hermes-actions')
+  const workspaceId = `hermes-actions-${Date.now()}`
+  await seedWorkspace(workspaceId, [
+    {
+      id: 'hermes-browser',
+      type: 'browser',
+      title: 'Hermes Sessions',
+      source: { kind: 'local' },
+      initialState: { dir: 'Hermes Sessions' },
+      layout: { bounds: { x: 30, y: 30, width: 760, height: 560 }, zIndex: 1 },
+    },
+  ])
+  await page.goto(`/workspace?ws=${workspaceId}`)
 
   await page.getByText('Loose session', { exact: true }).click({ button: 'right' })
   await page.getByRole('button', { name: /Move to project/ }).click()

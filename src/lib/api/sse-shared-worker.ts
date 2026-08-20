@@ -22,6 +22,7 @@ function portState(port: MessagePort): PortState {
 
 let adminRefTotal = 0
 let adminSource: EventSource | null = null
+let adminConnected = false
 let adminRetry = 0
 let adminReconnectTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -33,14 +34,17 @@ function cancelAdminReconnect() {
 }
 
 function broadcastAdmin(data: unknown) {
-  const message = { type: 'admin-sse' as const, data }
   for (const [port, state] of portStates) {
     if (state.admin <= 0) continue
-    try {
-      port.postMessage(message)
-    } catch {
-      // Ignore closed ports.
-    }
+    sendAdmin(port, data)
+  }
+}
+
+function sendAdmin(port: MessagePort, data: unknown) {
+  try {
+    port.postMessage({ type: 'admin-sse' as const, data })
+  } catch {
+    // Ignore closed ports.
   }
 }
 
@@ -48,16 +52,20 @@ function openAdminStream() {
   cancelAdminReconnect()
   if (adminSource || adminRefTotal <= 0) return
 
+  adminConnected = false
   adminSource = new EventSource('/api/events/stream')
   adminSource.onmessage = (event) => {
-    adminRetry = 0
     try {
-      broadcastAdmin(JSON.parse(event.data))
+      const data = JSON.parse(event.data) as { type?: string }
+      if (data.type === 'connected') adminConnected = true
+      adminRetry = 0
+      broadcastAdmin(data)
     } catch {
       // Ignore malformed events.
     }
   }
   adminSource.onerror = () => {
+    adminConnected = false
     adminSource?.close()
     adminSource = null
     if (adminRefTotal <= 0) return
@@ -73,6 +81,7 @@ function closeAdminStreamIfIdle() {
   cancelAdminReconnect()
   if (adminRefTotal > 0) return
   adminRetry = 0
+  adminConnected = false
   adminSource?.close()
   adminSource = null
 }
@@ -80,11 +89,24 @@ function closeAdminStreamIfIdle() {
 function onPortMessage(port: MessagePort, raw: unknown) {
   if (!raw || typeof raw !== 'object') return
   const message = raw as { type?: string }
+  if (message.type === 'network-offline') {
+    cancelAdminReconnect()
+    adminConnected = false
+    adminSource?.close()
+    adminSource = null
+    return
+  }
+  if (message.type === 'network-online') {
+    adminRetry = 0
+    openAdminStream()
+    return
+  }
   if (message.type === 'subscribe-admin') {
     const state = portState(port)
     state.admin++
     adminRefTotal++
     if (adminRefTotal === 1) openAdminStream()
+    else if (adminConnected) sendAdmin(port, { type: 'connected' })
     return
   }
   if (message.type === 'unsubscribe-admin') {

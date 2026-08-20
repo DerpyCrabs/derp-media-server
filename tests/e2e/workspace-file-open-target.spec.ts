@@ -63,4 +63,50 @@ test.describe('Workspace file open target', () => {
     await content.getByText('readme.txt').click()
     await expect(getWindowGroups(page)).toHaveCount(2)
   })
+
+  test('applies file and layout preferences live across tabs', async () => {
+    const secondPage = await sharedContext.newPage()
+    try {
+      await Promise.all([gotoWorkspace(page), gotoWorkspace(secondPage)])
+
+      await page.getByRole('button', { name: 'Open settings' }).click()
+      await chooseWorkspaceOpenTarget(page, 'New tab')
+
+      await secondPage.getByRole('button', { name: 'Open settings' }).click()
+      const secondDialog = secondPage
+        .getByRole('dialog')
+        .filter({ has: secondPage.getByRole('heading', { name: 'Settings' }) })
+      await expect(secondDialog.getByRole('button', { name: 'New tab' })).toHaveClass(
+        /border-primary/,
+      )
+
+      await page.getByRole('button', { name: 'Open settings' }).click()
+      const firstDialog = page
+        .getByRole('dialog')
+        .filter({ has: page.getByRole('heading', { name: 'Settings' }) })
+      const firstSnapAssist = firstDialog.getByRole('checkbox', {
+        name: 'Show snap assist when dragging to the top-center handle',
+      })
+      const secondSnapAssist = secondDialog.getByRole('checkbox', {
+        name: 'Show snap assist when dragging to the top-center handle',
+      })
+      await firstSnapAssist.uncheck()
+      await expect(secondSnapAssist).not.toBeChecked()
+
+      const firstGap = firstDialog.getByRole('slider', { name: /Window gaps/ })
+      const secondGap = secondDialog.getByRole('slider', { name: /Window gaps/ })
+      await firstGap.fill('7')
+      await expect(secondGap).toHaveValue('7')
+
+      await secondPage.keyboard.press('Escape')
+      const content = getBrowserContent(secondPage)
+      await content.getByText('Documents', { exact: true }).click()
+      await expect(content.getByText('readme.txt')).toBeVisible({ timeout: 10_000 })
+      await content.getByText('readme.txt').click()
+      await expect(getWindowGroups(secondPage)).toHaveCount(1)
+      await expect(secondPage.locator('.workspace-tab-strip').getByText('readme.txt')).toBeVisible()
+    } finally {
+      await secondPage.close()
+    }
+  })
 })

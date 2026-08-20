@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { canvasEdgeAutoPanVelocity } from '@/canvas/canvas-edge-auto-pan'
+import { canvasEdgeAutoPanVelocity } from '@/workspace/canvas/canvas-edge-auto-pan'
 
 const viewport = { left: 100, top: 50, right: 1100, bottom: 750 }
 

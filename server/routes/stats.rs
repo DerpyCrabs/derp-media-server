@@ -1,18 +1,12 @@
 use crate::{
-    app::{Shared, stats_path},
+    app::{Shared, emit_admin},
     error::{AppError, AppResult},
-    store,
 };
 use axum::{Json, Router, extract::State, routing::get};
 use serde_json::{Value, json};
 
-async fn get_stats(State(state): State<Shared>) -> Json<Value> {
-    let value = store::section(
-        &stats_path(&state),
-        &state.config.library_key,
-        json!({"views":{}}),
-    );
-    Json(json!({"views": value["views"].as_object().cloned().unwrap_or_default()}))
+async fn get_stats(State(state): State<Shared>) -> AppResult<Json<Value>> {
+    Ok(Json(json!({"views":state.stats.views()?})))
 }
 
 async fn add_view(State(state): State<Shared>, Json(body): Json<Value>) -> AppResult<Json<Value>> {
@@ -20,16 +14,8 @@ async fn add_view(State(state): State<Shared>, Json(body): Json<Value>) -> AppRe
     if path.is_empty() {
         return Err(AppError::bad("File path is required"));
     }
-    let count = store::mutate_section(
-        &stats_path(&state),
-        &state.config.library_key,
-        json!({"views":{}}),
-        |value| {
-            let count = value["views"][path].as_u64().unwrap_or(0) + 1;
-            value["views"][path] = json!(count);
-            Ok(count)
-        },
-    )?;
+    let count = state.stats.increment(path)?;
+    emit_admin(&state, "stats-changed");
     Ok(Json(json!({"success":true,"viewCount":count})))
 }
 

@@ -1,5 +1,4 @@
 import type { NavigationState } from '@/lib/browser/navigation-session'
-import type { FileOpenTarget } from './open-target'
 import { MediaType } from '@/lib/files/types'
 import type { TaskbarPin } from './taskbar-pins'
 
@@ -97,14 +96,16 @@ export interface TabGroupSplitState {
 }
 
 export interface PersistedWindowState {
+  workspaceType: 'desktop' | 'canvas'
   windows: WindowDefinition[]
   activeWindowId: string | null
   activeTabMap: Record<string, string>
   nextWindowId: number
-  pinnedTaskbarItems: PinnedTaskbarItem[]
-  browserTabTitle?: string
-  browserTabIcon?: string
-  browserTabIconColor?: string
   tabGroupSplits?: Record<string, TabGroupSplitState>
-  fileOpenTarget?: FileOpenTarget
+  canvas?: {
+    camera: { x: number; y: number; zoom: number }
+    maximizedWindowId: string | null
+    windowSizeByType: Record<string, { width: number; height: number }>
+    nextZIndex: number
+  }
 }

@@ -75,7 +75,6 @@ fn vite_port(server_port: u16) -> u16 {
 fn router(state: Shared) -> Router {
     Router::new()
         .merge(routes::config::router())
-        .merge(routes::canvases::router())
         .merge(routes::files::router())
         .merge(routes::hermes_chat::router())
         .merge(routes::settings::router())
@@ -144,6 +143,10 @@ pub(crate) async fn run() {
         events,
         admin_events,
         hermes_events,
+        database: state_db::AppDatabase::from_config(&config),
+        settings: crate::settings_persistence::SettingsRepository::from_config(&config),
+        stats: crate::stats_persistence::StatsRepository::from_config(&config),
+        workspaces: crate::workspace_persistence::WorkspaceRepository::from_config(&config),
         reader_state_db: Mutex::new(()),
         thumbnails: thumbnails::Thumbnailer::new(config.data_path.join("thumbnails")),
         image_variants: image_variants::ImageVariants::new(
@@ -153,6 +156,7 @@ pub(crate) async fn run() {
         file_search: FileSearch::new(config.file_search.clone(), search_roots),
         hermes,
         hermes_project_operations: Mutex::new(()),
+        file_mutations: Mutex::new(()),
         hermes_runtime_ids: Mutex::new(HashMap::new()),
         hermes_active_ids: Mutex::new(HashSet::new()),
     });

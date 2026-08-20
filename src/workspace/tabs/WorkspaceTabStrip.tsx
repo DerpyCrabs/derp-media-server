@@ -1,6 +1,6 @@
 import type { FileDragData } from '@/lib/files/file-drag-data'
 import { getFileDragData, hasFileDragData } from '@/lib/files/file-drag-data'
-import type { WorkspaceWindowDefinition } from '@/workspace/model/use-workspace'
+import type { WindowDefinition as WorkspaceWindowDefinition } from '@/lib/models/window-model'
 import { getWorkspaceWindowTitle } from '@/workspace/model/use-workspace'
 import type { FileIconContext } from '@/features/explorer/use-file-icon'
 import { windowIcon } from '@/features/explorer/use-file-icon'
@@ -62,7 +62,7 @@ export type WorkspaceTabStripProps = {
   visibleTabId: Accessor<string>
   isWindowActive: boolean
   fileIconContext: () => FileIconContext
-  onSelectTab: (groupId: string, tabId: string) => void
+  onActivateTab: (groupId: string, tabId: string) => void
   onFocusWindow: (tabId: string) => void
   onCloseTab: (tabId: string) => void
   onToggleTabPinned?: (tabId: string) => void
@@ -241,11 +241,10 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
 
   const handleTabPointerDown = (tabId: string, e: PointerEvent) => {
     if (e.button !== 0) return
-    e.stopPropagation()
-    props.onSelectTab(props.groupId, tabId)
-    props.onFocusWindow(tabId)
+    props.onActivateTab(props.groupId, tabId)
 
     if (allTabs().length <= 1) return
+    e.stopPropagation()
     props.onTabPullStart?.(props.groupId, tabId, e)
   }
 

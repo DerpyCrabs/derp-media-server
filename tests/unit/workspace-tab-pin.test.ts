@@ -1,9 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { MediaType } from '@/lib/files/types'
-import type {
-  PersistedWorkspaceState,
-  WorkspaceWindowDefinition,
-} from '@/workspace/model/use-workspace'
+import type { PersistedWorkspaceState } from '@/workspace/model/use-workspace'
+import type { WindowDefinition as WorkspaceWindowDefinition } from '@/lib/models/window-model'
 import {
   clampTabInsertIndex,
   leadingPinnedTabCount,
@@ -35,11 +33,11 @@ function browserTab(
 
 function baseState(windows: WorkspaceWindowDefinition[]): PersistedWorkspaceState {
   return {
+    workspaceType: 'desktop',
     windows,
     activeWindowId: windows[0]?.id ?? '',
     activeTabMap: { g1: windows[0]?.id ?? '' },
     nextWindowId: 10,
-    pinnedTaskbarItems: [],
   }
 }
 

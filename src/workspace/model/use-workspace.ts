@@ -1,7 +1,6 @@
 import type {
   PersistedWindowState,
-  SnapZone as SharedSnapZone,
-  TabGroupSplitState as SharedTabGroupSplitState,
+  TabGroupSplitState,
   TilingPlacement,
   WindowDefinition,
   WindowLayout,
@@ -14,28 +13,16 @@ import {
   reconcileLayoutBoundsFromSnapZones,
   WORKSPACE_WINDOW_MIN_VISIBLE_PX,
 } from './workspace-geometry'
-import { migrateLegacyAssistCustomToTiling } from './workspace-tiling-migrate'
-import { isWorkspaceTabIconColorKey } from './workspace-tab-icon-colors'
-import { parseTaskbarPins, type TaskbarPin } from '@/lib/models/taskbar-pins'
-import type { FileOpenTarget } from '@/lib/models/open-target'
 import { deletedHermesSessionIds } from '@/features/hermes/hermes-session-store'
+import {
+  CANVAS_MIN_WINDOW_HEIGHT,
+  CANVAS_MIN_WINDOW_WIDTH,
+  snapCanvasRect,
+  type CanvasWindowSize,
+  type CanvasWindowSizeKey,
+} from '@/workspace/canvas/model/infinite-canvas'
 
-export type WorkspaceSource = WindowSource
-export const DEFAULT_WORKSPACE_SOURCE: WorkspaceSource = { kind: 'local', rootPath: null }
-
-export type SnapZone = SharedSnapZone
-
-export type WorkspaceWindowLayout = WindowLayout
-
-export type WorkspaceTilingPlacement = TilingPlacement
-
-export type WorkspaceWindowDefinition = WindowDefinition
-
-export type PinnedTaskbarItem = TaskbarPin
-
-export type TabGroupSplitState = SharedTabGroupSplitState
-
-const STORAGE_KEY = 'workspace-state'
+export const DEFAULT_WORKSPACE_SOURCE: WindowSource = { kind: 'local', rootPath: null }
 
 export const SPLIT_PANE_FRACTION_MIN = 0.3
 export const SPLIT_PANE_FRACTION_MAX = 0.7
@@ -48,40 +35,8 @@ export function clampSplitPaneFraction(f: number): number {
 
 export type PersistedWorkspaceState = PersistedWindowState
 
-export function workspaceStorageBaseKey(): string {
-  return STORAGE_KEY
-}
-
-export function workspaceStorageSessionKey(baseKey: string, workspaceSessionId: string): string {
-  return `${baseKey}-ws-${workspaceSessionId}`
-}
-
 function sortTabMapKeys(map: Record<string, string>): Record<string, string> {
   return Object.fromEntries(Object.entries(map).sort(([a], [b]) => a.localeCompare(b)))
-}
-
-const MAX_BROWSER_TAB_TITLE_LEN = 120
-const MAX_BROWSER_TAB_ICON_LEN = 64
-
-function parseBrowserTabTitle(v: unknown): string | undefined {
-  if (typeof v !== 'string') return undefined
-  const t = v.trim().slice(0, MAX_BROWSER_TAB_TITLE_LEN)
-  return t.length > 0 ? t : undefined
-}
-
-function parseBrowserTabIcon(v: unknown): string | undefined {
-  if (typeof v !== 'string') return undefined
-  const t = v.trim().slice(0, MAX_BROWSER_TAB_ICON_LEN)
-  if (!t.length) return undefined
-  if (!/^[A-Za-z][A-Za-z0-9]*$/.test(t)) return undefined
-  return t
-}
-
-function parseBrowserTabIconColor(v: unknown): string | undefined {
-  if (typeof v !== 'string') return undefined
-  const t = v.trim()
-  if (!t.length) return undefined
-  return isWorkspaceTabIconColorKey(t) ? t : undefined
 }
 
 export function serializeWorkspacePersistedState(state: PersistedWorkspaceState): string {
@@ -94,16 +49,27 @@ export function toPersistentWorkspaceState(
   const { windows, activeWindowId, activeTabMap, tabGroupSplits } =
     persistentWorkspaceProjection(state)
   return {
+    workspaceType: state.workspaceType === 'canvas' ? 'canvas' : 'desktop',
     windows,
     activeWindowId,
     activeTabMap: sortTabMapKeys(activeTabMap),
     nextWindowId: state.nextWindowId,
-    pinnedTaskbarItems: state.pinnedTaskbarItems ?? [],
     ...(tabGroupSplits ? { tabGroupSplits } : {}),
-    ...(state.browserTabTitle ? { browserTabTitle: state.browserTabTitle } : {}),
-    ...(state.browserTabIcon ? { browserTabIcon: state.browserTabIcon } : {}),
-    ...(state.browserTabIconColor ? { browserTabIconColor: state.browserTabIconColor } : {}),
-    ...(state.fileOpenTarget ? { fileOpenTarget: state.fileOpenTarget } : {}),
+    ...(state.workspaceType === 'canvas' && state.canvas
+      ? {
+          canvas: {
+            camera: { ...state.canvas.camera },
+            maximizedWindowId: state.canvas.maximizedWindowId,
+            windowSizeByType: Object.fromEntries(
+              Object.entries(state.canvas.windowSizeByType).map(([key, size]) => [
+                key,
+                { ...size },
+              ]),
+            ),
+            nextZIndex: state.canvas.nextZIndex,
+          },
+        }
+      : {}),
   }
 }
 
@@ -111,24 +77,12 @@ export function sanitizePersistedWorkspaceState(
   state: PersistedWorkspaceState,
 ): PersistedWorkspaceState {
   const projected = toPersistentWorkspaceState(state)
-  return normalizePersistedWorkspaceState(projected, { reconcileSnapZones: false }) ?? projected
+  const normalized = normalizePersistedWorkspaceState(projected, { reconcileSnapZones: false })
+  if (!normalized) throw new Error('Invalid workspace document')
+  return normalized
 }
 
-export function serializeWorkspaceLayoutState(state: PersistedWorkspaceState): string {
-  const { windows, activeWindowId, activeTabMap, tabGroupSplits } =
-    persistentWorkspaceProjection(state)
-  return JSON.stringify({
-    windows,
-    activeWindowId,
-    activeTabMap: sortTabMapKeys(activeTabMap),
-    nextWindowId: state.nextWindowId,
-    pinnedTaskbarItems: state.pinnedTaskbarItems ?? [],
-    ...(tabGroupSplits ? { tabGroupSplits } : {}),
-    ...(state.fileOpenTarget ? { fileOpenTarget: state.fileOpenTarget } : {}),
-  })
-}
-
-export function persistentWorkspaceWindows(windows: WorkspaceWindowDefinition[]) {
+export function persistentWorkspaceWindows(windows: WindowDefinition[]) {
   return windows
     .filter((window) => window.type !== 'hermes' || !!window.hermes?.sessionId)
     .filter(
@@ -145,7 +99,7 @@ export function persistentWorkspaceWindows(windows: WorkspaceWindowDefinition[])
 }
 
 function sanitizeWorkspaceFocus(
-  windows: WorkspaceWindowDefinition[],
+  windows: WindowDefinition[],
   rawActiveTabMap: unknown,
   rawActiveWindowId: unknown,
   splits: Record<string, TabGroupSplitState> | undefined,
@@ -186,18 +140,11 @@ function persistentWorkspaceProjection(state: PersistedWorkspaceState) {
   return { windows, tabGroupSplits, ...focus }
 }
 
-function groupIdForWorkspaceMember(w: WorkspaceWindowDefinition): string {
+function groupIdForWorkspaceMember(w: WindowDefinition): string {
   return w.tabGroupId ?? w.id
 }
 
-function parseWorkspaceFileOpenTargetField(v: unknown): FileOpenTarget | undefined {
-  if (v === 'new-tab' || v === 'new-window') return v
-  return undefined
-}
-
-function sanitizeBrowserFileOpenTargets(
-  windows: WorkspaceWindowDefinition[],
-): WorkspaceWindowDefinition[] {
+function sanitizeBrowserFileOpenTargets(windows: WindowDefinition[]): WindowDefinition[] {
   const ids = new Set(windows.map((w) => w.id))
   return windows.map((w) => {
     if (w.type !== 'browser') return w
@@ -207,13 +154,13 @@ function sanitizeBrowserFileOpenTargets(
     }
     if ('fileOpenTargetWindowId' in w) {
       const { fileOpenTargetWindowId: _drop, ...rest } = w
-      return rest as WorkspaceWindowDefinition
+      return rest as WindowDefinition
     }
     return w
   })
 }
 
-/** Anchor window id for open-in-new-tab from a browser (for tests and WorkspacePage). */
+/** Anchor window id for open-in-new-tab from a browser. */
 export function resolveNewTabAnchorWindowId(
   state: Pick<PersistedWorkspaceState, 'windows'>,
   browserWindowId: string,
@@ -226,7 +173,7 @@ export function resolveNewTabAnchorWindowId(
 }
 
 function sanitizeTabGroupSplitsField(
-  windows: WorkspaceWindowDefinition[],
+  windows: WindowDefinition[],
   raw: unknown,
 ): Record<string, TabGroupSplitState> | undefined {
   if (!raw || typeof raw !== 'object') return undefined
@@ -250,7 +197,7 @@ function sanitizeTabGroupSplitsField(
 }
 
 function ensureSplitWorkspaceFocus(
-  windows: WorkspaceWindowDefinition[],
+  windows: WindowDefinition[],
   activeTabMap: Record<string, string>,
   activeWindowId: string | null,
   splits: Record<string, TabGroupSplitState> | undefined,
@@ -268,9 +215,9 @@ function ensureSplitWorkspaceFocus(
 }
 
 function clampBoundsToViewport(
-  b: NonNullable<WorkspaceWindowLayout['bounds']>,
+  b: NonNullable<WindowLayout['bounds']>,
   viewport: { width: number; height: number },
-): NonNullable<WorkspaceWindowLayout['bounds']> {
+): NonNullable<WindowLayout['bounds']> {
   const vis = WORKSPACE_WINDOW_MIN_VISIBLE_PX
   const vw = Math.max(viewport.width, vis)
   const vh = Math.max(viewport.height, vis)
@@ -285,9 +232,9 @@ function clampBoundsToViewport(
   return { x, y, width, height }
 }
 
-function sanitizeTilingPlacement(value: unknown): WorkspaceTilingPlacement | null {
+function sanitizeTilingPlacement(value: unknown): TilingPlacement | null {
   if (!value || typeof value !== 'object') return null
-  const t = value as WorkspaceTilingPlacement
+  const t = value as TilingPlacement
   if (!Number.isInteger(t.cols) || !Number.isInteger(t.rows) || t.cols < 1 || t.rows < 1)
     return null
   if (
@@ -336,6 +283,55 @@ function sanitizeTilingPlacement(value: unknown): WorkspaceTilingPlacement | nul
   }
 }
 
+const CANVAS_WINDOW_SIZE_KEYS: CanvasWindowSizeKey[] = [
+  'browser',
+  'viewer',
+  'hermes',
+  'viewer-audio',
+  'viewer-video',
+  'viewer-image',
+  'viewer-text',
+  'viewer-pdf',
+  'viewer-other',
+]
+
+function sanitizeCanvasWindowSizes(
+  value: unknown,
+): Partial<Record<CanvasWindowSizeKey, CanvasWindowSize>> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const raw = value as Record<string, unknown>
+  return Object.fromEntries(
+    CANVAS_WINDOW_SIZE_KEYS.flatMap((key) => {
+      const candidate = raw[key]
+      if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return []
+      const size = candidate as Partial<CanvasWindowSize>
+      if (
+        typeof size.width !== 'number' ||
+        !Number.isFinite(size.width) ||
+        size.width <= 0 ||
+        typeof size.height !== 'number' ||
+        !Number.isFinite(size.height) ||
+        size.height <= 0
+      ) {
+        return []
+      }
+      const snapped = snapCanvasRect({ x: 0, y: 0, width: size.width, height: size.height })
+      return [[key, { width: snapped.width, height: snapped.height }]]
+    }),
+  )
+}
+
+function requiredNextWorkspaceWindowId(windows: WindowDefinition[]): number {
+  return windows.reduce((next, window) => {
+    const match = /^workspace-window-(\d+)$/.exec(window.id)
+    if (!match) return next
+    const value = Number(match[1])
+    return Number.isSafeInteger(value) && value < Number.MAX_SAFE_INTEGER
+      ? Math.max(next, value + 1)
+      : next
+  }, windows.length + 1)
+}
+
 export type NormalizePersistedWorkspaceOptions = {
   /**
    * When true (default), recompute pixel bounds from `snapZone` for snapped groups.
@@ -351,97 +347,138 @@ export function normalizePersistedWorkspaceState(
 ): PersistedWorkspaceState | null {
   if (!data || typeof data !== 'object') return null
   const parsed = data as PersistedWorkspaceState
-  if (!Array.isArray(parsed.windows) || parsed.windows.length === 0) return null
+  if (!Array.isArray(parsed.windows)) return null
+  if (parsed.workspaceType !== 'desktop' && parsed.workspaceType !== 'canvas') return null
+  if (parsed.workspaceType === 'desktop' && parsed.canvas !== undefined) return null
+  if (parsed.workspaceType === 'canvas' && !parsed.canvas) return null
 
   const reconcileSnapZones = options?.reconcileSnapZones !== false
   const viewport = getViewportSize()
-  const validatedWindows = parsed.windows
-    .filter(
-      (w): w is WorkspaceWindowDefinition =>
-        !!w &&
-        typeof w.id === 'string' &&
-        (w.type === 'browser' || w.type === 'viewer' || w.type === 'hermes') &&
-        !!w.source &&
-        isValidSource(w.source) &&
-        (w.type !== 'hermes' ||
-          (w.source.kind === 'local' && typeof w.hermes?.sessionId === 'string')),
+  const workspaceType = parsed.workspaceType
+  const validWindow = (w: unknown): w is WindowDefinition => {
+    if (!w || typeof w !== 'object') return false
+    const window = w as WindowDefinition
+    return (
+      typeof window.id === 'string' &&
+      window.id.length > 0 &&
+      (window.type === 'browser' || window.type === 'viewer' || window.type === 'hermes') &&
+      typeof window.title === 'string' &&
+      !!window.source &&
+      isValidSource(window.source) &&
+      (window.type !== 'hermes' ||
+        (window.source.kind === 'local' && typeof window.hermes?.sessionId === 'string'))
     )
-    .map((w, i) => {
-      const b = w.layout?.bounds
-      // Keep saved pixel bounds for legacy assist-custom → tiling migration before viewport clamp.
-      const bounds = b ?? createDefaultBounds(i, w.type === 'browser' ? 'browser' : 'viewer')
-      return {
-        ...w,
-        layout: {
-          ...w.layout,
-          bounds,
-          tiling: sanitizeTilingPlacement(w.layout?.tiling),
-        },
-      }
-    })
+  }
+  if (parsed.windows.some((window) => !validWindow(window))) return null
+  if (new Set(parsed.windows.map((window) => window.id)).size !== parsed.windows.length) return null
+  const validatedWindows = parsed.windows.map((w, i) => {
+    const b = w.layout?.bounds
+    const canvasBoundsValid =
+      workspaceType === 'canvas' &&
+      b &&
+      Number.isFinite(b.x) &&
+      Number.isFinite(b.y) &&
+      Number.isFinite(b.width) &&
+      Number.isFinite(b.height) &&
+      b.width > 0 &&
+      b.height > 0
+    const fallbackBounds = createDefaultBounds(i, w.type === 'browser' ? 'browser' : 'viewer')
+    const bounds =
+      workspaceType === 'canvas'
+        ? canvasBoundsValid
+          ? {
+              x: b.x,
+              y: b.y,
+              width: Math.max(CANVAS_MIN_WINDOW_WIDTH, b.width),
+              height: Math.max(CANVAS_MIN_WINDOW_HEIGHT, b.height),
+            }
+          : fallbackBounds
+        : (b ?? fallbackBounds)
+    const tiling = sanitizeTilingPlacement(w.layout?.tiling)
+    return {
+      ...w,
+      layout: {
+        ...w.layout,
+        bounds,
+        ...(w.layout && 'tiling' in w.layout ? { tiling } : {}),
+      },
+    }
+  })
 
-  if (validatedWindows.length === 0) return null
-
-  // Infer grid from saved bounds (own canvas), then reconcile/clamp to the live viewport.
-  const migratedWindows = migrateLegacyAssistCustomToTiling(validatedWindows)
-  const hasSemanticTiling = migratedWindows.some((w) => w.layout?.tiling)
+  const hasSemanticTiling = validatedWindows.some((w) => w.layout?.tiling)
   const reconciledWindows =
-    reconcileSnapZones || hasSemanticTiling
-      ? reconcileLayoutBoundsFromSnapZones(migratedWindows, viewport)
-      : migratedWindows.map((w) => {
-          const b = w.layout?.bounds
-          if (!b) return w
-          return {
-            ...w,
-            layout: {
-              ...w.layout,
-              bounds: clampBoundsToViewport(b, viewport),
-            },
-          }
-        })
+    workspaceType === 'canvas'
+      ? validatedWindows
+      : reconcileSnapZones || hasSemanticTiling
+        ? reconcileLayoutBoundsFromSnapZones(validatedWindows, viewport)
+        : validatedWindows.map((w) => {
+            const b = w.layout?.bounds
+            if (!b) return w
+            return {
+              ...w,
+              layout: {
+                ...w.layout,
+                bounds: clampBoundsToViewport(b, viewport),
+              },
+            }
+          })
 
   const withOpenTargets = sanitizeBrowserFileOpenTargets(reconciledWindows)
 
-  const rawPinned = Array.isArray(parsed.pinnedTaskbarItems) ? parsed.pinnedTaskbarItems : []
-  const pinnedTaskbarItems = rawPinned.filter(isValidPinnedItem)
-
-  const browserTabTitle = parseBrowserTabTitle(parsed.browserTabTitle)
-  const browserTabIcon = parseBrowserTabIcon(parsed.browserTabIcon)
-  const browserTabIconColor = parseBrowserTabIconColor(parsed.browserTabIconColor)
-  const fileOpenTarget = parseWorkspaceFileOpenTargetField(parsed.fileOpenTarget)
   const tabGroupSplits = sanitizeTabGroupSplitsField(withOpenTargets, parsed.tabGroupSplits)
   const focus = sanitizeWorkspaceFocus(
     withOpenTargets,
-    parsed.activeTabMap,
-    parsed.activeWindowId,
+    parsed.activeTabMap && typeof parsed.activeTabMap === 'object' ? parsed.activeTabMap : {},
+    typeof parsed.activeWindowId === 'string' ? parsed.activeWindowId : null,
     tabGroupSplits,
   )
 
   return {
+    workspaceType,
     windows: withOpenTargets,
     activeWindowId: focus.activeWindowId,
     activeTabMap: focus.activeTabMap,
-    nextWindowId: parsed.nextWindowId ?? validatedWindows.length + 1,
-    pinnedTaskbarItems,
+    nextWindowId: Math.max(
+      requiredNextWorkspaceWindowId(withOpenTargets),
+      Number.isSafeInteger(parsed.nextWindowId) && parsed.nextWindowId > 0
+        ? parsed.nextWindowId
+        : 1,
+    ),
     ...(tabGroupSplits ? { tabGroupSplits } : {}),
-    ...(browserTabTitle ? { browserTabTitle } : {}),
-    ...(browserTabIcon ? { browserTabIcon } : {}),
-    ...(browserTabIconColor ? { browserTabIconColor } : {}),
-    ...(fileOpenTarget ? { fileOpenTarget } : {}),
+    ...(workspaceType === 'canvas'
+      ? {
+          canvas: {
+            camera: {
+              x: Number.isFinite(parsed.canvas?.camera?.x) ? parsed.canvas!.camera.x : 0,
+              y: Number.isFinite(parsed.canvas?.camera?.y) ? parsed.canvas!.camera.y : 0,
+              zoom: Number.isFinite(parsed.canvas?.camera?.zoom)
+                ? Math.min(1, Math.max(0.08, parsed.canvas!.camera.zoom))
+                : 1,
+            },
+            maximizedWindowId:
+              typeof parsed.canvas?.maximizedWindowId === 'string' &&
+              withOpenTargets.some((window) => window.id === parsed.canvas!.maximizedWindowId)
+                ? parsed.canvas.maximizedWindowId
+                : null,
+            windowSizeByType: sanitizeCanvasWindowSizes(parsed.canvas?.windowSizeByType),
+            nextZIndex:
+              typeof parsed.canvas?.nextZIndex === 'number' &&
+              Number.isFinite(parsed.canvas.nextZIndex)
+                ? Math.max(1, Math.floor(parsed.canvas.nextZIndex))
+                : Math.max(1, ...withOpenTargets.map((window) => (window.layout?.zIndex ?? 0) + 1)),
+          },
+        }
+      : {}),
   }
 }
 
-function isValidSource(s: unknown): s is WorkspaceSource {
+function isValidSource(s: unknown): s is WindowSource {
   if (!s || typeof s !== 'object' || !('kind' in s)) return false
-  return (s as WorkspaceSource).kind === 'local'
-}
-
-function isValidPinnedItem(p: unknown): p is PinnedTaskbarItem {
-  return parseTaskbarPins([p]).length === 1
+  return (s as WindowSource).kind === 'local'
 }
 
 export function getWorkspaceWindowTitle(
-  window: Pick<WorkspaceWindowDefinition, 'title' | 'type' | 'source' | 'initialState'>,
+  window: Pick<WindowDefinition, 'title' | 'type' | 'source' | 'initialState'>,
 ): string {
   if (window.title.trim()) {
     return window.title

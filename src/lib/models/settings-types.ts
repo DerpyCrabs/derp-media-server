@@ -17,6 +17,8 @@ export interface AutoSaveSettings {
   readOnly?: boolean
 }
 
+export type WorkspaceTransition = 'instant' | 'fade'
+
 export interface GlobalSettings {
   viewModes: Record<string, ViewMode>
   sortOrders: Record<string, FileSortOrder>
@@ -25,5 +27,5 @@ export interface GlobalSettings {
   knowledgeBases: string[]
   customIcons: Record<string, string>
   autoSave: Record<string, AutoSaveSettings>
-  workspaceTransition?: 'instant' | 'fade'
+  workspaceTransition: WorkspaceTransition
 }

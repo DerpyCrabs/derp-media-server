@@ -1,6 +1,7 @@
 use crate::{
     config::Config,
     error::{AppError, AppResult},
+    settings_persistence, stats_persistence,
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use serde_json::Value;
@@ -10,17 +11,62 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-const LEGACY_FILES: [&str; 3] = ["settings.json", "stats.json", "canvases.json"];
+const LEGACY_FILES: [&str; 2] = ["settings.json", "stats.json"];
 
-pub fn database(config: &Config) -> PathBuf {
+pub(crate) fn database(config: &Config) -> PathBuf {
     config.data_path.join("app.sqlite3")
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct AppDatabase {
+    path: PathBuf,
+}
+
+impl AppDatabase {
+    pub fn new(path: impl Into<PathBuf>) -> Self {
+        Self { path: path.into() }
+    }
+
+    pub fn from_config(config: &Config) -> Self {
+        Self::new(database(config))
+    }
+
+    #[cfg(test)]
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub fn connection(&self) -> AppResult<Connection> {
+        connection(&self.path)
+    }
+
+    pub fn document(&self, kind: &str, library_key: &str, default: Value) -> AppResult<Value> {
+        document(&self.path, kind, library_key, default)
+    }
+
+    pub fn transaction<T>(
+        &self,
+        update: impl FnOnce(&Transaction<'_>) -> AppResult<T>,
+    ) -> AppResult<T> {
+        run_transaction(&self.path, update)
+    }
+
+    pub fn update<T>(
+        &self,
+        kind: &str,
+        library_key: &str,
+        default: Value,
+        update: impl FnOnce(&mut Value) -> AppResult<T>,
+    ) -> AppResult<T> {
+        update_document(&self.path, kind, library_key, default, update)
+    }
 }
 
 fn error(error: impl std::fmt::Display) -> AppError {
     AppError::internal(error.to_string())
 }
 
-pub fn connection(path: &Path) -> AppResult<Connection> {
+pub(crate) fn connection(path: &Path) -> AppResult<Connection> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(AppError::io)?;
     }
@@ -34,7 +80,7 @@ pub fn connection(path: &Path) -> AppResult<Connection> {
     Ok(connection)
 }
 
-pub fn initialize(config: &Config) -> Result<(), String> {
+pub(crate) fn initialize(config: &Config) -> Result<(), String> {
     let path = database(config);
     let mut connection = connection(&path).map_err(|error| error.1)?;
     connection
@@ -125,8 +171,61 @@ pub fn initialize(config: &Config) -> Result<(), String> {
             .map_err(|error| error.to_string())?;
         transaction.commit().map_err(|error| error.to_string())?;
     }
+    if version < 4 {
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| error.to_string())?;
+        migrate_workspace_types(&transaction)?;
+        transaction
+            .execute(
+                "INSERT INTO schema_migrations(version, applied_at) VALUES(4, ?1)",
+                [now_ms()],
+            )
+            .map_err(|error| error.to_string())?;
+        transaction.commit().map_err(|error| error.to_string())?;
+    }
     let _ = fs::remove_file(config.data_path.join("shares.json"));
     import_legacy(config, &mut connection)?;
+    Ok(())
+}
+
+fn migrate_workspace_types(transaction: &Transaction<'_>) -> Result<(), String> {
+    let documents = {
+        let mut statement = transaction
+            .prepare("SELECT library_key, value_json FROM state_documents WHERE kind='workspaces'")
+            .map_err(|error| error.to_string())?;
+        statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|error| error.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| error.to_string())?
+    };
+    for (library_key, raw) in documents {
+        let mut registry: Value = serde_json::from_str(&raw).map_err(|error| error.to_string())?;
+        let Some(records) = registry.get_mut("records").and_then(Value::as_object_mut) else {
+            continue;
+        };
+        let mut changed = false;
+        for record in records.values_mut() {
+            let Some(snapshot) = record.get_mut("snapshot").and_then(Value::as_object_mut) else {
+                continue;
+            };
+            if !snapshot.contains_key("workspaceType") {
+                snapshot.insert("workspaceType".into(), Value::String("desktop".into()));
+                changed = true;
+            }
+        }
+        if changed {
+            transaction
+                .execute(
+                    "UPDATE state_documents SET value_json=?1 WHERE kind='workspaces' AND library_key=?2",
+                    params![serde_json::to_string(&registry).map_err(|error| error.to_string())?, library_key],
+                )
+                .map_err(|error| error.to_string())?;
+        }
+    }
     Ok(())
 }
 
@@ -194,7 +293,6 @@ fn import_legacy(config: &Config, connection: &mut Connection) -> Result<(), Str
         {
             "settings.json" => import_documents(&transaction, path, "settings", value)?,
             "stats.json" => import_documents(&transaction, path, "stats", value)?,
-            "canvases.json" => import_documents(&transaction, path, "canvases", value)?,
             _ => {}
         }
     }
@@ -216,8 +314,20 @@ fn import_documents(
     value: &Value,
 ) -> Result<(), String> {
     for (library_key, document) in object(path, value)? {
-        validate_document(path, kind, library_key, document)?;
-        let serialized = serde_json::to_string(document).map_err(|error| error.to_string())?;
+        let document = match kind {
+            "settings" => settings_persistence::canonical_document(document.clone()),
+            "stats" => stats_persistence::canonical_document(document.clone()),
+            _ => Err(AppError::internal(format!(
+                "Unsupported state document kind: {kind}"
+            ))),
+        }
+        .map_err(|_| {
+            format!(
+                "Invalid {} section {library_key}: invalid {kind} structure",
+                path.display()
+            )
+        })?;
+        let serialized = serde_json::to_string(&document).map_err(|error| error.to_string())?;
         transaction
             .execute(
                 "INSERT INTO state_documents(kind, library_key, value_json, updated_at)
@@ -229,55 +339,6 @@ fn import_documents(
             })?;
     }
     Ok(())
-}
-
-fn validate_document(
-    path: &Path,
-    kind: &str,
-    library_key: &str,
-    document: &Value,
-) -> Result<(), String> {
-    let invalid = || {
-        format!(
-            "Invalid {} section {library_key}: invalid {kind} structure",
-            path.display()
-        )
-    };
-    match kind {
-        "canvases" if !document.is_array() => Err(invalid()),
-        "settings" => {
-            let value = document.as_object().ok_or_else(invalid)?;
-            for key in [
-                "viewModes",
-                "sortOrders",
-                "customIcons",
-                "autoSave",
-                "fileColumns",
-            ] {
-                if value.get(key).is_some_and(|field| !field.is_object()) {
-                    return Err(invalid());
-                }
-            }
-            for key in ["favorites", "knowledgeBases", "workspaceTaskbarPins"] {
-                if value.get(key).is_some_and(|field| !field.is_array()) {
-                    return Err(invalid());
-                }
-            }
-            Ok(())
-        }
-        "stats" => {
-            let value = document.as_object().ok_or_else(invalid)?;
-            if ["views"]
-                .iter()
-                .any(|key| value.get(*key).is_some_and(|field| !field.is_object()))
-            {
-                Err(invalid())
-            } else {
-                Ok(())
-            }
-        }
-        _ => Ok(()),
-    }
 }
 
 fn archive_legacy(data_path: &Path, loaded: &[(PathBuf, Option<Value>)]) {
@@ -307,12 +368,7 @@ fn archive_legacy(data_path: &Path, loaded: &[(PathBuf, Option<Value>)]) {
     }
 }
 
-pub fn document(
-    database: &Path,
-    kind: &str,
-    library_key: &str,
-    default: Value,
-) -> AppResult<Value> {
+fn document(database: &Path, kind: &str, library_key: &str, default: Value) -> AppResult<Value> {
     let connection = connection(database)?;
     let raw: Option<String> = connection
         .query_row(
@@ -327,7 +383,7 @@ pub fn document(
         .map(|value| value.unwrap_or(default))
 }
 
-pub fn run_transaction<T>(
+fn run_transaction<T>(
     database: &Path,
     update: impl FnOnce(&Transaction<'_>) -> AppResult<T>,
 ) -> AppResult<T> {
@@ -340,7 +396,7 @@ pub fn run_transaction<T>(
     Ok(result)
 }
 
-pub fn mutate_document_in_transaction<T>(
+pub(crate) fn mutate_document_in_transaction<T>(
     transaction: &Transaction<'_>,
     kind: &str,
     library_key: &str,
@@ -373,7 +429,7 @@ pub fn mutate_document_in_transaction<T>(
     Ok(result)
 }
 
-pub fn update_document<T>(
+fn update_document<T>(
     database: &Path,
     kind: &str,
     library_key: &str,
@@ -447,7 +503,7 @@ mod tests {
         fs::create_dir_all(&data_path).unwrap();
         fs::write(
             data_path.join("settings.json"),
-            r#"{"library":{"favorites":["one.jpg"],"future":true}}"#,
+            r#"{"library":{"favorites":["one.jpg"]}}"#,
         )
         .unwrap();
         fs::write(
@@ -455,15 +511,13 @@ mod tests {
             r#"{"library":{"views":{"one.jpg":3}}}"#,
         )
         .unwrap();
-        fs::write(data_path.join("canvases.json"), r#"{"library":[]}"#).unwrap();
         let config = test_config(data_path.clone());
 
         initialize(&config).unwrap();
 
-        assert_eq!(
-            document(&database(&config), "settings", "library", Value::Null).unwrap()["future"],
-            true
-        );
+        let imported = document(&database(&config), "settings", "library", Value::Null).unwrap();
+        assert_eq!(imported["favorites"], serde_json::json!(["one.jpg"]));
+        assert_eq!(imported["workspaceTransition"], "fade");
         for name in LEGACY_FILES {
             assert!(!data_path.join(name).exists());
         }
@@ -519,6 +573,53 @@ mod tests {
 
         let settings = document(&database(&config), "settings", "library", Value::Null).unwrap();
         assert_eq!(settings["favorites"], serde_json::json!(["original"]));
+        fs::remove_dir_all(data_path).unwrap();
+    }
+
+    #[test]
+    fn migrates_pre_workspace_type_snapshots_to_desktop() {
+        let data_path = temp_data("workspace-type-migration");
+        let config = test_config(data_path.clone());
+        initialize(&config).unwrap();
+        let database = database(&config);
+        let connection = connection(&database).unwrap();
+        connection
+            .execute("DELETE FROM schema_migrations WHERE version=4", [])
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO state_documents(kind, library_key, value_json, updated_at)
+                 VALUES('workspaces', 'library', ?1, 0)",
+                [serde_json::json!({
+                    "version": 1,
+                    "order": ["legacy"],
+                    "records": {
+                        "legacy": {
+                            "id": "legacy",
+                            "snapshot": {
+                                "windows": [],
+                                "activeWindowId": null,
+                                "activeTabMap": {},
+                                "nextWindowId": 1
+                            },
+                            "revision": 0,
+                            "updatedAt": 0,
+                            "lastOpenedAt": 0
+                        }
+                    }
+                })
+                .to_string()],
+            )
+            .unwrap();
+        drop(connection);
+
+        initialize(&config).unwrap();
+
+        let workspaces = document(&database, "workspaces", "library", Value::Null).unwrap();
+        assert_eq!(
+            workspaces["records"]["legacy"]["snapshot"]["workspaceType"],
+            "desktop"
+        );
         fs::remove_dir_all(data_path).unwrap();
     }
 }

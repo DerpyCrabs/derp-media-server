@@ -14,6 +14,8 @@ import {
   dragToEdge,
   presetAssistGridShapeBeforeGoto,
   WORKSPACE_VISIBLE_WINDOW_GROUP,
+  dispatchRecordedPointerCancel,
+  recordNextPointerId,
 } from '../e2e/workspace-layout-helpers'
 import { createWorkspaceE2EContext } from './workspace-e2e-context'
 
@@ -202,6 +204,18 @@ test.describe('Tiling Layout Picker', () => {
 
     await expect(page.locator('[data-tiling-picker]')).not.toBeVisible()
   })
+
+  test('second click on layout trigger closes picker without reopening it', async () => {
+    await gotoWorkspace(page)
+    const trigger = getWindowGroups(page)
+      .first()
+      .getByRole('button', { name: 'Choose window layout' })
+
+    await trigger.click()
+    await expect(page.locator('[data-tiling-picker]')).toBeVisible()
+    await trigger.click()
+    await expect(page.locator('[data-tiling-picker]')).toHaveCount(0)
+  })
 })
 
 test.describe('Drag Restore', () => {
@@ -303,6 +317,53 @@ test.describe('Window Minimum Size', () => {
     const newBounds = await getWindowBounds(groups.first())
     expect(newBounds.width).toBeGreaterThanOrEqual(360)
     expect(newBounds.height).toBeGreaterThanOrEqual(260)
+  })
+})
+
+test.describe('Pointer gesture cancellation', () => {
+  test('pointercancel restores the exact bounds from before a window drag', async () => {
+    await gotoWorkspace(page)
+    const group = getWindowGroups(page).first()
+    const before = await getWindowBounds(group)
+    const handle = getDragHandle(group)
+    const box = await handle.boundingBox()
+    if (!box) throw new Error('Drag handle not visible')
+
+    await recordNextPointerId(page)
+    const startX = box.x + box.width / 2
+    const startY = box.y + box.height / 2
+    const movedX = startX + 120
+    const movedY = startY + 80
+    await page.mouse.move(startX, startY)
+    await page.mouse.down()
+    await page.mouse.move(movedX, movedY, { steps: 8 })
+    await expect.poll(async () => (await getWindowBounds(group)).x).not.toBe(before.x)
+
+    await dispatchRecordedPointerCancel(page, { clientX: movedX, clientY: movedY })
+    await page.mouse.up()
+
+    await expect.poll(() => getWindowBounds(group)).toEqual(before)
+  })
+
+  test('window blur restores the exact bounds from before a resize', async () => {
+    await gotoWorkspace(page)
+    const group = getWindowGroups(page).first()
+    const before = await getWindowBounds(group)
+    const resizeHandle = getRndWrapper(group).getByRole('separator', { name: 'Resize right edge' })
+    const box = await resizeHandle.boundingBox()
+    if (!box) throw new Error('Resize handle not visible')
+
+    const startX = box.x + box.width / 2
+    const startY = box.y + box.height / 2
+    await page.mouse.move(startX, startY)
+    await page.mouse.down()
+    await page.mouse.move(startX + 100, startY, { steps: 8 })
+    await expect.poll(async () => (await getWindowBounds(group)).width).not.toBe(before.width)
+
+    await page.evaluate(() => window.dispatchEvent(new Event('blur')))
+    await page.mouse.up()
+
+    await expect.poll(() => getWindowBounds(group)).toEqual(before)
   })
 })
 
@@ -521,8 +582,7 @@ test.describe('State Persistence', () => {
 
     // Wait for workspace state to persist before reload (allow debounce/save to complete)
     await page.waitForTimeout(1500)
-    await page.reload()
-    await page.waitForLoadState('domcontentloaded')
+    await page.reload({ waitUntil: 'domcontentloaded' })
     await expect(getWindowGroups(page).first()).toBeVisible()
 
     await expect(getWindowGroups(page)).toHaveCount(2)
@@ -537,8 +597,7 @@ test.describe('State Persistence', () => {
 
     const snappedBounds = await getWindowBounds(groups.first())
 
-    await page.reload()
-    await page.waitForLoadState('domcontentloaded')
+    await page.reload({ waitUntil: 'domcontentloaded' })
     await expect(getWindowGroups(page).first()).toBeVisible()
 
     const reloadedBounds = await getWindowBounds(getWindowGroups(page).first())
@@ -567,8 +626,7 @@ test.describe('State Persistence', () => {
     await page.waitForTimeout(600)
     await expect(getWindowGroups(page)).toHaveCount(1)
 
-    await page.reload()
-    await page.waitForLoadState('domcontentloaded')
+    await page.reload({ waitUntil: 'domcontentloaded' })
     await expect(getWindowGroups(page).first()).toBeVisible()
 
     await expect(getWindowGroups(page)).toHaveCount(1)
@@ -590,8 +648,7 @@ test.describe('State Persistence', () => {
     const count = await allGroups.count()
     expect(count).toBeGreaterThanOrEqual(2)
 
-    await page.reload()
-    await page.waitForLoadState('domcontentloaded')
+    await page.reload({ waitUntil: 'domcontentloaded' })
     await expect(getWindowGroups(page).first()).toBeVisible()
 
     const reloadedVideo = page.locator(`${WORKSPACE_VISIBLE_WINDOW_GROUP} video`)

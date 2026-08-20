@@ -1,6 +1,7 @@
 import { post } from '@/lib/api/client'
 import { blobToBase64, formatObsidianPastedImageFileName } from '@/lib/files/pasted-kb-image'
 import { getKnowledgeBaseRoot, isPathEditable } from '@/lib/files/path-utils'
+import { showAppAlert } from '@/lib/ui/app-dialog'
 
 export type KbImagePasteContext = {
   viewingPath: string
@@ -73,7 +74,10 @@ export async function tryPasteKnowledgeBaseImage(
     }
   } catch (error) {
     ctx.completeCodeMirrorPaste(null)
-    window.alert(error instanceof Error ? error.message : 'Failed to save pasted image')
+    void showAppAlert(
+      error instanceof Error ? error.message : 'Failed to save pasted image',
+      'Could not save image',
+    )
   }
 
   return true

@@ -1,8 +1,8 @@
 use crate::{
-    app::{AppState, Shared, knowledge_base_root, stats_path, timestamp_ms},
+    app::{AppState, Shared, knowledge_base_root, timestamp_ms},
+    error::AppResult,
     media,
     routes::{media as media_routes, settings},
-    store,
 };
 use axum::{
     body::Body,
@@ -96,13 +96,13 @@ fn kb_recent(state: &AppState, scope: &str) -> Value {
     })).collect::<Vec<_>>()})
 }
 
-async fn dehydrated(state: &AppState, uri: &axum::http::Uri) -> Value {
+async fn dehydrated(state: &AppState, uri: &axum::http::Uri) -> AppResult<Value> {
     let path = uri.path();
     let params = url::form_urlencoded::parse(uri.query().unwrap_or("").as_bytes())
         .into_owned()
         .collect::<HashMap<_, _>>();
     let mut queries = Vec::new();
-    if path == "/" || path == "/workspace" || path == "/canvas" {
+    if path == "/" || path == "/workspace" {
         let dir = params.get("dir").cloned().unwrap_or_default();
         if path == "/"
             && dir != "Favorites"
@@ -111,21 +111,16 @@ async fn dehydrated(state: &AppState, uri: &axum::http::Uri) -> Value {
         {
             queries.push(query(json!(["files", dir]), json!({"files":files})));
         }
-        queries.push(query(json!(["settings"]), settings::sanitized(state)));
-        let stats = store::section(
-            &stats_path(state),
-            &state.config.library_key,
-            json!({"views":{}}),
-        );
+        queries.push(query(json!(["settings"]), settings::sanitized(state)?));
         queries.push(query(
             json!(["stats"]),
-            json!({"views":stats["views"].as_object().cloned().unwrap_or_default()}),
+            json!({"views":state.stats.views()?}),
         ));
         queries.push(query(
             json!(["server-config"]),
             crate::app::server_config(state),
         ));
-        if path == "/" && knowledge_base_root(state, &dir).is_some() {
+        if path == "/" && knowledge_base_root(state, &dir)?.is_some() {
             queries.push(query(
                 json!(["content", "admin", "kb-recent", dir]),
                 kb_recent(state, &dir),
@@ -138,11 +133,12 @@ async fn dehydrated(state: &AppState, uri: &axum::http::Uri) -> Value {
                 .to_string_lossy();
             if media::media_type(&extension) == "text" {
                 if let Ok(resolved) = media::resolve(&state.config, viewing)
-                    && let Ok(content) = std::fs::read_to_string(resolved.full)
+                    && let Ok(bytes) = std::fs::read(resolved.full)
+                    && let Ok(content) = String::from_utf8(bytes.clone())
                 {
                     queries.push(query(
                         json!(["content", "admin", "text", viewing]),
-                        json!(content),
+                        json!({"content":content,"version":crate::file_mutation::content_hash(&bytes)}),
                     ));
                 }
             } else if media::media_type(&extension) != "pdf" {
@@ -178,17 +174,17 @@ async fn dehydrated(state: &AppState, uri: &axum::http::Uri) -> Value {
             }
         }
     }
-    json!({"mutations":[],"queries":queries})
+    Ok(json!({"mutations":[],"queries":queries}))
 }
 
-async fn inject(html: String, state: &AppState, uri: &axum::http::Uri) -> String {
-    html.replace(
+async fn inject(html: String, state: &AppState, uri: &axum::http::Uri) -> AppResult<String> {
+    Ok(html.replace(
         "<!--DEHYDRATED-->",
         &format!(
             "<script>window.__DEHYDRATED_STATE__={}</script>",
-            dehydrated(state, uri).await
+            dehydrated(state, uri).await?
         ),
-    )
+    ))
 }
 
 fn safe_static(path: &str) -> Option<PathBuf> {
@@ -316,14 +312,16 @@ pub async fn fallback(State(state): State<Shared>, request: Request) -> Response
                     .is_some_and(|value| value.contains("text/html"));
                 let bytes = response.bytes().await.unwrap_or_default();
                 let body = if html {
-                    Body::from(
-                        inject(
-                            String::from_utf8_lossy(&bytes).into_owned(),
-                            &state,
-                            &request_uri,
-                        )
-                        .await,
+                    match inject(
+                        String::from_utf8_lossy(&bytes).into_owned(),
+                        &state,
+                        &request_uri,
                     )
+                    .await
+                    {
+                        Ok(value) => Body::from(value),
+                        Err(error) => return error.into_response(),
+                    }
                 } else {
                     Body::from(bytes)
                 };
@@ -368,7 +366,10 @@ pub async fn fallback(State(state): State<Shared>, request: Request) -> Response
                 .map(Body::new);
         }
         match fs::read_to_string("dist/client/index.html").await {
-            Ok(html) => Html(inject(html, &state, &request_uri).await).into_response(),
+            Ok(html) => match inject(html, &state, &request_uri).await {
+                Ok(html) => Html(html).into_response(),
+                Err(error) => error.into_response(),
+            },
             Err(_) => StatusCode::NOT_FOUND.into_response(),
         }
     }

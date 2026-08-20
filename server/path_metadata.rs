@@ -1,384 +1,87 @@
 use crate::{
-    app::{
-        AppState, canvases_path, default_settings, settings_path, stats_path, timestamp_ms,
-        workspaces_path,
-    },
-    canvas_persistence,
+    app::{AppState, timestamp_ms},
     error::AppResult,
-    reader_state, state_db, store,
+    reader_state,
 };
-use serde_json::{Value, json};
+use rusqlite::Transaction;
 
-fn matches(path: &str, prefix: &str) -> bool {
-    path == prefix || path.starts_with(&format!("{prefix}/"))
-}
-
-fn moved_path(path: &str, old_path: &str, new_path: &str) -> String {
-    format!("{new_path}{}", &path[old_path.len()..])
-}
-
-fn move_map(value: &mut Value, old_path: &str, new_path: &str) {
-    let Some(map) = value.as_object_mut() else {
-        return;
-    };
-    let updates = map
-        .iter()
-        .filter(|(path, _)| matches(path, old_path))
-        .map(|(path, value)| {
-            (
-                path.clone(),
-                moved_path(path, old_path, new_path),
-                value.clone(),
-            )
-        })
-        .collect::<Vec<_>>();
-    for (old, new, value) in updates {
-        map.remove(&old);
-        map.insert(new, value);
-    }
-}
-
-fn remove_map(value: &mut Value, path: &str) {
-    let Some(map) = value.as_object_mut() else {
-        return;
-    };
-    map.retain(|key, _| !matches(key, path));
-}
-
-fn move_list(value: &mut Value, old_path: &str, new_path: &str) {
-    let Some(items) = value.as_array_mut() else {
-        return;
-    };
-    for item in items {
-        if let Some(path) = item.as_str().filter(|path| matches(path, old_path)) {
-            *item = Value::String(moved_path(path, old_path, new_path));
-        }
-    }
-}
-
-fn remove_list(value: &mut Value, path: &str) {
-    let Some(items) = value.as_array_mut() else {
-        return;
-    };
-    items.retain(|item| !item.as_str().is_some_and(|item| matches(item, path)));
-}
-
-fn move_path_value(value: &mut Value, old_path: &str, new_path: &str) {
-    if let Some(path) = value.as_str().filter(|path| matches(path, old_path)) {
-        *value = Value::String(moved_path(path, old_path, new_path));
-    }
-}
-
-fn move_workspace_window(window: &mut Value, old_path: &str, new_path: &str) {
-    move_path_value(&mut window["iconPath"], old_path, new_path);
-    for key in ["dir", "viewing", "playing"] {
-        move_path_value(&mut window["initialState"][key], old_path, new_path);
-    }
-}
-
-fn workspace_window_target(window: &Value) -> Option<&str> {
-    window["initialState"]["viewing"]
-        .as_str()
-        .or_else(|| window["initialState"]["playing"].as_str())
-        .or_else(|| window["initialState"]["dir"].as_str())
-        .or_else(|| window["iconPath"].as_str())
-}
-
-fn move_workspace_snapshot(snapshot: &mut Value, old_path: &str, new_path: &str) {
-    if let Some(windows) = snapshot["windows"].as_array_mut() {
-        for window in windows {
-            move_workspace_window(window, old_path, new_path);
-        }
-    }
-    if let Some(pins) = snapshot["pinnedTaskbarItems"].as_array_mut() {
-        for pin in pins {
-            move_path_value(&mut pin["path"], old_path, new_path);
-        }
-    }
-}
-
-fn repair_workspace_snapshot(snapshot: &mut Value) -> bool {
-    let ids = snapshot["windows"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|window| window["id"].as_str().map(str::to_string))
-        .collect::<Vec<_>>();
-    if ids.is_empty() {
-        return false;
-    }
-    if !snapshot["activeWindowId"]
-        .as_str()
-        .is_some_and(|id| ids.iter().any(|candidate| candidate == id))
-    {
-        snapshot["activeWindowId"] = Value::String(ids.last().cloned().unwrap_or_default());
-    }
-    if let Some(map) = snapshot["activeTabMap"].as_object_mut() {
-        map.retain(|_, id| {
-            id.as_str()
-                .is_some_and(|id| ids.iter().any(|candidate| candidate == id))
-        });
-    }
-    if let Some(splits) = snapshot["tabGroupSplits"].as_object_mut() {
-        splits.retain(|_, split| {
-            split["leftTabId"]
-                .as_str()
-                .is_some_and(|id| ids.iter().any(|candidate| candidate == id))
-        });
-    }
-    true
-}
-
-fn remove_workspace_snapshot(snapshot: &mut Value, path: &str) -> bool {
-    if let Some(windows) = snapshot["windows"].as_array_mut() {
-        windows.retain_mut(|window| {
-            if workspace_window_target(window).is_some_and(|value| matches(value, path)) {
-                return false;
-            }
-            if window["iconPath"]
-                .as_str()
-                .is_some_and(|value| matches(value, path))
-            {
-                window["iconPath"] = Value::Null;
-            }
-            true
-        });
-    }
-    if let Some(pins) = snapshot["pinnedTaskbarItems"].as_array_mut() {
-        pins.retain(|pin| {
-            !pin["path"]
-                .as_str()
-                .is_some_and(|value| matches(value, path))
-        });
-    }
-    repair_workspace_snapshot(snapshot)
-}
-
-fn move_workspace_metadata(settings: &mut Value, old_path: &str, new_path: &str) {
-    if let Some(pins) = settings["workspaceTaskbarPins"].as_array_mut() {
-        for pin in pins {
-            move_path_value(&mut pin["path"], old_path, new_path);
-        }
-    }
-}
-
-fn remove_workspace_metadata(settings: &mut Value, path: &str) {
-    if let Some(pins) = settings["workspaceTaskbarPins"].as_array_mut() {
-        pins.retain(|pin| {
-            !pin["path"]
-                .as_str()
-                .is_some_and(|value| matches(value, path))
-        });
-    }
-}
-
-pub async fn moved(state: &AppState, old_path: &str, new_path: &str) -> AppResult<()> {
-    let database = state.config.data_path.join("app.sqlite3");
+pub fn moved_in_transaction(
+    state: &AppState,
+    transaction: &Transaction<'_>,
+    old_path: &str,
+    new_path: &str,
+) -> AppResult<()> {
     let changed_at = timestamp_ms();
-    state_db::run_transaction(&database, |transaction| {
-        store::mutate_section_in_transaction(
-            transaction,
-            &settings_path(state),
-            &state.config.library_key,
-            default_settings(),
-            |settings| {
-                for key in ["viewModes", "sortOrders", "customIcons", "autoSave"] {
-                    move_map(&mut settings[key], old_path, new_path);
-                }
-                for key in ["favorites", "knowledgeBases"] {
-                    move_list(&mut settings[key], old_path, new_path);
-                }
-                move_workspace_metadata(settings, old_path, new_path);
-                Ok(())
-            },
-        )?;
-        store::mutate_section_in_transaction(
-            transaction,
-            &canvases_path(state),
-            &state.config.library_key,
-            json!([]),
-            |canvases| {
-                canvas_persistence::move_paths(canvases, old_path, new_path, changed_at);
-                Ok(())
-            },
-        )?;
-        store::mutate_section_in_transaction(
-            transaction,
-            &workspaces_path(state),
-            &state.config.library_key,
-            json!({"version":1,"order":[],"records":{}}),
-            |registry| {
-                if let Some(records) = registry["records"].as_object_mut() {
-                    for record in records.values_mut() {
-                        let previous = record["snapshot"].clone();
-                        move_workspace_snapshot(&mut record["snapshot"], old_path, new_path);
-                        if record["snapshot"] != previous {
-                            let revision = record["revision"].as_u64().unwrap_or(0) + 1;
-                            record["revision"] = Value::from(revision);
-                            record["updatedAt"] = Value::from(changed_at as u64);
-                        }
-                    }
-                }
-                Ok(())
-            },
-        )?;
-        store::mutate_section_in_transaction(
-            transaction,
-            &stats_path(state),
-            &state.config.library_key,
-            json!({"views":{}}),
-            |stats| {
-                move_map(&mut stats["views"], old_path, new_path);
-                Ok(())
-            },
-        )?;
-        reader_state::move_prefix_in_transaction(transaction, old_path, new_path)
-    })
+    state
+        .settings
+        .move_paths_in_transaction(transaction, old_path, new_path)?;
+    state
+        .workspaces
+        .move_paths_in_transaction(transaction, old_path, new_path, changed_at)?;
+    state
+        .stats
+        .move_paths_in_transaction(transaction, old_path, new_path)?;
+    reader_state::move_prefix_in_transaction(transaction, old_path, new_path)
 }
 
-pub async fn removed(state: &AppState, path: &str) -> AppResult<()> {
-    let database = state.config.data_path.join("app.sqlite3");
+pub fn removed_in_transaction(
+    state: &AppState,
+    transaction: &Transaction<'_>,
+    path: &str,
+) -> AppResult<()> {
     let changed_at = timestamp_ms();
-    state_db::run_transaction(&database, |transaction| {
-        store::mutate_section_in_transaction(
-            transaction,
-            &settings_path(state),
-            &state.config.library_key,
-            default_settings(),
-            |settings| {
-                for key in ["viewModes", "sortOrders", "customIcons", "autoSave"] {
-                    remove_map(&mut settings[key], path);
-                }
-                for key in ["favorites", "knowledgeBases"] {
-                    remove_list(&mut settings[key], path);
-                }
-                remove_workspace_metadata(settings, path);
-                Ok(())
-            },
-        )?;
-        store::mutate_section_in_transaction(
-            transaction,
-            &canvases_path(state),
-            &state.config.library_key,
-            json!([]),
-            |canvases| {
-                canvas_persistence::remove_paths(canvases, path, changed_at);
-                Ok(())
-            },
-        )?;
-        store::mutate_section_in_transaction(
-            transaction,
-            &workspaces_path(state),
-            &state.config.library_key,
-            json!({"version":1,"order":[],"records":{}}),
-            |registry| {
-                if let Some(records) = registry["records"].as_object_mut() {
-                    records.retain(|_, record| {
-                        let previous = record["snapshot"].clone();
-                        let keep = remove_workspace_snapshot(&mut record["snapshot"], path);
-                        if keep && record["snapshot"] != previous {
-                            let revision = record["revision"].as_u64().unwrap_or(0) + 1;
-                            record["revision"] = Value::from(revision);
-                            record["updatedAt"] = Value::from(changed_at as u64);
-                        }
-                        keep
-                    });
-                }
-                Ok(())
-            },
-        )?;
-        store::mutate_section_in_transaction(
-            transaction,
-            &stats_path(state),
-            &state.config.library_key,
-            json!({"views":{}}),
-            |stats| {
-                remove_map(&mut stats["views"], path);
-                Ok(())
-            },
-        )?;
-        reader_state::remove_prefix_in_transaction(transaction, None, path)
-    })
+    state
+        .settings
+        .remove_paths_in_transaction(transaction, path)?;
+    state
+        .workspaces
+        .remove_paths_in_transaction(transaction, path, changed_at)?;
+    state.stats.remove_paths_in_transaction(transaction, path)?;
+    reader_state::remove_prefix_in_transaction(transaction, None, path)
 }
 
-pub fn content_replaced(state: &AppState, path: &str) -> AppResult<()> {
-    reader_state::remove_exact_all(&state.config.data_path.join("app.sqlite3"), path)
+pub fn content_replaced_in_transaction(transaction: &Transaction<'_>, path: &str) -> AppResult<()> {
+    reader_state::remove_exact_all_in_transaction(transaction, path)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    #[test]
-    fn per_folder_sort_orders_follow_rename_and_delete() {
-        let mut orders = json!({
-            "Books/Old":{"field":"size","direction":"desc"},
-            "Books/Old/Child":{"field":"createdDate","direction":"asc"},
-            "Keep":{"field":"name","direction":"asc"}
-        });
-
-        move_map(&mut orders, "Books/Old", "Books/New");
-        assert!(orders.get("Books/Old").is_none());
-        assert_eq!(orders["Books/New"]["field"], "size");
-        assert_eq!(orders["Books/New/Child"]["field"], "createdDate");
-
-        remove_map(&mut orders, "Books/New");
-        assert_eq!(orders, json!({"Keep":{"field":"name","direction":"asc"}}));
-    }
+    use crate::workspace_persistence;
+    use serde_json::{Value, json};
 
     #[test]
     fn workspace_paths_follow_renames() {
-        let mut settings = json!({
-            "workspaceTaskbarPins":[{"path":"Books/Old/chapter.pdf"}]
-        });
         let mut snapshot = json!({
-            "windows":[{"id":"reader","iconPath":"Books/Old/chapter.pdf","initialState":{"dir":"Books/Old","viewing":"Books/Old/chapter.pdf"}}],
-            "activeWindowId":"reader","activeTabMap":{"reader":"reader"},
-            "pinnedTaskbarItems":[{"path":"Books/Old"}]
+            "windows":[{"id":"reader","type":"viewer","source":{"kind":"local"},"iconPath":"Books/Old/chapter.pdf","initialState":{"dir":"Books/Old","viewing":"Books/Old/chapter.pdf"}}],
+            "activeWindowId":"reader","activeTabMap":{"reader":"reader"}
         });
 
-        move_workspace_metadata(&mut settings, "Books/Old", "Books/New");
-        move_workspace_snapshot(&mut snapshot, "Books/Old", "Books/New");
+        workspace_persistence::rewrite_snapshot_paths(&mut snapshot, "Books/Old", "Books/New");
 
-        assert_eq!(
-            settings["workspaceTaskbarPins"][0]["path"],
-            "Books/New/chapter.pdf"
-        );
         assert_eq!(snapshot["windows"][0]["initialState"]["dir"], "Books/New");
         assert_eq!(
             snapshot["windows"][0]["initialState"]["viewing"],
             "Books/New/chapter.pdf"
         );
-        assert_eq!(snapshot["pinnedTaskbarItems"][0]["path"], "Books/New");
     }
 
     #[test]
     fn workspace_deletes_prune_references_and_repair_focus() {
-        let mut settings = json!({
-            "workspaceTaskbarPins":[{"path":"Books/Old/chapter.pdf"},{"path":"Keep"}]
-        });
         let mut snapshot = json!({
             "windows":[
-                {"id":"removed","iconPath":"Books/Old/chapter.pdf","initialState":{}},
-                {"id":"kept","iconPath":"Keep/file.pdf","initialState":{}}
+                {"id":"removed","type":"viewer","source":{"kind":"local"},"iconPath":"Books/Old/chapter.pdf","initialState":{}},
+                {"id":"kept","type":"viewer","source":{"kind":"local"},"iconPath":"Keep/file.pdf","initialState":{}}
             ],
             "activeWindowId":"removed","activeTabMap":{"group":"removed"},
-            "tabGroupSplits":{"group":{"leftTabId":"removed","leftPaneFraction":0.5}},
-            "pinnedTaskbarItems":[{"path":"Books/Old"},{"path":"Keep"}]
+            "tabGroupSplits":{"group":{"leftTabId":"removed","leftPaneFraction":0.5}}
         });
 
-        remove_workspace_metadata(&mut settings, "Books/Old");
-        remove_workspace_snapshot(&mut snapshot, "Books/Old");
+        workspace_persistence::remove_snapshot_paths(&mut snapshot, "Books/Old");
 
-        assert_eq!(
-            settings["workspaceTaskbarPins"].as_array().unwrap().len(),
-            1
-        );
         assert_eq!(snapshot["windows"].as_array().unwrap().len(), 1);
         assert_eq!(snapshot["activeWindowId"], "kept");
         assert_eq!(snapshot["activeTabMap"], json!({}));
         assert_eq!(snapshot["tabGroupSplits"], json!({}));
-        assert_eq!(snapshot["pinnedTaskbarItems"].as_array().unwrap().len(), 1);
     }
 
     #[test]
@@ -386,16 +89,42 @@ mod tests {
         let mut snapshot = json!({
             "windows":[{
                 "id":"reader",
+                "type":"viewer",
+                "source":{"kind":"local"},
                 "iconPath":"Books/Old.pdf",
                 "initialState":{"viewing":"Books/Current.pdf"}
             }],
             "activeWindowId":"reader"
         });
 
-        remove_workspace_snapshot(&mut snapshot, "Books/Old.pdf");
+        workspace_persistence::remove_snapshot_paths(&mut snapshot, "Books/Old.pdf");
 
         let window = &snapshot["windows"][0];
         assert_eq!(window["initialState"]["viewing"], "Books/Current.pdf");
         assert_eq!(window["iconPath"], Value::Null);
+    }
+
+    #[test]
+    fn workspace_delete_preserves_empty_workspace_metadata() {
+        let mut snapshot = json!({
+            "workspaceType":"canvas",
+            "windows":[{
+                "id":"reader",
+                "type":"viewer",
+                "source":{"kind":"local"},
+                "iconPath":"Books/Only.pdf",
+                "initialState":{"viewing":"Books/Only.pdf"}
+            }],
+            "activeWindowId":"reader",
+            "activeTabMap":{},
+            "canvas":{"camera":{"x":120,"y":80,"zoom":0.5}}
+        });
+
+        workspace_persistence::remove_snapshot_paths(&mut snapshot, "Books/Only.pdf");
+
+        assert_eq!(snapshot["windows"], json!([]));
+        assert_eq!(snapshot["activeWindowId"], Value::Null);
+        assert_eq!(snapshot["workspaceType"], "canvas");
+        assert_eq!(snapshot["canvas"]["camera"]["zoom"], 0.5);
     }
 }

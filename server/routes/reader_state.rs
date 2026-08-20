@@ -2,6 +2,7 @@ use crate::{
     app::{Shared, timestamp_ms},
     error::{AppError, AppResult},
     media, reader_state,
+    state_db::AppDatabase,
 };
 use axum::{
     Json, Router,
@@ -33,8 +34,8 @@ struct PreferencesBody {
     base_revision: i64,
 }
 
-fn database(state: &crate::app::AppState) -> std::path::PathBuf {
-    state.config.data_path.join("app.sqlite3")
+fn database(state: &crate::app::AppState) -> AppDatabase {
+    state.database.clone()
 }
 
 fn fingerprint(state: &crate::app::AppState, logical: &str) -> AppResult<String> {
@@ -51,12 +52,13 @@ fn fingerprint(state: &crate::app::AppState, logical: &str) -> AppResult<String>
 
 fn response(state: &crate::app::AppState, scope: &str, logical: &str) -> AppResult<Json<Value>> {
     let current_fingerprint = fingerprint(state, logical)?;
-    let stored = reader_state::get(&database(state), scope, logical)?;
+    let database = database(state);
+    let stored = reader_state::get(&database, scope, logical)?;
     if stored
         .as_ref()
         .is_some_and(|value| value.fingerprint != current_fingerprint)
     {
-        reader_state::remove_exact(&database(state), scope, logical)?;
+        reader_state::remove_exact(&database, scope, logical)?;
         return Ok(Json(
             json!({"state":null,"revision":0,"fingerprint":current_fingerprint}),
         ));
@@ -79,8 +81,9 @@ fn save(
     if body.fingerprint != current_fingerprint {
         return Err(AppError::conflict("Document changed"));
     }
+    let database = database(state);
     let revision = reader_state::put(
-        &database(state),
+        &database,
         scope,
         logical,
         &body.state,
@@ -112,7 +115,8 @@ async fn admin_save(
 
 async fn preferences_get(State(state): State<Shared>) -> AppResult<Json<Value>> {
     let _database = state.reader_state_db.lock().await;
-    let (preferences, revision) = reader_state::preferences(&database(&state), "admin")?;
+    let database = database(&state);
+    let (preferences, revision) = reader_state::preferences(&database, "admin")?;
     Ok(Json(json!({"preferences":preferences,"revision":revision})))
 }
 
@@ -121,8 +125,9 @@ async fn preferences_save(
     Json(body): Json<PreferencesBody>,
 ) -> AppResult<Json<Value>> {
     let _database = state.reader_state_db.lock().await;
+    let database = database(&state);
     let revision = reader_state::put_preferences(
-        &database(&state),
+        &database,
         "admin",
         &body.preferences,
         body.base_revision,

@@ -35,6 +35,7 @@ function ensureSharedWorkerPort(): MessagePort {
       }
     })
   }
+  attachSharedWorkerNetworkHandlers()
   return sharedWorker.port
 }
 
@@ -78,6 +79,18 @@ function disconnectFallbackAdminIfIdle() {
 }
 
 let fallbackVisibilityAttached = false
+let sharedWorkerNetworkEventsAttached = false
+
+function attachSharedWorkerNetworkHandlers() {
+  if (sharedWorkerNetworkEventsAttached || typeof window === 'undefined') return
+  sharedWorkerNetworkEventsAttached = true
+  window.addEventListener('offline', () => {
+    sharedWorker?.port.postMessage({ type: 'network-offline' })
+  })
+  window.addEventListener('online', () => {
+    sharedWorker?.port.postMessage({ type: 'network-online' })
+  })
+}
 
 function attachFallbackVisibilityHandlers() {
   if (fallbackVisibilityAttached || typeof document === 'undefined') return

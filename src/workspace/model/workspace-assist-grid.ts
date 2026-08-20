@@ -5,7 +5,6 @@ import {
   type WorkspaceCanvasSize,
 } from './workspace-geometry'
 import type { TilingPlacement, WindowDefinition } from '@/lib/models/window-model'
-import { migrateLegacyAssistCustomToTiling } from './workspace-tiling-migrate'
 import { SNAP_EDGE_THRESHOLD_PX } from './use-snap-zones'
 
 export const ASSIST_GRID_SHAPES = ['3x2', '3x3', '2x2', '2x3'] as const
@@ -30,6 +29,11 @@ export function assistShapeToDims(shape: AssistGridShape): {
       return { cols: 2, rows: 3 }
   }
   throw new Error('Unhandled assist grid shape')
+}
+
+export function assistShapeLabel(shape: AssistGridShape): string {
+  const { cols, rows } = assistShapeToDims(shape)
+  return `${cols}×${rows}`
 }
 
 /** Resolve persisted / picked span dimensions to a known assist shape, if it matches. */
@@ -283,14 +287,13 @@ export function applyAssistCustomSnapToWindows(
   canvas: WorkspaceCanvasSize,
   options?: { zIndex?: number },
 ): WindowDefinition[] {
-  const migrated = migrateLegacyAssistCustomToTiling(windows, canvas)
-  const target = migrated.find((w) => w.id === windowId)
+  const target = windows.find((w) => w.id === windowId)
   if (!target) return windows
   const groupId = target.tabGroupId ?? target.id
-  const existing = findSharedAssistGridLines(migrated, span)
+  const existing = findSharedAssistGridLines(windows, span)
   const tiling = assistSpanToTilingPlacement(span, existing)
   const bounds = tilingPlacementToBounds(tiling, canvas)
-  return migrated.map((w) => {
+  return windows.map((w) => {
     if ((w.tabGroupId ?? w.id) !== groupId) return w
     return {
       ...w,

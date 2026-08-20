@@ -1,12 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { reconcileLayoutBoundsFromSnapZones } from '@/workspace/model/workspace-geometry'
-import type { WorkspaceWindowDefinition } from '@/workspace/model/use-workspace'
-import { workspaceTabIconColorKeyToHex } from '@/workspace/model/workspace-tab-icon-colors'
-import {
-  normalizePersistedWorkspaceState,
-  serializeWorkspaceLayoutState,
-  serializeWorkspacePersistedState,
-} from '@/workspace/model/use-workspace'
+import type { WindowDefinition as WorkspaceWindowDefinition } from '@/lib/models/window-model'
+import { normalizePersistedWorkspaceState } from '@/workspace/model/use-workspace'
 
 function win(
   id: string,
@@ -54,6 +49,7 @@ describe('reconcileLayoutBoundsFromSnapZones', () => {
 describe('normalizePersistedWorkspaceState', () => {
   test('session draft (reconcileSnapZones false) keeps saved snapped bounds', () => {
     const raw = {
+      workspaceType: 'desktop',
       windows: [
         {
           id: 'a',
@@ -73,7 +69,6 @@ describe('normalizePersistedWorkspaceState', () => {
       activeWindowId: 'a',
       activeTabMap: {},
       nextWindowId: 2,
-      pinnedTaskbarItems: [],
     }
     const draft = normalizePersistedWorkspaceState(raw, { reconcileSnapZones: false })
     const presetStyle = normalizePersistedWorkspaceState(raw, { reconcileSnapZones: true })
@@ -85,122 +80,48 @@ describe('normalizePersistedWorkspaceState', () => {
     })
     expect(presetStyle?.windows[0]?.layout?.bounds?.width).toBe(640)
     expect(presetStyle?.windows[0]?.layout?.bounds?.x).toBe(640)
+    expect('tiling' in draft!.windows[0].layout!).toBe(false)
   })
 
-  test('browser tab title and icon parse and serialize', () => {
-    const raw = {
-      windows: [
-        {
-          id: 'a',
-          type: 'browser',
-          title: 'a',
-          source: { kind: 'local', rootPath: null },
-          initialState: {},
-          layout: {
-            snapZone: null,
-            bounds: { x: 0, y: 0, width: 400, height: 300 },
-            fullscreen: false,
-            minimized: false,
-            zIndex: 1,
-          },
-        },
-      ],
-      activeWindowId: 'a',
-      activeTabMap: {},
-      nextWindowId: 2,
-      pinnedTaskbarItems: [],
-      browserTabTitle: '  Review  ',
-      browserTabIcon: 'LayoutDashboard',
-    }
-    const n = normalizePersistedWorkspaceState(raw, { reconcileSnapZones: false })
-    expect(n?.browserTabTitle).toBe('Review')
-    expect(n?.browserTabIcon).toBe('LayoutDashboard')
-    expect(serializeWorkspacePersistedState(n!)).toContain('browserTabTitle')
-    expect(serializeWorkspaceLayoutState(n!)).not.toContain('browserTabTitle')
+  test('advances a stale window counter past generated ids', () => {
+    const normalized = normalizePersistedWorkspaceState(
+      {
+        workspaceType: 'desktop',
+        windows: [win('workspace-window-7', null, { x: 0, y: 0, width: 640, height: 720 })],
+        activeWindowId: 'workspace-window-7',
+        activeTabMap: {},
+        nextWindowId: 1,
+      },
+      { reconcileSnapZones: false },
+    )
+
+    expect(normalized?.nextWindowId).toBe(8)
   })
 
-  test('invalid browser tab icon is dropped', () => {
-    const raw = {
-      windows: [
-        {
-          id: 'a',
-          type: 'browser',
-          title: 'a',
-          source: { kind: 'local', rootPath: null },
-          initialState: {},
-          layout: {
-            snapZone: null,
-            bounds: { x: 0, y: 0, width: 400, height: 300 },
-            fullscreen: false,
-            minimized: false,
-            zIndex: 1,
+  test('drops malformed and unknown canvas window sizes', () => {
+    const normalized = normalizePersistedWorkspaceState(
+      {
+        workspaceType: 'canvas',
+        windows: [],
+        activeWindowId: null,
+        activeTabMap: {},
+        nextWindowId: 1,
+        canvas: {
+          camera: { x: 0, y: 0, zoom: 1 },
+          maximizedWindowId: null,
+          windowSizeByType: {
+            browser: { width: 641, height: 479 },
+            viewer: { width: 'bad', height: null },
+            unknown: { width: 640, height: 480 },
           },
+          nextZIndex: 1,
         },
-      ],
-      activeWindowId: 'a',
-      activeTabMap: {},
-      nextWindowId: 2,
-      pinnedTaskbarItems: [],
-      browserTabIcon: 'not-valid!',
-    }
-    const n = normalizePersistedWorkspaceState(raw, { reconcileSnapZones: false })
-    expect(n?.browserTabIcon).toBeUndefined()
-  })
+      },
+      { reconcileSnapZones: false },
+    )
 
-  test('browser tab icon color tailwind key', () => {
-    const raw = {
-      windows: [
-        {
-          id: 'a',
-          type: 'browser',
-          title: 'a',
-          source: { kind: 'local', rootPath: null },
-          initialState: {},
-          layout: {
-            snapZone: null,
-            bounds: { x: 0, y: 0, width: 400, height: 300 },
-            fullscreen: false,
-            minimized: false,
-            zIndex: 1,
-          },
-        },
-      ],
-      activeWindowId: 'a',
-      activeTabMap: {},
-      nextWindowId: 2,
-      pinnedTaskbarItems: [],
-      browserTabIconColor: 'blue-500',
-    }
-    const n = normalizePersistedWorkspaceState(raw, { reconcileSnapZones: false })
-    expect(n?.browserTabIconColor).toBe('blue-500')
-    expect(workspaceTabIconColorKeyToHex('blue-500')).toBe('#3b82f6')
-  })
-
-  test('legacy hex tab icon color is dropped', () => {
-    const raw = {
-      windows: [
-        {
-          id: 'a',
-          type: 'browser',
-          title: 'a',
-          source: { kind: 'local', rootPath: null },
-          initialState: {},
-          layout: {
-            snapZone: null,
-            bounds: { x: 0, y: 0, width: 400, height: 300 },
-            fullscreen: false,
-            minimized: false,
-            zIndex: 1,
-          },
-        },
-      ],
-      activeWindowId: 'a',
-      activeTabMap: {},
-      nextWindowId: 2,
-      pinnedTaskbarItems: [],
-      browserTabIconColor: '#ff0000',
-    }
-    const n = normalizePersistedWorkspaceState(raw, { reconcileSnapZones: false })
-    expect(n?.browserTabIconColor).toBeUndefined()
+    expect(normalized?.canvas?.windowSizeByType).toEqual({
+      browser: { width: 640, height: 480 },
+    })
   })
 })

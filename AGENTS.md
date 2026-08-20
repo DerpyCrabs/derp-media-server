@@ -1,5 +1,6 @@
 # Agent Notes
 
+- This is a single-user app installed as a personal instance. Multiple browser tabs belong to the same user; they are not collaborators
 - Use `bun run lint` for lint and TypeScript checks. Oxlint config enables `typeAware` and `typeCheck`.
 - Check `bun run lint` after changes.
 - After larger changes, run `bun run test:batch`.

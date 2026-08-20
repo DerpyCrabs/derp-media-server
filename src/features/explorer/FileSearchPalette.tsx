@@ -19,6 +19,7 @@ import Search from 'lucide-solid/icons/search'
 import X from 'lucide-solid/icons/x'
 import { For, Show, createEffect, createSignal, createUniqueId, onSettled } from 'solid-js'
 import { Portal } from '@solidjs/web'
+import { showAppConfirm } from '@/lib/ui/app-dialog'
 
 export type FileSearchButtonProps = {
   title: string
@@ -27,6 +28,8 @@ export type FileSearchButtonProps = {
   class?: string
   iconClass?: string
   testId?: string
+  open?: () => boolean
+  onOpenChange?: (open: boolean) => void
 }
 
 function stateLabel(status: FileSearchStatus | undefined): string {
@@ -42,7 +45,12 @@ function stateLabel(status: FileSearchStatus | undefined): string {
 }
 
 export function FileSearchButton(props: FileSearchButtonProps) {
-  const [open, setOpen] = createSignal(false)
+  const [internalOpen, setInternalOpen] = createSignal(false)
+  const open = () => props.open?.() ?? internalOpen()
+  const setOpen = (value: boolean) => {
+    setInternalOpen(value)
+    props.onOpenChange?.(value)
+  }
   return (
     <>
       <button
@@ -333,13 +341,13 @@ function FileSearchPalette(props: {
               type='button'
               class='h-9 rounded-md px-2 hover:bg-muted hover:text-foreground disabled:opacity-50'
               disabled={reindexMutation.isPending}
-              onClick={() => {
-                if (
-                  window.confirm('Rebuild the complete file search index? This may take a while.')
-                ) {
-                  reindexMutation.mutate('full')
-                }
-              }}
+              onClick={() =>
+                void showAppConfirm({
+                  title: 'Rebuild file search index?',
+                  message: 'A complete rebuild may take a while.',
+                  confirmLabel: 'Rebuild',
+                }).then((confirmed) => confirmed && reindexMutation.mutate('full'))
+              }
             >
               Rebuild
             </button>

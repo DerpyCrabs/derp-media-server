@@ -402,7 +402,7 @@ export function ImageViewerPane(props: ImageViewerPaneProps): JSX.Element {
         data-testid={props.embedded ? 'workspace-image-surface' : 'image-gesture-surface'}
         class={[
           props.embedded
-            ? 'relative flex min-h-0 flex-1 touch-pan-y items-center justify-center p-2'
+            ? 'relative flex min-h-0 flex-1 touch-pan-y items-center justify-center'
             : 'relative flex flex-1 touch-pan-y items-center justify-center p-4',
           { 'overflow-hidden': zoom() === 'fit', 'overflow-auto': zoom() !== 'fit' },
         ]}

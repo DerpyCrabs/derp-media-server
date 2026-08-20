@@ -5,15 +5,15 @@ import {
   resolveNewTabAnchorWindowId,
   type PersistedWorkspaceState,
 } from '@/workspace/model/use-workspace'
-import { DEFAULT_WORKSPACE_SOURCE } from '@/workspace/page/workspace-page-persistence'
+import { DEFAULT_WORKSPACE_SOURCE } from '@/workspace/model/use-workspace'
 
 function minimalState(windows: PersistedWorkspaceState['windows']): PersistedWorkspaceState {
   return {
+    workspaceType: 'desktop',
     windows,
     activeWindowId: windows[0]?.id ?? null,
     activeTabMap: {},
     nextWindowId: 10,
-    pinnedTaskbarItems: [],
   }
 }
 
@@ -94,6 +94,7 @@ describe('resolveNewTabAnchorWindowId', () => {
 describe('normalizePersistedWorkspaceState fileOpenTargetWindowId', () => {
   test('strips target equal to browser id', () => {
     const raw = {
+      workspaceType: 'desktop',
       windows: [
         {
           id: 'workspace-window-1',
@@ -113,7 +114,6 @@ describe('normalizePersistedWorkspaceState fileOpenTargetWindowId', () => {
       activeWindowId: 'workspace-window-1',
       activeTabMap: {},
       nextWindowId: 2,
-      pinnedTaskbarItems: [],
     }
     const n = normalizePersistedWorkspaceState(raw, { reconcileSnapZones: false })
     expect(n?.windows[0]?.fileOpenTargetWindowId).toBeUndefined()
@@ -121,6 +121,7 @@ describe('normalizePersistedWorkspaceState fileOpenTargetWindowId', () => {
 
   test('strips target when referenced window missing', () => {
     const raw = {
+      workspaceType: 'desktop',
       windows: [
         {
           id: 'workspace-window-1',
@@ -140,7 +141,6 @@ describe('normalizePersistedWorkspaceState fileOpenTargetWindowId', () => {
       activeWindowId: 'workspace-window-1',
       activeTabMap: {},
       nextWindowId: 2,
-      pinnedTaskbarItems: [],
     }
     const n = normalizePersistedWorkspaceState(raw, { reconcileSnapZones: false })
     expect(n?.windows[0]?.fileOpenTargetWindowId).toBeUndefined()

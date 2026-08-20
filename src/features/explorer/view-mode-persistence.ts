@@ -1,17 +1,10 @@
 import { post } from '@/lib/api/client'
+import { createKeyedAsyncTaskQueue } from '@/lib/async-task-queue'
 
 type ViewMode = 'list' | 'grid'
 
-const pendingWrites = new Map<string, Promise<unknown>>()
+const writes = createKeyedAsyncTaskQueue<string>()
 
 export function persistViewMode(path: string, viewMode: ViewMode): Promise<unknown> {
-  const previous = pendingWrites.get(path) ?? Promise.resolve()
-  const next = previous
-    .catch(() => undefined)
-    .then(() => post('/api/settings/viewMode', { path, viewMode }))
-  pendingWrites.set(path, next)
-  void next.finally(() => {
-    if (pendingWrites.get(path) === next) pendingWrites.delete(path)
-  })
-  return next
+  return writes.run(path, () => post('/api/settings/viewMode', { path, viewMode }))
 }

@@ -1,10 +1,21 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import { createWorkspaceE2EContext } from './workspace-e2e-context'
 import { getDragHandle, getWindowGroups } from './workspace-layout-helpers'
 
-test.describe('workspace registry', () => {
-  test.describe.configure({ timeout: 30_000 })
+async function gotoWorkspaceWithSSE(page: Page, url: string) {
+  const streamRequest = page.waitForRequest(
+    (request) => request.url().includes('/api/events/stream'),
+    { timeout: 10_000 },
+  )
+  const consoleConnected = page.waitForEvent('console', {
+    predicate: (message) => message.text().includes('[Admin SSE] Connected'),
+    timeout: 10_000,
+  })
+  await page.goto(url)
+  await Promise.race([streamRequest, consoleConnected])
+}
 
+test.describe('workspace registry', () => {
   test('creates, names, switches, and locks duplicate workspace views', async ({ browser }) => {
     const sharedContext = await createWorkspaceE2EContext(browser)
     const first = await sharedContext.newPage()
@@ -31,7 +42,22 @@ test.describe('workspace registry', () => {
     await expect(getWindowGroups(first)).toHaveCount(1)
     await first.getByRole('button', { name: 'Open workspaces' }).click()
     await expect(first.getByTestId('workspace-switcher')).toContainText(name)
-    await expect(first.getByTestId('workspace-switcher').locator('.lucide-lock')).toHaveCount(0)
+    await expect(
+      first
+        .getByTestId('workspace-switcher')
+        .locator(`[data-workspace-id="${workspaceId}"] .lucide-lock`),
+    ).toHaveCount(0)
+    const releasedView = await sharedContext.newPage()
+    await releasedView.goto(`/workspace?ws=${workspaceId}`)
+    await expect(releasedView.getByText('Read only — workspace is open elsewhere')).toBeHidden()
+    await releasedView.evaluate(async (id) => {
+      await fetch('/api/workspaces/release', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id, clientId: sessionStorage.getItem('workspace-client-id') }),
+      })
+    }, workspaceId)
+    await releasedView.close()
     await first.getByTestId('workspace-switcher').getByText(name, { exact: true }).click()
     await expect(first).toHaveURL(new RegExp(`ws=${workspaceId}(?:&|$)`))
 
@@ -39,10 +65,62 @@ test.describe('workspace registry', () => {
     await duplicate.goto(`/workspace?ws=${workspaceId}`)
     await expect(duplicate.getByText('Read only — workspace is open elsewhere')).toBeVisible()
     await duplicate.getByRole('button', { name: 'Open workspaces' }).click()
+    const duplicateRow = duplicate
+      .getByTestId('workspace-switcher')
+      .locator(`[data-workspace-id="${workspaceId}"]`)
+    await expect(duplicateRow.locator('.lucide-lock')).toBeVisible()
+    await expect(duplicateRow).toContainText('Open in another tab')
     await duplicate.getByRole('button', { name: 'Take control' }).click()
     await expect(duplicate.getByText('Read only — workspace is open elsewhere')).toBeHidden()
 
     await sharedContext.close()
+  })
+
+  test('browser history switches sessions through flush, release, and open', async ({
+    browser,
+  }) => {
+    const context = await createWorkspaceE2EContext(browser)
+    const page = await context.newPage()
+    const firstId = `history-first-${Date.now()}`
+
+    try {
+      await page.goto(`/workspace?ws=${firstId}`)
+      await expect(page.locator('[data-workspace-opened]')).toBeAttached()
+      await page.getByRole('button', { name: 'Open browser window' }).click()
+      await expect(getWindowGroups(page)).toHaveCount(2)
+
+      await page.getByRole('button', { name: 'Open workspaces' }).click()
+      await page.getByRole('button', { name: 'New workspace' }).click()
+      await expect(page).not.toHaveURL(new RegExp(`ws=${firstId}(?:&|$)`))
+      const secondId = new URL(page.url()).searchParams.get('ws')!
+      expect(secondId).not.toBe(firstId)
+      await expect(page.locator('[data-workspace-opened]')).toBeAttached()
+      await expect(getWindowGroups(page)).toHaveCount(1)
+
+      await page.goBack()
+      await expect(page).toHaveURL(new RegExp(`ws=${firstId}(?:&|$)`))
+      await expect(page.locator('[data-workspace-opened]')).toBeAttached()
+      await expect(getWindowGroups(page)).toHaveCount(2)
+
+      const releasedSecond = await context.newPage()
+      await releasedSecond.goto(`/workspace?ws=${secondId}`)
+      await expect(releasedSecond.getByText('Read only — workspace is open elsewhere')).toBeHidden()
+      await releasedSecond.evaluate(async (id) => {
+        await fetch('/api/workspaces/release', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id, clientId: sessionStorage.getItem('workspace-client-id') }),
+        })
+      }, secondId)
+      await releasedSecond.close()
+
+      await page.goForward()
+      await expect(page).toHaveURL(new RegExp(`ws=${secondId}(?:&|$)`))
+      await expect(page.locator('[data-workspace-opened]')).toBeAttached()
+      await expect(getWindowGroups(page)).toHaveCount(1)
+    } finally {
+      await context.close()
+    }
   })
 
   test('edits inactive workspace metadata and opens only inactive workspaces in new tabs', async ({
@@ -56,6 +134,7 @@ test.describe('workspace registry', () => {
 
     await page.getByRole('button', { name: 'Open workspaces' }).click()
     await page.getByRole('button', { name: 'New workspace' }).click()
+    await expect(page).not.toHaveURL(new RegExp(`ws=${currentId}(?:&|$)`))
     const inactiveId = new URL(page.url()).searchParams.get('ws')!
     expect(inactiveId).not.toBe(currentId)
 
@@ -99,38 +178,160 @@ test.describe('workspace registry', () => {
     await context.close()
   })
 
+  test('syncs live workspace edits between independent pages through SSE', async ({ browser }) => {
+    const writerContext = await createWorkspaceE2EContext(browser)
+    const observerContext = await createWorkspaceE2EContext(browser)
+    const writer = await writerContext.newPage()
+    const observer = await observerContext.newPage()
+    const workspaceId = `workspace-sse-${Date.now()}`
+
+    try {
+      await gotoWorkspaceWithSSE(writer, `/workspace?ws=${workspaceId}`)
+      await expect(getWindowGroups(writer)).toHaveCount(1)
+
+      await gotoWorkspaceWithSSE(observer, `/workspace?ws=${workspaceId}`)
+      await expect(observer.getByText('Read only — workspace is open elsewhere')).toBeVisible()
+      await expect(getWindowGroups(observer)).toHaveCount(1)
+
+      const mutationStartedAt = Date.now()
+      await writer.getByRole('button', { name: 'Open browser window' }).click()
+      await expect(getWindowGroups(writer)).toHaveCount(2)
+      await expect
+        .poll(
+          async () =>
+            writer.request
+              .get('/api/workspaces')
+              .then((response) => response.json())
+              .then((registry) => registry.records[workspaceId]?.snapshot.windows.length ?? 0),
+          { timeout: 5_000, intervals: [50, 100, 200] },
+        )
+        .toBe(2)
+
+      await expect
+        .poll(() => getWindowGroups(observer).count(), {
+          timeout: 5_000,
+          intervals: [50, 100, 200],
+        })
+        .toBe(2)
+      expect(Date.now() - mutationStartedAt).toBeLessThan(3_000)
+    } finally {
+      await observerContext.close()
+      await writerContext.close()
+    }
+  })
+
+  test('accepts an authoritative active-workspace replacement without saving stale state', async ({
+    browser,
+  }) => {
+    const context = await createWorkspaceE2EContext(browser)
+    const page = await context.newPage()
+    const workspaceId = `workspace-remote-replace-${Date.now()}`
+
+    try {
+      await gotoWorkspaceWithSSE(page, `/workspace?ws=${workspaceId}`)
+      await expect(getWindowGroups(page)).toHaveCount(1)
+      const clientId = await page.evaluate(() => sessionStorage.getItem('workspace-client-id'))
+      const before = await page.request
+        .get(`/api/workspaces?clientId=${encodeURIComponent(clientId!)}`)
+        .then((response) => response.json())
+      const record = before.records[workspaceId]
+      const snapshot = {
+        ...record.snapshot,
+        windows: [
+          ...record.snapshot.windows,
+          {
+            id: 'external-browser',
+            type: 'browser',
+            title: 'External browser',
+            source: { kind: 'local' },
+            initialState: { dir: 'Documents' },
+            tabGroupId: null,
+            layout: { bounds: { x: 700, y: 80, width: 560, height: 480 }, zIndex: 2 },
+          },
+        ],
+        activeWindowId: 'external-browser',
+        nextWindowId: record.snapshot.nextWindowId + 1,
+      }
+      const saved = await page.request.post('/api/workspaces/save', {
+        data: {
+          id: workspaceId,
+          clientId,
+          revision: record.revision,
+          snapshot,
+        },
+      })
+      expect(saved.ok()).toBe(true)
+      const savedRevision = (await saved.json()).revision
+
+      await expect(getWindowGroups(page)).toHaveCount(2)
+      await page.getByRole('button', { name: 'Open workspaces' }).click()
+      await page.getByRole('button', { name: 'New workspace' }).click()
+      await expect(page).not.toHaveURL(new RegExp(`ws=${workspaceId}(?:&|$)`))
+
+      const after = await page.request
+        .get(`/api/workspaces?clientId=${encodeURIComponent(clientId!)}`)
+        .then((response) => response.json())
+      expect(after.records[workspaceId].revision).toBe(savedRevision)
+      expect(after.records[workspaceId].snapshot.windows).toHaveLength(2)
+    } finally {
+      await context.close()
+    }
+  })
+
+  test('continues saving after active workspace metadata changes its revision', async ({
+    browser,
+  }) => {
+    const context = await createWorkspaceE2EContext(browser)
+    const page = await context.newPage()
+    const workspaceId = `metadata-revision-${Date.now()}`
+
+    try {
+      await page.goto(`/workspace?ws=${workspaceId}`)
+      await expect(getWindowGroups(page)).toHaveCount(1)
+      await page.getByRole('button', { name: 'Open workspaces' }).click()
+      const row = page.locator(`[data-workspace-id="${workspaceId}"]`)
+      await row.click({ button: 'right' })
+      await page.getByRole('button', { name: 'Rename' }).click()
+      await row.locator('input').fill('Revision owner')
+      await row.locator('input').press('Enter')
+      await expect(row).toContainText('Revision owner')
+      await page.getByRole('button', { name: 'Open workspaces' }).click()
+
+      await page.getByRole('button', { name: 'Open browser window' }).click()
+      await expect(getWindowGroups(page)).toHaveCount(2)
+      await expect
+        .poll(
+          async () =>
+            page.request
+              .get('/api/workspaces')
+              .then((response) => response.json())
+              .then((registry) => registry.records[workspaceId]?.snapshot.windows.length ?? 0),
+          { timeout: 5_000, intervals: [50, 100, 200] },
+        )
+        .toBe(2)
+      await expect(page.getByText('Read only — workspace is open elsewhere')).toBeHidden()
+    } finally {
+      await context.close()
+    }
+  })
+
   test('drags a window through the workspace rail into another route', async ({ browser }) => {
     const sharedContext = await createWorkspaceE2EContext(browser)
     const page = await sharedContext.newPage()
     const sourceId = `drag-source-${Date.now()}`
-    const destinationName = `Drop target ${sourceId}`
     await page.goto(`/workspace?ws=${sourceId}`)
     await expect(getWindowGroups(page)).toHaveCount(1)
-    await page.evaluate(async () => {
-      const clientId = sessionStorage.getItem('workspace-client-id')
-      const id = new URL(location.href).searchParams.get('ws')
-      await fetch('/api/workspaces/metadata', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, clientId, name: 'Drag source' }),
-      })
-    })
 
     await page.getByRole('button', { name: 'Open workspaces' }).click()
     await page.getByRole('button', { name: 'New workspace' }).click()
+    await expect(page).not.toHaveURL(new RegExp(`ws=${sourceId}(?:&|$)`))
     const destinationId = new URL(page.url()).searchParams.get('ws')!
     await expect(getWindowGroups(page)).toHaveCount(1)
-    await page.evaluate(async (name) => {
-      const clientId = sessionStorage.getItem('workspace-client-id')
-      const id = new URL(location.href).searchParams.get('ws')
-      await fetch('/api/workspaces/metadata', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, clientId, name }),
-      })
-    }, destinationName)
     await page.getByRole('button', { name: 'Open workspaces' }).click()
-    await page.getByTestId('workspace-switcher').getByText('Drag source', { exact: true }).click()
+    await page
+      .getByTestId('workspace-switcher')
+      .locator(`[data-workspace-id="${sourceId}"]`)
+      .click()
     await expect(page).toHaveURL(new RegExp(`ws=${sourceId}(?:&|$)`))
     await page.getByRole('button', { name: 'Open workspaces' }).click()
     const activeSourceRow = page
@@ -150,18 +351,18 @@ test.describe('workspace registry', () => {
     await page.mouse.move(5, 120, { steps: 12 })
     const panel = page.getByTestId('workspace-switcher')
     await expect(panel).toBeVisible()
-    const target = panel.getByText(destinationName, { exact: true })
+    const target = panel.locator(`[data-workspace-id="${destinationId}"]`)
     await target.scrollIntoViewIfNeeded()
     const targetBox = await target.boundingBox()
     if (!targetBox) throw new Error('Workspace drop target is unavailable')
     await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2)
-    const targetRow = target.locator('xpath=ancestor::*[@data-workspace-id][1]')
-    await expect(targetRow).toContainText('Hold to move here')
-    await expect(targetRow.locator('.workspace-dwell-progress')).toBeVisible()
+    await expect(target).toContainText('Hold to move here')
+    await expect(target.locator('.workspace-dwell-progress')).toBeVisible()
     await page.waitForTimeout(1_100)
-    await expect(page).toHaveURL(new RegExp(`ws=${destinationId}(?:&|$)`), { timeout: 20_000 })
-    await page.mouse.move(500, 300, { steps: 5 })
+    await expect(target).toContainText('Release to move here')
+    await expect(page).toHaveURL(new RegExp(`ws=${sourceId}(?:&|$)`))
     await page.mouse.up()
+    await expect(page).toHaveURL(new RegExp(`ws=${destinationId}(?:&|$)`))
     await expect(getWindowGroups(page)).toHaveCount(2)
     await expect
       .poll(async () => {
@@ -174,7 +375,178 @@ test.describe('workspace registry', () => {
     await sharedContext.close()
   })
 
-  test('toggles centered panel and drops a window into a fresh workspace', async ({ browser }) => {
+  test('does not drop into an armed workspace after leaving its row', async ({ browser }) => {
+    const context = await createWorkspaceE2EContext(browser)
+    const page = await context.newPage()
+    const sourceId = `armed-leave-source-${Date.now()}`
+    await page.goto(`/workspace?ws=${sourceId}`)
+    await expect(getWindowGroups(page)).toHaveCount(1)
+
+    await page.getByRole('button', { name: 'Open workspaces' }).click()
+    await page.getByRole('button', { name: 'New workspace' }).click()
+    await expect(page).not.toHaveURL(new RegExp(`ws=${sourceId}(?:&|$)`))
+    const destinationId = new URL(page.url()).searchParams.get('ws')!
+    await expect(getWindowGroups(page)).toHaveCount(1)
+    const destinationWindowCount = await getWindowGroups(page).count()
+    await page.getByRole('button', { name: 'Open workspaces' }).click()
+    await page
+      .getByTestId('workspace-switcher')
+      .locator(`[data-workspace-id="${sourceId}"]`)
+      .click()
+    await page.getByRole('button', { name: 'Open workspaces' }).click()
+
+    const handle = getDragHandle(getWindowGroups(page).first())
+    const handleBox = await handle.boundingBox()
+    if (!handleBox) throw new Error('Window drag handle is unavailable')
+    await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(5, 120, { steps: 12 })
+
+    const target = page
+      .getByTestId('workspace-switcher')
+      .locator(`[data-workspace-id="${destinationId}"]`)
+    await target.scrollIntoViewIfNeeded()
+    const targetBox = await target.boundingBox()
+    if (!targetBox) throw new Error('Workspace drop target is unavailable')
+    await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2)
+    await page.waitForTimeout(1_100)
+    await expect(target).toContainText('Release to move here')
+
+    await page.mouse.move(500, 400, { steps: 5 })
+    await page.mouse.up()
+
+    await expect(page).toHaveURL(new RegExp(`ws=${sourceId}(?:&|$)`))
+    await expect(getWindowGroups(page)).toHaveCount(1)
+    await expect
+      .poll(async () => {
+        const response = await page.request.get('/api/workspaces')
+        const registry = (await response.json()) as {
+          records: Record<string, { snapshot: { windows: unknown[] } }>
+        }
+        return registry.records[destinationId]?.snapshot.windows.length ?? 0
+      })
+      .toBe(destinationWindowCount)
+
+    await context.close()
+  })
+
+  test('moving a window cannot resurrect it in the source workspace', async ({ browser }) => {
+    const context = await createWorkspaceE2EContext(browser)
+    const page = await context.newPage()
+    const sourceId = `move-once-source-${Date.now()}`
+    const destinationId = `move-once-destination-${Date.now()}`
+    const destinationName = `Move once target ${Date.now()}`
+    await page.goto(`/workspace?ws=${sourceId}`)
+    await expect(getWindowGroups(page)).toHaveCount(1)
+    await expect
+      .poll(async () => {
+        const registry = await page.request
+          .get('/api/workspaces')
+          .then((response) => response.json())
+        return registry.records[sourceId]?.snapshot.windows.length
+      })
+      .toBe(1)
+
+    await page.evaluate(
+      async ({ sourceId, destinationId, destinationName }) => {
+        const clientId = sessionStorage.getItem('workspace-client-id')
+        const nameWorkspace = async (id: string, name: string) => {
+          const registry = await fetch(
+            `/api/workspaces?clientId=${encodeURIComponent(clientId ?? '')}`,
+          ).then((response) => response.json())
+          const record = registry.records[id]
+          await fetch('/api/workspaces/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              id,
+              clientId,
+              revision: record.revision,
+              snapshot: record.snapshot,
+              metadata: { name, icon: null, iconColor: null },
+            }),
+          })
+        }
+        await nameWorkspace(sourceId, 'Move once source')
+        await fetch('/api/workspaces/open', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: destinationId,
+            clientId,
+            snapshot: {
+              workspaceType: 'desktop',
+              windows: [],
+              activeWindowId: null,
+              activeTabMap: {},
+              nextWindowId: 1,
+            },
+          }),
+        })
+        await nameWorkspace(destinationId, destinationName)
+      },
+      { sourceId, destinationId, destinationName },
+    )
+    await page.reload()
+
+    const handle = getDragHandle(getWindowGroups(page).first())
+    const box = await handle.boundingBox()
+    if (!box) throw new Error('Window drag handle is unavailable')
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(5, 120, { steps: 12 })
+    const target = page
+      .getByTestId('workspace-switcher')
+      .getByText(destinationName, { exact: true })
+    await target.scrollIntoViewIfNeeded()
+    const targetBox = await target.boundingBox()
+    if (!targetBox) throw new Error('Workspace drop target is unavailable')
+    await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2)
+    await page.waitForTimeout(1_100)
+    await page.mouse.up()
+    await expect(page).toHaveURL(new RegExp(`ws=${destinationId}(?:&|$)`))
+    await expect(getWindowGroups(page)).toHaveCount(1)
+    const releasedSource = await context.newPage()
+    await releasedSource.goto(`/workspace?ws=${sourceId}`)
+    await expect(releasedSource.getByText('Read only — workspace is open elsewhere')).toBeHidden()
+    await expect(getWindowGroups(releasedSource)).toHaveCount(0)
+    await releasedSource.evaluate(async (id) => {
+      await fetch('/api/workspaces/release', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id, clientId: sessionStorage.getItem('workspace-client-id') }),
+      })
+    }, sourceId)
+    await releasedSource.close()
+    await page.getByRole('button', { name: 'Open workspaces' }).click()
+    const sourceRow = page
+      .getByTestId('workspace-switcher')
+      .locator(`[data-workspace-id="${sourceId}"]`)
+    await expect(sourceRow).toBeVisible()
+    await sourceRow.click()
+    await expect(page).toHaveURL(new RegExp(`ws=${sourceId}(?:&|$)`))
+    await expect(getWindowGroups(page)).toHaveCount(0)
+    await page.waitForTimeout(750)
+    await page.reload()
+    await expect(getWindowGroups(page)).toHaveCount(0)
+    await expect
+      .poll(async () => {
+        const registry = await page.request
+          .get('/api/workspaces')
+          .then((response) => response.json())
+        return {
+          source: registry.records[sourceId]?.snapshot.windows.length,
+          destination: registry.records[destinationId]?.snapshot.windows.length,
+        }
+      })
+      .toEqual({ source: 0, destination: 1 })
+
+    await context.close()
+  })
+
+  test('opens centered panel by click and drops a window into a fresh workspace', async ({
+    browser,
+  }) => {
     const context = await createWorkspaceE2EContext(browser)
     const page = await context.newPage()
     const sourceId = `fresh-drop-${Date.now()}`
@@ -196,10 +568,7 @@ test.describe('workspace registry', () => {
     await expect(edgeHandle).toBeHidden()
 
     await page.mouse.move(5, viewport.height / 2)
-    await page.waitForTimeout(100)
-    await expect(panel).toBeHidden()
-    await expect(panel).toBeVisible()
-    await page.mouse.move(500, viewport.height / 2)
+    await page.waitForTimeout(500)
     await expect(panel).toBeHidden()
 
     await page.mouse.move(500, viewport.height / 2)
@@ -225,19 +594,18 @@ test.describe('workspace registry', () => {
     await expect(freshTarget).toContainText('Hold to create and move')
     await page.mouse.up()
 
-    await expect(page).not.toHaveURL(new RegExp(`ws=${sourceId}(?:&|$)`), { timeout: 20_000 })
+    await expect(page).not.toHaveURL(new RegExp(`ws=${sourceId}(?:&|$)`))
     await expect(getWindowGroups(page)).toHaveCount(1)
     await expect(panel).toBeHidden()
     await context.close()
   })
 
-  test('creates and lists a workspace after one-second dwell without rolling back', async ({
-    browser,
-  }) => {
+  test('creates a fresh workspace atomically on drop, not during dwell', async ({ browser }) => {
     const context = await createWorkspaceE2EContext(browser)
     const page = await context.newPage()
     const sourceId = `dwell-new-${Date.now()}`
     await page.goto(`/workspace?ws=${sourceId}`)
+    await expect(page.locator('[data-workspace-opened]')).toBeAttached()
     const handle = getDragHandle(getWindowGroups(page).first())
     const handleBox = await handle.boundingBox()
     if (!handleBox) throw new Error('Window drag handle is unavailable')
@@ -255,70 +623,24 @@ test.describe('workspace registry', () => {
     await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2)
     await page.waitForTimeout(1_100)
 
-    await expect(page).not.toHaveURL(new RegExp(`ws=${sourceId}(?:&|$)`), { timeout: 20_000 })
+    await expect(page).toHaveURL(new RegExp(`ws=${sourceId}(?:&|$)`))
     await expect(
       panel.locator('[data-workspace-id]:not([data-workspace-id="__new__"])'),
-    ).toHaveCount(rowsBefore + 1)
-    await expect(panel.getByText(/^Workspace \d+$/).last()).toBeVisible()
-    const destinationUrl = page.url()
+    ).toHaveCount(rowsBefore)
     await page.mouse.up()
-    await page.waitForTimeout(500)
-    expect(page.url()).toBe(destinationUrl)
-    await expect(getWindowGroups(page)).toHaveCount(1)
-    await context.close()
-  })
-
-  test('rebases local edits onto a newer server snapshot after revision conflict', async ({
-    page,
-  }) => {
-    const id = `conflict-${Date.now()}`
-    await page.goto(`/workspace?ws=${id}`)
+    await expect(page).not.toHaveURL(new RegExp(`ws=${sourceId}(?:&|$)`))
+    const destinationId = new URL(page.url()).searchParams.get('ws')
+    if (!destinationId) throw new Error('Created workspace id is unavailable')
+    await expect(page).toHaveURL(new RegExp(`ws=${destinationId}(?:&|$)`))
     await expect(getWindowGroups(page)).toHaveCount(1)
     await expect
-      .poll(() =>
-        page.evaluate((workspaceId) => localStorage.getItem(`workspace-synced-${workspaceId}`), id),
-      )
-      .not.toBeNull()
-
-    await page.evaluate(async (workspaceId) => {
-      const clientId = sessionStorage.getItem('workspace-client-id')
-      const registry = await fetch(
-        `/api/workspaces?clientId=${encodeURIComponent(clientId ?? '')}`,
-      ).then((response) => response.json())
-      const record = registry.records[workspaceId]
-      record.snapshot.windows[0].initialState.dir = 'Server/Renamed'
-      const response = await fetch('/api/workspaces/save', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          id: workspaceId,
-          clientId,
-          revision: record.revision,
-          snapshot: record.snapshot,
-        }),
+      .poll(async () => {
+        const registry = await page.request
+          .get('/api/workspaces')
+          .then((response) => response.json())
+        return registry.records[destinationId]?.snapshot.windows.length
       })
-      if (!response.ok) throw new Error(`Server mutation failed: ${response.status}`)
-    }, id)
-
-    await page.getByRole('button', { name: 'Open browser window' }).click()
-    await expect(getWindowGroups(page)).toHaveCount(2)
-    await expect
-      .poll(() =>
-        page.evaluate(async (workspaceId) => {
-          const clientId = sessionStorage.getItem('workspace-client-id')
-          const registry = await fetch(
-            `/api/workspaces?clientId=${encodeURIComponent(clientId ?? '')}`,
-          ).then((response) => response.json())
-          const snapshot = registry.records[workspaceId]?.snapshot
-          return {
-            windows: snapshot?.windows.length,
-            repaired: snapshot?.windows.some(
-              (window: { initialState?: { dir?: string } }) =>
-                window.initialState?.dir === 'Server/Renamed',
-            ),
-          }
-        }, id),
-      )
-      .toEqual({ windows: 2, repaired: true })
+      .toBe(1)
+    await context.close()
   })
 })

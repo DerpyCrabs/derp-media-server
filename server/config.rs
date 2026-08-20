@@ -408,7 +408,7 @@ fn clamped_integer(
     (number as i64).clamp(minimum as i64, maximum as i64) as u32
 }
 
-const DURABLE_DATA: [&str; 3] = ["settings.json", "stats.json", "canvases.json"];
+const DURABLE_DATA: [&str; 2] = ["settings.json", "stats.json"];
 const REBUILDABLE_DATA: [(&str, &str); 3] = [
     (".search-index", "search-index"),
     (".thumbnails", "thumbnails"),

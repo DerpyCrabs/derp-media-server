@@ -88,6 +88,30 @@ export async function dragFromTo(
   await page.mouse.up()
 }
 
+export async function recordNextPointerId(page: Page) {
+  await page.evaluate(() => {
+    document.addEventListener(
+      'pointerdown',
+      (event) => {
+        document.body.dataset.testPointerId = String(event.pointerId)
+      },
+      { capture: true, once: true },
+    )
+  })
+}
+
+export async function dispatchRecordedPointerCancel(
+  page: Page,
+  point: { clientX: number; clientY: number },
+) {
+  await page.evaluate(({ clientX, clientY }) => {
+    const pointerId = Number(document.body.dataset.testPointerId)
+    document.dispatchEvent(
+      new PointerEvent('pointercancel', { bubbles: true, clientX, clientY, pointerId }),
+    )
+  }, point)
+}
+
 export async function dragToEdge(
   page: Page,
   handle: Locator,
@@ -157,7 +181,10 @@ export async function dragToEdge(
   }
 
   await dragFromTo(page, startX, startY, endX, endY)
-  await page.waitForTimeout(100)
+  await expect(handle.locator('xpath=ancestor::*[@data-window-group][1]')).toHaveAttribute(
+    'data-workspace-window-snapped',
+    '',
+  )
 }
 
 /** Persists preferred assist grid shape (reload so the client store re-reads localStorage). */

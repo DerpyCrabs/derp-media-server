@@ -1,10 +1,8 @@
 use crate::{
-    app::{
-        AppState, Shared, emit, list_directory, parent_logical, safe_upload_name, settings_path,
-        stats_path,
-    },
+    app::{AppState, Shared, emit, list_directory, parent_logical, safe_upload_name},
     error::{AppError, AppResult},
-    media, store,
+    file_mutation::{FileMutation, content_hash},
+    media,
 };
 use axum::{
     Json, Router,
@@ -16,7 +14,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::{io::Write, path::Path, time::UNIX_EPOCH};
+use std::{io::Write, path::Path};
 use tokio::fs;
 use tokio_util::io::ReaderStream;
 
@@ -34,11 +32,16 @@ struct VirtualPathQuery {
     path: String,
 }
 
-fn report_metadata_failure(operation: &str, path: &str, error: AppError) {
-    eprintln!(
-        "File {operation} completed, but metadata cleanup failed for {path}: {}",
-        error.1
-    );
+async fn text_document(
+    State(state): State<Shared>,
+    Query(query): Query<VirtualPathQuery>,
+) -> AppResult<Json<Value>> {
+    let content = FileMutation::new(&state).read_file(&query.path).await?;
+    let text = String::from_utf8(content.clone())
+        .map_err(|_| AppError::bad("File is not valid UTF-8 text"))?;
+    Ok(Json(
+        json!({"content":text,"version":content_hash(&content)}),
+    ))
 }
 
 async fn list(
@@ -151,28 +154,17 @@ pub(crate) fn legacy_virtual_items(
     dir: &str,
 ) -> Option<AppResult<Vec<media::FileItem>>> {
     if dir == "Favorites" || dir == "Most Played" {
-        let section = if dir == "Favorites" {
-            store::section(
-                &settings_path(state),
-                &state.config.library_key,
-                crate::app::default_settings(),
-            )
-        } else {
-            store::section(
-                &stats_path(state),
-                &state.config.library_key,
-                json!({"views":{}}),
-            )
-        };
         let paths: Vec<(String, Option<u64>)> = if dir == "Favorites" {
-            section["favorites"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(|value| value.as_str().map(|path| (path.into(), None)))
-                .collect()
+            match state.settings.favorites() {
+                Ok(paths) => paths.into_iter().map(|path| (path, None)).collect(),
+                Err(error) => return Some(Err(error)),
+            }
         } else {
-            let mut values = section["views"]
+            let views = match state.stats.views() {
+                Ok(views) => views,
+                Err(error) => return Some(Err(error)),
+            };
+            let mut values = views
                 .as_object()
                 .into_iter()
                 .flatten()
@@ -258,27 +250,15 @@ async fn create(
     {
         return Err(AppError::forbidden("Path is not in an editable folder"));
     }
-    let full = media::resolve(&state.config, &body.path)?.full;
-    if full.exists() {
-        return Err(AppError::conflict(format!(
-            "A {} with this name already exists",
-            if body.kind.as_deref() == Some("folder") {
-                "folder"
-            } else {
-                "file"
-            }
-        )));
-    }
     if body.kind.as_deref() == Some("folder") {
-        fs::create_dir_all(full).await.map_err(AppError::io)?;
+        FileMutation::new(&state)
+            .create_directory(&body.path)
+            .await?;
         emit(&state, &body.path);
         return Ok(Json(json!({"success":true,"message":"Folder created"})));
     }
     if body.content.is_none() && body.base64_content.is_none() {
         return Err(AppError::bad("Content is required for files"));
-    }
-    if let Some(parent) = full.parent() {
-        fs::create_dir_all(parent).await.map_err(AppError::io)?;
     }
     let data = match (body.base64_content, body.content) {
         (Some(value), _) if !value.is_empty() => crate::app::decode_node_base64(&value)?,
@@ -286,10 +266,9 @@ async fn create(
         (Some(_), None) => Vec::new(),
         (None, None) => unreachable!(),
     };
-    fs::write(full, data).await.map_err(AppError::io)?;
-    if let Err(error) = crate::path_metadata::content_replaced(&state, &body.path) {
-        report_metadata_failure("create", &body.path, error);
-    }
+    FileMutation::new(&state)
+        .create_file(&body.path, &data)
+        .await?;
     emit(&state, &body.path);
     Ok(Json(json!({"success":true,"message":"File saved"})))
 }
@@ -301,6 +280,7 @@ struct EditBody {
     content: Option<String>,
     base64_content: Option<String>,
     expected_version: Option<f64>,
+    expected_hash: Option<String>,
 }
 
 async fn edit(State(state): State<Shared>, Json(body): Json<EditBody>) -> AppResult<Json<Value>> {
@@ -313,52 +293,31 @@ async fn edit(State(state): State<Shared>, Json(body): Json<EditBody>) -> AppRes
     if body.content.is_none() && body.base64_content.is_none() {
         return Err(AppError::bad("Content is required"));
     }
-    let full = media::resolve(&state.config, &body.path)?.full;
-    let metadata = fs::metadata(&full).await.map_err(|error| {
-        if error.kind() == std::io::ErrorKind::NotFound {
-            AppError::not_found("File not found")
-        } else {
-            AppError::io(error)
-        }
-    })?;
-    if metadata.is_dir() {
-        return Err(AppError::conflict(
-            "A folder cannot be replaced with a file",
-        ));
-    }
-    if let Some(expected) = body.expected_version {
-        let current = metadata
-            .modified()
-            .ok()
-            .and_then(|value| value.duration_since(UNIX_EPOCH).ok())
-            .map(|value| value.as_secs_f64() * 1000.0)
-            .unwrap_or(0.0);
-        // Same NTFS timestamp can round slightly differently across the JSON/client boundary.
-        // A real replacement changes it by at least one millisecond in this API.
-        if (current - expected).abs() >= 1.0 {
-            return Err(AppError::conflict(
-                "File changed since the replacement was prepared",
-            ));
-        }
-    }
     let data = match (body.base64_content, body.content) {
         (Some(value), _) if !value.is_empty() => crate::app::decode_node_base64(&value)?,
         (_, Some(content)) => content.into_bytes(),
         (Some(_), None) => Vec::new(),
         (None, None) => unreachable!(),
     };
-    fs::write(full, data).await.map_err(AppError::io)?;
-    if let Err(error) = crate::path_metadata::content_replaced(&state, &body.path) {
-        report_metadata_failure("edit", &body.path, error);
-    }
+    let version = FileMutation::new(&state)
+        .edit_file(
+            &body.path,
+            &data,
+            body.expected_hash.as_deref(),
+            body.expected_version,
+        )
+        .await?;
     emit(&state, &body.path);
-    Ok(Json(json!({"success":true,"message":"File saved"})))
+    Ok(Json(
+        json!({"success":true,"message":"File saved","version":version}),
+    ))
 }
 
 #[derive(Deserialize)]
 struct PathBody {
     path: String,
 }
+
 async fn delete(State(state): State<Shared>, Json(body): Json<PathBody>) -> AppResult<Json<Value>> {
     if body.path.is_empty() {
         return Err(AppError::bad("Path is required"));
@@ -366,20 +325,11 @@ async fn delete(State(state): State<Shared>, Json(body): Json<PathBody>) -> AppR
     if !media::editable(&state.config, &body.path) {
         return Err(AppError::forbidden("Path is not in an editable folder"));
     }
-    let full = media::resolve(&state.config, &body.path)?.full;
-    let metadata = fs::metadata(&full).await.map_err(AppError::io)?;
-    if metadata.is_dir() {
-        fs::remove_dir_all(full).await.map_err(AppError::io)?;
-    } else {
-        fs::remove_file(full).await.map_err(AppError::io)?;
-    }
-    if let Err(error) = crate::path_metadata::removed(&state, &body.path).await {
-        report_metadata_failure("delete", &body.path, error);
-    }
+    let is_directory = FileMutation::new(&state).delete(&body.path).await?;
     crate::app::emit_path_removed(&state, &body.path);
     emit(&state, &body.path);
     Ok(Json(
-        json!({"success":true,"message":if metadata.is_dir(){"Folder deleted"}else{"File deleted"}}),
+        json!({"success":true,"message":if is_directory{"Folder deleted"}else{"File deleted"}}),
     ))
 }
 
@@ -406,17 +356,9 @@ async fn rename(
             "Cannot rename: Destination path is not in an editable folder",
         ));
     }
-    let old = media::resolve(&state.config, &body.old_path)?.full;
-    let new = media::resolve(&state.config, &body.new_path)?.full;
-    if new.exists() {
-        return Err(AppError::conflict(
-            "Destination file or directory already exists",
-        ));
-    }
-    fs::rename(old, new).await.map_err(AppError::io)?;
-    if let Err(error) = crate::path_metadata::moved(&state, &body.old_path, &body.new_path).await {
-        report_metadata_failure("rename", &body.old_path, error);
-    }
+    FileMutation::new(&state)
+        .rename(&body.old_path, &body.new_path)
+        .await?;
     crate::app::emit_path_moved(&state, &body.old_path, &body.new_path);
     emit(&state, &body.old_path);
     if parent_logical(&body.old_path) != parent_logical(&body.new_path) {
@@ -452,42 +394,13 @@ async fn copy(State(state): State<Shared>, Json(body): Json<CopyBody>) -> AppRes
             "Cannot copy: Destination is not in an editable folder",
         ));
     }
-    let destination = media::resolve(&state.config, &logical)?.full;
-    if destination.exists() {
-        return Err(AppError::conflict(
-            "Destination file or directory already exists",
-        ));
-    }
-    copy_recursive(&source, &destination).await?;
+    FileMutation::new(&state)
+        .copy(&body.source_path, &logical)
+        .await?;
     emit(&state, &logical);
     Ok(Json(
         json!({"success":true,"message":"Copied successfully"}),
     ))
-}
-
-async fn copy_recursive(source: &Path, destination: &Path) -> AppResult<()> {
-    let metadata = fs::symlink_metadata(source).await.map_err(AppError::io)?;
-    if metadata.file_type().is_symlink() {
-        return Err(AppError::forbidden(
-            "Cannot copy symbolic links through a media directory",
-        ));
-    }
-    if metadata.is_file() {
-        fs::copy(source, destination).await.map_err(AppError::io)?;
-    } else {
-        fs::create_dir_all(destination)
-            .await
-            .map_err(AppError::io)?;
-        let mut directory = fs::read_dir(source).await.map_err(AppError::io)?;
-        while let Some(entry) = directory.next_entry().await.map_err(AppError::io)? {
-            Box::pin(copy_recursive(
-                &entry.path(),
-                &destination.join(entry.file_name()),
-            ))
-            .await?;
-        }
-    }
-    Ok(())
 }
 
 async fn upload(State(state): State<Shared>, mut multipart: Multipart) -> AppResult<Json<Value>> {
@@ -529,11 +442,9 @@ async fn upload(State(state): State<Shared>, mut multipart: Multipart) -> AppRes
         {
             continue;
         }
-        let full = media::resolve(&state.config, &logical)?.full;
-        if let Some(parent) = full.parent() {
-            fs::create_dir_all(parent).await.map_err(AppError::io)?;
-        }
-        fs::write(full, data).await.map_err(AppError::io)?;
+        FileMutation::new(&state)
+            .upsert_file(&logical, &data)
+            .await?;
         broadcasts.insert(parent_logical(&logical), logical);
         count += 1;
     }
@@ -670,6 +581,7 @@ fn zip_body(source: std::path::PathBuf) -> Body {
 pub fn router() -> Router<Shared> {
     Router::new()
         .route("/api/files", get(list))
+        .route("/api/files/text", get(text_document))
         .route("/api/files/create", post(create))
         .route("/api/files/edit", post(edit))
         .route("/api/files/delete", post(delete))

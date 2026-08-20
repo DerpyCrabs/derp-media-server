@@ -2,9 +2,9 @@ import { Switch, Match, Show, createMemo, lazy } from 'solid-js'
 import { useBrowserHistory } from '@/lib/browser/browser-history'
 import { SolidThemeSync } from './SolidThemeSync'
 import { MediaCenterPage } from './media-center/MediaCenterPage'
-import { WorkspacePage } from './workspace/WorkspacePage'
-import { CanvasPage } from './canvas/CanvasPage'
+import { WorkspaceRoute } from './workspace/WorkspaceRoute'
 import { GlobalForbiddenToast } from './GlobalForbiddenToast'
+import { AppDialogHost } from './lib/ui/AppDialogHost'
 
 const ReaderDialog = lazy(() =>
   import('./features/reader/ReaderDialog').then((module) => ({ default: module.ReaderDialog })),
@@ -17,6 +17,7 @@ export function App() {
   return (
     <>
       <GlobalForbiddenToast />
+      <AppDialogHost />
       <Switch
         fallback={
           <>
@@ -28,13 +29,7 @@ export function App() {
         <Match when={path() === '/workspace'}>
           <>
             <SolidThemeSync />
-            <WorkspacePage />
-          </>
-        </Match>
-        <Match when={path() === '/canvas'}>
-          <>
-            <SolidThemeSync />
-            <CanvasPage />
+            <WorkspaceRoute />
           </>
         </Match>
       </Switch>

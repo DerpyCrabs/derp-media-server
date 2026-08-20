@@ -5,32 +5,22 @@ import {
   maxWorkspaceWindowZ,
 } from '@/workspace/model/workspace-geometry'
 import { MediaType } from '@/lib/files/types'
+import type { PersistedWorkspaceState } from '@/workspace/model/use-workspace'
 import type {
-  PersistedWorkspaceState,
-  WorkspaceWindowDefinition,
-} from '@/workspace/model/use-workspace'
+  TabGroupSplitState,
+  WindowDefinition as WorkspaceWindowDefinition,
+} from '@/lib/models/window-model'
 import {
   SPLIT_PANE_FRACTION_DEFAULT,
   clampSplitPaneFraction,
-  type TabGroupSplitState,
 } from '@/workspace/model/use-workspace'
-import { directoryTitle } from '@/lib/files/directory-title'
+import {
+  createWorkspaceWindowDefinition,
+  workspaceWindowId,
+} from '@/workspace/model/workspace-window-open'
 
 export function groupIdForWindow(w: WorkspaceWindowDefinition): string {
   return w.tabGroupId ?? w.id
-}
-
-export function orderedVisibleGroupIds(windows: WorkspaceWindowDefinition[]): string[] {
-  const seen = new Set<string>()
-  const order: string[] = []
-  for (const win of windows) {
-    if (win.layout?.minimized) continue
-    const gid = groupIdForWindow(win)
-    if (seen.has(gid)) continue
-    seen.add(gid)
-    order.push(gid)
-  }
-  return order
 }
 
 /** Group ids in first-seen order (includes minimized), for taskbar rows. */
@@ -416,7 +406,7 @@ export function openInNewTabInGroupState(
   state: PersistedWorkspaceState,
   sourceWindowId: string,
   file: { path: string; isDirectory: boolean; isVirtual?: boolean },
-  currentPath: string,
+  _currentPath: string,
   insertIndex?: number,
   sourceOverride?: WorkspaceWindowDefinition['source'],
 ): PersistedWorkspaceState {
@@ -426,7 +416,7 @@ export function openInNewTabInGroupState(
   const groupId = sourceWindow.tabGroupId || sourceWindowId
   const source = sourceOverride ?? sourceWindow.source
   const n = state.nextWindowId
-  const id = `workspace-window-${n}`
+  const id = workspaceWindowId(n)
   const zIndex = sourceWindow.layout?.zIndex ?? 1
   const layoutBase = sourceWindow.layout
   const sharedLayout = layoutBase
@@ -441,45 +431,22 @@ export function openInNewTabInGroupState(
       }
     : undefined
 
-  let newWindow: WorkspaceWindowDefinition
-  if (file.isDirectory) {
-    const folderTitle = directoryTitle(file.path)
-    newWindow = {
-      id,
-      type: 'browser',
-      title: folderTitle,
-      iconName: null,
-      iconPath: file.path,
-      iconType: MediaType.FOLDER,
-      iconIsVirtual: false,
-      source,
-      initialState: { dir: file.path },
-      tabGroupId: groupId,
-      layout: sharedLayout ?? {
-        minimized: false,
-        zIndex,
-      },
-    }
-  } else {
-    const dir = file.path.split(/[/\\]/).slice(0, -1).join('/') || currentPath
-    const title = file.path.split(/[/\\]/).filter(Boolean).at(-1) || 'Viewer'
-    newWindow = {
-      id,
-      type: 'viewer',
-      title,
-      iconName: null,
-      iconPath: file.path,
-      iconType: getMediaType(file.path.split('.').pop() ?? ''),
-      iconIsVirtual: false,
-      source,
-      initialState: { dir, viewing: file.path },
-      tabGroupId: groupId,
-      layout: sharedLayout ?? {
-        minimized: false,
-        zIndex,
-      },
-    }
+  const fileName = file.path.split(/[/\\]/).filter(Boolean).at(-1) || 'Viewer'
+  const fileItem = {
+    name: fileName,
+    path: file.path,
+    type: file.isDirectory ? MediaType.FOLDER : getMediaType(file.path.split('.').pop() ?? ''),
+    size: 0,
+    extension: file.isDirectory ? '' : (file.path.split('.').pop() ?? ''),
+    isDirectory: file.isDirectory,
   }
+  let newWindow = createWorkspaceWindowDefinition({
+    id,
+    intent: file.isDirectory
+      ? { kind: 'browser', dir: file.path, source, tabGroupId: groupId }
+      : { kind: 'viewer', file: fileItem, source, tabGroupId: groupId },
+    layout: sharedLayout ?? { minimized: false, zIndex },
+  })
 
   const withTabGroup = state.windows.map((w) => {
     if (w.id === sourceWindowId && !w.tabGroupId) {
@@ -516,173 +483,6 @@ export function openInNewTabInGroupState(
     ...state,
     windows: nextWindows,
     nextWindowId: n + 1,
-    activeWindowId: id,
-    activeTabMap: { ...state.activeTabMap, [groupId]: id },
-  }
-}
-
-export type ClosedTabHistoryEntry = {
-  window: WorkspaceWindowDefinition
-  groupId: string
-  insertIndex: number
-  soloWindow: boolean
-}
-
-/** Returns null for pinned tabs, split-left tab, or group leader when other tabs remain. */
-export function makeClosedTabHistoryEntry(
-  state: PersistedWorkspaceState,
-  tabId: string,
-): ClosedTabHistoryEntry | null {
-  const victim = state.windows.find((w) => w.id === tabId)
-  if (!victim || victim.tabPinned) return null
-  const gid = groupIdForWindow(victim)
-  if (state.tabGroupSplits?.[gid]?.leftTabId === tabId) return null
-  const members = state.windows.filter((w) => groupIdForWindow(w) === gid)
-  const idx = members.findIndex((w) => w.id === tabId)
-  if (idx < 0) return null
-  const isLeader = !victim.tabGroupId && victim.id === gid
-  if (members.length > 1 && isLeader) return null
-  const soloWindow = members.length <= 1
-  return {
-    window: JSON.parse(JSON.stringify(victim)) as WorkspaceWindowDefinition,
-    groupId: gid,
-    insertIndex: idx,
-    soloWindow,
-  }
-}
-
-export function reopenClosedTabEntry(
-  state: PersistedWorkspaceState,
-  entry: ClosedTabHistoryEntry,
-): PersistedWorkspaceState {
-  const n = state.nextWindowId
-  const newId = `workspace-window-${n}`
-  const win = JSON.parse(JSON.stringify(entry.window)) as WorkspaceWindowDefinition
-  win.id = newId
-  win.tabPinned = false
-  win.openedFromWindowId = undefined
-
-  if (entry.soloWindow) {
-    win.tabGroupId = null
-    return pruneTabGroupSplitsState({
-      ...state,
-      windows: [...state.windows, win],
-      nextWindowId: n + 1,
-      activeWindowId: newId,
-    })
-  }
-
-  const groupStillThere = state.windows.some((w) => groupIdForWindow(w) === entry.groupId)
-  if (!groupStillThere) {
-    win.tabGroupId = null
-    return pruneTabGroupSplitsState({
-      ...state,
-      windows: [...state.windows, win],
-      nextWindowId: n + 1,
-      activeWindowId: newId,
-    })
-  }
-
-  win.tabGroupId = entry.window.tabGroupId ?? entry.groupId
-
-  const nextWindows = insertWindowAtGroupIndex(state.windows, win, entry.groupId, entry.insertIndex)
-
-  return pruneTabGroupSplitsState({
-    ...state,
-    windows: nextWindows,
-    nextWindowId: n + 1,
-    activeWindowId: newId,
-    activeTabMap: { ...state.activeTabMap, [entry.groupId]: newId },
-  })
-}
-
-export function duplicateTabInGroupState(
-  state: PersistedWorkspaceState,
-  tabId: string,
-): PersistedWorkspaceState {
-  const sourceWindow = state.windows.find((w) => w.id === tabId)
-  if (!sourceWindow) return state
-  const groupId = sourceWindow.tabGroupId || tabId
-  const split = state.tabGroupSplits?.[groupId]
-  if (split?.leftTabId === tabId) return state
-
-  const members = state.windows.filter((w) => groupIdForWindow(w) === groupId)
-  const idx = members.findIndex((w) => w.id === tabId)
-  if (idx < 0) return state
-
-  const n = state.nextWindowId
-  const newId = `workspace-window-${n}`
-  const clone: WorkspaceWindowDefinition = {
-    ...sourceWindow,
-    id: newId,
-    tabPinned: false,
-    openedFromWindowId: tabId,
-    initialState: { ...sourceWindow.initialState },
-    layout: sourceWindow.layout ? { ...sourceWindow.layout } : undefined,
-  }
-
-  const withTabGroup = state.windows.map((w) => {
-    if (w.id === tabId && !w.tabGroupId) {
-      return { ...w, tabGroupId: groupId }
-    }
-    return w
-  })
-
-  const nextWindows = insertWindowAtGroupIndex(withTabGroup, clone, groupId, idx + 1)
-
-  return {
-    ...state,
-    windows: nextWindows,
-    nextWindowId: n + 1,
-    activeWindowId: newId,
-    activeTabMap: { ...state.activeTabMap, [groupId]: newId },
-  }
-}
-
-export function addTabToGroupState(
-  state: PersistedWorkspaceState,
-  sourceWindowId: string,
-): PersistedWorkspaceState {
-  const arr = state.windows
-  const sourceWindow = arr.find((w) => w.id === sourceWindowId)
-  if (!sourceWindow) return state
-
-  const groupId = sourceWindow.tabGroupId || sourceWindowId
-  const id = `workspace-window-${state.nextWindowId}`
-  const zIndex = sourceWindow.layout?.zIndex ?? 1
-
-  const newWindow: WorkspaceWindowDefinition = {
-    id,
-    type: sourceWindow.type,
-    title: '',
-    iconName: null,
-    iconPath: '',
-    iconType: sourceWindow.type === 'browser' ? MediaType.FOLDER : MediaType.OTHER,
-    iconIsVirtual: false,
-    source: sourceWindow.source,
-    initialState:
-      sourceWindow.type === 'browser' ? { dir: sourceWindow.initialState.dir ?? null } : {},
-    tabGroupId: groupId,
-    layout: {
-      bounds: sourceWindow.layout?.bounds,
-      fullscreen: sourceWindow.layout?.fullscreen,
-      snapZone: sourceWindow.layout?.snapZone,
-      tiling: sourceWindow.layout?.tiling,
-      minimized: false,
-      zIndex,
-      restoreBounds: sourceWindow.layout?.restoreBounds,
-    },
-  }
-  const updated = arr.map((w) => {
-    if (w.id === sourceWindowId && !w.tabGroupId) {
-      return { ...w, tabGroupId: groupId }
-    }
-    return w
-  })
-  return {
-    ...state,
-    windows: [...updated, newWindow],
-    nextWindowId: state.nextWindowId + 1,
     activeWindowId: id,
     activeTabMap: { ...state.activeTabMap, [groupId]: id },
   }

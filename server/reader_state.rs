@@ -4,7 +4,6 @@ use crate::{
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use serde_json::Value;
-use std::path::Path;
 
 #[derive(Debug)]
 pub struct ReaderState {
@@ -22,31 +21,38 @@ fn like_prefix(path: &str) -> String {
     )
 }
 
-fn connection(path: &Path) -> AppResult<Connection> {
-    state_db::connection(path)
+fn connection(database: &state_db::AppDatabase) -> AppResult<Connection> {
+    database.connection()
 }
 
-pub fn get(database: &Path, scope: &str, path: &str) -> AppResult<Option<ReaderState>> {
+pub fn get(
+    database: &state_db::AppDatabase,
+    scope: &str,
+    path: &str,
+) -> AppResult<Option<ReaderState>> {
     let connection = connection(database)?;
-    connection
+    let row: Option<(String, String, i64)> = connection
         .query_row(
             "SELECT state_json, fingerprint, revision FROM reader_state WHERE scope=?1 AND path=?2",
             params![scope, path],
-            |row| {
-                let raw: String = row.get(0)?;
-                Ok(ReaderState {
-                    value: serde_json::from_str(&raw).unwrap_or(Value::Null),
-                    fingerprint: row.get(1)?,
-                    revision: row.get(2)?,
-                })
-            },
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .optional()
-        .map_err(|error| AppError::internal(error.to_string()))
+        .map_err(|error| AppError::internal(error.to_string()))?;
+    row.map(|(raw, fingerprint, revision)| {
+        serde_json::from_str(&raw)
+            .map(|value| ReaderState {
+                value,
+                fingerprint,
+                revision,
+            })
+            .map_err(|error| AppError::internal(format!("Invalid reader state: {error}")))
+    })
+    .transpose()
 }
 
 pub fn put(
-    database: &Path,
+    database: &state_db::AppDatabase,
     scope: &str,
     path: &str,
     value: &Value,
@@ -121,7 +127,7 @@ pub fn remove_prefix_in_transaction(
     Ok(())
 }
 
-pub fn remove_exact(database: &Path, scope: &str, path: &str) -> AppResult<()> {
+pub fn remove_exact(database: &state_db::AppDatabase, scope: &str, path: &str) -> AppResult<()> {
     let connection = connection(database)?;
     connection
         .execute(
@@ -132,8 +138,11 @@ pub fn remove_exact(database: &Path, scope: &str, path: &str) -> AppResult<()> {
     Ok(())
 }
 
-pub fn remove_exact_all(database: &Path, path: &str) -> AppResult<()> {
-    let connection = connection(database)?;
+pub fn remove_exact_all_in_transaction(transaction: &Transaction<'_>, path: &str) -> AppResult<()> {
+    remove_exact_all_with_connection(transaction, path)
+}
+
+fn remove_exact_all_with_connection(connection: &Connection, path: &str) -> AppResult<()> {
     connection
         .execute("DELETE FROM reader_state WHERE path=?1", params![path])
         .map_err(|error| AppError::internal(error.to_string()))?;
@@ -163,27 +172,26 @@ pub fn move_prefix_in_transaction(
     Ok(())
 }
 
-pub fn preferences(database: &Path, scope: &str) -> AppResult<(Value, i64)> {
+pub fn preferences(database: &state_db::AppDatabase, scope: &str) -> AppResult<(Value, i64)> {
     let connection = connection(database)?;
-    connection
+    let row: Option<(String, i64)> = connection
         .query_row(
             "SELECT state_json, revision FROM app_preferences WHERE scope=?1",
             params![scope],
-            |row| {
-                let raw: String = row.get(0)?;
-                Ok((
-                    serde_json::from_str(&raw).unwrap_or(Value::Null),
-                    row.get(1)?,
-                ))
-            },
+            |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .optional()
-        .map(|value| value.unwrap_or((Value::Null, 0)))
-        .map_err(|error| AppError::internal(error.to_string()))
+        .map_err(|error| AppError::internal(error.to_string()))?;
+    match row {
+        None => Ok((Value::Null, 0)),
+        Some((raw, revision)) => serde_json::from_str(&raw)
+            .map(|value| (value, revision))
+            .map_err(|error| AppError::internal(format!("Invalid reader preferences: {error}"))),
+    }
 }
 
 pub fn put_preferences(
-    database: &Path,
+    database: &state_db::AppDatabase,
     scope: &str,
     value: &Value,
     base_revision: i64,
@@ -230,7 +238,7 @@ mod tests {
     use serde_json::json;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    fn database() -> std::path::PathBuf {
+    fn database() -> state_db::AppDatabase {
         let unique = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -253,7 +261,7 @@ mod tests {
                  );",
             )
             .unwrap();
-        path
+        state_db::AppDatabase::new(path)
     }
 
     #[test]
@@ -279,7 +287,7 @@ mod tests {
                 .unwrap()
                 .is_some()
         );
-        let _ = std::fs::remove_file(database);
+        let _ = std::fs::remove_file(database.path());
     }
 
     #[test]
@@ -294,6 +302,40 @@ mod tests {
             put_preferences(&database, "admin", &json!({"theme":"light"}), 1, 3).unwrap(),
             2
         );
-        let _ = std::fs::remove_file(database);
+        let _ = std::fs::remove_file(database.path());
+    }
+
+    #[test]
+    fn malformed_reader_state_is_rejected() {
+        let database = database();
+        let connection = database.connection().unwrap();
+        connection
+            .execute(
+                "INSERT INTO reader_state(scope,path,state_json,fingerprint,revision,updated_at) VALUES('admin','Books/bad','{bad','a',1,1)",
+                [],
+            )
+            .unwrap();
+
+        let result = get(&database, "admin", "Books/bad");
+
+        assert!(result.is_err());
+        let _ = std::fs::remove_file(database.path());
+    }
+
+    #[test]
+    fn malformed_reader_preferences_are_rejected() {
+        let database = database();
+        let connection = database.connection().unwrap();
+        connection
+            .execute(
+                "INSERT INTO app_preferences(scope,state_json,revision,updated_at) VALUES('admin','{bad',1,1)",
+                [],
+            )
+            .unwrap();
+
+        let result = preferences(&database, "admin");
+
+        assert!(result.is_err());
+        let _ = std::fs::remove_file(database.path());
     }
 }

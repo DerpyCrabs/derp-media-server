@@ -20,26 +20,37 @@ async function expectSameHost(page: Page, host: Locator, source: string) {
 
 test('keeps one playback host and session through Library, Workspace, Canvas, and back', async ({
   page,
+  request,
 }) => {
-  let canvasRecords: unknown[] = []
-  await page.route('**/api/canvases**', async (route) => {
-    if (route.request().method() === 'GET') {
-      await route.fulfill({ json: { canvases: canvasRecords } })
-      return
-    }
-    const body = route.request().postDataJSON() as { canvases?: unknown[] }
-    canvasRecords = body.canvases ?? canvasRecords
-    await route.fulfill({ json: { canvases: canvasRecords } })
+  const canvasWorkspaceId = `stage2-canvas-${Date.now()}`
+  const clientId = 'stage2-playback-client'
+  const opened = await request.post('/api/workspaces/open', {
+    data: {
+      id: canvasWorkspaceId,
+      clientId,
+      snapshot: {
+        workspaceType: 'canvas',
+        windows: [],
+        activeWindowId: null,
+        activeTabMap: {},
+        nextWindowId: 1,
+        canvas: {
+          camera: { x: 0, y: 0, zoom: 1 },
+          maximizedWindowId: null,
+          windowSizeByType: {},
+          nextZIndex: 1,
+        },
+      },
+    },
   })
-  await page.addInitScript(() => {
+  expect(opened.ok()).toBe(true)
+  await page.addInitScript((id) => {
     const loads = Number(sessionStorage.getItem('stage2-playback-document-loads') ?? '0') + 1
     sessionStorage.setItem('stage2-playback-document-loads', String(loads))
+    sessionStorage.setItem('workspace-client-id', id)
     localStorage.removeItem('video-playback-times')
-    localStorage.removeItem('infinite-canvas-state-v1')
-    localStorage.removeItem('infinite-canvases-v1')
     localStorage.removeItem('derp-playback-session-owner-v1')
-    localStorage.removeItem('infinite-canvas-crash-draft-v1')
-  })
+  }, clientId)
 
   await page.goto('/?dir=Music')
   await page.locator('table').getByText('track.mp3', { exact: true }).click()
@@ -100,7 +111,7 @@ test('keeps one playback host and session through Library, Workspace, Canvas, an
   await expect.poll(() => host.evaluate((element: HTMLAudioElement) => element.paused)).toBe(true)
   const workspacePosition = await host.evaluate((element: HTMLAudioElement) => element.currentTime)
 
-  await clientNavigate(page, '/canvas')
+  await clientNavigate(page, `/workspace?ws=${encodeURIComponent(canvasWorkspaceId)}`)
   await expect(page.locator('.canvas-layout')).toBeVisible()
   await expectSameHost(page, host, initial.source)
   await expect

@@ -104,7 +104,7 @@ struct KbQuery {
 
 fn validate_root(state: &crate::app::AppState, root: &str, exact: bool) -> AppResult<()> {
     let normalized = root.replace('\\', "/");
-    let valid = knowledge_bases(state).iter().any(|item| {
+    let valid = knowledge_bases(state)?.iter().any(|item| {
         let item = item.replace('\\', "/");
         normalized == item || (!exact && normalized.starts_with(&(item + "/")))
     });

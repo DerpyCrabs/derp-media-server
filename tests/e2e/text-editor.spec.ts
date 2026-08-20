@@ -768,10 +768,8 @@ test.describe('Text Editor', () => {
     ])
   })
 
-  test('shows autosave errors and restores an ordinary text draft after reload', async ({
-    page,
-  }) => {
-    const draft = 'recovered local draft after failed autosave\n'
+  test('shows autosave errors and retries on request', async ({ page }) => {
+    const draft = 'retry failed autosave\n'
     const pathEnc = encodeURIComponent(AUTOSAVE_PATH)
     await page.route('**/api/files/edit', (route) =>
       route.fulfill({
@@ -789,14 +787,40 @@ test.describe('Text Editor', () => {
     const retry = page.getByRole('button', { name: 'Save failed — retry' })
     await expect(retry).toBeVisible()
     await expect(retry).toHaveAttribute('title', /503|Unavailable/)
-
-    page.once('dialog', (dialog) => dialog.accept())
-    await page.reload()
-    await expect(textarea).toHaveValue(draft)
-
     await page.unroute('**/api/files/edit')
+    await retry.click()
+    await expect(retry).not.toBeVisible()
+    await expect.poll(() => readFile(page.request, AUTOSAVE_PATH)).toBe(draft)
     await textarea.fill(AUTOSAVE_SOURCE)
     await page.locator('button[title="Close"]').click()
     await expect(page).not.toHaveURL(/viewing=/)
+  })
+
+  test('rejects a stale text save hash without replacing the newer content', async ({
+    request,
+  }) => {
+    const loaded = await request.get(`/api/files/text?path=${encodeURIComponent(AUTOSAVE_PATH)}`)
+    expect(loaded.ok()).toBe(true)
+    const base = (await loaded.json()) as { content: string; version: string }
+    const remote = 'remote CAS winner\n'
+    const first = await request.post('/api/files/edit', {
+      data: {
+        path: AUTOSAVE_PATH,
+        content: remote,
+        expectedHash: base.version,
+      },
+    })
+    expect(first.ok()).toBe(true)
+
+    const stale = await request.post('/api/files/edit', {
+      data: {
+        path: AUTOSAVE_PATH,
+        content: 'stale loser\n',
+        expectedHash: base.version,
+      },
+    })
+
+    expect(stale.status()).toBe(409)
+    expect(await readFile(request, AUTOSAVE_PATH)).toBe(remote)
   })
 })
