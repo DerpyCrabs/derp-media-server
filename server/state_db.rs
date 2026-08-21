@@ -184,6 +184,26 @@ pub(crate) fn initialize(config: &Config) -> Result<(), String> {
             .map_err(|error| error.to_string())?;
         transaction.commit().map_err(|error| error.to_string())?;
     }
+    if version < 5 {
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| error.to_string())?;
+        transaction
+            .execute_batch(
+                "CREATE TABLE IF NOT EXISTS thumbnail_cache_ids (
+                   source_path TEXT PRIMARY KEY,
+                   cache_id TEXT NOT NULL UNIQUE
+                 );",
+            )
+            .map_err(|error| error.to_string())?;
+        transaction
+            .execute(
+                "INSERT INTO schema_migrations(version, applied_at) VALUES(5, ?1)",
+                [now_ms()],
+            )
+            .map_err(|error| error.to_string())?;
+        transaction.commit().map_err(|error| error.to_string())?;
+    }
     let _ = fs::remove_file(config.data_path.join("shares.json"));
     import_legacy(config, &mut connection)?;
     Ok(())
@@ -584,7 +604,7 @@ mod tests {
         let database = database(&config);
         let connection = connection(&database).unwrap();
         connection
-            .execute("DELETE FROM schema_migrations WHERE version=4", [])
+            .execute("DELETE FROM schema_migrations WHERE version>=4", [])
             .unwrap();
         connection
             .execute(

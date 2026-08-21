@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
 import { createWorkspaceE2EContext } from './workspace-e2e-context'
 import { getDragHandle, getWindowGroups } from './workspace-layout-helpers'
 
@@ -15,7 +15,27 @@ async function gotoWorkspaceWithSSE(page: Page, url: string) {
   await Promise.race([streamRequest, consoleConnected])
 }
 
+async function clearWorkspaceRegistry(request: APIRequestContext) {
+  const registry = await request.get('/api/workspaces').then((response) => response.json())
+  const records = registry.records ?? {}
+  const clientId = `registry-cleanup-${Date.now()}`
+  for (const [id, record] of Object.entries(records) as Array<[string, { snapshot: unknown }]>) {
+    const opened = await request.post('/api/workspaces/open', {
+      data: { id, clientId, takeover: true, snapshot: record.snapshot },
+    })
+    expect(opened.ok()).toBe(true)
+    const deleted = await request.post('/api/workspaces/delete', {
+      data: { id, clientId },
+    })
+    expect(deleted.ok()).toBe(true)
+  }
+}
+
 test.describe('workspace registry', () => {
+  test.beforeEach(async ({ request }) => {
+    await clearWorkspaceRegistry(request)
+  })
+
   test('creates, names, switches, and locks duplicate workspace views', async ({ browser }) => {
     const sharedContext = await createWorkspaceE2EContext(browser)
     const first = await sharedContext.newPage()

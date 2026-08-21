@@ -233,7 +233,10 @@ mod tests {
             stats: crate::stats_persistence::StatsRepository::from_config(&config),
             workspaces: crate::workspace_persistence::WorkspaceRepository::from_config(&config),
             reader_state_db: Mutex::new(()),
-            thumbnails: thumbnails::Thumbnailer::new(data_path.join("thumbnails")),
+            thumbnails: thumbnails::Thumbnailer::new(
+                data_path.join("thumbnails"),
+                state_db::AppDatabase::from_config(&config),
+            ),
             image_variants: image_variants::ImageVariants::new(
                 data_path.join("image-variants"),
                 config.image_optimization.clone(),

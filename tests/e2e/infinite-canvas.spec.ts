@@ -430,7 +430,14 @@ test('canvas navigation, file viewing, and taskbar pins share desktop semantics'
 
   await browser.getByText('readme.txt', { exact: true }).click()
   await expect(page.getByTestId('canvas-window')).toHaveCount(2)
-  await page.getByRole('slider', { name: 'Canvas zoom' }).fill('100')
+  await expect(
+    page
+      .getByTestId('canvas-window')
+      .filter({ has: page.getByRole('button', { name: 'Close readme.txt' }) }),
+  ).toBeVisible()
+  const zoom = page.getByRole('slider', { name: 'Canvas zoom' })
+  await zoom.fill('100')
+  await expect(zoom).toHaveValue('100')
   await expect(
     page.locator('[data-workspace-tab-id]').filter({ hasText: 'readme.txt' }),
   ).toBeVisible()

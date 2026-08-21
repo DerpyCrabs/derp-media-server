@@ -57,11 +57,9 @@ import type { ReaderPage } from './reader-position'
 import { PdfContent, PdfDocument } from './contentTypes/pdf/PdfContent'
 import { ImageContent } from './contentTypes/ImageContent'
 import { BookContent } from './contentTypes/book/BookContent'
-import { mapPdfOutline } from './contentTypes/pdf/pdf-outline';
-
+import { mapPdfOutline } from './contentTypes/pdf/pdf-outline'
 
 let activeReaderRoot: HTMLElement | null = null
-
 
 const basename = (path: string) => path.split(/[/\\]/).filter(Boolean).at(-1) ?? path
 const clampZoom = (value: number) => Math.max(0.35, Math.min(3, Number(value.toFixed(2))))
@@ -91,7 +89,6 @@ const loadImageSize = (source: string) =>
     image.onerror = () => resolve({ width: 900, height: 1200 })
     image.src = source
   })
-
 
 type ReaderDialogProps = {
   sourcePath?: string

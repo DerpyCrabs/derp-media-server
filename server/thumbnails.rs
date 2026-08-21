@@ -1,9 +1,11 @@
 use crate::{
     error::{AppError, AppResult},
     media,
+    state_db::AppDatabase,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use image::{DynamicImage, ImageDecoder, ImageEncoder, ImageFormat, codecs::jpeg::JpegEncoder};
+use rusqlite::{OptionalExtension, params};
 use std::{
     collections::{HashMap, VecDeque},
     path::{Path, PathBuf},
@@ -48,37 +50,45 @@ struct Completion {
 
 pub struct Thumbnailer {
     cache_dir: PathBuf,
+    database: AppDatabase,
     sender: mpsc::UnboundedSender<CommandMessage>,
     next_id: AtomicU64,
 }
 
 impl Thumbnailer {
-    pub fn new(cache_dir: PathBuf) -> Self {
+    pub fn new(cache_dir: PathBuf, database: AppDatabase) -> Self {
         let concurrency = std::thread::available_parallelism()
             .map(|cores| cores.get().div_ceil(2).clamp(1, 8))
             .unwrap_or(1);
-        Self::with_concurrency(cache_dir, concurrency)
+        Self::with_concurrency(cache_dir, database, concurrency)
     }
 
-    fn with_concurrency(cache_dir: PathBuf, concurrency: usize) -> Self {
+    fn with_concurrency(cache_dir: PathBuf, database: AppDatabase, concurrency: usize) -> Self {
         let (sender, receiver) = mpsc::unbounded_channel();
         tokio::spawn(run_queue(receiver, concurrency.max(1)));
         Self {
             cache_dir,
+            database,
             sender,
             next_id: AtomicU64::new(1),
         }
     }
 
     pub fn cached(&self, file: &Path, modified: std::time::SystemTime) -> bool {
-        self.cache_path(file, modified).exists()
+        self.existing_cache_path(file, modified)
+            .is_some_and(|path| path.exists())
+            || self.legacy_cache_path(file, modified).exists()
     }
 
-    fn cache_path(&self, file: &Path, modified: std::time::SystemTime) -> PathBuf {
-        let mtime = modified
+    fn modified_ms(modified: std::time::SystemTime) -> u128 {
+        modified
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
-            .as_millis();
+            .as_millis()
+    }
+
+    fn legacy_cache_path(&self, file: &Path, modified: std::time::SystemTime) -> PathBuf {
+        let mtime = Self::modified_ms(modified);
         let source = format!("{}-{mtime}", file.display());
         let key: String = STANDARD
             .encode(source)
@@ -88,11 +98,64 @@ impl Thumbnailer {
         self.cache_dir.join(format!("{key}.jpg"))
     }
 
+    fn existing_cache_id(&self, file: &Path) -> AppResult<Option<String>> {
+        self.database
+            .connection()?
+            .query_row(
+                "SELECT cache_id FROM thumbnail_cache_ids WHERE source_path=?1",
+                [file.to_string_lossy().as_ref()],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| AppError::internal(error.to_string()))
+    }
+
+    fn cache_id(&self, file: &Path) -> AppResult<String> {
+        if let Some(id) = self.existing_cache_id(file)? {
+            return Ok(id);
+        }
+        let id = uuid::Uuid::new_v4().simple().to_string();
+        let connection = self.database.connection()?;
+        connection
+            .execute(
+                "INSERT OR IGNORE INTO thumbnail_cache_ids(source_path, cache_id) VALUES(?1, ?2)",
+                params![file.to_string_lossy().as_ref(), id],
+            )
+            .map_err(|error| AppError::internal(error.to_string()))?;
+        connection
+            .query_row(
+                "SELECT cache_id FROM thumbnail_cache_ids WHERE source_path=?1",
+                [file.to_string_lossy().as_ref()],
+                |row| row.get(0),
+            )
+            .map_err(|error| AppError::internal(error.to_string()))
+    }
+
+    fn cache_path_for_id(&self, id: &str, modified: std::time::SystemTime) -> PathBuf {
+        self.cache_dir
+            .join(format!("{id}-{}.jpg", Self::modified_ms(modified)))
+    }
+
+    fn existing_cache_path(&self, file: &Path, modified: std::time::SystemTime) -> Option<PathBuf> {
+        self.existing_cache_id(file)
+            .ok()
+            .flatten()
+            .map(|id| self.cache_path_for_id(&id, modified))
+    }
+
+    fn cache_path(&self, file: &Path, modified: std::time::SystemTime) -> AppResult<PathBuf> {
+        Ok(self.cache_path_for_id(&self.cache_id(file)?, modified))
+    }
+
     pub async fn read(&self, file: &Path, modified: std::time::SystemTime) -> AppResult<Vec<u8>> {
         fs::create_dir_all(&self.cache_dir)
             .await
             .map_err(AppError::io)?;
-        let cache = self.cache_path(file, modified);
+        let cache = self.cache_path(file, modified)?;
+        let legacy = self.legacy_cache_path(file, modified);
+        if !cache.exists() && legacy.exists() {
+            let _ = fs::rename(&legacy, &cache).await;
+        }
         if cache.exists() {
             match fs::read(&cache).await {
                 Ok(data)
@@ -435,14 +498,32 @@ pub const PLACEHOLDER: &[u8] = &[
 static TEST_GENERATIONS: AtomicU64 = AtomicU64::new(0);
 #[cfg(test)]
 static TEST_DELAY_MS: AtomicU64 = AtomicU64::new(0);
+#[cfg(test)]
+static TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::Arc;
 
+    fn test_database(base: &Path) -> AppDatabase {
+        let database = AppDatabase::new(base.join("app.sqlite3"));
+        database
+            .connection()
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE thumbnail_cache_ids (
+                   source_path TEXT PRIMARY KEY,
+                   cache_id TEXT NOT NULL UNIQUE
+                 );",
+            )
+            .unwrap();
+        database
+    }
+
     #[tokio::test]
     async fn queue_deduplicates_and_drops_cancelled_pending_requests() {
+        let _lock = TEST_LOCK.lock().await;
         let base = std::env::temp_dir().join(format!("derp-rust-thumbs-{}", uuid::Uuid::new_v4()));
         let cache = base.join("cache");
         std::fs::create_dir_all(&base).unwrap();
@@ -461,7 +542,11 @@ mod tests {
         )
         .unwrap();
         let modified = std::time::SystemTime::now();
-        let thumbnails = Arc::new(Thumbnailer::with_concurrency(cache, 2));
+        let thumbnails = Arc::new(Thumbnailer::with_concurrency(
+            cache,
+            test_database(&base),
+            2,
+        ));
 
         TEST_GENERATIONS.store(0, Ordering::SeqCst);
         TEST_DELAY_MS.store(80, Ordering::SeqCst);
@@ -485,11 +570,15 @@ mod tests {
         let cached = thumbnails.read(&first_path, modified).await.unwrap();
         assert_eq!(
             cached,
-            std::fs::read(thumbnails.cache_path(&first_path, modified)).unwrap()
+            std::fs::read(thumbnails.cache_path(&first_path, modified).unwrap()).unwrap()
         );
         assert_eq!(TEST_GENERATIONS.load(Ordering::SeqCst), 0);
 
-        std::fs::write(thumbnails.cache_path(&first_path, modified), b"corrupt").unwrap();
+        std::fs::write(
+            thumbnails.cache_path(&first_path, modified).unwrap(),
+            b"corrupt",
+        )
+        .unwrap();
         TEST_GENERATIONS.store(0, Ordering::SeqCst);
         let repaired = thumbnails.read(&first_path, modified).await.unwrap();
         assert!(repaired.starts_with(&[0xff, 0xd8, 0xff]));
@@ -550,6 +639,55 @@ mod tests {
         TEST_DELAY_MS.store(0, Ordering::SeqCst);
         let svg = thumbnails.read(&svg_path, modified).await.unwrap();
         assert!(svg.starts_with(&[0xff, 0xd8, 0xff]));
+
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[tokio::test]
+    async fn long_source_paths_use_short_persistent_cache_ids() {
+        let _lock = TEST_LOCK.lock().await;
+        let base =
+            std::env::temp_dir().join(format!("derp-rust-thumbs-long-{}", uuid::Uuid::new_v4()));
+        let source_dir = base.join("a".repeat(120)).join("b".repeat(80));
+        std::fs::create_dir_all(&source_dir).unwrap();
+        let source = source_dir.join("thumbnail-source.png");
+        image::RgbImage::from_pixel(32, 32, image::Rgb([10, 20, 30]))
+            .save(&source)
+            .unwrap();
+        let database = test_database(&base);
+        let thumbnails = Thumbnailer::with_concurrency(base.join("cache"), database.clone(), 1);
+        let modified = std::time::SystemTime::now();
+
+        let generated = thumbnails.read(&source, modified).await.unwrap();
+        assert!(generated.starts_with(&[0xff, 0xd8, 0xff]));
+        let cache = thumbnails.cache_path(&source, modified).unwrap();
+        assert!(cache.exists());
+        assert!(cache.file_name().unwrap().len() < 100);
+        assert!(
+            thumbnails
+                .legacy_cache_path(&source, modified)
+                .file_name()
+                .unwrap()
+                .len()
+                > 255
+        );
+
+        let stored_id: String = database
+            .connection()
+            .unwrap()
+            .query_row(
+                "SELECT cache_id FROM thumbnail_cache_ids WHERE source_path=?1",
+                [source.to_string_lossy().as_ref()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(
+            cache
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with(&stored_id)
+        );
 
         std::fs::remove_dir_all(base).unwrap();
     }
