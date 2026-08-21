@@ -1,6 +1,6 @@
 import { For, Show, createEffect, createSignal, onSettled } from 'solid-js'
-import type { RenderedBook } from './book-sanitize'
-import type { BookAppearance } from './reader-state-client'
+import type { RenderedBook } from '../../book-sanitize'
+import type { BookAppearance } from '../../reader-state-client'
 
 function Chapter(props: {
   chapter: RenderedBook['chapters'][number]

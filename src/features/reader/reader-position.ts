@@ -38,3 +38,12 @@ export function normalizeReaderPosition(value: unknown): ReaderPosition {
         : 'define',
   }
 }
+
+export type ReaderPage = {
+  id: string
+  name: string
+  source: string
+  width: number
+  height: number
+  kind: 'pdf' | 'image'
+}

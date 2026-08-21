@@ -21,8 +21,6 @@ import X from 'lucide-solid/icons/x'
 import ZoomIn from 'lucide-solid/icons/zoom-in'
 import ZoomOut from 'lucide-solid/icons/zoom-out'
 import * as pdfjs from 'pdfjs-dist'
-import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
-import { TextLayerBuilder } from 'pdfjs-dist/web/pdf_viewer.mjs'
 import 'pdfjs-dist/web/pdf_viewer.css'
 import {
   For,
@@ -39,9 +37,8 @@ import { ReaderSelectionMenu, type ReaderSelection } from './ReaderSelectionMenu
 import { menuPositionForRect, visibleRectForRange } from './reader-geometry'
 import { closeReader } from './reader-url'
 import { buildMediaUrl } from '@/lib/media/build-media-url'
-import { parseBook } from './book-parser'
-import { renderBook, type RenderedBook } from './book-sanitize'
-import { BookContent } from './BookContent'
+import { parseBook } from './contentTypes/book/book-parser'
+import { renderBook, type RenderedBook } from './contentTypes/book/book-sanitize'
 import { ReaderOutline, type ReaderOutlineItem } from './ReaderOutline'
 import {
   DEFAULT_BOOK_APPEARANCE,
@@ -56,20 +53,15 @@ import {
   type ReaderPreferences,
   type ReaderSyncedState,
 } from './reader-state-client'
+import type { ReaderPage } from './reader-position'
+import { PdfContent, PdfDocument } from './contentTypes/pdf/PdfContent'
+import { ImageContent } from './contentTypes/ImageContent'
+import { BookContent } from './contentTypes/book/BookContent'
+import { mapPdfOutline } from './contentTypes/pdf/pdf-outline';
 
-pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
 let activeReaderRoot: HTMLElement | null = null
 
-type PdfDocument = pdfjs.PDFDocumentProxy
-type ReaderPage = {
-  id: string
-  name: string
-  source: string
-  width: number
-  height: number
-  kind: 'pdf' | 'image'
-}
 
 const basename = (path: string) => path.split(/[/\\]/).filter(Boolean).at(-1) ?? path
 const clampZoom = (value: number) => Math.max(0.35, Math.min(3, Number(value.toFixed(2))))
@@ -100,317 +92,6 @@ const loadImageSize = (source: string) =>
     image.src = source
   })
 
-function PdfPage(props: {
-  document: PdfDocument
-  page: ReaderPage
-  pageIndex: number
-  zoom: number
-  selectionMode: ReaderSelectionMode
-  onRegion: (selection: Omit<ReaderSelection, 'id'>) => void
-}) {
-  let host!: HTMLDivElement
-  let canvas!: HTMLCanvasElement
-  const [near, setNear] = createSignal(false)
-
-  createEffect(
-    () => ({ width: props.page.width, height: props.page.height, zoom: props.zoom }),
-    ({ width, height, zoom }) => {
-      if (!host || !canvas) return
-      host.style.width = `${width * zoom}px`
-      host.style.height = `${height * zoom}px`
-      canvas.style.width = `${width * zoom}px`
-      canvas.style.height = `${height * zoom}px`
-    },
-  )
-
-  onSettled(() => {
-    if (!host) return undefined
-    const observer = new IntersectionObserver(
-      ([entry]) => setNear(Boolean(entry?.isIntersecting)),
-      {
-        rootMargin: '3600px 0px',
-      },
-    )
-    observer.observe(host)
-    return () => observer.disconnect()
-  })
-
-  createEffect(
-    () => ({
-      document: props.document,
-      pageNumber: props.pageIndex + 1,
-      scale: props.zoom,
-      renderText: props.selectionMode === 'text',
-      near: near(),
-    }),
-    ({ document, pageNumber, scale, renderText, near: isNear }) => {
-      if (!isNear || !host || !canvas) return undefined
-      let cancelled = false
-      let renderTask: pdfjs.RenderTask | undefined
-      let textLayer: InstanceType<typeof TextLayerBuilder> | undefined
-      host.querySelectorAll(':scope > .textLayer').forEach((node) => node.remove())
-      void document.getPage(pageNumber).then(async (page) => {
-        if (cancelled) return
-        const viewport = page.getViewport({ scale })
-        const ratio = window.devicePixelRatio || 1
-        const context = canvas.getContext('2d')
-        if (!context) return
-        canvas.width = Math.floor(viewport.width * ratio)
-        canvas.height = Math.floor(viewport.height * ratio)
-        canvas.style.width = `${viewport.width}px`
-        canvas.style.height = `${viewport.height}px`
-        context.setTransform(ratio, 0, 0, ratio, 0, 0)
-        renderTask = page.render({ canvas, canvasContext: context, viewport })
-        try {
-          await renderTask.promise
-        } catch (error) {
-          if (cancelled || (error as { name?: string }).name === 'RenderingCancelledException')
-            return
-          throw error
-        }
-        if (cancelled || !renderText) return
-        textLayer = new TextLayerBuilder({
-          pdfPage: page,
-          onAppend: (layer: HTMLDivElement) => {
-            if (cancelled) return
-            layer.dataset.testid = 'pdf-text-layer'
-            host.append(layer)
-          },
-        })
-        await textLayer.render({ viewport, images: null! })
-      })
-      // eslint-disable-next-line solid/reactivity
-      return () => {
-        cancelled = true
-        renderTask?.cancel()
-        textLayer?.cancel()
-        host?.querySelectorAll(':scope > .textLayer').forEach((node) => node.remove())
-      }
-    },
-  )
-
-  return (
-    <div
-      ref={(element) => {
-        host = element
-      }}
-      class='relative box-content touch-none overflow-hidden rounded-lg border border-[#c6d0ca] bg-white shadow-[0_7px_20px_rgb(0_0_0/28%)]'
-      style={{
-        width: `${props.page.width * props.zoom}px`,
-        height: `${props.page.height * props.zoom}px`,
-        '--scale-factor': String(props.zoom),
-        '--user-unit': '1',
-        '--total-scale-factor': String(props.zoom),
-      }}
-    >
-      <canvas
-        ref={(element) => {
-          canvas = element
-        }}
-        data-testid='pdf-canvas'
-        class='block'
-      />
-      <RegionLayer
-        active={props.selectionMode === 'image'}
-        host={() => host}
-        source={() => canvas}
-        onRegion={props.onRegion}
-      />
-    </div>
-  )
-}
-
-function ImagePage(props: {
-  page: ReaderPage
-  zoom: number
-  selectionMode: ReaderSelectionMode
-  onRegion: (selection: Omit<ReaderSelection, 'id'>) => void
-}) {
-  let host!: HTMLDivElement
-  let image!: HTMLImageElement
-  return (
-    <div
-      ref={(element) => {
-        host = element
-      }}
-      class='relative touch-none overflow-hidden rounded-lg border border-[#c6d0ca] bg-[#fffdf8] shadow-[0_7px_20px_rgb(0_0_0/28%)]'
-      style={{ width: `${Math.min(props.page.width * props.zoom, 1400)}px` }}
-    >
-      <img
-        ref={(element) => {
-          image = element
-        }}
-        src={props.page.source}
-        alt={props.page.name}
-        class='block h-auto w-full select-none'
-        draggable={false}
-        data-testid='reader-image-page'
-      />
-      <RegionLayer
-        active={props.selectionMode === 'image'}
-        host={() => host}
-        source={() => image}
-        onRegion={props.onRegion}
-      />
-    </div>
-  )
-}
-
-function RegionLayer(props: {
-  active: boolean
-  host: () => HTMLElement
-  source: () => HTMLCanvasElement | HTMLImageElement
-  onRegion: (selection: Omit<ReaderSelection, 'id'>) => void
-}) {
-  const [drag, setDrag] = createSignal<{
-    pointerId: number
-    startX: number
-    startY: number
-    x: number
-    y: number
-  } | null>(null)
-  const [committedRegion, setCommittedRegion] = createSignal<{
-    x: number
-    y: number
-    width: number
-    height: number
-  } | null>(null)
-  const [sourceSizeVersion, setSourceSizeVersion] = createSignal(0)
-  const rect = createMemo(() => {
-    const value = drag()
-    if (!value) return null
-    return {
-      left: Math.min(value.startX, value.x),
-      top: Math.min(value.startY, value.y),
-      width: Math.abs(value.x - value.startX),
-      height: Math.abs(value.y - value.startY),
-    }
-  })
-  const point = (event: PointerEvent) => {
-    const bounds = props.host().getBoundingClientRect()
-    return {
-      x: Math.max(0, Math.min(bounds.width, event.clientX - bounds.left)),
-      y: Math.max(0, Math.min(bounds.height, event.clientY - bounds.top)),
-    }
-  }
-  const committedRect = createMemo(() => {
-    sourceSizeVersion()
-    const region = committedRegion()
-    if (!region) return null
-    const source = props.source()
-    const bounds = props.host().getBoundingClientRect()
-    const naturalWidth = source instanceof HTMLImageElement ? source.naturalWidth : source.width
-    const naturalHeight = source instanceof HTMLImageElement ? source.naturalHeight : source.height
-    if (!naturalWidth || !naturalHeight || !bounds.width || !bounds.height) return null
-    return {
-      left: (region.x / naturalWidth) * bounds.width,
-      top: (region.y / naturalHeight) * bounds.height,
-      width: (region.width / naturalWidth) * bounds.width,
-      height: (region.height / naturalHeight) * bounds.height,
-    }
-  })
-
-  createEffect(
-    () => props.active,
-    (active) => {
-      if (active) return
-      setDrag(null)
-      setCommittedRegion(null)
-    },
-  )
-
-  onSettled(() => {
-    const observer = new ResizeObserver(() => setSourceSizeVersion((version) => version + 1))
-    observer.observe(props.host())
-    observer.observe(props.source())
-    return () => observer.disconnect()
-  })
-
-  const finish = () => {
-    const visible = rect()
-    const hostRect = props.host().getBoundingClientRect()
-    setDrag(null)
-    if (!visible || visible.width < 12 || visible.height < 12) return
-    const source = props.source()
-    const naturalWidth = source instanceof HTMLImageElement ? source.naturalWidth : source.width
-    const naturalHeight = source instanceof HTMLImageElement ? source.naturalHeight : source.height
-    if (!naturalWidth || !naturalHeight) return
-    const sx = (visible.left / hostRect.width) * naturalWidth
-    const sy = (visible.top / hostRect.height) * naturalHeight
-    const sw = (visible.width / hostRect.width) * naturalWidth
-    const sh = (visible.height / hostRect.height) * naturalHeight
-    const region = { x: sx, y: sy, width: sw, height: sh }
-    setCommittedRegion(region)
-    const crop = window.document.createElement('canvas')
-    crop.width = Math.max(1, Math.round(sw))
-    crop.height = Math.max(1, Math.round(sh))
-    const context = crop.getContext('2d')
-    if (!context) return
-    context.drawImage(source, sx, sy, sw, sh, 0, 0, crop.width, crop.height)
-    props.onRegion({
-      kind: 'image',
-      text: '',
-      imageData: crop.toDataURL('image/png'),
-      anchor: props.host(),
-      region,
-      ...menuPositionForRect(
-        new DOMRect(
-          hostRect.left + visible.left,
-          hostRect.top + visible.top,
-          visible.width,
-          visible.height,
-        ),
-        props.host().closest<HTMLElement>('[data-testid="reader-viewport"]') ?? undefined,
-      ),
-    })
-  }
-  return (
-    <div
-      data-testid='region-layer'
-      class={['absolute inset-0', { 'cursor-crosshair': props.active }]}
-      style={{
-        'pointer-events': props.active ? 'auto' : 'none',
-        'z-index': props.active ? 5 : 2,
-      }}
-      onPointerDown={(event) => {
-        if (!props.active) return
-        const next = point(event)
-        event.currentTarget.setPointerCapture(event.pointerId)
-        setCommittedRegion(null)
-        setDrag({
-          pointerId: event.pointerId,
-          startX: next.x,
-          startY: next.y,
-          ...next,
-        })
-      }}
-      onPointerMove={(event) => {
-        if (!drag()) return
-        const next = point(event)
-        setDrag((value) => (value ? { ...value, ...next } : null))
-      }}
-      onPointerUp={(event) => {
-        if (drag()?.pointerId !== event.pointerId) return
-        event.currentTarget.releasePointerCapture(event.pointerId)
-        finish()
-      }}
-    >
-      <Show when={rect() ?? committedRect()}>
-        {(box) => (
-          <div
-            class='reader-region-box absolute border-2 border-[rgb(80_120_255/78%)] bg-[rgb(0_0_255/25%)]'
-            style={{
-              left: `${box().left}px`,
-              top: `${box().top}px`,
-              width: `${box().width}px`,
-              height: `${box().height}px`,
-            }}
-          />
-        )}
-      </Show>
-    </div>
-  )
-}
 
 type ReaderDialogProps = {
   sourcePath?: string
@@ -628,32 +309,6 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
     })
     return target
   }
-
-  const mapPdfOutline = async (
-    document: PdfDocument,
-    items: Awaited<ReturnType<PdfDocument['getOutline']>>,
-  ): Promise<ReaderOutlineItem[]> =>
-    Promise.all(
-      (items ?? []).map(async (item, index) => {
-        let target = 0
-        try {
-          const destination =
-            typeof item.dest === 'string' ? await document.getDestination(item.dest) : item.dest
-          if (destination?.[0])
-            target = await document.getPageIndex(
-              destination[0] as Parameters<PdfDocument['getPageIndex']>[0],
-            )
-        } catch {
-          target = 0
-        }
-        return {
-          id: `pdf-outline-${index}-${item.title}`,
-          label: item.title || `Page ${target + 1}`,
-          target,
-          children: await mapPdfOutline(document, item.items),
-        }
-      }),
-    )
 
   createEffect(
     () => ({ activePath: path(), kind: sourceKind() }),
@@ -1611,7 +1266,7 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
                           <Show
                             when={page.kind === 'pdf' && pdfDocument()}
                             fallback={
-                              <ImagePage
+                              <ImageContent
                                 page={page}
                                 zoom={zoom()}
                                 selectionMode={selectionMode()}
@@ -1620,7 +1275,7 @@ export function ReaderDialog(props: ReaderDialogProps = {}) {
                             }
                           >
                             {(document) => (
-                              <PdfPage
+                              <PdfContent
                                 document={document()}
                                 page={page}
                                 pageIndex={pageIndex()}
