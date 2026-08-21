@@ -1,8 +1,9 @@
 import { defineConfig, devices } from '@playwright/test'
 import path from 'path'
 
-process.env.NO_PROXY =
-  (process.env.NO_PROXY ? process.env.NO_PROXY + ',' : '') + 'localhost,127.0.0.1'
+const loopbackNoProxy = 'localhost,127.0.0.1,::1'
+process.env.NO_PROXY = (process.env.NO_PROXY ? process.env.NO_PROXY + ',' : '') + loopbackNoProxy
+process.env.no_proxy = (process.env.no_proxy ? process.env.no_proxy + ',' : '') + loopbackNoProxy
 
 const batchId = process.env.BATCH_ID
 const port = batchId ? 9200 + parseInt(batchId) : 5973
@@ -47,14 +48,15 @@ export default defineConfig({
   globalTeardown: './tests/fixtures/teardown.ts',
   webServer: {
     command: seededReleaseServer,
-    url: `http://localhost:${port}`,
+    url: `http://127.0.0.1:${port}`,
     reuseExistingServer: false,
     timeout: 120_000,
     env: {
       NODE_ENV: 'production',
       PORT: String(port),
       CONFIG_PATH: configFile,
-      NO_PROXY: 'localhost,127.0.0.1',
+      NO_PROXY: loopbackNoProxy,
+      no_proxy: loopbackNoProxy,
       // Bun's global transpiler cache can crash when all six batch servers compile concurrently.
       BUN_RUNTIME_TRANSPILER_CACHE_PATH: '0',
     },

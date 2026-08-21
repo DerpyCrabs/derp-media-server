@@ -168,6 +168,40 @@ test.describe('Video Player', () => {
       .toBeGreaterThan(0)
   })
 
+  test('playing video does not remount grid thumbnails', async ({ page }) => {
+    await page.goto(`/?dir=${VIDEO_DIR}&playing=${encodeURIComponent(VIDEO_FILE)}`)
+    await page.getByRole('button', { name: 'Display options' }).click()
+    await page.getByRole('menuitem', { name: 'Grid view' }).click()
+
+    const browser = page.locator('[data-testid=file-browser]')
+    const thumbnail = browser.locator('[data-testid=file-browser-video-thumbnail]').first()
+    await expect(thumbnail).toBeVisible()
+    await expect
+      .poll(() => thumbnail.evaluate((element: HTMLImageElement) => element.naturalWidth))
+      .toBeGreaterThan(0)
+
+    await thumbnail.evaluate((element) => {
+      ;(window as typeof window & { observedThumbnail?: Element }).observedThumbnail = element
+    })
+
+    await page.locator('video').evaluate(async (element: HTMLVideoElement) => {
+      for (let position = 1; position <= 5; position += 1) {
+        element.currentTime = position
+        element.dispatchEvent(new Event('timeupdate'))
+        await new Promise((resolve) => window.setTimeout(resolve, 100))
+      }
+    })
+    await expect
+      .poll(() =>
+        thumbnail.evaluate(
+          (element) =>
+            (window as typeof window & { observedThumbnail?: Element }).observedThumbnail ===
+            element,
+        ),
+      )
+      .toBe(true)
+  })
+
   test('maximize restores from minimized state', async ({ page }) => {
     await page.goto(`/?dir=${VIDEO_DIR}&playing=${encodeURIComponent(VIDEO_FILE)}`)
     await page.getByRole('button', { name: 'Minimize player' }).click()

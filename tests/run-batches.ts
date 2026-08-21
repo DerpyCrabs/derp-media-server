@@ -161,6 +161,8 @@ function runBatch(batch: (typeof BATCHES)[number]): Promise<{
         BATCH_ID: batch.id,
         TEST_SERVER_TARGET_DIR,
         PLAYWRIGHT_JSON_OUTPUT_NAME: jsonOutputPath,
+        NO_PROXY: 'localhost,127.0.0.1,::1',
+        no_proxy: 'localhost,127.0.0.1,::1',
       },
       stdio: ['ignore', 'pipe', 'pipe'],
       shell: true,

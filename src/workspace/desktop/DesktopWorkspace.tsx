@@ -33,7 +33,11 @@ import {
 } from './workspace-file-open-target-picker'
 import { For, Show, createEffect, createMemo, createSignal, onSettled, untrack } from 'solid-js'
 import { useStoreSync } from '@/lib/state/solid-store-sync'
-import type { FileIconContext } from '@/features/explorer/use-file-icon'
+import {
+  EMPTY_FILE_ICON_CONTEXT,
+  fileIconContextEquals,
+  type FileIconContext,
+} from '@/features/explorer/use-file-icon'
 import {
   createUrlSearchParamsMemo,
   navigateSearchParams,
@@ -1075,19 +1079,23 @@ export function DesktopWorkspace() {
     })
   })
 
-  const workspaceFileIconContext = (): FileIconContext => {
-    const state = playback()
-    const playing = state.currentItem?.locator ?? null
+  const workspaceFileIconContext = createMemo(
+    (): FileIconContext => {
+      const state = playback()
+      const playing = state.currentItem?.locator ?? null
 
-    return {
-      customIcons: server.settingsQuery.data?.customIcons ?? {},
-      knowledgeBases: server.settingsQuery.data?.knowledgeBases ?? [],
-      playingPath: playing,
-      currentFile: playing,
-      mediaPlayerIsPlaying: state.phase === 'playing',
-      mediaType: state.currentItem ? state.mode : null,
-    }
-  }
+      return {
+        customIcons: server.settingsQuery.data?.customIcons ?? EMPTY_FILE_ICON_CONTEXT.customIcons,
+        knowledgeBases:
+          server.settingsQuery.data?.knowledgeBases ?? EMPTY_FILE_ICON_CONTEXT.knowledgeBases,
+        playingPath: playing,
+        currentFile: playing,
+        mediaPlayerIsPlaying: state.phase === 'playing',
+        mediaType: state.currentItem ? state.mode : null,
+      }
+    },
+    { equals: fileIconContextEquals },
+  )
 
   const taskbarMouseHandled = { current: false }
   const orderedWindowGroupIds = createMemo(() => orderedAllGroupIds(workspace()?.windows ?? []))

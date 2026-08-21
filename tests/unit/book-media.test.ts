@@ -5,7 +5,7 @@ import {
   normalizeBookPath,
   resolveBookPath,
   splitBookHref,
-} from '../../src/features/reader/book-path'
+} from '../../src/features/reader/contentTypes/book/book-path'
 
 describe('book media', () => {
   test('detects EPUB, FB2, and compound FB2 ZIP paths', () => {

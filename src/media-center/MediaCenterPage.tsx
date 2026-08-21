@@ -22,7 +22,11 @@ import Eye from 'lucide-solid/icons/eye'
 import Ellipsis from 'lucide-solid/icons/ellipsis'
 import { createEffect, createMemo, createSignal, Show } from 'solid-js'
 import type { FileIconContext } from '@/features/explorer/use-file-icon'
-import { fileItemIcon, gridHeroIcon } from '@/features/explorer/use-file-icon'
+import {
+  fileIconContextEquals,
+  fileItemIcon,
+  GridHeroIcon,
+} from '@/features/explorer/use-file-icon'
 import { createUrlSearchParamsMemo, useBrowserHistory } from '@/lib/browser/browser-history'
 import type { BreadcrumbMenuTarget } from '@/features/explorer/BreadcrumbContextMenu'
 import { FileBrowserModalLayer } from '@/features/explorer/FileBrowserModalLayer'
@@ -143,17 +147,20 @@ export function MediaCenterPage() {
     return !!state.currentItem && state.mode === 'audio'
   })
 
-  const fileIconCtx = createMemo((): FileIconContext => {
-    const state = playbackSnapshot()
-    return {
-      customIcons: customIcons(),
-      knowledgeBases: knowledgeBases(),
-      playingPath: playingParam(),
-      currentFile: state.currentItem?.locator ?? null,
-      mediaPlayerIsPlaying: state.phase === 'playing',
-      mediaType: state.currentItem ? state.mode : null,
-    }
-  })
+  const fileIconCtx = createMemo(
+    (): FileIconContext => {
+      const state = playbackSnapshot()
+      return {
+        customIcons: customIcons(),
+        knowledgeBases: knowledgeBases(),
+        playingPath: playingParam(),
+        currentFile: state.currentItem?.locator ?? null,
+        mediaPlayerIsPlaying: state.phase === 'playing',
+        mediaType: state.currentItem ? state.mode : null,
+      }
+    },
+    { equals: fileIconContextEquals },
+  )
 
   function filesInActiveSortOrder(): FileItem[] {
     return sortFilesForPath(
@@ -624,7 +631,7 @@ export function MediaCenterPage() {
     onFilePointerEnter: (file) => prefetchFolderContentsOnHover(fileBrowserPrefetchCtx(), file),
     fileGridClass: (file) => (playingParam() === file.path ? 'bg-primary/10' : ''),
     fileRowClass: (file) => (playingParam() === file.path ? 'bg-primary/10' : ''),
-    renderGridIcon: (file) => gridHeroIcon(file, fileIconCtx()),
+    renderGridIcon: (file) => <GridHeroIcon file={file} context={fileIconCtx} />,
     renderGridOverlay: (file) => {
       const isFav = () => favoriteSet().has(file.path)
       return (

@@ -18,7 +18,7 @@ import Pause from 'lucide-solid/icons/pause'
 import Play from 'lucide-solid/icons/play'
 import Star from 'lucide-solid/icons/star'
 import Video from 'lucide-solid/icons/video'
-import { Show, createEffect, createSignal, onSettled } from 'solid-js'
+import { Show, createEffect, createMemo, createSignal, onSettled, type Accessor } from 'solid-js'
 import type { JSX } from '@solidjs/web'
 import type { TaskbarPin } from '@/lib/models/taskbar-pins'
 import { virtualAppearanceForPath, type VirtualAppearance } from './virtual-directory-appearance'
@@ -43,6 +43,17 @@ export const EMPTY_FILE_ICON_CONTEXT: FileIconContext = {
   currentFile: null,
   mediaPlayerIsPlaying: false,
   mediaType: null,
+}
+
+export function fileIconContextEquals(a: FileIconContext, b: FileIconContext): boolean {
+  return (
+    a.customIcons === b.customIcons &&
+    a.knowledgeBases === b.knowledgeBases &&
+    a.playingPath === b.playingPath &&
+    a.currentFile === b.currentFile &&
+    a.mediaPlayerIsPlaying === b.mediaPlayerIsPlaying &&
+    a.mediaType === b.mediaType
+  )
 }
 
 function norm(p: string) {
@@ -373,6 +384,46 @@ export function gridHeroIcon(
   }
 
   return gridHeroIconScaleWrap(fileItemIcon(file, ctx))
+}
+
+export function GridHeroIcon(props: {
+  file: FileItem
+  context: Accessor<FileIconContext>
+  appearance?: Accessor<VirtualAppearance | undefined>
+}): JSX.Element {
+  const isMediaThumbnail = createMemo(
+    () =>
+      (props.file.type === MediaType.VIDEO || props.file.type === MediaType.IMAGE) &&
+      !props.file.isDirectory &&
+      !props.file.isVirtual,
+  )
+  const icon = createMemo(() => gridHeroIcon(props.file, props.context(), props.appearance?.()))
+  return (
+    <Show when={isMediaThumbnail()} fallback={icon()}>
+      <MediaGridHeroIcon file={props.file} context={props.context} />
+    </Show>
+  )
+}
+
+function MediaGridHeroIcon(props: {
+  file: FileItem
+  context: Accessor<FileIconContext>
+}): JSX.Element {
+  const customIcon = createMemo<JSX.Element | null>(() => {
+    const fp = norm(props.file.path)
+    const iconName = props.context().customIcons[props.file.path] ?? props.context().customIcons[fp]
+    return iconName && getSolidIconComponent(iconName)
+      ? gridHeroIconScaleWrap(fileItemIcon(props.file, props.context()))
+      : null
+  })
+  return (
+    <Show
+      when={customIcon()}
+      fallback={<GridMediaThumbnail file={props.file} ctx={EMPTY_FILE_ICON_CONTEXT} />}
+    >
+      {(icon) => icon()}
+    </Show>
+  )
 }
 
 export function windowIcon(

@@ -45,7 +45,7 @@ import { useFileRowContextMenu } from '@/features/explorer/use-file-row-context-
 import { useDeferredLoading } from '@/lib/ui/use-deferred-loading'
 import { useStoreSync } from '@/lib/state/solid-store-sync'
 import { useViewStats } from '@/features/explorer/use-view-stats'
-import { fileItemIcon, gridHeroIcon } from '@/features/explorer/use-file-icon'
+import { fileItemIcon, GridHeroIcon } from '@/features/explorer/use-file-icon'
 import { browserPaneParentDir } from './browser-pane-paths'
 import type { BrowserWindowHostProps } from './browser-window-host-types'
 
@@ -847,12 +847,13 @@ export function BrowserWindowHost(props: BrowserWindowHostProps) {
         isVirtualFolder: isVirtualFolder(),
       }),
     onFilePointerEnter: prefetchFileRowHover,
-    renderGridIcon: (file) =>
-      gridHeroIcon(
-        file,
-        props.fileIconContext(),
-        virtualEntry(file)?.appearance ?? virtualAppearanceForPath(file.path),
-      ),
+    renderGridIcon: (file) => (
+      <GridHeroIcon
+        file={file}
+        context={props.fileIconContext}
+        appearance={() => virtualEntry(file)?.appearance ?? virtualAppearanceForPath(file.path)}
+      />
+    ),
     renderGridDetails: (file) => (
       <div class='flex flex-col gap-1 p-3'>
         <p class='truncate text-sm font-medium' title={file.name}>

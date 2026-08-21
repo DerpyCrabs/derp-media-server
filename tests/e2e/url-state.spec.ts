@@ -13,7 +13,8 @@ test.describe('URL State – Main Page', () => {
   })
 
   test('navigating to a folder preserves playing param', async ({ page }) => {
-    await page.goto(`/?playing=${encodeURIComponent(AUDIO_FILE)}`)
+    await page.goto(`/?dir=Documents&playing=${encodeURIComponent(AUDIO_FILE)}`)
+    await page.getByRole('button', { name: 'Home' }).click()
     await page.locator('table').getByText('Documents', { exact: true }).click()
     await expect(page).toHaveURL(/dir=Documents/)
     await expect(page).toHaveURL(/playing=/)
