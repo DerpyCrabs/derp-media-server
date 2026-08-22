@@ -13,7 +13,7 @@ import {
   reconcileLayoutBoundsFromSnapZones,
   WORKSPACE_WINDOW_MIN_VISIBLE_PX,
 } from './workspace-geometry'
-import { deletedHermesSessionIds } from '@/features/hermes/hermes-session-store'
+import { HermesSessions } from '@/features/hermes/hermes-session-store'
 import {
   CANVAS_MIN_WINDOW_HEIGHT,
   CANVAS_MIN_WINDOW_WIDTH,
@@ -89,7 +89,7 @@ export function persistentWorkspaceWindows(windows: WindowDefinition[]) {
       (window) =>
         window.type !== 'hermes' ||
         !window.hermes?.sessionId ||
-        !deletedHermesSessionIds.has(window.hermes.sessionId),
+        !HermesSessions.deletedIds.has(window.hermes.sessionId),
     )
     .map((window) => {
       if (window.type !== 'hermes') return window

@@ -62,7 +62,7 @@ import { TaskbarGroupRow } from './DesktopWorkspaceTaskbarRows'
 import { defaultPersistedState } from '../shared/workspace-page-persistence'
 import { fileSearchResultToFileItem, type FileSearchResult } from '@/lib/files/file-search'
 import { isHermesOpenTarget, type HermesOpenTarget } from '@/features/hermes/hermes-open-target'
-import { canCloseHermesWindow, discardHermesDraft } from '@/features/hermes/hermes-session-store'
+import { HermesSessions } from '@/features/hermes/hermes-session-store'
 import { createFilesystemPlaybackItem, playbackPathMatches } from '@/features/playback/items'
 import { usePlaybackSession, usePlaybackSnapshot } from '@/features/playback/PlaybackProvider'
 import { rollbackWorkspaceTransferGeometry } from '@/workspace/model/workspace-transfer'
@@ -73,6 +73,7 @@ import { startPointerGesture } from '@/lib/ui/start-pointer-gesture'
 import { WorkspaceDocumentCommands } from '@/workspace/model/workspace-document-commands'
 import { planTaskbarPinAdd } from '@/workspace/model/workspace-taskbar-pin'
 import {
+  appendWorkspaceWindow,
   planWorkspaceWindowOpen,
   workspaceWindowId,
   type WorkspaceWindowOpenIntent,
@@ -114,8 +115,8 @@ export function DesktopWorkspace() {
   const workspaceRegistry = useWorkspaceSession({
     savingBlocked: () => activePointerGestures() > 0 || (crossWorkspaceTransfer?.active() ?? false),
   })
-  const workspace = workspaceRegistry.document
-  const setWorkspace = workspaceRegistry.update
+  const workspace = workspaceRegistry.document.value
+  const setWorkspace = workspaceRegistry.document.update
   const lifecycle = createWorkspaceLifecycleCommands({
     session: workspaceRegistry,
     activeId: workspaceId,
@@ -123,11 +124,11 @@ export function DesktopWorkspace() {
   })
 
   function ifEditable(action: () => void) {
-    if (workspaceRegistry.editable()) action()
+    if (workspaceRegistry.state.editable()) action()
   }
 
   const setEditableWorkspace: typeof setWorkspace = (value) => {
-    if (workspaceRegistry.editable()) setWorkspace(value)
+    if (workspaceRegistry.state.editable()) setWorkspace(value)
   }
   const [layoutPicker, setLayoutPicker] = createSignal<{
     windowId: string
@@ -317,7 +318,7 @@ export function DesktopWorkspace() {
     await settleGesturesBeforeNavigation()
     const opening = !workspacePanelOpen()
     setWorkspacePanelOpen(opening)
-    if (opening) await workspaceRegistry.refresh()
+    if (opening) await workspaceRegistry.catalog.refresh()
   }
 
   createEffect(
@@ -361,7 +362,7 @@ export function DesktopWorkspace() {
     const target = initial.windows.find((window) => window.id === windowId)
     const groupId = target ? groupIdForWindow(target) : windowId
     const candidates = initial.windows.filter((window) => groupIdForWindow(window) === groupId)
-    if (!(await confirmWorkspaceWindowsSequentially(candidates, canCloseHermesWindow))) return
+    if (!(await confirmWorkspaceWindowsSequentially(candidates, HermesSessions.canClose))) return
     const removed: typeof candidates = []
     setWorkspace((current) => {
       if (!current) return current
@@ -369,7 +370,7 @@ export function DesktopWorkspace() {
       removed.push(...result.removed)
       return result.state
     })
-    for (const window of removed) discardHermesDraft(window.hermes)
+    for (const window of removed) HermesSessions.discardDraft(window.hermes)
   }
 
   function activateTab(groupId: string, tabId: string) {
@@ -382,7 +383,7 @@ export function DesktopWorkspace() {
   async function closeTab(tabId: string, opts?: { ignoreTabPinForListenOnlyDismiss?: boolean }) {
     const current = workspace()
     const currentTab = current?.windows.find((window) => window.id === tabId)
-    if (!currentTab || !(await canCloseHermesWindow(currentTab.hermes))) return
+    if (!currentTab || !(await HermesSessions.canClose(currentTab.hermes))) return
     const removed: WorkspaceWindowDefinition[] = []
     setWorkspace((prev) => {
       if (!prev) return prev
@@ -392,7 +393,7 @@ export function DesktopWorkspace() {
       removed.push(...result.removed)
       return result.state
     })
-    for (const window of removed) discardHermesDraft(window.hermes)
+    for (const window of removed) HermesSessions.discardDraft(window.hermes)
   }
 
   function toggleTabPinned(tabId: string) {
@@ -787,15 +788,7 @@ export function DesktopWorkspace() {
           : current
       }
       const definition = plan.definition
-      const added = {
-        ...current,
-        windows: [...current.windows, definition],
-        nextWindowId: current.nextWindowId + 1,
-        activeWindowId: definition.id,
-        activeTabMap: definition.tabGroupId
-          ? { ...current.activeTabMap, [definition.tabGroupId]: definition.id }
-          : current.activeTabMap,
-      }
+      const added = appendWorkspaceWindow(current, definition)
       return definition.tabGroupId
         ? activateDesktopTabState(added, definition.tabGroupId, definition.id)
         : added
@@ -945,7 +938,7 @@ export function DesktopWorkspace() {
       ),
     )
     const onMove = (ev: PointerEvent) => {
-      if (!workspaceRegistry.editable()) return
+      if (!workspaceRegistry.state.editable()) return
       const r = row.getBoundingClientRect()
       const wpx = Math.max(1, r.width)
       const fraction = (ev.clientX - r.left) / wpx
@@ -1207,7 +1200,7 @@ export function DesktopWorkspace() {
   function commitFileOpenTargetPick(targetWindowId: string) {
     const pick = fileOpenTargetPick()
     if (!pick) return
-    if (!workspaceRegistry.editable()) {
+    if (!workspaceRegistry.state.editable()) {
       cancelFileOpenTargetPick()
       return
     }
@@ -1286,20 +1279,20 @@ export function DesktopWorkspace() {
   async function leaveForWorkspace(id: string, mode: 'push' | 'replace' = 'push') {
     await settleGesturesBeforeNavigation()
     setWorkspacePanelOpen(false)
-    await workspaceRegistry.transition(
+    await workspaceRegistry.lifecycle.transition(
       () => navigateSearchParams({ ws: id, dir: null, preset: null }, mode),
       async () => {
         const { currentId, currentRecord, empty } = untrack(() => {
           const currentId = workspaceId()
           return {
             currentId,
-            currentRecord: workspaceRegistry.registry().records[currentId],
+            currentRecord: workspaceRegistry.catalog.value().records[currentId],
             empty: (workspace()?.windows.length ?? 0) === 0,
           }
         })
         if (!currentRecord?.name && empty) {
           try {
-            await workspaceRegistry.deleteWorkspace(currentId)
+            await workspaceRegistry.catalog.delete(currentId)
           } catch {
             // Leaving remains available after a failed delete request.
           }
@@ -1310,9 +1303,9 @@ export function DesktopWorkspace() {
 
   return (
     <div
-      data-workspace-opened={workspaceRegistry.opened() ? '' : undefined}
+      data-workspace-opened={workspaceRegistry.state.opened() ? '' : undefined}
       class={`workspace-layout fixed inset-0 flex flex-col overflow-hidden bg-background select-none ${
-        workspaceRegistry.opened() ? 'pointer-events-auto' : 'pointer-events-none'
+        workspaceRegistry.state.opened() ? 'pointer-events-auto' : 'pointer-events-none'
       } ${
         server.settingsQuery.data?.workspaceTransition !== 'instant'
           ? 'transition-opacity duration-150'
@@ -1323,92 +1316,86 @@ export function DesktopWorkspace() {
         class='relative min-h-0 flex-1 overflow-hidden'
         ref={(el) => snap.bindWorkspaceAreaRoot(el)}
       >
-        <Show when={!workspaceRegistry.editable()}>
+        <Show when={!workspaceRegistry.state.editable()}>
           <div class='absolute left-1/2 top-2 z-[100002] -translate-x-1/2 rounded-md border border-border bg-popover px-3 py-1.5 text-xs shadow-lg'>
             Read only — workspace is open elsewhere
           </div>
         </Show>
         <DesktopWorkspaceCanvas
-          hasWorkspaceWindows={hasWorkspaceWindows}
-          onOpenBrowser={editableOpenBrowser}
-          bindSnapPreview={(el) => snap.bindSnapPreview(el)}
-          workspaceAreaNode={snap.workspaceAreaNode}
-          getWorkspaceAreaElement={snap.getWorkspaceAreaElement}
-          snapAssistShown={snap.snapAssistShown}
-          engageSnapAssistFromHandle={snap.engageSnapAssistFromHandle}
-          disengageSnapAssistFromPanel={snap.disengageSnapAssistFromPanel}
-          assistHoverPick={snap.assistHoverPick}
-          bindSnapAssistRoot={(el) => snap.bindSnapAssistRoot(el)}
-          renderedGroupIds={orderedWindowGroupIds}
-          workspace={workspace}
-          setWorkspace={setEditableWorkspace}
-          mergeTargetPreview={snap.mergeTargetPreview}
-          dragSnapWindowId={snap.dragSnapWindowId}
-          layoutPicker={layoutPicker}
-          closeLayoutPicker={() => setLayoutPicker(null)}
-          onTilingPick={editableHandleWorkspaceTilingPick}
-          setTilingPickerHoverPreview={snap.setTilingPickerHoverPreview}
-          openLayoutPicker={editableOpenLayoutPicker}
-          editableFolders={server.editableFolders}
-          knowledgeBases={() => server.settingsQuery.data?.knowledgeBases ?? []}
-          workspaceFileIconContext={workspaceFileIconContext}
-          focusWindow={editableFocusWindow}
-          closeWindow={editableCloseWindow}
-          setWindowMinimized={editableSetWindowMinimized}
-          toggleFullscreenWindow={editableToggleFullscreen}
-          restoreDrag={(id, x, y) =>
-            workspaceRegistry.editable() ? snap.restoreDrag(id, x, y) : undefined
-          }
-          handleDragPointerMove={(windowId, clientX, clientY) => {
-            if (!workspaceRegistry.editable()) return
-            snap.handleDragPointerMove(windowId, clientX, clientY)
-            if (!crossWorkspaceTransfer!.active()) crossWorkspaceTransfer!.begin([windowId])
-            if (workspacePanelOpen() && clientX > 300) {
-              clearCrossWorkspaceHover()
-              setWorkspacePanelOpen(false)
-              crossWorkspaceTransfer!.finishLocal()
-              return
-            }
-            const pointerElement = document.elementFromPoint(clientX, clientY)
-            const railTarget =
-              pointerElement?.closest<HTMLElement>('[data-workspace-id]')?.dataset.workspaceId
-            if (crossWorkspaceTransfer!.active()) {
-              if (railTarget) beginCrossWorkspaceHover(railTarget)
-              else if (!pointerElement?.closest('[data-testid="workspace-switcher"]'))
-                beginCrossWorkspaceHover('')
-            }
-            if (clientX <= 12 && !workspacePanelOpen()) {
-              setWorkspacePanelOpen(true)
-              void workspaceRegistry.refresh()
-            }
+          empty={{ hasWindows: hasWorkspaceWindows, openBrowser: editableOpenBrowser }}
+          document={{
+            state: workspace,
+            set: setEditableWorkspace,
+            groupIds: orderedWindowGroupIds,
           }}
-          onDragPointerEnd={(windowId, bounds, clientX, clientY) => {
-            if (!workspaceRegistry.editable()) return
-            const dropTarget = document
-              .elementFromPoint(clientX, clientY)
-              ?.closest<HTMLElement>('[data-workspace-id]')?.dataset.workspaceId
-            snap.onDragPointerEnd(windowId, bounds, clientX, clientY)
-            if (dropTarget && dropTarget !== workspaceId()) {
-              void crossWorkspaceTransfer!.drop(dropTarget)
-            } else {
-              crossWorkspaceTransfer!.finishLocal()
-              setTimeout(() => setWorkspacePanelOpen(false), 100)
-            }
+          content={{
+            editableFolders: server.editableFolders,
+            knowledgeBases: () => server.settingsQuery.data?.knowledgeBases ?? [],
+            fileIconContext: workspaceFileIconContext,
+            windowActions,
           }}
-          updateWindowBounds={(id, bounds) =>
-            workspaceRegistry.editable() && snap.updateWindowBounds(id, bounds)
-          }
-          resizeSnappedWindowBounds={(id, bounds, edges) =>
-            workspaceRegistry.editable() && snap.resizeSnappedWindowBounds(id, bounds, edges)
-          }
-          beginPointerGesture={beginPointerGesture}
-          activateTab={editableActivateTab}
-          closeTab={editableCloseTab}
-          toggleTabPinned={editableToggleTabPinned}
-          handleTabPullStart={editableHandleTabPullStart}
-          dropFileToTabBar={editableDropFileToTabBar}
-          startSplitPaneDrag={editableStartSplitPaneDrag}
-          windowActions={windowActions}
+          windows={{
+            focus: editableFocusWindow,
+            close: editableCloseWindow,
+            minimize: editableSetWindowMinimized,
+            toggleFullscreen: editableToggleFullscreen,
+            beginPointerGesture,
+          }}
+          tabs={{
+            activate: editableActivateTab,
+            close: editableCloseTab,
+            togglePinned: editableToggleTabPinned,
+            pull: editableHandleTabPullStart,
+            dropFile: editableDropFileToTabBar,
+            startSplitDrag: editableStartSplitPaneDrag,
+          }}
+          picker={{
+            state: layoutPicker,
+            close: () => setLayoutPicker(null),
+            pick: editableHandleWorkspaceTilingPick,
+            setHover: snap.setTilingPickerHoverPreview,
+            open: editableOpenLayoutPicker,
+          }}
+          snap={{
+            model: snap,
+            canMutate: workspaceRegistry.state.editable,
+            moveDrag: (windowId, clientX, clientY) => {
+              if (!workspaceRegistry.state.editable()) return
+              snap.handleDragPointerMove(windowId, clientX, clientY)
+              if (!crossWorkspaceTransfer!.active()) crossWorkspaceTransfer!.begin([windowId])
+              if (workspacePanelOpen() && clientX > 300) {
+                clearCrossWorkspaceHover()
+                setWorkspacePanelOpen(false)
+                crossWorkspaceTransfer!.finishLocal()
+                return
+              }
+              const pointerElement = document.elementFromPoint(clientX, clientY)
+              const railTarget =
+                pointerElement?.closest<HTMLElement>('[data-workspace-id]')?.dataset.workspaceId
+              if (crossWorkspaceTransfer!.active()) {
+                if (railTarget) beginCrossWorkspaceHover(railTarget)
+                else if (!pointerElement?.closest('[data-testid="workspace-switcher"]'))
+                  beginCrossWorkspaceHover('')
+              }
+              if (clientX <= 12 && !workspacePanelOpen()) {
+                setWorkspacePanelOpen(true)
+                void workspaceRegistry.catalog.refresh()
+              }
+            },
+            endDrag: (windowId, bounds, clientX, clientY) => {
+              if (!workspaceRegistry.state.editable()) return
+              const dropTarget = document
+                .elementFromPoint(clientX, clientY)
+                ?.closest<HTMLElement>('[data-workspace-id]')?.dataset.workspaceId
+              snap.onDragPointerEnd(windowId, bounds, clientX, clientY)
+              if (dropTarget && dropTarget !== workspaceId()) {
+                void crossWorkspaceTransfer!.drop(dropTarget)
+              } else {
+                crossWorkspaceTransfer!.finishLocal()
+                setTimeout(() => setWorkspacePanelOpen(false), 100)
+              }
+            },
+          }}
         />
         <Show when={fileOpenTargetPick()}>
           <Show when={fileOpenPickHoverId()} keyed fallback={null}>
@@ -1431,32 +1418,36 @@ export function DesktopWorkspace() {
         </Show>
       </div>
       <DesktopWorkspaceTaskbar
-        onOpenBrowser={editableOpenBrowser}
-        onOpenWorkspaces={() => void toggleWorkspacePanelFromTaskbar()}
-        onWorkspaceTransitionChange={(value) => void server.setWorkspaceTransition(value)}
-        onOpenSearchResult={editableOpenSearchResult}
-        hasAnyTaskbarItems={hasAnyTaskbarItems}
-        pinnedItems={pinnedItems}
-        taskbarGroupIds={orderedWindowGroupIds}
-        taskbarWindowRows={taskbarWindowRows}
-        browserSource={browserSource}
-        workspace={workspace}
-        settingsData={() => server.settingsQuery.data}
-        workspaceFileIconContext={workspaceFileIconContext}
-        selectPinned={editableSelectPinned}
-        removePinnedItem={editableRemovePinnedItem}
-        pinMenu={pinMenu}
-        setPinMenu={setPinMenu}
-        focusWindow={editableFocusWindow}
-        stopWorkspacePlaybackFromTaskbar={stopWorkspacePlaybackFromTaskbar}
-        requestPlay={editableRequestPlay}
-        suppressTaskbarAudioChrome={suppressWorkspaceTaskbarAudioForVideoViewer}
+        commands={{
+          openBrowser: editableOpenBrowser,
+          openWorkspaces: () => void toggleWorkspacePanelFromTaskbar(),
+          changeTransition: (value) => void server.setWorkspaceTransition(value),
+          openSearchResult: editableOpenSearchResult,
+        }}
+        items={{
+          hasAny: hasAnyTaskbarItems,
+          pinned: pinnedItems,
+          groupIds: orderedWindowGroupIds,
+          windowRows: taskbarWindowRows,
+          settings: () => server.settingsQuery.data,
+          fileIconContext: workspaceFileIconContext,
+          selectPinned: editableSelectPinned,
+        }}
+        pinMenu={{ state: pinMenu, set: setPinMenu, remove: editableRemovePinnedItem }}
+        playback={{
+          browserSource,
+          workspace,
+          focusWindow: editableFocusWindow,
+          stop: stopWorkspacePlaybackFromTaskbar,
+          request: editableRequestPlay,
+          suppressAudioChrome: suppressWorkspaceTaskbarAudioForVideoViewer,
+        }}
       />
       <WorkspaceSwitcher
         open={workspacePanelOpen()}
         activeId={workspaceId()}
-        registry={workspaceRegistry.registry()}
-        editable={workspaceRegistry.editable()}
+        registry={workspaceRegistry.catalog.value()}
+        editable={workspaceRegistry.state.editable()}
         onToggle={() => setWorkspacePanelOpen((open) => !open)}
         onDismiss={dismissWorkspacePanel}
         onSelect={(id) => {
@@ -1468,19 +1459,19 @@ export function DesktopWorkspace() {
         }}
         onCreate={() => {
           const id = crypto.randomUUID()
-          void workspaceRegistry.transition(() => {
+          void workspaceRegistry.lifecycle.transition(() => {
             setWorkspacePanelOpen(false)
             navigateSearchParams({ ws: id, dir: null, preset: null }, 'push')
           })
         }}
-        onTakeControl={() => void workspaceRegistry.takeControl()}
-        onRename={(id, name) => workspaceRegistry.updateMetadataFor(id, { name })}
+        onTakeControl={() => void workspaceRegistry.lifecycle.takeControl()}
+        onRename={(id, name) => workspaceRegistry.catalog.updateMetadataFor(id, { name })}
         onIcon={(id, icon, iconColor) =>
-          workspaceRegistry.updateMetadataFor(id, { icon, iconColor })
+          workspaceRegistry.catalog.updateMetadataFor(id, { icon, iconColor })
         }
         onDelete={lifecycle.deleteWorkspace}
         onConvert={lifecycle.convertWorkspace}
-        onReorder={(order) => workspaceRegistry.reorder(order)}
+        onReorder={(order) => workspaceRegistry.catalog.reorder(order)}
         draggingWindow={crossWorkspaceTransfer!.active()}
         onDragHover={beginCrossWorkspaceHover}
         hoverTarget={crossWorkspaceTransfer!.hoverTarget()}

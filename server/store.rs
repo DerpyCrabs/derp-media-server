@@ -1,5 +1,7 @@
 use crate::{config::Config, error::AppResult, state_db};
 use rusqlite::Transaction;
+use serde::{Serialize, de::DeserializeOwned};
+#[cfg(test)]
 use serde_json::Value;
 #[cfg(test)]
 use std::path::PathBuf;
@@ -26,33 +28,64 @@ impl DocumentStore {
         }
     }
 
-    pub(crate) fn read(&self, kind: &str, default: Value) -> AppResult<Value> {
-        self.database.document(kind, &self.library_key, default)
+    pub(crate) fn read<Document>(&self, kind: &str, default: Document) -> AppResult<Document>
+    where
+        Document: Serialize + DeserializeOwned,
+    {
+        let default = serde_json::to_value(default)
+            .map_err(|error| crate::error::AppError::internal(error.to_string()))?;
+        let value = self.database.document(kind, &self.library_key, default)?;
+        serde_json::from_value(value)
+            .map_err(|error| crate::error::AppError::internal(error.to_string()))
     }
 
-    pub(crate) fn update<T>(
+    pub(crate) fn update<Document, Result>(
         &self,
         kind: &str,
-        default: Value,
-        update: impl FnOnce(&mut Value) -> AppResult<T>,
-    ) -> AppResult<T> {
+        default: Document,
+        update: impl FnOnce(&mut Document) -> AppResult<Result>,
+    ) -> AppResult<Result>
+    where
+        Document: Serialize + DeserializeOwned,
+    {
+        let default = serde_json::to_value(default)
+            .map_err(|error| crate::error::AppError::internal(error.to_string()))?;
         self.database
-            .update(kind, &self.library_key, default, update)
+            .update(kind, &self.library_key, default, |value| {
+                let mut document = serde_json::from_value(value.take())
+                    .map_err(|error| crate::error::AppError::internal(error.to_string()))?;
+                let result = update(&mut document)?;
+                *value = serde_json::to_value(document)
+                    .map_err(|error| crate::error::AppError::internal(error.to_string()))?;
+                Ok(result)
+            })
     }
 
-    pub(crate) fn update_in_transaction<T>(
+    pub(crate) fn update_in_transaction<Document, Result>(
         &self,
         transaction: &Transaction<'_>,
         kind: &str,
-        default: Value,
-        update: impl FnOnce(&mut Value) -> AppResult<T>,
-    ) -> AppResult<T> {
+        default: Document,
+        update: impl FnOnce(&mut Document) -> AppResult<Result>,
+    ) -> AppResult<Result>
+    where
+        Document: Serialize + DeserializeOwned,
+    {
+        let default = serde_json::to_value(default)
+            .map_err(|error| crate::error::AppError::internal(error.to_string()))?;
         state_db::mutate_document_in_transaction(
             transaction,
             kind,
             &self.library_key,
             default,
-            update,
+            |value| {
+                let mut document = serde_json::from_value(value.take())
+                    .map_err(|error| crate::error::AppError::internal(error.to_string()))?;
+                let result = update(&mut document)?;
+                *value = serde_json::to_value(document)
+                    .map_err(|error| crate::error::AppError::internal(error.to_string()))?;
+                Ok(result)
+            },
         )
     }
 }

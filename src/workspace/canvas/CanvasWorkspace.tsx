@@ -32,7 +32,7 @@ import type {
   WindowDefinition,
 } from '@/lib/models/window-model'
 import { isHermesOpenTarget, type HermesOpenTarget } from '@/features/hermes/hermes-open-target'
-import { canCloseHermesWindow, discardHermesDraft } from '@/features/hermes/hermes-session-store'
+import { HermesSessions } from '@/features/hermes/hermes-session-store'
 import FileText from 'lucide-solid/icons/file-text'
 import FolderOpen from 'lucide-solid/icons/folder-open'
 import Maximize2 from 'lucide-solid/icons/maximize-2'
@@ -64,6 +64,12 @@ import {
   applyCanvasGeometryToWorkspace,
   canvasViewFromWorkspace,
 } from '@/workspace/canvas/model/canvas-projection'
+import { createCanvasSelection } from '@/workspace/canvas/model/canvas-selection'
+import {
+  createCanvasOverlayState,
+  type CanvasContextMenuState,
+  type CanvasDialogState,
+} from '@/workspace/canvas/model/canvas-overlay-state'
 import { createWorkspaceLifecycleCommands } from '@/workspace/shared/workspace-lifecycle-commands'
 import { WorkspaceSwitcher } from '@/workspace/shared/WorkspaceSwitcher'
 import { WorkspaceTaskbarAudio } from '@/workspace/taskbar/WorkspaceTaskbarAudio'
@@ -90,6 +96,7 @@ import { startPointerGesture, type PointerGestureOptions } from '@/lib/ui/start-
 import { WorkspaceDocumentCommands } from '@/workspace/model/workspace-document-commands'
 import { planTaskbarPinAdd } from '@/workspace/model/workspace-taskbar-pin'
 import {
+  appendWorkspaceWindow,
   planWorkspaceWindowOpen,
   workspaceWindowId,
   type WorkspaceWindowOpenIntent,
@@ -109,23 +116,10 @@ const DEFAULT_WINDOW_SIZE: Record<CanvasWindowSizeKey, CanvasWindowSize> = {
 const LIVE_ZOOM = 0.62
 const FAR_ZOOM = 0.28
 
-type ContextMenuState = {
-  kind: 'canvas'
-  clientX: number
-  clientY: number
-  worldX: number
-  worldY: number
-}
-
-type Selection = { kind: 'window'; id: string } | null
 type ResizeDirection = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw'
-type CanvasDialogState = {
-  kind: 'new-note'
-  point: { x: number; y: number }
-  initialContent: string
-}
 type FileDropPreview = { bounds: CanvasRect }
 type CanvasMergeTarget = { groupId: string; targetWindowId: string; insertIndex: number }
+type CanvasMergeDragState = { sourceGroupId: string; target: CanvasMergeTarget | null }
 
 function cloneState(state: InfiniteCanvasState): InfiniteCanvasState {
   return cloneInfiniteCanvasState(state)
@@ -317,9 +311,8 @@ export function CanvasWorkspace() {
   const workspaceRegistry = useWorkspaceSession({
     savingBlocked: () => geometryActive() || (crossWorkspaceTransfer?.active() ?? false),
   })
-  const workspaceSnapshot = workspaceRegistry.document
-  const setWorkspaceSnapshot = workspaceRegistry.update
-  const initialWorkspace = workspaceSnapshot()
+  const workspaceSnapshot = workspaceRegistry.document.value
+  const setWorkspaceSnapshot = workspaceRegistry.document.update
   const state = createMemo(() => {
     const snapshot = workspaceSnapshot()
     return snapshot ? canvasViewFromWorkspace(snapshot) : createEmptyCanvasState()
@@ -327,7 +320,7 @@ export function CanvasWorkspace() {
   const setState = (
     next: InfiniteCanvasState | ((current: InfiniteCanvasState) => InfiniteCanvasState),
   ) => {
-    if (!untrack(workspaceRegistry.editable)) return
+    if (!untrack(workspaceRegistry.state.editable)) return
     setWorkspaceSnapshot((current) => {
       if (!current) return current
       const currentView = canvasViewFromWorkspace(current)
@@ -341,84 +334,22 @@ export function CanvasWorkspace() {
     navigate: (id, mode) => navigateSearchParams({ ws: id }, mode),
   })
   const maximizedWindowId = () => state().maximizedWindowId
-  const initialActiveWindowId =
-    initialWorkspace?.activeWindowId &&
-    initialWorkspace.windows.some((window) => window.id === initialWorkspace.activeWindowId)
-      ? initialWorkspace.activeWindowId
-      : null
-  type CanvasSelectionState = {
-    activeWindowId: string | null
-    selection: Selection
-    selectedIds: string[]
-  }
-  const [localSelection, setLocalSelection] = createSignal<CanvasSelectionState>({
-    activeWindowId: initialActiveWindowId,
-    selection: initialActiveWindowId ? { kind: 'window', id: initialActiveWindowId } : null,
-    selectedIds: initialActiveWindowId ? [initialActiveWindowId] : [],
-  })
-  const selectionProjection = createMemo(() => {
-    const snapshot = workspaceSnapshot()
-    const ids = new Set(snapshot?.windows.map((window) => window.id) ?? [])
-    const activeWindowId =
-      snapshot?.activeWindowId && ids.has(snapshot.activeWindowId) ? snapshot.activeWindowId : null
-    return { ids, activeWindowId }
-  })
-  const resolvedSelection = createMemo((): CanvasSelectionState => {
-    const local = localSelection()
-    const projection = selectionProjection()
-    if (local.activeWindowId !== projection.activeWindowId) {
-      return {
-        activeWindowId: projection.activeWindowId,
-        selection: projection.activeWindowId
-          ? { kind: 'window', id: projection.activeWindowId }
-          : null,
-        selectedIds: projection.activeWindowId ? [projection.activeWindowId] : [],
-      }
-    }
-    return {
-      activeWindowId: projection.activeWindowId,
-      selection:
-        local.selection?.kind === 'window' && !projection.ids.has(local.selection.id)
-          ? null
-          : local.selection,
-      selectedIds: local.selectedIds.filter((id) => projection.ids.has(id)),
-    }
-  })
-  const selection = () => resolvedSelection().selection
-  const selectedIds = () => resolvedSelection().selectedIds
-  const setSelection = (next: Selection | ((current: Selection) => Selection)) => {
-    const current = resolvedSelection()
-    setLocalSelection({
-      ...current,
-      selection: typeof next === 'function' ? next(current.selection) : next,
-    })
-  }
-  const setSelectedIds = (next: string[] | ((current: string[]) => string[])) => {
-    const current = resolvedSelection()
-    setLocalSelection({
-      ...current,
-      selectedIds: typeof next === 'function' ? next(current.selectedIds) : next,
-    })
-  }
-  const [menu, setMenu] = createSignal<ContextMenuState | null>(null)
+  const canvasSelection = createCanvasSelection({ workspace: workspaceSnapshot })
+  const selectedIds = canvasSelection.selectedIds
+  const overlays = createCanvasOverlayState()
   const [searchOpen, setSearchOpen] = createSignal(false)
-  const [pinMenu, setPinMenu] = createSignal<{ x: number; y: number; pinId: string } | null>(null)
   const [outlineOpen, setOutlineOpen] = createSignal(false)
-  const [viewportSize, setViewportSize] = createSignal({ width: 1, height: 1 })
   const [workspacePanelOpen, setWorkspacePanelOpen] = createSignal(false)
-  const [canvasMergeTarget, setCanvasMergeTarget] = createSignal<CanvasMergeTarget | null>(null)
-  const [draggedCanvasGroupId, setDraggedCanvasGroupId] = createSignal('')
+  const [viewportSize, setViewportSize] = createSignal({ width: 1, height: 1 })
+  const [canvasMergeDrag, setCanvasMergeDrag] = createSignal<CanvasMergeDragState | null>(null)
   const [cameraAnimating, setCameraAnimating] = createSignal(false)
-  const [dialog, setDialog] = createSignal<CanvasDialogState | null>(null)
-  const [dialogInput, setDialogInput] = createSignal('')
-  const [noteDirectory, setNoteDirectory] = createSignal('')
   const [fileDropPreview, setFileDropPreview] = createSignal<FileDropPreview | null>(null)
   const [lastAudioWindowId, setLastAudioWindowId] = createSignal<string | null>(null)
 
   function openWorkspacePanel() {
     if (workspacePanelOpen()) return
     setWorkspacePanelOpen(true)
-    void workspaceRegistry.refresh()
+    void workspaceRegistry.catalog.refresh()
   }
 
   function toggleWorkspacePanel() {
@@ -461,13 +392,14 @@ export function CanvasWorkspace() {
     cancelCanvasPointerGesture?.()
     await crossWorkspaceTransfer!.settleBeforeNavigation()
   }
-  const readOnlyMode = () => !workspaceRegistry.editable() || crossWorkspaceTransfer!.committing()
+  const readOnlyMode = () =>
+    !workspaceRegistry.state.editable() || crossWorkspaceTransfer!.committing()
   const [spaceHeld, setSpaceHeld] = createSignal(false)
   let dialogEl: HTMLDivElement | undefined
   const onDialogKeyDown = useModalFocus({
-    active: () => dialog() != null,
+    active: () => overlays.note.value() != null,
     element: () => dialogEl,
-    onEscape: () => setDialog(null),
+    onEscape: overlays.note.close,
     fallbackFocus: () =>
       document.querySelector<HTMLElement>('[data-testid="workspace-taskbar-workspaces"]'),
   })
@@ -576,8 +508,7 @@ export function CanvasWorkspace() {
       }
     })
     if (!activeId) return
-    setSelection({ kind: 'window', id: activeId })
-    setSelectedIds([activeId])
+    canvasSelection.replace(activeId)
   }
 
   function updateCanvasWorkspace(
@@ -619,8 +550,7 @@ export function CanvasWorkspace() {
       }
     })
     if (!merged) return
-    setSelection({ kind: 'window', id: sourceWindowId })
-    setSelectedIds([sourceWindowId])
+    canvasSelection.replace(sourceWindowId)
   }
 
   function canvasMergeTargetAt(
@@ -667,7 +597,7 @@ export function CanvasWorkspace() {
     viewport?.addEventListener('pointerdown', beginPan, true)
     const dismissContextMenu = (event: PointerEvent) => {
       if ((event.target as HTMLElement | null)?.closest('[data-canvas-context-menu]')) return
-      setMenu(null)
+      overlays.canvasMenu.close()
     }
     const clearFileDropPreview = () => setFileDropPreview(null)
     const clearFileDropPreviewAfterDrop = () => queueMicrotask(clearFileDropPreview)
@@ -821,8 +751,7 @@ export function CanvasWorkspace() {
 
   function clearSelection() {
     setMaximizedWindowId(null)
-    setSelection(null)
-    setSelectedIds([])
+    canvasSelection.clear()
     if (!readOnlyMode()) {
       setWorkspaceSnapshot((current) => (current ? { ...current, activeWindowId: null } : current))
     }
@@ -830,14 +759,8 @@ export function CanvasWorkspace() {
 
   function selectWindow(windowId: string, additive = false) {
     if (maximizedWindowId() !== windowId) setMaximizedWindowId(null)
-    setSelection({ kind: 'window', id: windowId })
-    setSelectedIds((current) =>
-      additive
-        ? current.includes(windowId)
-          ? current.filter((id) => id !== windowId)
-          : [...current, windowId]
-        : [windowId],
-    )
+    if (additive) canvasSelection.toggle(windowId)
+    else canvasSelection.replace(windowId)
     if (!readOnlyMode()) {
       setWorkspaceSnapshot((current) =>
         current ? { ...current, activeWindowId: windowId } : current,
@@ -952,7 +875,7 @@ export function CanvasWorkspace() {
       return initialPlan.windowId
     }
     let createdId = ''
-    const anchorId = selection()?.kind === 'window' ? selection()!.id : null
+    const anchorId = canvasSelection.focusedId()
     setWorkspaceSnapshot((workspace) => {
       if (!workspace) return workspace
       const current = canvasViewFromWorkspace(workspace)
@@ -988,25 +911,15 @@ export function CanvasWorkspace() {
         nextItemId: workspace.nextWindowId + 1,
         nextZIndex: current.nextZIndex + 1,
       }
-      const groupedWindows = workspace.windows.map((window) =>
-        options.groupSourceWindowId === window.id && !window.tabGroupId
-          ? { ...window, tabGroupId: options.tabGroupId ?? window.id }
-          : window,
+      return applyCanvasGeometryToWorkspace(
+        nextView,
+        appendWorkspaceWindow(workspace, definition, {
+          groupSourceWindowId: options.groupSourceWindowId,
+        }),
       )
-      return applyCanvasGeometryToWorkspace(nextView, {
-        ...workspace,
-        workspaceType: 'canvas',
-        windows: [...groupedWindows, definition],
-        activeWindowId: id,
-        activeTabMap: options.tabGroupId
-          ? { ...workspace.activeTabMap, [options.tabGroupId]: id }
-          : workspace.activeTabMap,
-        nextWindowId: nextView.nextItemId,
-      })
     })
     if (createdId) {
-      setSelection({ kind: 'window', id: createdId })
-      setSelectedIds([createdId])
+      canvasSelection.replace(createdId)
       scheduleEnsureWindowsVisible(anchorId ? [anchorId, createdId] : [createdId])
     }
     return createdId
@@ -1162,16 +1075,20 @@ export function CanvasWorkspace() {
       )
       return
     }
-    setDialogInput(requestedTitle)
-    setNoteDirectory(writableDirectories()[0] ?? '')
-    setDialog({ kind: 'new-note', point, initialContent })
+    overlays.note.open({
+      kind: 'new-note',
+      point,
+      initialContent,
+      title: requestedTitle,
+      directory: writableDirectories()[0] ?? '',
+    })
   }
 
   async function createDocumentFromComposer(
     value: Extract<CanvasDialogState, { kind: 'new-note' }>,
   ) {
-    setDialog(null)
-    await addTextEditor(value.point, value.initialContent, dialogInput(), noteDirectory())
+    overlays.note.close()
+    await addTextEditor(value.point, value.initialContent, value.title, value.directory)
   }
 
   function deleteSelected() {
@@ -1282,7 +1199,7 @@ export function CanvasWorkspace() {
       return initialPlan.windowId
     }
     let createdId = ''
-    const anchorId = selection()?.kind === 'window' ? selection()!.id : null
+    const anchorId = canvasSelection.focusedId()
     setWorkspaceSnapshot((workspace) => {
       if (!workspace) return workspace
       const current = canvasViewFromWorkspace(workspace)
@@ -1320,8 +1237,7 @@ export function CanvasWorkspace() {
       })
     })
     if (createdId) {
-      setSelection({ kind: 'window', id: createdId })
-      setSelectedIds([createdId])
+      canvasSelection.replace(createdId)
       scheduleEnsureWindowsVisible(anchorId ? [anchorId, createdId] : [createdId])
     }
     return createdId
@@ -1392,7 +1308,7 @@ export function CanvasWorkspace() {
   async function closeWindow(windowId: string) {
     if (readOnlyMode()) return
     const target = windowDefinitions().get(windowId)
-    if (!target || !(await canCloseHermesWindow(target.hermes))) return
+    if (!target || !(await HermesSessions.canClose(target.hermes))) return
     const base = workspaceSnapshot()
     if (!base) return
     const result = WorkspaceDocumentCommands.closeTab(base, windowId)
@@ -1403,9 +1319,8 @@ export function CanvasWorkspace() {
       playbackSession.dispatch({ type: 'stop' })
     }
     if (lastAudioWindowId() === windowId) setLastAudioWindowId(null)
-    discardHermesDraft(removed?.hermes)
-    setSelectedIds((ids) => ids.filter((id) => id !== windowId))
-    if (selection()?.id === windowId) setSelection(null)
+    HermesSessions.discardDraft(removed?.hermes)
+    canvasSelection.remove(new Set([windowId]))
   }
 
   async function closeWindowGroups(groupIds: ReadonlySet<string>) {
@@ -1414,7 +1329,7 @@ export function CanvasWorkspace() {
       .windows.filter((window) => groupIds.has(groupIdForCanvasWindow(window)))
       .map(definitionFor)
     if (!targets.length) return
-    if (!(await confirmWorkspaceWindowsSequentially(targets, canCloseHermesWindow))) return
+    if (!(await confirmWorkspaceWindowsSequentially(targets, HermesSessions.canClose))) return
     const base = workspaceSnapshot()
     if (!base) return
     const result = WorkspaceDocumentCommands.closeGroups(base, groupIds)
@@ -1427,12 +1342,10 @@ export function CanvasWorkspace() {
       playbackSession.dispatch({ type: 'stop' })
     }
     setWorkspaceSnapshot(result.state)
-    for (const target of result.removed) discardHermesDraft(target.hermes)
+    for (const target of result.removed) HermesSessions.discardDraft(target.hermes)
     const audioWindowId = lastAudioWindowId()
     if (audioWindowId && removedIds.has(audioWindowId)) setLastAudioWindowId(null)
-    setSelectedIds((ids) => ids.filter((id) => !removedIds.has(id)))
-    const selected = selection()
-    if (selected && removedIds.has(selected.id)) setSelection(null)
+    canvasSelection.remove(removedIds)
   }
 
   function closeWindowGroup(groupId: string) {
@@ -1478,7 +1391,7 @@ export function CanvasWorkspace() {
     let previousFrameTime: number | undefined
     clearCanvasCrossWorkspaceHover()
     setGeometryActive(true)
-    setDraggedCanvasGroupId(groupIdForCanvasWindow(item))
+    setCanvasMergeDrag({ sourceGroupId: groupIdForCanvasWindow(item), target: null })
     const dragDelta = (camera: InfiniteCanvasState['camera']) => {
       const dx = (latestX - startX - (camera.x - startCamera.x)) / camera.zoom
       const dy = (latestY - startY - (camera.y - startCamera.y)) / camera.zoom
@@ -1527,8 +1440,13 @@ export function CanvasWorkspace() {
         clearCanvasCrossWorkspaceHover()
       }
       updateDragPreview(state().camera)
-      setCanvasMergeTarget(
-        canvasMergeTargetAt(next.clientX, next.clientY, groupIdForCanvasWindow(item)),
+      setCanvasMergeDrag((state) =>
+        state
+          ? {
+              ...state,
+              target: canvasMergeTargetAt(next.clientX, next.clientY, groupIdForCanvasWindow(item)),
+            }
+          : state,
       )
     }
     const finish = (cancelled: boolean) => {
@@ -1556,9 +1474,8 @@ export function CanvasWorkspace() {
         }))
       }
       setGeometryActive(false)
-      const mergeTarget = canvasMergeTarget()
-      setCanvasMergeTarget(null)
-      setDraggedCanvasGroupId('')
+      const mergeTarget = canvasMergeDrag()?.target
+      setCanvasMergeDrag(null)
       const dropTarget = !cancelled
         ? document.elementFromPoint(latestX, latestY)?.closest<HTMLElement>('[data-workspace-id]')
             ?.dataset.workspaceId
@@ -1642,7 +1559,7 @@ export function CanvasWorkspace() {
         pulled = true
         selectWindow(windowId)
         setGeometryActive(true)
-        setDraggedCanvasGroupId(windowId)
+        setCanvasMergeDrag({ sourceGroupId: windowId, target: null })
         detachedCard =
           worldEl?.querySelector<HTMLElement>(`[data-canvas-group-id="${CSS.escape(windowId)}"]`) ??
           null
@@ -1657,7 +1574,11 @@ export function CanvasWorkspace() {
           detachedCard.style.top = `${visual.y}px`
         }
       }
-      setCanvasMergeTarget(canvasMergeTargetAt(next.clientX, next.clientY, windowId))
+      setCanvasMergeDrag((state) =>
+        state
+          ? { ...state, target: canvasMergeTargetAt(next.clientX, next.clientY, windowId) }
+          : state,
+      )
     }
     const finish = (cancelled: boolean) => {
       if (detachedCard) {
@@ -1686,9 +1607,8 @@ export function CanvasWorkspace() {
       if (pulled) {
         setGeometryActive(false)
       }
-      const target = canvasMergeTarget()
-      setCanvasMergeTarget(null)
-      setDraggedCanvasGroupId('')
+      const target = canvasMergeDrag()?.target
+      setCanvasMergeDrag(null)
       if (!cancelled && pulled && target) mergeCanvasGroup(windowId, target)
     }
     startCanvasPointerGesture({
@@ -1804,7 +1724,7 @@ export function CanvasWorkspace() {
   function beginPan(event: PointerEvent) {
     const allowPrimary = spaceHeld() || event.target === viewportEl
     if (event.button !== 1 && !(allowPrimary && event.button === 0)) return
-    setMenu(null)
+    overlays.canvasMenu.close()
     panController.begin(event, allowPrimary)
   }
 
@@ -1840,7 +1760,7 @@ export function CanvasWorkspace() {
     event.preventDefault()
     if (readOnlyMode()) return
     const world = screenToWorld(event.clientX, event.clientY)
-    setMenu({
+    overlays.canvasMenu.open({
       kind: 'canvas',
       clientX: event.clientX,
       clientY: event.clientY,
@@ -1852,7 +1772,7 @@ export function CanvasWorkspace() {
   onSettled(() => {
     const keydown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return
-      if (dialog()) return
+      if (overlays.note.value()) return
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'p') {
         event.preventDefault()
         setSearchOpen(true)
@@ -1867,7 +1787,7 @@ export function CanvasWorkspace() {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a') {
         event.preventDefault()
         setMaximizedWindowId(null)
-        setSelectedIds(state().windows.map((item) => item.id))
+        canvasSelection.selectAll(state().windows.map((item) => item.id))
       } else if (selectedIds().length && event.key.startsWith('Arrow')) {
         event.preventDefault()
         const distance = CANVAS_GRID_SIZE * (event.shiftKey ? 4 : 1)
@@ -1882,7 +1802,7 @@ export function CanvasWorkspace() {
           deleteSelected()
         }
       } else if (event.key === 'Escape') {
-        setMenu(null)
+        overlays.canvasMenu.close()
         clearSelection()
       }
     }
@@ -1899,10 +1819,8 @@ export function CanvasWorkspace() {
   })
 
   const selectedWindow = createMemo(() => {
-    const selected = selection()
-    return selected?.kind === 'window'
-      ? state().windows.find((window) => window.id === selected.id)
-      : undefined
+    const focusedId = canvasSelection.focusedId()
+    return focusedId ? state().windows.find((window) => window.id === focusedId) : undefined
   })
   const lastAudioWindow = createMemo(() => {
     const stateWindows = state().windows
@@ -1965,12 +1883,12 @@ export function CanvasWorkspace() {
 
   return (
     <div
-      data-workspace-opened={workspaceRegistry.opened() ? '' : undefined}
+      data-workspace-opened={workspaceRegistry.state.opened() ? '' : undefined}
       class={`canvas-layout fixed inset-0 flex select-none flex-col overflow-hidden bg-background text-foreground ${
-        workspaceRegistry.opened() ? 'pointer-events-auto' : 'pointer-events-none'
+        workspaceRegistry.state.opened() ? 'pointer-events-auto' : 'pointer-events-none'
       }`}
     >
-      <Show when={!workspaceRegistry.editable()}>
+      <Show when={!workspaceRegistry.state.editable()}>
         <div class='fixed left-1/2 top-2 z-[100002] -translate-x-1/2 rounded-md border border-border bg-popover px-3 py-1.5 text-xs shadow-lg'>
           Read only — workspace is open elsewhere
         </div>
@@ -2005,7 +1923,7 @@ export function CanvasWorkspace() {
               onSelect={(pin) => void selectCanvasPinned(pin)}
               onContextMenu={(pin, event) => {
                 event.preventDefault()
-                setPinMenu({ x: event.clientX, y: event.clientY, pinId: pin.id })
+                overlays.pinMenu.open({ x: event.clientX, y: event.clientY, pinId: pin.id })
               }}
             />
           </Show>
@@ -2117,9 +2035,9 @@ export function CanvasWorkspace() {
       </WorkspaceTaskbar>
 
       <FloatingContextMenu
-        state={pinMenu}
+        state={overlays.pinMenu.value}
         anchor={(current) => ({ x: current.x, y: current.y })}
-        onDismiss={() => setPinMenu(null)}
+        onDismiss={overlays.pinMenu.close}
         zIndex={FLOATING_Z_PIN_MENU}
         data-slot='pin-context-menu'
         pinContextMenuRoot
@@ -2132,7 +2050,7 @@ export function CanvasWorkspace() {
             role='menuitem'
             onClick={() => {
               removePinnedItem(current.pinId)
-              setPinMenu(null)
+              overlays.pinMenu.close()
             }}
           >
             Unpin
@@ -2143,8 +2061,8 @@ export function CanvasWorkspace() {
       <WorkspaceSwitcher
         open={workspacePanelOpen()}
         activeId={workspaceId()}
-        registry={workspaceRegistry.registry()}
-        editable={workspaceRegistry.editable()}
+        registry={workspaceRegistry.catalog.value()}
+        editable={workspaceRegistry.state.editable()}
         onToggle={() => {
           clearCanvasCrossWorkspaceHover()
           toggleWorkspacePanel()
@@ -2155,7 +2073,7 @@ export function CanvasWorkspace() {
         }}
         onSelect={(id) =>
           void settleCanvasGesturesBeforeNavigation().then(() =>
-            workspaceRegistry.transition(() => navigateSearchParams({ ws: id }, 'push')),
+            workspaceRegistry.lifecycle.transition(() => navigateSearchParams({ ws: id }, 'push')),
           )
         }
         onOpenNewTab={(id) =>
@@ -2163,19 +2081,19 @@ export function CanvasWorkspace() {
         }
         onCreate={() =>
           void settleCanvasGesturesBeforeNavigation().then(() =>
-            workspaceRegistry.transition(() =>
+            workspaceRegistry.lifecycle.transition(() =>
               navigateSearchParams({ ws: crypto.randomUUID() }, 'push'),
             ),
           )
         }
-        onTakeControl={() => void workspaceRegistry.takeControl()}
-        onRename={(id, name) => workspaceRegistry.updateMetadataFor(id, { name })}
+        onTakeControl={() => void workspaceRegistry.lifecycle.takeControl()}
+        onRename={(id, name) => workspaceRegistry.catalog.updateMetadataFor(id, { name })}
         onIcon={(id, icon, iconColor) =>
-          workspaceRegistry.updateMetadataFor(id, { icon, iconColor })
+          workspaceRegistry.catalog.updateMetadataFor(id, { icon, iconColor })
         }
         onDelete={lifecycle.deleteWorkspace}
         onConvert={lifecycle.convertWorkspace}
-        onReorder={workspaceRegistry.reorder}
+        onReorder={workspaceRegistry.catalog.reorder}
         draggingWindow={crossWorkspaceTransfer!.active()}
         hoverTarget={crossWorkspaceTransfer!.hoverTarget()}
         transferReady={crossWorkspaceTransfer!.ready()}
@@ -2239,7 +2157,7 @@ export function CanvasWorkspace() {
           if (fileDropPreview()) setFileDropPreview(null)
           if (event.button === 0 && event.target === event.currentTarget) {
             clearSelection()
-            setMenu(null)
+            overlays.canvasMenu.close()
             event.currentTarget.focus()
           }
         }}
@@ -2451,7 +2369,7 @@ export function CanvasWorkspace() {
                       'transform-origin': 'top left',
                       'box-shadow': liveWindowChrome() ? undefined : windowShadow(),
                       opacity:
-                        canvasMergeTarget() && draggedCanvasGroupId() === groupId
+                        canvasMergeDrag()?.target && canvasMergeDrag()?.sourceGroupId === groupId
                           ? 0.55
                           : undefined,
                       'z-index': maximized()
@@ -2482,8 +2400,8 @@ export function CanvasWorkspace() {
                       rounded={() => !maximized()}
                       showTabs={liveWindowChrome}
                       mergeHighlightInsertIndex={() =>
-                        canvasMergeTarget()?.groupId === groupId
-                          ? canvasMergeTarget()!.insertIndex
+                        canvasMergeDrag()?.target?.groupId === groupId
+                          ? canvasMergeDrag()!.target!.insertIndex
                           : null
                       }
                       splitLeftTabId={() => split()?.leftTabId}
@@ -2588,7 +2506,7 @@ export function CanvasWorkspace() {
                                     }}
                                     windowState={workspace}
                                     visible={paneVisible}
-                                    active={() => selection()?.id === paneId}
+                                    active={() => canvasSelection.focusedId() === paneId}
                                     editableFolders={() =>
                                       readOnlyMode() ? [] : editableFolders()
                                     }
@@ -2784,7 +2702,7 @@ export function CanvasWorkspace() {
         </div>
       </div>
 
-      <Show when={menu()}>
+      <Show when={overlays.canvasMenu.value()}>
         {(current) => (
           <div
             data-canvas-context-menu
@@ -2798,9 +2716,9 @@ export function CanvasWorkspace() {
             <Show when={current().kind === 'canvas'}>
               <MenuButton
                 onClick={() => {
-                  const value = current() as Extract<ContextMenuState, { kind: 'canvas' }>
+                  const value = current() as CanvasContextMenuState
                   openNoteComposer({ x: value.worldX, y: value.worldY })
-                  setMenu(null)
+                  overlays.canvasMenu.close()
                 }}
               >
                 <FileText class='size-4' />
@@ -2808,9 +2726,9 @@ export function CanvasWorkspace() {
               </MenuButton>
               <MenuButton
                 onClick={() => {
-                  const value = current() as Extract<ContextMenuState, { kind: 'canvas' }>
+                  const value = current() as CanvasContextMenuState
                   addFileWindow(null, { x: value.worldX, y: value.worldY })
-                  setMenu(null)
+                  overlays.canvasMenu.close()
                 }}
               >
                 <FolderOpen class='size-4' />
@@ -2818,9 +2736,9 @@ export function CanvasWorkspace() {
               </MenuButton>
               <MenuButton
                 onClick={() => {
-                  const value = current() as Extract<ContextMenuState, { kind: 'canvas' }>
+                  const value = current() as CanvasContextMenuState
                   addBlankHermesWindow({ x: value.worldX, y: value.worldY })
-                  setMenu(null)
+                  overlays.canvasMenu.close()
                 }}
               >
                 <MessageSquare class='size-4' />
@@ -2831,12 +2749,12 @@ export function CanvasWorkspace() {
         )}
       </Show>
 
-      <Show when={dialog()}>
+      <Show when={overlays.note.value()}>
         {(current) => (
           <div
             class='fixed inset-0 z-[1300000] flex items-center justify-center bg-black/55 p-4'
             onKeyDown={onDialogKeyDown}
-            onPointerDown={(event) => event.target === event.currentTarget && setDialog(null)}
+            onPointerDown={(event) => event.target === event.currentTarget && overlays.note.close()}
           >
             <div
               ref={(element) => (dialogEl = element)}
@@ -2865,7 +2783,7 @@ export function CanvasWorkspace() {
                   <form
                     onSubmit={(event) => {
                       event.preventDefault()
-                      if (!dialogInput().trim() || !noteDirectory()) return
+                      if (!current().title.trim() || !current().directory) return
                       void createDocumentFromComposer(value())
                     }}
                   >
@@ -2879,15 +2797,15 @@ export function CanvasWorkspace() {
                       aria-label='Document title'
                       maxlength={120}
                       class='mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring'
-                      value={dialogInput()}
-                      onInput={(event) => setDialogInput(event.currentTarget.value)}
+                      value={current().title}
+                      onInput={(event) => overlays.note.updateTitle(event.currentTarget.value)}
                     />
                     <label class='mt-4 block text-sm text-muted-foreground'>Location</label>
                     <select
                       aria-label='Document location'
                       class='mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring'
-                      value={noteDirectory()}
-                      onChange={(event) => setNoteDirectory(event.currentTarget.value)}
+                      value={current().directory}
+                      onChange={(event) => overlays.note.updateDirectory(event.currentTarget.value)}
                     >
                       <For each={writableDirectories()}>
                         {(directory) => <option value={directory}>{directory}</option>}
@@ -2897,14 +2815,14 @@ export function CanvasWorkspace() {
                       <button
                         type='button'
                         class='h-9 rounded-md px-3 text-sm hover:bg-muted'
-                        onClick={() => setDialog(null)}
+                        onClick={overlays.note.close}
                       >
                         Cancel
                       </button>
                       <button
                         type='submit'
                         class='h-9 rounded-md bg-primary px-3 text-sm text-primary-foreground disabled:opacity-40'
-                        disabled={!dialogInput().trim() || !noteDirectory()}
+                        disabled={!current().title.trim() || !current().directory}
                       >
                         Create document
                       </button>

@@ -25,6 +25,7 @@ import { useFileBrowserController } from './use-file-browser-controller'
 import { useFileBrowserListing } from './use-file-browser-listing'
 import { useViewStats } from './use-view-stats'
 import type { FileIconContext } from './use-file-icon'
+import { createExplorerRowMenu } from './explorer-row-menu'
 
 export type FileBrowserHostActions = Readonly<{
   otherSurfaceLabel: string
@@ -233,64 +234,75 @@ function FileBrowserInstance(props: { host: FileBrowserHost; currentPath: Access
       ? (file) => host.actions.openNewTab?.(file, currentPath())
       : undefined,
     openBreadcrumbInOtherSurface: host.actions.openOtherSurface,
-    createRowMenu: (setIcon) => ({
-      api: fileActions.rowMenu,
-      editableFolders: host.editableFolders,
-      currentDirectoryEditable: editable,
-      hasEditableFolders: () => host.editableFolders().length > 0,
-      download,
-      setIcon,
-      get addToTaskbar() {
-        return host.actions.addToTaskbar
-      },
-      get openInNewTab() {
-        return host.actions.openNewTab
-          ? (file: FileItem) => host.actions.openNewTab?.(file, currentPath())
-          : undefined
-      },
-      get openInNewTabLabel() {
-        return host.actions.newTabLabel
-      },
-      get showOpenInNewTabForFiles() {
-        return !!host.actions.openNewTab
-      },
-      get openInSplitView() {
-        return host.actions.openInSplitView
-      },
-      openInOtherSurface: host.actions.openOtherSurface,
-      openInOtherSurfaceLabel: host.actions.otherSurfaceLabel,
-      openWithBrowser: openFile,
-      openWithReader: (file) =>
-        host.present({
-          kind: 'reader',
-          file,
-          sourceDir: currentPath(),
-          orderedFiles: displayedFiles(),
-        }),
-      toggleFavorite,
-      isFavorite,
-      rename: fileActions.requestRename,
-      move: fileActions.requestMove,
-      copy: fileActions.requestCopy,
-      toggleKnowledgeBase: (file) =>
-        browser.mutations.knowledgeBaseMutation.mutate(file.path.replace(/\\/g, '/')),
-      isKnowledgeBase,
-      get pickNewTabTarget() {
-        return host.actions.beginOpenTargetPick
-      },
-      get defaultFileOpen() {
-        return host.actions.defaultFileOpen
-      },
-      get openFileInNewWindow() {
-        return host.actions.openInNewWindow
-      },
-      getVirtualEntry: listing.virtualEntry,
-      runVirtualAction: (action, file) =>
-        fileActions.virtual?.handleAction(action, file, {
+    createRowMenu: (setIcon) =>
+      createExplorerRowMenu({
+        api: fileActions.rowMenu,
+        permissions: {
+          editableFolders: host.editableFolders,
+          currentDirectoryEditable: editable,
+          hasEditableFolders: () => host.editableFolders().length > 0,
+        },
+        edit: {
+          download,
+          setIcon,
+          get addToTaskbar() {
+            return host.actions.addToTaskbar
+          },
           rename: fileActions.requestRename,
-          remove: fileActions.dialogs.remove.setTarget,
-        }),
-    }),
+          move: fileActions.requestMove,
+          copy: fileActions.requestCopy,
+        },
+        open: {
+          get newTab() {
+            return host.actions.openNewTab
+              ? (file: FileItem) => host.actions.openNewTab?.(file, currentPath())
+              : undefined
+          },
+          get newTabLabel() {
+            return host.actions.newTabLabel
+          },
+          get showNewTabForFiles() {
+            return !!host.actions.openNewTab
+          },
+          get splitView() {
+            return host.actions.openInSplitView
+          },
+          otherSurface: host.actions.openOtherSurface,
+          otherSurfaceLabel: host.actions.otherSurfaceLabel,
+          withBrowser: openFile,
+          withReader: (file) =>
+            host.present({
+              kind: 'reader',
+              file,
+              sourceDir: currentPath(),
+              orderedFiles: displayedFiles(),
+            }),
+          get pickNewTabTarget() {
+            return host.actions.beginOpenTargetPick
+          },
+          get defaultFileOpen() {
+            return host.actions.defaultFileOpen
+          },
+          get fileInNewWindow() {
+            return host.actions.openInNewWindow
+          },
+        },
+        metadata: {
+          toggleFavorite,
+          isFavorite,
+          toggleKnowledgeBase: (file) =>
+            browser.mutations.knowledgeBaseMutation.mutate(file.path.replace(/\\/g, '/')),
+          isKnowledgeBase,
+        },
+        virtual: {
+          entry: listing.virtualEntry,
+          run: (action, file) =>
+            fileActions.virtual?.handleAction(action, file, {
+              rename: fileActions.requestRename,
+              remove: fileActions.dialogs.remove.setTarget,
+            }),
+        },
+      }),
   })
 
   const rows = {

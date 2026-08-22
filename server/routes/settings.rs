@@ -1,30 +1,58 @@
 use crate::{
-    app::{AppState, Shared, emit_admin},
+    app::{AppState, Shared, timestamp_ms},
     error::{AppError, AppResult},
-    settings_persistence::SettingsCommand,
+    settings_persistence::{SettingsCommand, SettingsRepository},
 };
 use axum::{
     Json, Router,
-    extract::{Path, State},
+    extract::{FromRef, Path, State},
     routing::{get, post},
 };
 use serde_json::Value;
+use serde_json::json;
+use tokio::sync::broadcast;
+
+#[derive(Clone)]
+pub(crate) struct SettingsRouteState {
+    repository: SettingsRepository,
+    admin_events: broadcast::Sender<Value>,
+}
+
+impl FromRef<Shared> for SettingsRouteState {
+    fn from_ref(state: &Shared) -> Self {
+        Self {
+            repository: state.settings.clone(),
+            admin_events: state.admin_events.clone(),
+        }
+    }
+}
+
+impl SettingsRouteState {
+    fn notify_changed(&self) {
+        let _ = self
+            .admin_events
+            .send(json!({"type":"settings-changed","timestamp":timestamp_ms()}));
+    }
+}
 
 pub(crate) fn sanitized(state: &AppState) -> AppResult<Value> {
     state.settings.admin_view()
 }
 
-fn execute(state: &AppState, command: SettingsCommand) -> AppResult<Json<Value>> {
-    let result = state.settings.execute(command)?;
-    emit_admin(state, "settings-changed");
+fn execute(state: &SettingsRouteState, command: SettingsCommand) -> AppResult<Json<Value>> {
+    let result = state.repository.execute(command)?;
+    state.notify_changed();
     Ok(Json(result))
 }
 
-async fn get_settings(State(state): State<Shared>) -> AppResult<Json<Value>> {
-    Ok(Json(sanitized(&state)?))
+async fn get_settings(State(state): State<SettingsRouteState>) -> AppResult<Json<Value>> {
+    Ok(Json(state.repository.admin_view()?))
 }
 
-async fn view_mode(State(state): State<Shared>, Json(body): Json<Value>) -> AppResult<Json<Value>> {
+async fn view_mode(
+    State(state): State<SettingsRouteState>,
+    Json(body): Json<Value>,
+) -> AppResult<Json<Value>> {
     execute(
         &state,
         SettingsCommand::SetViewMode {
@@ -38,7 +66,7 @@ async fn view_mode(State(state): State<Shared>, Json(body): Json<Value>) -> AppR
 }
 
 async fn sort_order(
-    State(state): State<Shared>,
+    State(state): State<SettingsRouteState>,
     Json(body): Json<Value>,
 ) -> AppResult<Json<Value>> {
     let path = body["path"]
@@ -61,7 +89,7 @@ async fn sort_order(
 }
 
 async fn file_columns(
-    State(state): State<Shared>,
+    State(state): State<SettingsRouteState>,
     Json(body): Json<Value>,
 ) -> AppResult<Json<Value>> {
     let scope = body["scope"]
@@ -91,7 +119,10 @@ async fn file_columns(
     )
 }
 
-async fn favorite(State(state): State<Shared>, Json(body): Json<Value>) -> AppResult<Json<Value>> {
+async fn favorite(
+    State(state): State<SettingsRouteState>,
+    Json(body): Json<Value>,
+) -> AppResult<Json<Value>> {
     let path = body["filePath"].as_str().unwrap_or("");
     if path.is_empty() {
         return Err(AppError::bad("File path is required"));
@@ -103,7 +134,7 @@ async fn favorite(State(state): State<Shared>, Json(body): Json<Value>) -> AppRe
 }
 
 async fn knowledge_base(
-    State(state): State<Shared>,
+    State(state): State<SettingsRouteState>,
     Json(body): Json<Value>,
 ) -> AppResult<Json<Value>> {
     let path = body["filePath"].as_str().unwrap_or("");
@@ -117,7 +148,7 @@ async fn knowledge_base(
 }
 
 async fn generic(
-    State(state): State<Shared>,
+    State(state): State<SettingsRouteState>,
     Path(kind): Path<String>,
     Json(body): Json<Value>,
 ) -> AppResult<Json<Value>> {
@@ -175,7 +206,11 @@ async fn generic(
     execute(&state, command)
 }
 
-pub fn router() -> Router<Shared> {
+pub fn router<S>() -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+    SettingsRouteState: FromRef<S>,
+{
     Router::new()
         .route("/api/settings", get(get_settings))
         .route("/api/settings/viewMode", post(view_mode))

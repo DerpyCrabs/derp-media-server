@@ -48,9 +48,7 @@ export function Breadcrumbs(props: BreadcrumbsProps) {
   const [containerEl, setContainerEl] = createSignal<HTMLDivElement | null>(null)
   const [measureEl, setMeasureEl] = createSignal<HTMLDivElement | null>(null)
   const [visibleIndices, setVisibleIndices] = createSignal<Set<number>>(new Set())
-  const [pathEllipsisVisible, setShowPathEllipsis] = createSignal<boolean>(false)
-  const setPathEllipsis = setShowPathEllipsis
-  /** When true, inline trail is Home > … > current (parent folder not in the bar). */
+  const [pathEllipsisVisible, setPathEllipsis] = createSignal(false)
   const [ellipsisSkipsParent, setEllipsisSkipsParent] = createSignal(false)
   const [compactPathOnly, setCompactPathOnly] = createSignal(false)
   const [pathPickerButtonEl, setPathPickerButtonEl] = createSignal<HTMLButtonElement | null>(null)

@@ -1,4 +1,4 @@
-import { api } from '@/lib/api/client'
+import { fetchDirectoryFiles } from '@/lib/files/files-client'
 import type { FileItem } from '@/lib/files/types'
 import type { ModalOverlayScope } from './modal-overlay-scope'
 import { modalDialogBackdropClass } from './modal-overlay-scope'
@@ -52,7 +52,7 @@ export function MoveToDialog(props: MoveToDialogProps) {
 
   const dirFiles = createMemo<FileItem[]>(async () => {
     const src = browsePath()
-    const { files } = await api<{ files: FileItem[] }>(`/api/files?dir=${encodeURIComponent(src)}`)
+    const { files } = await fetchDirectoryFiles(src)
     return files
   })
 

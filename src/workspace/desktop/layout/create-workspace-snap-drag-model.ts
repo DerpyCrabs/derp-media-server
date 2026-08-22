@@ -59,7 +59,7 @@ export function createWorkspaceSnapDragModel(options: {
   const [workspaceCanvasSize, setWorkspaceCanvasSize] = createSignal<WorkspaceCanvasSize | null>(
     null,
   )
-  const [_dragSnapZone, setDragSnapZone] = createSignal<SnapDetectResult | null>(null)
+  const [dragSnapZone, setDragSnapZone] = createSignal<SnapDetectResult | null>(null)
   const [dragSnapWindowId, setDragSnapWindowId] = createSignal<string | null>(null)
   const [snapAssistShown, setSnapAssistShown] = createSignal(false)
   const [snapAssistEngaged, setSnapAssistEngaged] = createSignal(false)
@@ -202,7 +202,7 @@ export function createWorkspaceSnapDragModel(options: {
         span,
         canvas: workspaceAreaEl,
         preview: snapPreviewEl,
-        zone: dragId ? _dragSnapZone() : null,
+        zone: dragId ? dragSnapZone() : null,
         gap: tiledWindowGap(),
         windows: workspace()?.windows ?? [],
       }
@@ -717,3 +717,5 @@ export function createWorkspaceSnapDragModel(options: {
     setTilingPickerHoverPreview: setTilingPickerHoverSpan,
   }
 }
+
+export type WorkspaceSnapDragModel = ReturnType<typeof createWorkspaceSnapDragModel>

@@ -20,7 +20,7 @@ export type FileBrowserElementAttributes<Element extends HTMLElement> =
     [attribute: string]: unknown
   }
 
-export type FileBrowserPaneProps = Readonly<{
+export type FileBrowserPaneListing = Readonly<{
   files: Accessor<FileItem[]>
   viewMode: Accessor<'list' | 'grid'>
   columns: Accessor<FileColumnVisibility>
@@ -29,15 +29,21 @@ export type FileBrowserPaneProps = Readonly<{
   scrollScope?: Accessor<string | undefined>
   showEmpty: Accessor<boolean>
   canUpload: Accessor<boolean>
+}>
+
+export type FileBrowserPaneLayout = Readonly<{
   gridContainerClass?: string
   listContainerClass?: string
   gridClass?: string
   listClass?: string
   listSizeColumnClass?: string
+}>
+
+export type FileBrowserPaneRows = Readonly<{
   onParentClick: () => void
   onFileClick: (file: FileItem) => void
-  parentGridAttributes?: FileBrowserElementAttributes<HTMLDivElement>
-  parentRowAttributes?: FileBrowserElementAttributes<HTMLTableRowElement>
+  parentGridAttributes?: Accessor<FileBrowserElementAttributes<HTMLDivElement>>
+  parentRowAttributes?: Accessor<FileBrowserElementAttributes<HTMLTableRowElement>>
   fileGridAttributes?: (file: FileItem) => FileBrowserElementAttributes<HTMLDivElement>
   fileRowAttributes?: (file: FileItem) => FileBrowserElementAttributes<HTMLTableRowElement>
   renderGridIcon: (file: FileItem) => JSX.Element
@@ -52,25 +58,33 @@ export type FileBrowserPaneProps = Readonly<{
   renderParentRowEnd?: () => JSX.Element
 }>
 
+export type FileBrowserPaneProps = Readonly<{
+  listing: FileBrowserPaneListing
+  layout?: FileBrowserPaneLayout
+  rows: FileBrowserPaneRows
+}>
+
 /** Shared directory surface used by all application hosts. */
 export function FileBrowserPane(props: FileBrowserPaneProps) {
-  const parentGridAttributes = () => props.parentGridAttributes ?? {}
-  const parentRowAttributes = () => props.parentRowAttributes ?? {}
-  const fileGridAttributes = (file: FileItem) => props.fileGridAttributes?.(file) ?? {}
-  const fileRowAttributes = (file: FileItem) => props.fileRowAttributes?.(file) ?? {}
+  const parentGridAttributes = () => props.rows.parentGridAttributes?.() ?? {}
+  const parentRowAttributes = () => props.rows.parentRowAttributes?.() ?? {}
+  const fileGridAttributes = (file: FileItem) => props.rows.fileGridAttributes?.(file) ?? {}
+  const fileRowAttributes = (file: FileItem) => props.rows.fileRowAttributes?.(file) ?? {}
   const tableColumns = () => [
     { class: 'w-[40px]' },
     {},
-    ...(props.columns().createdDate ? [{ class: 'w-40' }] : []),
-    ...(props.columns().size ? [{ class: props.listSizeColumnClass ?? 'w-24' }] : []),
-    ...(props.renderListActions || props.renderParentRowEnd
+    ...(props.listing.columns().createdDate ? [{ class: 'w-40' }] : []),
+    ...(props.listing.columns().size
+      ? [{ class: props.layout?.listSizeColumnClass ?? 'w-24' }]
+      : []),
+    ...(props.rows.renderListActions || props.rows.renderParentRowEnd
       ? [{ class: 'w-[52px] sm:hidden' }]
       : []),
   ]
   const listColSpan = () => tableColumns().length
   const tableClass = () => {
-    if (props.columns().createdDate) return 'min-w-[32rem]'
-    if (props.columns().size) return 'min-w-[22rem]'
+    if (props.listing.columns().createdDate) return 'min-w-[32rem]'
+    if (props.listing.columns().size) return 'min-w-[22rem]'
     return ''
   }
 
@@ -83,15 +97,15 @@ export function FileBrowserPane(props: FileBrowserPaneProps) {
           'ring-foreground/10 bg-card text-card-foreground flex cursor-pointer flex-col overflow-hidden rounded-xl py-0 text-left shadow-xs ring-1 transition-colors select-none hover:bg-muted/50',
           attributes.class,
         )}
-        onClick={props.onParentClick}
-        onKeyDown={(event) => event.key === 'Enter' && props.onParentClick()}
+        onClick={props.rows.onParentClick}
+        onKeyDown={(event) => event.key === 'Enter' && props.rows.onParentClick()}
         role='button'
         tabindex={0}
       >
         <div class='bg-muted/80 flex aspect-video flex-col items-center justify-center p-4'>
           <ArrowUp class='mb-2 h-12 w-12 text-muted-foreground' size={48} stroke-width={2} />
           <p class='text-center text-sm font-medium'>..</p>
-          <Show when={props.parentGridSubtitle}>{props.parentGridSubtitle}</Show>
+          <Show when={props.rows.parentGridSubtitle}>{props.rows.parentGridSubtitle}</Show>
         </div>
       </div>
     )
@@ -106,7 +120,7 @@ export function FileBrowserPane(props: FileBrowserPaneProps) {
           'cursor-pointer select-none border-b border-border transition-colors hover:bg-muted/50',
           attributes.class,
         )}
-        onClick={props.onParentClick}
+        onClick={props.rows.onParentClick}
       >
         <td class='w-[40px] min-w-[40px] max-w-[40px] box-border p-3 align-middle sm:p-2'>
           <div class='flex items-center justify-center'>
@@ -114,13 +128,13 @@ export function FileBrowserPane(props: FileBrowserPaneProps) {
           </div>
         </td>
         <td class='min-w-0 p-3 align-middle font-medium sm:p-2'>..</td>
-        <Show when={props.columns().createdDate}>
+        <Show when={props.listing.columns().createdDate}>
           <td class='min-w-0 p-3 align-middle text-muted-foreground sm:p-2' />
         </Show>
-        <Show when={props.columns().size}>
+        <Show when={props.listing.columns().size}>
           <td class='min-w-0 p-3 align-middle text-right text-muted-foreground sm:p-2' />
         </Show>
-        <Show when={props.renderParentRowEnd}>{props.renderParentRowEnd?.()}</Show>
+        <Show when={props.rows.renderParentRowEnd}>{props.rows.renderParentRowEnd?.()}</Show>
       </tr>
     )
   }
@@ -135,16 +149,16 @@ export function FileBrowserPane(props: FileBrowserPaneProps) {
           'ring-foreground/10 bg-card text-card-foreground flex cursor-pointer flex-col overflow-hidden rounded-xl py-0 text-left shadow-xs ring-1 transition-colors select-none hover:bg-muted/50',
           attributes.class,
         )}
-        onClick={() => props.onFileClick(file)}
-        onKeyDown={(event) => event.key === 'Enter' && props.onFileClick(file)}
+        onClick={() => props.rows.onFileClick(file)}
+        onKeyDown={(event) => event.key === 'Enter' && props.rows.onFileClick(file)}
         role='button'
         tabindex={0}
       >
         <div class='group relative flex aspect-video items-center justify-center overflow-hidden bg-muted'>
-          {props.renderGridOverlay?.(file)}
-          <div class='text-muted-foreground'>{props.renderGridIcon(file)}</div>
+          {props.rows.renderGridOverlay?.(file)}
+          <div class='text-muted-foreground'>{props.rows.renderGridIcon(file)}</div>
         </div>
-        {props.renderGridDetails?.(file) ?? (
+        {props.rows.renderGridDetails?.(file) ?? (
           <div class='flex flex-col gap-1 p-3'>
             <p class='truncate text-sm font-medium' title={file.name}>
               {file.name}
@@ -165,20 +179,22 @@ export function FileBrowserPane(props: FileBrowserPaneProps) {
           'group cursor-pointer select-none border-b border-border transition-colors hover:bg-muted/50',
           attributes.class,
         )}
-        onClick={() => props.onFileClick(file)}
+        onClick={() => props.rows.onFileClick(file)}
       >
         <td class='w-[40px] min-w-[40px] max-w-[40px] box-border p-3 align-middle sm:p-2'>
-          <div class='flex items-center justify-center'>{props.renderListIcon(file)}</div>
+          <div class='flex items-center justify-center'>{props.rows.renderListIcon(file)}</div>
         </td>
         <td class='min-w-0 p-3 align-middle font-medium sm:p-2'>
           <div class='flex min-w-0 items-center gap-2'>
             <div class='min-w-0 flex-1'>
-              {props.renderListName?.(file) ?? <span class='block truncate'>{file.name}</span>}
+              {props.rows.renderListName?.(file) ?? <span class='block truncate'>{file.name}</span>}
             </div>
-            <Show when={props.renderListNameTrailing}>{props.renderListNameTrailing?.(file)}</Show>
+            <Show when={props.rows.renderListNameTrailing}>
+              {props.rows.renderListNameTrailing?.(file)}
+            </Show>
           </div>
         </td>
-        <Show when={props.columns().createdDate}>
+        <Show when={props.listing.columns().createdDate}>
           <td
             class='min-w-0 p-3 align-middle text-muted-foreground tabular-nums sm:p-2'
             data-column='created-date'
@@ -186,58 +202,61 @@ export function FileBrowserPane(props: FileBrowserPaneProps) {
             {formatCreatedDate(file.createdDate)}
           </td>
         </Show>
-        <Show when={props.columns().size}>
+        <Show when={props.listing.columns().size}>
           <td
             class='min-w-0 p-3 align-middle text-right text-muted-foreground sm:p-2'
             data-column='size'
           >
-            {props.renderListSize?.(file) ?? (
+            {props.rows.renderListSize?.(file) ?? (
               <span class='inline-block w-20 tabular-nums'>
                 {file.isDirectory ? '' : file.size}
               </span>
             )}
           </td>
         </Show>
-        <Show when={props.renderListActions}>{props.renderListActions?.(file)}</Show>
+        <Show when={props.rows.renderListActions}>{props.rows.renderListActions?.(file)}</Show>
       </tr>
     )
   }
 
   return (
     <FileExplorerListing
-      viewMode={props.viewMode}
+      viewMode={props.listing.viewMode}
       renderGrid={() => (
-        <div class={props.gridContainerClass}>
+        <div class={props.layout?.gridContainerClass}>
           <VirtualDirectoryGrid
-            files={props.files}
-            includeParent={props.includeParent}
-            scrollTarget={props.scrollTarget}
-            scrollScope={props.scrollScope}
-            class={props.gridClass}
+            files={props.listing.files}
+            includeParent={props.listing.includeParent}
+            scrollTarget={props.listing.scrollTarget}
+            scrollScope={props.listing.scrollScope}
+            class={props.layout?.gridClass}
             renderParentCard={parentCard}
             renderFileCard={fileCard}
           />
-          <DirectoryListingEmpty show={props.showEmpty()} canUpload={props.canUpload()} />
+          <DirectoryListingEmpty
+            show={props.listing.showEmpty()}
+            canUpload={props.listing.canUpload()}
+          />
         </div>
       )}
       renderList={() => (
-        <div class={props.listContainerClass}>
+        <div class={props.layout?.listContainerClass}>
           <VirtualDirectoryList
-            files={props.files}
-            includeParent={props.includeParent}
-            scrollTarget={props.scrollTarget}
-            scrollScope={props.scrollScope}
-            class={props.listClass}
+            files={props.listing.files}
+            includeParent={props.listing.includeParent}
+            scrollTarget={props.listing.scrollTarget}
+            scrollScope={props.listing.scrollScope}
+            class={props.layout?.listClass}
             colSpan={listColSpan}
             columns={tableColumns}
             tableClass={tableClass}
-            sizeColumnClass={props.listSizeColumnClass}
+            sizeColumnClass={props.layout?.listSizeColumnClass}
             renderParentRow={parentRow}
             renderFileRow={fileRow}
             renderEmptyRow={() => (
               <DirectoryListingEmptyTableRow
-                show={props.showEmpty()}
-                canUpload={props.canUpload()}
+                show={props.listing.showEmpty()}
+                canUpload={props.listing.canUpload()}
                 colSpan={listColSpan()}
               />
             )}

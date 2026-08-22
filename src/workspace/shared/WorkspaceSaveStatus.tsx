@@ -5,7 +5,7 @@ import { useWorkspaceSession } from './WorkspaceSession'
 export function WorkspaceSaveStatus() {
   const session = useWorkspaceSession()
   return (
-    <Show when={session.saveError()} keyed>
+    <Show when={session.state.saveError()} keyed>
       {(failure) => (
         <div
           role='alert'
@@ -19,8 +19,8 @@ export function WorkspaceSaveStatus() {
             <button
               type='button'
               class='shrink-0 font-semibold underline underline-offset-2 disabled:opacity-50'
-              disabled={session.saving()}
-              onClick={() => void session.retrySave()}
+              disabled={session.state.saving()}
+              onClick={() => void session.document.retrySave()}
             >
               Retry
             </button>
@@ -29,8 +29,8 @@ export function WorkspaceSaveStatus() {
             <button
               type='button'
               class='shrink-0 font-semibold underline underline-offset-2 disabled:opacity-50'
-              disabled={session.saving()}
-              onClick={() => void session.takeControl()}
+              disabled={session.state.saving()}
+              onClick={() => void session.lifecycle.takeControl()}
             >
               Take control
             </button>

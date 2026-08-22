@@ -1,6 +1,10 @@
 import { expect, test } from 'bun:test'
 import { MediaType, type FileItem } from '@/lib/files/types'
-import { planWorkspaceWindowOpen, workspaceWindowId } from '@/workspace/model/workspace-window-open'
+import {
+  appendWorkspaceWindow,
+  planWorkspaceWindowOpen,
+  workspaceWindowId,
+} from '@/workspace/model/workspace-window-open'
 
 const image: FileItem = {
   name: 'cover.jpg',
@@ -56,6 +60,41 @@ test('browser open plan owns title, icon, source, and parent identity', () => {
 
 test('workspace window ids are renderer-independent', () => {
   expect(workspaceWindowId(7)).toBe('workspace-window-7')
+})
+
+test('window append owns counters, focus, and source group initialization', () => {
+  const source = {
+    id: 'browser-a',
+    type: 'browser' as const,
+    title: 'Browser',
+    source: { kind: 'local' as const },
+    initialState: {},
+  }
+  const created = {
+    id: 'workspace-window-2',
+    type: 'viewer' as const,
+    title: image.name,
+    source: { kind: 'local' as const },
+    initialState: { viewing: image.path },
+    tabGroupId: 'browser-a',
+  }
+
+  const next = appendWorkspaceWindow(
+    {
+      workspaceType: 'desktop',
+      windows: [source],
+      activeWindowId: source.id,
+      activeTabMap: {},
+      nextWindowId: 2,
+    },
+    created,
+    { groupSourceWindowId: source.id },
+  )
+
+  expect(next.windows).toEqual([{ ...source, tabGroupId: source.id }, created])
+  expect(next.nextWindowId).toBe(3)
+  expect(next.activeWindowId).toBe(created.id)
+  expect(next.activeTabMap).toEqual({ 'browser-a': created.id })
 })
 
 for (const [renderer, layout] of [

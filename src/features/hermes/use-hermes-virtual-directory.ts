@@ -16,17 +16,28 @@ import {
   fileBrowserListingQueryKey,
   nextFileBrowserListingPage,
 } from '@/features/explorer/file-browser-listing-query'
-import type { FileBrowserActionOverrides } from '@/features/explorer/virtual-directory-feature'
+import type { FileBrowserActionOverrides } from '@/features/explorer/file-browser-action-overrides'
 
-type VirtualActionDialog = {
-  action:
-    | 'moveToProject'
-    | 'addProjectFolder'
-    | 'removeProjectFolder'
-    | 'setPrimaryFolder'
-    | 'setAppearance'
+type ValueActionDialog = {
+  action: 'moveToProject' | 'addProjectFolder' | 'removeProjectFolder' | 'setPrimaryFolder'
   file: FileItem
   entry?: VirtualEntry
+  value: string
+}
+
+type AppearanceActionDialog = {
+  action: 'setAppearance'
+  file: FileItem
+  entry?: VirtualEntry
+  appearance: { icon: string; color: string }
+}
+
+type VirtualActionDialog = ValueActionDialog | AppearanceActionDialog
+
+export type HermesProjectDraft = {
+  name: string
+  primaryPath: string
+  additionalPaths: string[]
 }
 
 export type HermesVirtualDirectoryModal = ReturnType<typeof useHermesVirtualDirectory>['modal']
@@ -42,18 +53,36 @@ export type HermesVirtualDirectoryOptions = Readonly<{
 
 export function useHermesVirtualDirectory(options: HermesVirtualDirectoryOptions) {
   const queryClient = useQueryClient()
-  const [projectPrimaryPath, setProjectPrimaryPath] = createSignal('')
-  const [projectAdditionalPaths, setProjectAdditionalPaths] = createSignal('')
-  const [gatewayPickerPath, setGatewayPickerPath] = createSignal('')
   const [projectCreateOpen, setProjectCreateOpen] = createSignal(false)
   const [detail, setDetail] = createSignal<{ file: FileItem; entry: VirtualEntry } | null>(null)
   const [deleteAction, setDeleteAction] = createSignal<
     'deletePermanently' | 'deleteProject' | null
   >(null)
   const [actionDialog, setActionDialog] = createSignal<VirtualActionDialog | null>(null)
-  const [actionValue, setActionValue] = createSignal('')
-  const [appearanceIcon, setAppearanceIcon] = createSignal('Folder')
-  const [appearanceColor, setAppearanceColor] = createSignal('')
+  const setActionValue = (value: string) =>
+    setActionDialog((dialog) =>
+      dialog && dialog.action !== 'setAppearance' ? { ...dialog, value } : dialog,
+    )
+  const appearanceIcon = () => {
+    const dialog = actionDialog()
+    return dialog?.action === 'setAppearance' ? dialog.appearance.icon : 'Folder'
+  }
+  const setAppearanceIcon = (icon: string) =>
+    setActionDialog((dialog) =>
+      dialog?.action === 'setAppearance'
+        ? { ...dialog, appearance: { ...dialog.appearance, icon } }
+        : dialog,
+    )
+  const appearanceColor = () => {
+    const dialog = actionDialog()
+    return dialog?.action === 'setAppearance' ? dialog.appearance.color : ''
+  }
+  const setAppearanceColor = (color: string) =>
+    setActionDialog((dialog) =>
+      dialog?.action === 'setAppearance'
+        ? { ...dialog, appearance: { ...dialog.appearance, color } }
+        : dialog,
+    )
 
   const projectRoot = createMemo(
     () => options.currentPath().split(/[/\\]/).filter(Boolean)[0] ?? '',
@@ -73,15 +102,6 @@ export function useHermesVirtualDirectory(options: HermesVirtualDirectoryOptions
       .filter(({ entry }) => entry?.kind === 'project')
       .map(({ file }) => ({ name: file.name, path: file.path })),
   )
-
-  const gatewayDirectoryQuery = useQuery(() => ({
-    queryKey: ['virtual-directory', 'gateway-fs', gatewayPickerPath()],
-    queryFn: () =>
-      api<{ entries: { name: string; path: string; isDirectory: boolean }[]; error?: string }>(
-        `/api/virtual-directory/fs?path=${encodeURIComponent(gatewayPickerPath())}`,
-      ),
-    enabled: projectCreateOpen() && hasVirtualCapability(options.directory(), 'createFolder'),
-  }))
 
   const detailQuery = useQuery(() => ({
     queryKey: ['virtual-directory', 'open', detail()?.file.path],
@@ -196,11 +216,8 @@ export function useHermesVirtualDirectory(options: HermesVirtualDirectoryOptions
 
   function openCreateFolder() {
     if (!hasVirtualCapability(options.directory(), 'createFolder')) return false
-    setProjectPrimaryPath('')
-    setProjectAdditionalPaths('')
-    setGatewayPickerPath('')
-    mutation.reset()
     setProjectCreateOpen(true)
+    mutation.reset()
     return true
   }
 
@@ -210,18 +227,15 @@ export function useHermesVirtualDirectory(options: HermesVirtualDirectoryOptions
     mutation.reset()
   }
 
-  function createProject(name: string) {
+  function createProject(draft: HermesProjectDraft) {
     if (!hasVirtualCapability(options.directory(), 'createFolder')) return false
-    const projectName = name.trim()
+    const projectName = draft.name.trim()
     if (!projectName || projectExists(projectName)) return true
-    const primaryPath = projectPrimaryPath().trim()
+    const primaryPath = draft.primaryPath.trim()
     if (!primaryPath) return true
     const folders = [
       primaryPath,
-      ...projectAdditionalPaths()
-        .split(/\r?\n/)
-        .map((value) => value.trim())
-        .filter(Boolean),
+      ...draft.additionalPaths.map((value) => value.trim()).filter(Boolean),
     ]
     mutation.mutate(
       {
@@ -320,27 +334,45 @@ export function useHermesVirtualDirectory(options: HermesVirtualDirectoryOptions
       return
     }
     if (action === 'moveToProject') {
-      setActionDialog({ action, file, entry })
-      setActionValue('')
+      setActionDialog({
+        action,
+        file,
+        entry,
+        value: '',
+      })
       mutation.reset()
       return
     }
     if (action === 'addProjectFolder') {
-      setActionDialog({ action, file, entry })
-      setActionValue('')
+      setActionDialog({
+        action,
+        file,
+        entry,
+        value: '',
+      })
       mutation.reset()
       return
     }
     if (action === 'removeProjectFolder' || action === 'setPrimaryFolder') {
-      setActionDialog({ action, file, entry })
-      setActionValue(projectFolders(entry)[0] ?? '')
+      setActionDialog({
+        action,
+        file,
+        entry,
+        value: projectFolders(entry)[0] ?? '',
+      })
       mutation.reset()
       return
     }
     if (action === 'setAppearance') {
-      setActionDialog({ action, file, entry })
-      setAppearanceIcon(typeof entry?.metadata?.icon === 'string' ? entry.metadata.icon : 'Folder')
-      setAppearanceColor(typeof entry?.metadata?.color === 'string' ? entry.metadata.color : '')
+      setActionDialog({
+        action,
+        file,
+        entry,
+        appearance: {
+          icon: typeof entry?.metadata?.icon === 'string' ? entry.metadata.icon : 'Folder',
+          color: typeof entry?.metadata?.color === 'string' ? entry.metadata.color : '',
+        },
+      })
       mutation.reset()
       return
     }
@@ -370,8 +402,10 @@ export function useHermesVirtualDirectory(options: HermesVirtualDirectoryOptions
     const dialog = actionDialog()
     if (!dialog) return
     const value =
-      actionValue().trim() ||
-      (dialog.action === 'moveToProject' ? (projectChoices()[0]?.name ?? '') : '')
+      dialog.action === 'setAppearance'
+        ? ''
+        : dialog.value.trim() ||
+          (dialog.action === 'moveToProject' ? (projectChoices()[0]?.name ?? '') : '')
     if (dialog.action !== 'setAppearance' && !value) return
     const body =
       dialog.action === 'setAppearance'
@@ -398,31 +432,25 @@ export function useHermesVirtualDirectory(options: HermesVirtualDirectoryOptions
       detail,
       setDetail,
       detailQuery,
-      actionDialog,
-      setActionDialog,
-      actionValue,
-      setActionValue,
-      appearanceIcon,
-      setAppearanceIcon,
-      appearanceColor,
-      setAppearanceColor,
-      projectChoices,
-      projectChoicesLoading: () => projectChoicesQuery.isPending,
-      projectFolders,
-      mutation,
-      submitActionDialog,
+      action: {
+        dialog: actionDialog,
+        close: () => setActionDialog(null),
+        setValue: setActionValue,
+        setAppearance: (appearance: Partial<{ icon: string; color: string }>) => {
+          if (appearance.icon !== undefined) setAppearanceIcon(appearance.icon)
+          if (appearance.color !== undefined) setAppearanceColor(appearance.color)
+        },
+        projectChoices,
+        projectChoicesLoading: () => projectChoicesQuery.isPending,
+        projectFolders,
+        pending: () => mutation.isPending,
+        error: () => mutation.error,
+        submit: submitActionDialog,
+      },
       createProject: {
         open: projectCreateOpen,
         close: closeCreateProject,
         submit: createProject,
-        primaryPath: projectPrimaryPath,
-        setPrimaryPath: setProjectPrimaryPath,
-        additionalPaths: projectAdditionalPaths,
-        setAdditionalPaths: setProjectAdditionalPaths,
-        gatewayPath: gatewayPickerPath,
-        setGatewayPath: setGatewayPickerPath,
-        gatewayEntries: () => gatewayDirectoryQuery.data?.entries ?? [],
-        gatewayError: () => gatewayDirectoryQuery.data?.error,
         pending: () => mutation.isPending,
         error: () => mutation.error,
         exists: projectExists,

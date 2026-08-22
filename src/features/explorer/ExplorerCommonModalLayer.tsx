@@ -1,10 +1,8 @@
 import type { PasteData } from '@/lib/files/paste-data'
 import type { FileItem } from '@/lib/files/types'
-import type { FileOpenTarget } from '@/lib/models/open-target'
 import type { Accessor } from 'solid-js'
 import type { JSX } from '@solidjs/web'
 import { Show } from 'solid-js'
-import type { VirtualCapability, VirtualEntry } from '@/lib/files/virtual-directory'
 import type { BreadcrumbMenuTarget } from './BreadcrumbContextMenu'
 import { BreadcrumbContextMenu } from './BreadcrumbContextMenu'
 import { DeleteFileDialog } from './DeleteFileDialog'
@@ -16,17 +14,14 @@ import { RenameDialog } from './RenameDialog'
 import type { ModalOverlayScope } from './modal-overlay-scope'
 import type { UploadToastState } from './types'
 import { UploadToastStack } from './UploadToastStack'
+import type { ExplorerRowMenu } from './explorer-row-menu'
+
+export type { ExplorerFileRowMenuApi, ExplorerRowMenu } from './explorer-row-menu'
 
 export type ExplorerBreadcrumbMenuActions = {
   showOpenInNewTab: boolean
   showOpenInOtherSurface: boolean
   showSetIcon: boolean
-}
-
-export type ExplorerFileRowMenuApi = {
-  menu: Accessor<{ x: number; y: number; file: FileItem } | null>
-  dismiss: () => void
-  confirmDelete: (file: FileItem) => void
 }
 
 export type ExplorerIconDialog = {
@@ -50,36 +45,6 @@ export type ExplorerBreadcrumbMenu = {
   openInOtherSurface: () => void
   otherSurfaceLabel?: string
   setIcon: () => void
-}
-
-export type ExplorerRowMenu = {
-  api: ExplorerFileRowMenuApi
-  editableFolders: Accessor<string[]>
-  currentDirectoryEditable: Accessor<boolean>
-  hasEditableFolders: Accessor<boolean>
-  download: (file: FileItem) => void
-  openInNewTab?: (file: FileItem) => void
-  openInNewTabLabel?: string
-  showOpenInNewTabForFiles?: boolean
-  openInSplitView?: (file: FileItem) => void
-  openInOtherSurface?: (file: FileItem) => void
-  openInOtherSurfaceLabel?: string
-  openWithBrowser?: (file: FileItem) => void
-  openWithReader?: (file: FileItem) => void
-  addToTaskbar?: (file: FileItem) => void
-  toggleFavorite?: (file: FileItem) => void
-  isFavorite?: (file: FileItem) => boolean
-  rename?: (file: FileItem) => void
-  move?: (file: FileItem) => void
-  copy?: (file: FileItem) => void
-  setIcon?: (file: FileItem) => void
-  toggleKnowledgeBase?: (file: FileItem) => void
-  isKnowledgeBase?: (file: FileItem) => boolean
-  pickNewTabTarget?: () => void
-  defaultFileOpen?: Accessor<FileOpenTarget>
-  openFileInNewWindow?: (file: FileItem) => void
-  getVirtualEntry?: (file: FileItem) => VirtualEntry | undefined
-  runVirtualAction?: (action: VirtualCapability, file: FileItem) => void
 }
 
 export type ExplorerRenameDialog = {
@@ -169,37 +134,7 @@ export function ExplorerCommonModalLayer(props: ExplorerCommonModalLayerProps) {
         showSetIcon={props.breadcrumbs.availableActions().showSetIcon}
         onSetIcon={props.breadcrumbs.setIcon}
       />
-      <FileRowContextMenu
-        menu={props.rowMenu.api.menu}
-        editableFolders={props.rowMenu.editableFolders}
-        isCurrentDirEditable={props.rowMenu.currentDirectoryEditable}
-        hasEditableFolders={props.rowMenu.hasEditableFolders}
-        onDismiss={props.rowMenu.api.dismiss}
-        onDownload={props.rowMenu.download}
-        onDelete={props.rowMenu.api.confirmDelete}
-        onAddToTaskbar={props.rowMenu.addToTaskbar}
-        onRename={props.rowMenu.rename}
-        onMove={props.rowMenu.move}
-        onSetIcon={props.rowMenu.setIcon}
-        onOpenInNewTab={props.rowMenu.openInNewTab}
-        openInNewTabLabel={props.rowMenu.openInNewTabLabel}
-        showOpenInNewTabForFiles={props.rowMenu.showOpenInNewTabForFiles}
-        onOpenInSplitView={props.rowMenu.openInSplitView}
-        onOpenInOtherSurface={props.rowMenu.openInOtherSurface}
-        openInOtherSurfaceLabel={props.rowMenu.openInOtherSurfaceLabel}
-        onOpenWithBrowser={props.rowMenu.openWithBrowser}
-        onOpenWithReader={props.rowMenu.openWithReader}
-        onToggleFavorite={props.rowMenu.toggleFavorite}
-        isFavorite={props.rowMenu.isFavorite}
-        onCopy={props.rowMenu.copy}
-        onToggleKnowledgeBase={props.rowMenu.toggleKnowledgeBase}
-        isKnowledgeBase={props.rowMenu.isKnowledgeBase}
-        onPickNewTabTarget={props.rowMenu.pickNewTabTarget}
-        defaultFileOpen={props.rowMenu.defaultFileOpen}
-        onOpenFileInNewWindow={props.rowMenu.openFileInNewWindow}
-        getVirtualEntry={props.rowMenu.getVirtualEntry}
-        onVirtualAction={props.rowMenu.runVirtualAction}
-      />
+      <FileRowContextMenu model={props.rowMenu} />
       <RenameDialog
         overlayScope={props.overlayScope}
         isOpen={props.rename.open()}

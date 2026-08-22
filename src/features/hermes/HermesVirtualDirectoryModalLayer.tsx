@@ -1,4 +1,6 @@
 import { createSignal, For, Show } from 'solid-js'
+import { useQuery } from '@tanstack/solid-query'
+import { api } from '@/lib/api/client'
 import { cn } from '@/lib/ui/cn'
 import { SOLID_AVAILABLE_ICONS } from '@/lib/ui/solid-available-icons'
 import type { ModalOverlayScope } from '@/features/explorer/modal-overlay-scope'
@@ -9,14 +11,32 @@ function HermesCreateProjectDialog(props: {
   model: HermesVirtualDirectoryModal['createProject']
   overlayScope?: ModalOverlayScope
 }) {
-  const [projectName, setProjectName] = createSignal('')
+  const [draft, setDraft] = createSignal({
+    name: '',
+    primaryPath: '',
+    additionalPaths: '',
+    gatewayPath: '',
+  })
+  const gatewayDirectoryQuery = useQuery(() => ({
+    queryKey: ['virtual-directory', 'gateway-fs', draft().gatewayPath],
+    queryFn: () =>
+      api<{ entries: { name: string; path: string; isDirectory: boolean }[]; error?: string }>(
+        `/api/virtual-directory/fs?path=${encodeURIComponent(draft().gatewayPath)}`,
+      ),
+  }))
   const canSubmit = () =>
-    !!projectName().trim() &&
-    !!props.model.primaryPath().trim() &&
-    !props.model.exists(projectName()) &&
+    !!draft().name.trim() &&
+    !!draft().primaryPath.trim() &&
+    !props.model.exists(draft().name) &&
     !props.model.pending()
   const submit = () => {
-    if (canSubmit()) props.model.submit(projectName())
+    const value = draft()
+    if (canSubmit())
+      props.model.submit({
+        name: value.name,
+        primaryPath: value.primaryPath,
+        additionalPaths: value.additionalPaths.split(/\r?\n/),
+      })
   }
 
   return (
@@ -44,12 +64,12 @@ function HermesCreateProjectDialog(props: {
           type='text'
           class={cn(
             'mt-4 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring',
-            props.model.exists(projectName()) && 'border-yellow-500',
+            props.model.exists(draft().name) && 'border-yellow-500',
           )}
           placeholder='Project name'
-          value={projectName()}
+          value={draft().name}
           disabled={props.model.pending()}
-          onInput={(event) => setProjectName(event.currentTarget.value)}
+          onInput={(event) => setDraft((state) => ({ ...state, name: event.currentTarget.value }))}
           onKeyDown={(event) => {
             if (event.key === 'Enter') submit()
           }}
@@ -60,8 +80,10 @@ function HermesCreateProjectDialog(props: {
             type='text'
             class='h-8 w-full rounded-md border border-input bg-background px-2.5 text-sm text-foreground'
             placeholder='/existing/gateway/path'
-            value={props.model.primaryPath()}
-            onInput={(event) => props.model.setPrimaryPath(event.currentTarget.value)}
+            value={draft().primaryPath}
+            onInput={(event) =>
+              setDraft((state) => ({ ...state, primaryPath: event.currentTarget.value }))
+            }
           />
         </label>
         <details class='mt-2.5 rounded-md border border-border px-2.5 py-1.5 text-xs'>
@@ -69,8 +91,10 @@ function HermesCreateProjectDialog(props: {
           <textarea
             class='mt-2 min-h-14 w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm text-foreground'
             placeholder='One gateway path per line'
-            value={props.model.additionalPaths()}
-            onInput={(event) => props.model.setAdditionalPaths(event.currentTarget.value)}
+            value={draft().additionalPaths}
+            onInput={(event) =>
+              setDraft((state) => ({ ...state, additionalPaths: event.currentTarget.value }))
+            }
           />
         </details>
         <details class='mt-2.5 rounded-md border border-border px-2.5 py-1.5 text-xs'>
@@ -78,30 +102,34 @@ function HermesCreateProjectDialog(props: {
           <div class='mt-2 space-y-2'>
             <div class='flex items-center justify-between gap-2'>
               <span class='truncate text-xs text-muted-foreground'>
-                Gateway: {props.model.gatewayPath() || '(gateway cwd)'}
+                Gateway: {draft().gatewayPath || '(gateway cwd)'}
               </span>
-              <Show when={props.model.gatewayPath()}>
+              <Show when={draft().gatewayPath}>
                 <button
                   type='button'
                   class='h-7 rounded border border-input px-2 text-xs'
-                  onClick={() => props.model.setPrimaryPath(props.model.gatewayPath())}
+                  onClick={() =>
+                    setDraft((state) => ({ ...state, primaryPath: state.gatewayPath }))
+                  }
                 >
                   Use current
                 </button>
               </Show>
             </div>
-            <Show when={props.model.gatewayError()}>
+            <Show when={gatewayDirectoryQuery.data?.error}>
               {(error) => <p class='text-xs text-destructive'>{error()}</p>}
             </Show>
             <div class='max-h-28 overflow-auto'>
-              <For each={props.model.gatewayEntries()}>
+              <For each={gatewayDirectoryQuery.data?.entries ?? []}>
                 {(entry) => (
                   <Show when={entry.isDirectory}>
                     <button
                       type='button'
                       class='block w-full truncate rounded px-2 py-1 text-left text-sm hover:bg-muted'
-                      onDblClick={() => props.model.setGatewayPath(entry.path)}
-                      onClick={() => props.model.setPrimaryPath(entry.path)}
+                      onDblClick={() =>
+                        setDraft((state) => ({ ...state, gatewayPath: entry.path }))
+                      }
+                      onClick={() => setDraft((state) => ({ ...state, primaryPath: entry.path }))}
                     >
                       {entry.name}
                     </button>
@@ -111,7 +139,7 @@ function HermesCreateProjectDialog(props: {
             </div>
           </div>
         </details>
-        <Show when={props.model.exists(projectName())}>
+        <Show when={props.model.exists(draft().name)}>
           <p class='mt-2 text-sm text-yellow-700 dark:text-yellow-300'>Project already exists</p>
         </Show>
         <Show when={props.model.error()}>
@@ -144,6 +172,15 @@ export function HermesVirtualDirectoryModalLayer(props: {
   model: HermesVirtualDirectoryModal
   overlayScope?: ModalOverlayScope
 }) {
+  const actionValue = () => {
+    const dialog = props.model.action.dialog()
+    return dialog && dialog.action !== 'setAppearance' ? dialog.value : ''
+  }
+  const appearance = () => {
+    const dialog = props.model.action.dialog()
+    return dialog?.action === 'setAppearance' ? dialog.appearance : { icon: 'Folder', color: '' }
+  }
+
   return (
     <>
       <Show when={props.model.createProject.open()}>
@@ -206,13 +243,13 @@ export function HermesVirtualDirectoryModalLayer(props: {
         )}
       </Show>
 
-      <Show when={props.model.actionDialog()}>
+      <Show when={props.model.action.dialog()}>
         {(dialog) => (
           <div
             data-no-window-drag
             class={modalDialogBackdropClass(props.overlayScope)}
             role='presentation'
-            onClick={() => props.model.setActionDialog(null)}
+            onClick={props.model.action.close}
           >
             <div
               role='dialog'
@@ -238,19 +275,21 @@ export function HermesVirtualDirectoryModalLayer(props: {
                 </p>
                 <select
                   class='mt-3 h-9 w-full rounded-md border border-input bg-background px-2 text-sm'
-                  value={props.model.actionValue() || props.model.projectChoices()[0]?.name || ''}
+                  value={actionValue() || props.model.action.projectChoices()[0]?.name || ''}
                   disabled={
-                    props.model.projectChoicesLoading() || !props.model.projectChoices().length
+                    props.model.action.projectChoicesLoading() ||
+                    !props.model.action.projectChoices().length
                   }
-                  onChange={(event) => props.model.setActionValue(event.currentTarget.value)}
+                  onChange={(event) => props.model.action.setValue(event.currentTarget.value)}
                 >
-                  <For each={props.model.projectChoices()}>
+                  <For each={props.model.action.projectChoices()}>
                     {(project) => <option value={project.name}>{project.name}</option>}
                   </For>
                 </select>
                 <Show
                   when={
-                    !props.model.projectChoicesLoading() && !props.model.projectChoices().length
+                    !props.model.action.projectChoicesLoading() &&
+                    !props.model.action.projectChoices().length
                   }
                 >
                   <p class='mt-2 text-xs text-muted-foreground'>
@@ -263,10 +302,10 @@ export function HermesVirtualDirectoryModalLayer(props: {
                   autofocus
                   class='mt-3 h-9 w-full rounded-md border border-input bg-background px-2.5 text-sm'
                   placeholder='Existing gateway directory path'
-                  value={props.model.actionValue()}
-                  onInput={(event) => props.model.setActionValue(event.currentTarget.value)}
+                  value={actionValue()}
+                  onInput={(event) => props.model.action.setValue(event.currentTarget.value)}
                   onKeyDown={(event) => {
-                    if (event.key === 'Enter') props.model.submitActionDialog()
+                    if (event.key === 'Enter') props.model.action.submit()
                   }}
                 />
               </Show>
@@ -278,14 +317,14 @@ export function HermesVirtualDirectoryModalLayer(props: {
               >
                 <select
                   class='mt-3 h-9 w-full rounded-md border border-input bg-background px-2 text-sm'
-                  value={props.model.actionValue()}
-                  onChange={(event) => props.model.setActionValue(event.currentTarget.value)}
+                  value={actionValue()}
+                  onChange={(event) => props.model.action.setValue(event.currentTarget.value)}
                 >
-                  <For each={props.model.projectFolders(dialog().entry)}>
+                  <For each={props.model.action.projectFolders(dialog().entry)}>
                     {(folder) => <option value={folder}>{folder}</option>}
                   </For>
                 </select>
-                <Show when={!props.model.projectFolders(dialog().entry).length}>
+                <Show when={!props.model.action.projectFolders(dialog().entry).length}>
                   <p class='mt-2 text-xs text-muted-foreground'>
                     Project has no gateway directories.
                   </p>
@@ -301,11 +340,11 @@ export function HermesVirtualDirectoryModalLayer(props: {
                         aria-label={item.name}
                         class={cn(
                           'flex h-8 w-8 items-center justify-center rounded-md border',
-                          props.model.appearanceIcon() === item.name
+                          appearance().icon === item.name
                             ? 'border-primary bg-primary/10 text-primary'
                             : 'border-transparent text-muted-foreground hover:bg-muted',
                         )}
-                        onClick={() => props.model.setAppearanceIcon(item.name)}
+                        onClick={() => props.model.action.setAppearance({ icon: item.name })}
                       >
                         <item.Icon class='h-4 w-4' />
                       </button>
@@ -319,29 +358,31 @@ export function HermesVirtualDirectoryModalLayer(props: {
                       type='color'
                       aria-label='Project accent color'
                       class='h-8 w-10 cursor-pointer rounded border border-input bg-background p-1'
-                      value={props.model.appearanceColor() || '#8b5cf6'}
-                      onInput={(event) => props.model.setAppearanceColor(event.currentTarget.value)}
+                      value={appearance().color || '#8b5cf6'}
+                      onInput={(event) =>
+                        props.model.action.setAppearance({ color: event.currentTarget.value })
+                      }
                     />
                     <button
                       type='button'
                       class='rounded border border-input px-2 py-1 text-foreground'
-                      onClick={() => props.model.setAppearanceColor('')}
+                      onClick={() => props.model.action.setAppearance({ color: '' })}
                     >
                       Default
                     </button>
                   </span>
                 </label>
               </Show>
-              <Show when={props.model.mutation.isError}>
+              <Show when={props.model.action.error()}>
                 <p class='mt-2 text-xs text-destructive'>
-                  {(props.model.mutation.error as Error)?.message ?? 'Hermes action failed'}
+                  {props.model.action.error()?.message ?? 'Hermes action failed'}
                 </p>
               </Show>
               <div class='mt-4 flex justify-end gap-2'>
                 <button
                   type='button'
                   class='h-8 rounded-md border border-input px-3 text-sm'
-                  onClick={() => props.model.setActionDialog(null)}
+                  onClick={props.model.action.close}
                 >
                   Cancel
                 </button>
@@ -349,15 +390,16 @@ export function HermesVirtualDirectoryModalLayer(props: {
                   type='button'
                   class='h-8 rounded-md bg-primary px-3 text-sm text-primary-foreground disabled:opacity-50'
                   disabled={
-                    props.model.mutation.isPending ||
+                    props.model.action.pending() ||
                     (dialog().action !== 'setAppearance' &&
                       dialog().action !== 'moveToProject' &&
-                      !props.model.actionValue().trim()) ||
-                    (dialog().action === 'moveToProject' && !props.model.projectChoices().length)
+                      !actionValue().trim()) ||
+                    (dialog().action === 'moveToProject' &&
+                      !props.model.action.projectChoices().length)
                   }
-                  onClick={props.model.submitActionDialog}
+                  onClick={props.model.action.submit}
                 >
-                  {props.model.mutation.isPending
+                  {props.model.action.pending()
                     ? 'Saving…'
                     : dialog().action === 'moveToProject'
                       ? 'Move'

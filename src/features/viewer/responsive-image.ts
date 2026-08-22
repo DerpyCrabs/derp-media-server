@@ -9,6 +9,33 @@ import {
 
 type Dimensions = { width: number; height: number }
 
+export type ImageLoadState = {
+  displayed: { src: string; path: string } | null
+  request: { kind: 'idle' } | { kind: 'loading'; spinner: boolean } | { kind: 'error' }
+}
+
+export type ImageLoadEvent =
+  | { kind: 'reset' }
+  | { kind: 'start' }
+  | { kind: 'show-spinner' }
+  | { kind: 'display'; src: string; path: string }
+  | { kind: 'error' }
+
+export function reduceImageLoadState(state: ImageLoadState, event: ImageLoadEvent): ImageLoadState {
+  if (event.kind === 'reset') return { ...state, request: { kind: 'idle' } }
+  if (event.kind === 'start') return { ...state, request: { kind: 'loading', spinner: false } }
+  if (event.kind === 'show-spinner')
+    return state.request.kind === 'loading'
+      ? { ...state, request: { kind: 'loading', spinner: true } }
+      : state
+  if (event.kind === 'display')
+    return {
+      displayed: { src: event.src, path: event.path },
+      request: { kind: 'idle' },
+    }
+  return { ...state, request: { kind: 'error' } }
+}
+
 type Options = {
   path: Accessor<string>
   viewport: Accessor<HTMLElement | undefined>
@@ -38,12 +65,19 @@ export function createResponsiveImage(options: Options) {
   const [enabled, setEnabled] = createSignal(true)
   const [request, setRequest] = createSignal<ResponsiveImageRequest | null>(null)
   const [forcedOriginal, setForcedOriginal] = createSignal(false)
-  const [loading, setLoading] = createSignal(false)
-  const [showSpinner, setShowSpinner] = createSignal(false)
-  const [error, setError] = createSignal(false)
-  const [loadedPath, setLoadedPath] = createSignal('')
-  const [displayedSrc, setDisplayedSrc] = createSignal('')
+  const [loadState, setLoadState] = createSignal<ImageLoadState>({
+    displayed: null,
+    request: { kind: 'idle' },
+  })
   const [retryNonce, setRetryNonce] = createSignal(0)
+  const loading = () => loadState().request.kind === 'loading'
+  const showSpinner = () => {
+    const request = loadState().request
+    return request.kind === 'loading' && request.spinner
+  }
+  const error = () => loadState().request.kind === 'error'
+  const loadedPath = () => loadState().displayed?.path ?? ''
+  const displayedSrc = () => loadState().displayed?.src ?? ''
   let maximumDemand: ResponsiveImageRequest = {
     width: 0,
     height: 0,
@@ -105,8 +139,7 @@ export function createResponsiveImage(options: Options) {
         maximumDemand = { width: 0, height: 0, dpr: 0, scale: 0, priority: 'active' }
         setRequest(null)
         setForcedOriginal(false)
-        setError(false)
-        setLoadedPath('')
+        setLoadState((state) => reduceImageLoadState(state, { kind: 'reset' }))
       }
       if (!path || width <= 0 || height <= 0 || !isEnabled) return undefined
       const dpr = Math.min(window.devicePixelRatio || 1, 2)
@@ -151,16 +184,15 @@ export function createResponsiveImage(options: Options) {
     () => desiredSrc(),
     (value) => {
       if (!value) {
-        setLoading(false)
-        setShowSpinner(false)
+        setLoadState((state) => reduceImageLoadState(state, { kind: 'reset' }))
         return undefined
       }
       let cancelled = false
-      setLoading(true)
-      setShowSpinner(false)
-      setError(false)
+      setLoadState((state) => reduceImageLoadState(state, { kind: 'start' }))
       const spinnerTimer = window.setTimeout(() => {
-        if (untrack(loading)) setShowSpinner(true)
+        if (untrack(loading)) {
+          setLoadState((state) => reduceImageLoadState(state, { kind: 'show-spinner' }))
+        }
       }, 1000)
       const image = new Image()
       image.decoding = 'async'
@@ -173,11 +205,9 @@ export function createResponsiveImage(options: Options) {
               if (cancelled) return
               const path = options.path()
               if (loadedPath() !== path) options.onDisplayPath?.(path)
-              setDisplayedSrc(value)
-              setLoading(false)
-              setShowSpinner(false)
-              setError(false)
-              setLoadedPath(path)
+              setLoadState((state) =>
+                reduceImageLoadState(state, { kind: 'display', src: value, path }),
+              )
             }),
           )
       }
@@ -187,9 +217,7 @@ export function createResponsiveImage(options: Options) {
           setForcedOriginal(true)
           return
         }
-        setLoading(false)
-        setShowSpinner(false)
-        setError(true)
+        setLoadState((state) => reduceImageLoadState(state, { kind: 'error' }))
       }
       image.src = value
       // eslint-disable-next-line solid/reactivity
@@ -203,9 +231,8 @@ export function createResponsiveImage(options: Options) {
   )
 
   function retry() {
-    setError(false)
+    setLoadState((state) => reduceImageLoadState(state, { kind: 'reset' }))
     setForcedOriginal(false)
-    setLoadedPath('')
     setRetryNonce((value) => value + 1)
   }
 

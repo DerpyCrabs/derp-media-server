@@ -1,5 +1,4 @@
-import { MediaType, type FileItem } from '@/lib/files/types'
-import { isPathEditable } from '@/lib/files/path-utils'
+import type { FileItem } from '@/lib/files/types'
 import { FloatingContextMenu } from './FloatingContextMenu'
 import AppWindow from 'lucide-solid/icons/app-window'
 import BookOpen from 'lucide-solid/icons/book-open'
@@ -12,114 +11,40 @@ import Pin from 'lucide-solid/icons/pin'
 import Settings from 'lucide-solid/icons/settings'
 import Library from 'lucide-solid/icons/library'
 import Star from 'lucide-solid/icons/star'
-import type { Accessor } from 'solid-js'
 import { Show, createSignal } from 'solid-js'
-import {
-  hasVirtualCapability,
-  type VirtualCapability,
-  type VirtualEntry,
-} from '@/lib/files/virtual-directory'
+import type { VirtualCapability } from '@/lib/files/virtual-directory'
+import type { ExplorerRowMenu } from './explorer-row-menu'
 
 type MenuState = { x: number; y: number; file: FileItem }
 
-type FileRowContextMenuProps = {
-  menu: Accessor<MenuState | null>
-  editableFolders: Accessor<string[]>
-  isCurrentDirEditable: Accessor<boolean>
-  hasEditableFolders: Accessor<boolean>
-  onDismiss: () => void
-  onDownload: (file: FileItem) => void
-  onDelete: (file: FileItem) => void
-  onAddToTaskbar?: (file: FileItem) => void
-  onOpenInNewTab?: (file: FileItem) => void
-  openInNewTabLabel?: string
-  /** When true, show "Open in new tab" for files too. Default: folders only. */
-  showOpenInNewTabForFiles?: boolean
-  /** Open beside the file browser in split view. */
-  onOpenInSplitView?: (file: FileItem) => void
-  onOpenInOtherSurface?: (file: FileItem) => void
-  onOpenWithBrowser?: (file: FileItem) => void
-  onOpenWithReader?: (file: FileItem) => void
-  openInOtherSurfaceLabel?: string
-  onToggleFavorite?: (file: FileItem) => void
-  isFavorite?: (file: FileItem) => boolean
-  onRename?: (file: FileItem) => void
-  onMove?: (file: FileItem) => void
-  onCopy?: (file: FileItem) => void
-  onSetIcon?: (file: FileItem) => void
-  onToggleKnowledgeBase?: (file: FileItem) => void
-  isKnowledgeBase?: (file: FileItem) => boolean
-  /** Pick which tab bar receives items opened in a new tab. */
-  onPickNewTabTarget?: () => void
-  /** Normal click uses new-tab vs new-window; context menu shows the opposite for files. */
-  defaultFileOpen?: Accessor<'new-tab' | 'new-window'>
-  /** Open a file in a floating window when default mode is new-tab. */
-  onOpenFileInNewWindow?: (file: FileItem) => void
-  getVirtualEntry?: (file: FileItem) => VirtualEntry | undefined
-  onVirtualAction?: (action: VirtualCapability, file: FileItem) => void
-}
-
-export function FileRowContextMenu(props: FileRowContextMenuProps) {
+export function FileRowContextMenu(props: { model: ExplorerRowMenu }) {
   const [openWithState, setOpenWithState] = createSignal<{
     menu: MenuState | null
     open: boolean
   }>({ menu: null, open: false })
   const openWithOpen = () => {
     const state = openWithState()
-    return state.menu === props.menu() && state.open
+    return state.menu === props.model.menu() && state.open
   }
-  const setOpenWithOpen = (open: boolean) => setOpenWithState({ menu: props.menu(), open })
+  const setOpenWithOpen = (open: boolean) => setOpenWithState({ menu: props.model.menu(), open })
 
   return (
     <FloatingContextMenu
-      state={props.menu}
+      state={props.model.menu}
       anchor={(ctx) => ({ x: ctx.x, y: ctx.y })}
-      onDismiss={props.onDismiss}
+      onDismiss={props.model.dismiss}
       data-slot='file-row-context-menu'
     >
       {(ctx) => {
-        const downloadLabel = () => (ctx.file.isDirectory ? 'Download as ZIP' : 'Download')
-        const virtualEntry = () => props.getVirtualEntry?.(ctx.file)
         const canVirtual = (capability: VirtualCapability) =>
-          virtualEntry()?.capabilities.includes(capability) ?? false
-        const showDeleteFile = () => {
-          if (ctx.file.isVirtual) return false
-          if (!isPathEditable(ctx.file.path, props.editableFolders())) return false
-          return true
-        }
-        const showCopyTo = () => props.hasEditableFolders() && !ctx.file.isVirtual && !!props.onCopy
-        const showMove = () => props.isCurrentDirEditable() && !ctx.file.isVirtual && !!props.onMove
-        const showRename = () =>
-          props.isCurrentDirEditable() && !ctx.file.isVirtual && !!props.onRename
+          props.model.canVirtual(capability, ctx.file)
+        const available = (action: Parameters<ExplorerRowMenu['available']>[0]) =>
+          props.model.available(action, ctx.file)
         const showEditSeparator = () => showDeleteFile() || showMove() || showRename()
-
-        const fileContextIsNewWindow = () =>
-          !ctx.file.isDirectory &&
-          props.showOpenInNewTabForFiles === true &&
-          props.defaultFileOpen?.() === 'new-tab' &&
-          !!props.onOpenFileInNewWindow
-
-        const showOpenRow = () => {
-          if (ctx.file.isVirtual) return false
-          if (ctx.file.isDirectory) return !!props.onOpenInNewTab
-          if (props.showOpenInNewTabForFiles !== true) return false
-          if (fileContextIsNewWindow()) return true
-          return !!props.onOpenInNewTab
-        }
-
-        const openRowPrimary = () => {
-          if (fileContextIsNewWindow()) {
-            props.onOpenFileInNewWindow?.(ctx.file)
-          } else {
-            props.onOpenInNewTab?.(ctx.file)
-          }
-          props.onDismiss()
-        }
-
-        const openRowPrimaryLabel = () =>
-          fileContextIsNewWindow()
-            ? 'Open in new window'
-            : (props.openInNewTabLabel ?? 'Open in new tab')
+        const showDeleteFile = () => available('delete')
+        const showCopyTo = () => available('copy')
+        const showMove = () => available('move')
+        const showRename = () => available('rename')
 
         return (
           <>
@@ -128,10 +53,7 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
                 type='button'
                 data-slot='context-menu-item'
                 class='flex w-full cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
-                onClick={() => {
-                  props.onVirtualAction?.('rename', ctx.file)
-                  props.onDismiss()
-                }}
+                onClick={() => props.model.runVirtual('rename', ctx.file)}
               >
                 Rename
               </button>
@@ -141,10 +63,7 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
                 type='button'
                 data-slot='context-menu-item'
                 class='flex w-full cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
-                onClick={() => {
-                  props.onVirtualAction?.('branch', ctx.file)
-                  props.onDismiss()
-                }}
+                onClick={() => props.model.runVirtual('branch', ctx.file)}
               >
                 Branch
               </button>
@@ -154,10 +73,7 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
                 type='button'
                 data-slot='context-menu-item'
                 class='flex w-full cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
-                onClick={() => {
-                  props.onVirtualAction?.('moveToProject', ctx.file)
-                  props.onDismiss()
-                }}
+                onClick={() => props.model.runVirtual('moveToProject', ctx.file)}
               >
                 Move to project…
               </button>
@@ -167,10 +83,7 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
                 type='button'
                 data-slot='context-menu-item'
                 class='flex w-full cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
-                onClick={() => {
-                  props.onVirtualAction?.('copyId', ctx.file)
-                  props.onDismiss()
-                }}
+                onClick={() => props.model.runVirtual('copyId', ctx.file)}
               >
                 Copy session ID
               </button>
@@ -180,10 +93,7 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
                 type='button'
                 data-slot='context-menu-item'
                 class='flex w-full cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
-                onClick={() => {
-                  props.onVirtualAction?.('addProjectFolder', ctx.file)
-                  props.onDismiss()
-                }}
+                onClick={() => props.model.runVirtual('addProjectFolder', ctx.file)}
               >
                 Add gateway directory…
               </button>
@@ -193,10 +103,7 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
                 type='button'
                 data-slot='context-menu-item'
                 class='flex w-full cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
-                onClick={() => {
-                  props.onVirtualAction?.('removeProjectFolder', ctx.file)
-                  props.onDismiss()
-                }}
+                onClick={() => props.model.runVirtual('removeProjectFolder', ctx.file)}
               >
                 Remove gateway directory…
               </button>
@@ -206,10 +113,7 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
                 type='button'
                 data-slot='context-menu-item'
                 class='flex w-full cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
-                onClick={() => {
-                  props.onVirtualAction?.('setPrimaryFolder', ctx.file)
-                  props.onDismiss()
-                }}
+                onClick={() => props.model.runVirtual('setPrimaryFolder', ctx.file)}
               >
                 Set primary directory…
               </button>
@@ -219,10 +123,7 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
                 type='button'
                 data-slot='context-menu-item'
                 class='flex w-full cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
-                onClick={() => {
-                  props.onVirtualAction?.('setAppearance', ctx.file)
-                  props.onDismiss()
-                }}
+                onClick={() => props.model.runVirtual('setAppearance', ctx.file)}
               >
                 Appearance…
               </button>
@@ -232,10 +133,7 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
                 type='button'
                 data-slot='context-menu-item'
                 class='flex w-full cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
-                onClick={() => {
-                  props.onVirtualAction?.('archive', ctx.file)
-                  props.onDismiss()
-                }}
+                onClick={() => props.model.runVirtual('archive', ctx.file)}
               >
                 Archive
               </button>
@@ -245,10 +143,7 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
                 type='button'
                 data-slot='context-menu-item'
                 class='flex w-full cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
-                onClick={() => {
-                  props.onVirtualAction?.('restore', ctx.file)
-                  props.onDismiss()
-                }}
+                onClick={() => props.model.runVirtual('restore', ctx.file)}
               >
                 Restore
               </button>
@@ -258,10 +153,7 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
                 type='button'
                 data-slot='context-menu-item'
                 class='text-destructive flex w-full cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
-                onClick={() => {
-                  props.onVirtualAction?.('deleteProject', ctx.file)
-                  props.onDismiss()
-                }}
+                onClick={() => props.model.runVirtual('deleteProject', ctx.file)}
               >
                 Delete Project
               </button>
@@ -271,30 +163,24 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
                 type='button'
                 data-slot='context-menu-item'
                 class='text-destructive flex w-full cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
-                onClick={() => {
-                  props.onVirtualAction?.('deletePermanently', ctx.file)
-                  props.onDismiss()
-                }}
+                onClick={() => props.model.runVirtual('deletePermanently', ctx.file)}
               >
                 Delete Permanently
               </button>
             </Show>
-            <Show when={props.onSetIcon && !ctx.file.isVirtual}>
+            <Show when={available('set-icon')}>
               <button
                 type='button'
                 data-slot='context-menu-item'
                 class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
                 role='menuitem'
-                onClick={() => {
-                  props.onSetIcon?.(ctx.file)
-                  props.onDismiss()
-                }}
+                onClick={() => props.model.run('set-icon', ctx.file)}
               >
                 <Pencil class='h-4 w-4 shrink-0' stroke-width={2} />
                 Set icon
               </button>
             </Show>
-            <Show when={props.onPickNewTabTarget}>
+            <Show when={available('pick-new-tab-target')}>
               <button
                 type='button'
                 data-slot='context-menu-item'
@@ -302,60 +188,43 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
                 class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
                 role='menuitem'
                 title='Choose which window receives files opened in a new tab'
-                onClick={() => {
-                  props.onPickNewTabTarget?.()
-                  props.onDismiss()
-                }}
+                onClick={() => props.model.run('pick-new-tab-target', ctx.file)}
               >
                 <Settings class='h-4 w-4 shrink-0' stroke-width={2} />
                 Choose where new tabs open…
               </button>
             </Show>
-            <Show when={showOpenRow()}>
+            <Show when={available('primary-open')}>
               <button
                 type='button'
                 data-slot='context-menu-item'
                 class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
                 role='menuitem'
-                onClick={openRowPrimary}
+                onClick={() => props.model.run('primary-open', ctx.file)}
               >
                 <Show
-                  when={fileContextIsNewWindow()}
+                  when={props.model.primaryOpenUsesNewWindow(ctx.file)}
                   fallback={<ExternalLink class='h-4 w-4 shrink-0' stroke-width={2} />}
                 >
                   <AppWindow class='h-4 w-4 shrink-0' stroke-width={2} />
                 </Show>
-                {openRowPrimaryLabel()}
+                {props.model.label('primary-open', ctx.file)}
               </button>
             </Show>
-            <Show
-              when={
-                props.onOpenInSplitView && !ctx.file.isVirtual && ctx.file.type !== MediaType.AUDIO
-              }
-            >
+            <Show when={available('split-view')}>
               <button
                 type='button'
                 data-slot='context-menu-item'
                 data-testid='workspace-file-menu-open-split-view'
                 class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
                 role='menuitem'
-                onClick={() => {
-                  props.onOpenInSplitView?.(ctx.file)
-                  props.onDismiss()
-                }}
+                onClick={() => props.model.run('split-view', ctx.file)}
               >
                 <Columns2 class='h-4 w-4 shrink-0' stroke-width={2} />
                 Open in split view
               </button>
             </Show>
-            <Show
-              when={
-                props.onOpenWithBrowser &&
-                props.onOpenWithReader &&
-                !ctx.file.isVirtual &&
-                ctx.file.isDirectory
-              }
-            >
+            <Show when={available('open-with')}>
               <div
                 class='relative'
                 onPointerEnter={() => setOpenWithOpen(true)}
@@ -392,10 +261,7 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
                       role='menuitem'
                       data-testid='open-with-browser'
                       class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
-                      onClick={() => {
-                        props.onOpenWithBrowser?.(ctx.file)
-                        props.onDismiss()
-                      }}
+                      onClick={() => props.model.run('open-with-browser', ctx.file)}
                     >
                       <FolderOpen class='h-4 w-4 shrink-0' stroke-width={2} />
                       Browser
@@ -405,10 +271,7 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
                       role='menuitem'
                       data-testid='open-with-reader'
                       class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
-                      onClick={() => {
-                        props.onOpenWithReader?.(ctx.file)
-                        props.onDismiss()
-                      }}
+                      onClick={() => props.model.run('open-with-reader', ctx.file)}
                     >
                       <BookOpen class='h-4 w-4 shrink-0' stroke-width={2} />
                       Reader
@@ -417,91 +280,69 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
                 </Show>
               </div>
             </Show>
-            <Show when={props.onOpenInOtherSurface && ctx.file.isDirectory && !ctx.file.isVirtual}>
+            <Show when={available('other-surface')}>
               <button
                 type='button'
                 data-slot='context-menu-item'
                 class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
                 role='menuitem'
-                onClick={() => {
-                  props.onOpenInOtherSurface?.(ctx.file)
-                  props.onDismiss()
-                }}
+                onClick={() => props.model.run('other-surface', ctx.file)}
               >
                 <AppWindow class='h-4 w-4 shrink-0' stroke-width={2} />
-                {props.openInOtherSurfaceLabel ?? 'Open in other view'}
+                {props.model.label('other-surface', ctx.file)}
               </button>
             </Show>
-            <Show
-              when={
-                props.onAddToTaskbar &&
-                (!ctx.file.isVirtual || hasVirtualCapability(virtualEntry(), 'pin'))
-              }
-            >
+            <Show when={available('add-to-taskbar')}>
               <button
                 type='button'
                 data-slot='context-menu-item'
                 class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
                 role='menuitem'
-                onClick={() => {
-                  props.onAddToTaskbar?.(ctx.file)
-                  props.onDismiss()
-                }}
+                onClick={() => props.model.run('add-to-taskbar', ctx.file)}
               >
                 <Pin class='h-4 w-4 shrink-0' stroke-width={2} />
                 Add to taskbar
               </button>
             </Show>
-            <Show when={!ctx.file.isVirtual && !!props.onToggleFavorite}>
+            <Show when={available('favorite')}>
               <button
                 type='button'
                 data-slot='context-menu-item'
                 class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
                 role='menuitem'
-                onClick={() => {
-                  props.onToggleFavorite?.(ctx.file)
-                  props.onDismiss()
-                }}
+                onClick={() => props.model.run('favorite', ctx.file)}
               >
                 <Star
-                  class={`h-4 w-4 shrink-0 ${props.isFavorite?.(ctx.file) ? 'fill-yellow-400 text-yellow-400' : ''}`}
+                  class={`h-4 w-4 shrink-0 ${props.model.active('favorite', ctx.file) ? 'fill-yellow-400 text-yellow-400' : ''}`}
                   stroke-width={2}
                 />
-                {props.isFavorite?.(ctx.file) ? 'Unfavorite' : 'Favorite'}
+                {props.model.label('favorite', ctx.file)}
               </button>
             </Show>
-            <Show when={ctx.file.isDirectory && props.onToggleKnowledgeBase}>
+            <Show when={available('knowledge-base')}>
               <button
                 type='button'
                 data-slot='context-menu-item'
                 class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
                 role='menuitem'
-                onClick={() => {
-                  props.onToggleKnowledgeBase?.(ctx.file)
-                  props.onDismiss()
-                }}
+                onClick={() => props.model.run('knowledge-base', ctx.file)}
               >
                 <BookOpen
-                  class={`h-4 w-4 shrink-0 ${props.isKnowledgeBase?.(ctx.file) ? 'fill-primary text-primary' : ''}`}
+                  class={`h-4 w-4 shrink-0 ${props.model.active('knowledge-base', ctx.file) ? 'fill-primary text-primary' : ''}`}
                   stroke-width={2}
                 />
-                {props.isKnowledgeBase?.(ctx.file)
-                  ? 'Remove Knowledge Base'
-                  : 'Set as Knowledge Base'}
+                {props.model.label('knowledge-base', ctx.file)}
               </button>
             </Show>
-            <Show when={!ctx.file.isVirtual || canVirtual('download')}>
+            <Show when={available('download')}>
               <button
                 type='button'
                 data-slot='context-menu-item'
                 class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
                 role='menuitem'
-                onClick={() => {
-                  props.onDownload(ctx.file)
-                  props.onDismiss()
-                }}
+                onClick={() => props.model.run('download', ctx.file)}
               >
-                {downloadLabel()}
+                {props.model.label('download', ctx.file)}
               </button>
             </Show>
             <Show when={showCopyTo()}>
@@ -510,10 +351,7 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
                 data-slot='context-menu-item'
                 class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
                 role='menuitem'
-                onClick={() => {
-                  props.onCopy?.(ctx.file)
-                  props.onDismiss()
-                }}
+                onClick={() => props.model.run('copy', ctx.file)}
               >
                 Copy to...
               </button>
@@ -527,10 +365,7 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
                 data-slot='context-menu-item'
                 class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
                 role='menuitem'
-                onClick={() => {
-                  props.onMove?.(ctx.file)
-                  props.onDismiss()
-                }}
+                onClick={() => props.model.run('move', ctx.file)}
               >
                 Move to...
               </button>
@@ -541,10 +376,7 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
                 data-slot='context-menu-item'
                 class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
                 role='menuitem'
-                onClick={() => {
-                  props.onRename?.(ctx.file)
-                  props.onDismiss()
-                }}
+                onClick={() => props.model.run('rename', ctx.file)}
               >
                 Rename
               </button>
@@ -555,7 +387,7 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
                 data-slot='context-menu-item'
                 class='text-destructive flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
                 role='menuitem'
-                onClick={() => props.onDelete(ctx.file)}
+                onClick={() => props.model.run('delete', ctx.file)}
               >
                 Delete
               </button>

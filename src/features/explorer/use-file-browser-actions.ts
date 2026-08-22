@@ -16,11 +16,11 @@ import type { FileBrowserController } from './use-file-browser-controller'
 import { useFileRowContextMenu } from './use-file-row-context-menu'
 import {
   useVirtualDirectoryFeature,
-  type FileBrowserActionOverrides,
   type VirtualDirectoryFeatureOptions,
 } from './virtual-directory-feature'
+import type { FileBrowserActionOverrides } from './file-browser-action-overrides'
 
-export type { FileBrowserActionOverrides } from './virtual-directory-feature'
+export type { FileBrowserActionOverrides } from './file-browser-action-overrides'
 
 export type FileBrowserActionsOptions = Readonly<{
   controller: FileBrowserController

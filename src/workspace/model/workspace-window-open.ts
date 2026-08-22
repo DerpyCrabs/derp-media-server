@@ -8,6 +8,7 @@ import type {
   WindowLayout as WorkspaceWindowLayout,
   WindowSource as WorkspaceSource,
 } from '@/lib/models/window-model'
+import type { PersistedWorkspaceState } from './use-workspace'
 
 type WorkspaceOpenIdentity = {
   source: WorkspaceSource
@@ -177,5 +178,26 @@ export function planWorkspaceWindowOpen(options: {
   return {
     kind: 'create',
     definition: createWorkspaceWindowDefinition(options),
+  }
+}
+
+export function appendWorkspaceWindow(
+  state: PersistedWorkspaceState,
+  definition: WorkspaceWindowDefinition,
+  options?: { groupSourceWindowId?: string },
+): PersistedWorkspaceState {
+  const windows = state.windows.map((window) =>
+    options?.groupSourceWindowId === window.id && !window.tabGroupId
+      ? { ...window, tabGroupId: definition.tabGroupId ?? window.id }
+      : window,
+  )
+  return {
+    ...state,
+    windows: [...windows, definition],
+    nextWindowId: state.nextWindowId + 1,
+    activeWindowId: definition.id,
+    activeTabMap: definition.tabGroupId
+      ? { ...state.activeTabMap, [definition.tabGroupId]: definition.id }
+      : state.activeTabMap,
   }
 }

@@ -1,36 +1,4 @@
-import {
-  addHermesAttachments,
-  addHermesDraggedPath,
-  applyHermesCompletion,
-  archiveHermesSession,
-  answerHermesDecision,
-  branchHermesSession,
-  claimHermesEditor,
-  ensureHermesChat,
-  hermesSessions,
-  markHermesRead,
-  loadOlderHermesMessages,
-  exportHermesSession,
-  queueHermesPrompt,
-  releaseHermesEditor,
-  editHermesQueuedPrompt,
-  moveHermesQueuedPrompt,
-  removeHermesQueuedPrompt,
-  resumeHermesQueue,
-  removeHermesAttachment,
-  renameHermesSession,
-  retryHermesLastTurn,
-  rewindHermesSession,
-  restoreHermesSession,
-  sendHermesPrompt,
-  setHermesComposer,
-  setHermesError,
-  sendHermesControl,
-  speakHermesText,
-  stopHermesTurn,
-  takeOverHermesSession,
-  transcribeHermesAudio,
-} from '@/features/hermes/hermes-session-store'
+import { createHermesSession } from '@/features/hermes/hermes-session-store'
 import {
   For,
   Show,
@@ -54,6 +22,8 @@ import LoaderCircle from 'lucide-solid/icons/loader-circle'
 import { HermesMessageCard } from './HermesMessageCard'
 import { getFileDragData, hasFileDragData } from '@/lib/files/file-drag-data'
 import { unsupportedHermesCommand, voiceControlGates } from '@/features/hermes/hermes-chat-parity'
+import { createHermesChatUiState } from './hermes-chat-ui-state'
+import { createHermesVoiceRecorder } from './create-hermes-voice-recorder'
 
 export function HermesChatPane(props: {
   target: Accessor<
@@ -73,36 +43,28 @@ export function HermesChatPane(props: {
   onBranchCreated?: (sessionId: string, title: string) => void
   onTitleChanged?: (title: string) => void
 }) {
-  const key = createMemo(() => ensureHermesChat(props.target() ?? {}))
-  const state = () => hermesSessions[key()]
+  const session = createHermesSession(() => props.target() ?? {})
+  const key = session.key
+  const state = session.state
   const owner = () => props.ownerId?.() ?? key()
   const ownsEditor = () => !state()?.editorOwner || state()?.editorOwner === owner()
   function claimCurrentEditor() {
     const claimKey = key()
     const claimOwner = owner()
-    return claimHermesEditor(claimKey, claimOwner, {
+    return session.editor.claim(claimOwner, {
       isAlive: () => !disposed && key() === claimKey && owner() === claimOwner,
     })
   }
   const [decisionDraft, setDecisionDraft] = createSignal({ key: '', answer: '' })
-  const [recording, setRecording] = createSignal(false)
-  const [microphoneDenied, setMicrophoneDenied] = createSignal(false)
-  const [previewImage, setPreviewImage] = createSignal<string | null>(null)
-  const [editTarget, setEditTarget] = createSignal<{ id: string; text: string } | null>(null)
-  const [editValue, setEditValue] = createSignal('')
-  const [renameOpen, setRenameOpen] = createSignal(false)
-  const [renameValue, setRenameValue] = createSignal('')
-  const [takeoverConfirmOpen, setTakeoverConfirmOpen] = createSignal(false)
-  const [atTranscriptBottom, setAtTranscriptBottom] = createSignal(true)
-  const [promptHistory, setPromptHistory] = createSignal<string[]>([])
-  const [promptHistoryIndex, setPromptHistoryIndex] = createSignal(-1)
-  const [showFind, setShowFind] = createSignal(false)
-  const [findQuery, setFindQuery] = createSignal('')
-  const [findIndex, setFindIndex] = createSignal(0)
+  const ui = createHermesChatUiState()
+  const voiceRecorder = createHermesVoiceRecorder({
+    sessionKey: key,
+    visible: () => props.contentVisible?.() ?? true,
+    maxSeconds: () => state()?.voice.maxRecordingSeconds ?? 120,
+  })
+  const recording = voiceRecorder.recording
+  const microphoneDenied = voiceRecorder.denied
   let attachmentInput: HTMLInputElement | undefined
-  let mediaRecorder: MediaRecorder | undefined
-  let recordingStream: MediaStream | undefined
-  let recordingTimer: number | undefined
   let transcriptEl: HTMLDivElement | undefined
   let transcriptContentEl: HTMLDivElement | undefined
   let paneEl: HTMLDivElement | undefined
@@ -111,7 +73,6 @@ export function HermesChatPane(props: {
   let followLatest = true
   let scrollFrame: number | undefined
   let disposed = false
-  let microphoneRequest = 0
   let paneActive = false
   const decisionKey = () => {
     const decision = state()?.decision
@@ -125,12 +86,12 @@ export function HermesChatPane(props: {
 
   function openFind() {
     findReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    setShowFind(true)
+    ui.search.show()
     queueMicrotask(() => findInputEl?.focus())
   }
 
   function closeFind() {
-    setShowFind(false)
+    ui.search.hide()
     queueMicrotask(() => {
       if (findReturnFocus?.isConnected) findReturnFocus.focus()
       findReturnFocus = null
@@ -144,11 +105,11 @@ export function HermesChatPane(props: {
       scrollFrame = undefined
       if (!followLatest || !transcriptEl) return
       transcriptEl.scrollTop = transcriptEl.scrollHeight
-      setAtTranscriptBottom(true)
+      ui.transcript.markAtBottom(true)
     })
   }
   const findMatches = createMemo(() => {
-    const query = findQuery().trim().toLowerCase()
+    const query = ui.search.query().trim().toLowerCase()
     if (!query) return []
     return (state()?.messages ?? []).filter((message) =>
       `${message.text}\n${message.reasoning ?? ''}\n${message.toolName ?? ''}`
@@ -160,7 +121,7 @@ export function HermesChatPane(props: {
     const matches = findMatches()
     if (!matches.length || !transcriptEl) return
     const next = (index + matches.length) % matches.length
-    setFindIndex(next)
+    ui.search.setIndex(next)
     transcriptEl
       .querySelector<HTMLElement>(`#${CSS.escape(`hermes-msg-${matches[next]!.id}`)}`)
       ?.scrollIntoView({ block: 'center' })
@@ -190,15 +151,7 @@ export function HermesChatPane(props: {
 
   onSettled(() => () => {
     disposed = true
-    microphoneRequest++
     if (scrollFrame !== undefined) cancelAnimationFrame(scrollFrame)
-    if (recordingTimer !== undefined) window.clearTimeout(recordingTimer)
-    if (mediaRecorder) {
-      mediaRecorder.ondataavailable = null
-      mediaRecorder.onstop = null
-      if (mediaRecorder.state !== 'inactive') mediaRecorder.stop()
-    }
-    recordingStream?.getTracks().forEach((track) => track.stop())
   })
 
   onSettled(() => {
@@ -230,71 +183,26 @@ export function HermesChatPane(props: {
     }
   })
 
-  async function toggleRecording() {
-    if (recording()) {
-      mediaRecorder?.stop()
-      return
-    }
-    const request = ++microphoneRequest
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      if (disposed || request !== microphoneRequest || !(props.contentVisible?.() ?? true)) {
-        stream.getTracks().forEach((track) => track.stop())
-        return
-      }
-      recordingStream = stream
-      const chunks: Blob[] = []
-      const recorder = new MediaRecorder(stream)
-      const recordingKey = key()
-      mediaRecorder = recorder
-      recorder.ondataavailable = (event) => {
-        if (event.data.size) chunks.push(event.data)
-      }
-      recorder.onstop = () => {
-        stream.getTracks().forEach((track) => track.stop())
-        if (recordingStream === stream) recordingStream = undefined
-        if (disposed) return
-        setRecording(false)
-        if (recordingTimer !== undefined) window.clearTimeout(recordingTimer)
-        const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' })
-        if (blob.size)
-          void transcribeHermesAudio(recordingKey, blob).catch((error) =>
-            setHermesError(recordingKey, error),
-          )
-      }
-      recorder.start()
-      setRecording(true)
-      recordingTimer = window.setTimeout(
-        () => recorder.state !== 'inactive' && recorder.stop(),
-        (state()?.voice.maxRecordingSeconds ?? 120) * 1000,
-      )
-    } catch (error) {
-      if (disposed || request !== microphoneRequest) return
-      setMicrophoneDenied(true)
-      setHermesError(key(), error)
-    }
-  }
-
   createEffect(
     () => ({ currentKey: key(), currentOwner: owner() }),
     ({ currentKey, currentOwner }) => {
       let alive = true
+      const editor = session.editor.acquire(currentOwner, {
+        isAlive: () => alive && !disposed && key() === currentKey && owner() === currentOwner,
+      })
       untrack(() => {
-        if (!hermesSessions[currentKey]?.editorOwner)
-          void claimHermesEditor(currentKey, currentOwner, {
-            isAlive: () => alive && !disposed && key() === currentKey && owner() === currentOwner,
-          })
+        if (editor.owned()) void editor.claim()
       })
       return () => {
         alive = false
-        releaseHermesEditor(currentKey, currentOwner)
+        editor.release()
       }
     },
   )
   createEffect(
     () => ({ visible: props.contentVisible?.() ?? true, currentKey: key() }),
-    ({ visible, currentKey }) => {
-      if (visible) markHermesRead(currentKey)
+    ({ visible }) => {
+      if (visible) session.lifecycle.markRead()
     },
   )
   createEffect(
@@ -318,58 +226,52 @@ export function HermesChatPane(props: {
     const command = state()?.composer.trim() ?? ''
     const unsupported = unsupportedHermesCommand(command)
     if (unsupported) {
-      setHermesError(key(), unsupported)
+      session.composer.setError(unsupported)
       return
     }
     if (command === '/export') {
-      void exportHermesSession(key())
-      setHermesComposer(key(), '')
+      void session.lifecycle.export()
+      session.composer.set('')
       return
     }
     if (command === '/stop') {
-      await stopHermesTurn(key())
-      setHermesComposer(key(), '')
+      await session.prompt.stop()
+      session.composer.set('')
       return
     }
     if (command === '/retry') {
-      await retryHermesLastTurn(key())
-      setHermesComposer(key(), '')
+      await session.prompt.retry()
+      session.composer.set('')
       return
     }
     if (command === '/voice') {
-      setHermesError(key(), 'Use Push to talk or Play reply controls for voice in this chat')
+      session.composer.setError('Use Push to talk or Play reply controls for voice in this chat')
       return
     }
     if (command.startsWith('/title ')) {
       const title = command.slice(7).trim()
-      await renameHermesSession(key(), title)
+      await session.lifecycle.rename(title)
       props.onTitleChanged?.(title)
-      setHermesComposer(key(), '')
+      session.composer.set('')
       return
     }
     if (command === '/branch' || command.startsWith('/branch ')) {
-      const branch = await branchHermesSession(key(), command.slice(7).trim())
-      setHermesComposer(key(), '')
+      const branch = await session.lifecycle.branch(command.slice(7).trim())
+      session.composer.set('')
       if (branch) props.onBranchCreated?.(branch.sessionId, branch.title)
       return
     }
     if (state()?.status === 'sending' || state()?.status === 'streaming') {
-      if (command)
-        setPromptHistory((items) =>
-          [...items.filter((item) => item !== command), command].slice(-100),
-        )
-      queueHermesPrompt(key())
+      if (command) ui.promptHistory.record(command)
+      session.prompt.queue()
       return
     }
     try {
-      if (command)
-        setPromptHistory((items) =>
-          [...items.filter((item) => item !== command), command].slice(-100),
-        )
-      setPromptHistoryIndex(-1)
-      await sendHermesPrompt(key(), takeover)
+      if (command) ui.promptHistory.record(command)
+      ui.promptHistory.resetCursor()
+      await session.prompt.send(takeover)
     } catch (error) {
-      if (String(error).toLowerCase().includes('takeover')) setTakeoverConfirmOpen(true)
+      if (String(error).toLowerCase().includes('takeover')) ui.dialogs.openTakeover()
     }
   }
 
@@ -381,7 +283,7 @@ export function HermesChatPane(props: {
       class='relative flex h-full min-h-0 flex-col bg-background text-[13px] text-foreground'
       data-testid='hermes-chat-pane'
     >
-      <Show when={showFind()}>
+      <Show when={ui.search.open()}>
         <div
           class='absolute top-1 right-9 z-40 flex items-center gap-1 rounded-md border border-border bg-popover p-1 shadow-md'
           data-modal-escape-scope
@@ -393,14 +295,14 @@ export function HermesChatPane(props: {
             autofocus
             class='h-7 w-44 rounded border border-input bg-background px-2 text-xs'
             placeholder='Find in chat'
-            value={findQuery()}
+            value={ui.search.query()}
             onInput={(event) => {
-              setFindQuery(event.currentTarget.value)
-              setFindIndex(0)
+              ui.search.changeQuery(event.currentTarget.value)
               queueMicrotask(() => untrack(() => jumpToFindMatch(0)))
             }}
             onKeyDown={(event) => {
-              if (event.key === 'Enter') jumpToFindMatch(findIndex() + (event.shiftKey ? -1 : 1))
+              if (event.key === 'Enter')
+                jumpToFindMatch(ui.search.index() + (event.shiftKey ? -1 : 1))
               if (event.key === 'Escape') {
                 event.preventDefault()
                 event.stopPropagation()
@@ -409,7 +311,7 @@ export function HermesChatPane(props: {
             }}
           />
           <span class='min-w-10 text-center text-[10px] text-muted-foreground'>
-            {findMatches().length ? `${findIndex() + 1}/${findMatches().length}` : '0/0'}
+            {findMatches().length ? `${ui.search.index() + 1}/${findMatches().length}` : '0/0'}
           </span>
           <button class='rounded p-1 hover:bg-muted' aria-label='Close find' onClick={closeFind}>
             <X class='h-3.5 w-3.5' />
@@ -430,7 +332,7 @@ export function HermesChatPane(props: {
           <Show when={state()?.archived}>
             <button
               class='ml-auto hover:text-foreground'
-              onClick={() => void restoreHermesSession(key())}
+              onClick={() => void session.lifecycle.restore()}
             >
               Restore
             </button>
@@ -461,7 +363,7 @@ export function HermesChatPane(props: {
           if (!transcriptEl) return
           const atBottom =
             transcriptEl.scrollHeight - transcriptEl.scrollTop - transcriptEl.clientHeight <= 1
-          setAtTranscriptBottom(atBottom)
+          ui.transcript.markAtBottom(atBottom)
           if (atBottom) followLatest = true
         }}
       >
@@ -481,7 +383,7 @@ export function HermesChatPane(props: {
                 disabled={state()?.historyLoading}
                 onClick={() => {
                   const before = transcriptEl?.scrollHeight ?? 0
-                  void loadOlderHermesMessages(key()).then(() => {
+                  void session.history.loadOlder().then(() => {
                     queueMicrotask(() => {
                       if (transcriptEl) transcriptEl.scrollTop += transcriptEl.scrollHeight - before
                     })
@@ -497,7 +399,7 @@ export function HermesChatPane(props: {
               <div
                 id={`hermes-msg-${message.id}`}
                 class={
-                  findMatches()[findIndex()]?.id === message.id
+                  findMatches()[ui.search.index()]?.id === message.id
                     ? 'rounded-md ring-1 ring-violet-500/60'
                     : ''
                 }
@@ -505,13 +407,12 @@ export function HermesChatPane(props: {
                 <HermesMessageCard
                   message={message}
                   completedToolCallIds={completedToolCallIds()}
-                  onOpenImage={setPreviewImage}
+                  onOpenImage={ui.dialogs.openImage}
                   onEdit={
                     state()?.readOnly || state()?.status !== 'idle'
                       ? undefined
                       : (item) => {
-                          setEditTarget({ id: item.id, text: item.text })
-                          setEditValue(item.text)
+                          ui.dialogs.openEdit({ id: item.id, text: item.text })
                         }
                   }
                   onBranch={
@@ -521,7 +422,7 @@ export function HermesChatPane(props: {
                           const count =
                             (state()?.messages.findIndex((candidate) => candidate.id === item.id) ??
                               -1) + 1
-                          void branchHermesSession(key(), undefined, count).then((branch) =>
+                          void session.lifecycle.branch(undefined, count).then((branch) =>
                             untrack(() => {
                               if (branch) props.onBranchCreated?.(branch.sessionId, branch.title)
                             }),
@@ -531,16 +432,16 @@ export function HermesChatPane(props: {
                   onSpeak={
                     voiceGates().playback && message.role === 'assistant'
                       ? (item) =>
-                          void speakHermesText(item.text).catch((error) =>
-                            untrack(() => setHermesError(key(), error)),
-                          )
+                          void session.voice
+                            .speak(item.text)
+                            .catch((error) => untrack(() => session.composer.setError(error)))
                       : undefined
                   }
                   onRetry={
                     message.id === lastAssistantId() &&
                     state()?.status === 'idle' &&
                     !state()?.readOnly
-                      ? () => void retryHermesLastTurn(key())
+                      ? () => void session.prompt.retry()
                       : undefined
                   }
                 />
@@ -558,13 +459,13 @@ export function HermesChatPane(props: {
           </Show>
         </div>
       </div>
-      <Show when={!atTranscriptBottom()}>
+      <Show when={!ui.transcript.atBottom()}>
         <button
           class='absolute bottom-12 left-1/2 z-20 -translate-x-1/2 rounded-full border border-border bg-popover p-1.5 text-muted-foreground shadow-md hover:text-foreground'
           aria-label='Jump to latest message'
           onClick={() => {
             followLatest = true
-            setAtTranscriptBottom(true)
+            ui.transcript.markAtBottom(true)
             scrollTranscriptToBottom()
           }}
         >
@@ -595,7 +496,7 @@ export function HermesChatPane(props: {
                 {(choice) => (
                   <button
                     class='rounded-md border border-amber-500/40 px-3 py-1.5 text-xs'
-                    onClick={() => void answerHermesDecision(key(), choice)}
+                    onClick={() => void session.decision.answer(choice)}
                   >
                     {choice}
                   </button>
@@ -618,7 +519,7 @@ export function HermesChatPane(props: {
                     const answer = decisionAnswer()
                     if (!answer) return
                     setDecisionAnswer('')
-                    void answerHermesDecision(key(), answer)
+                    void session.decision.answer(answer)
                   }}
                 >
                   Answer
@@ -640,7 +541,7 @@ export function HermesChatPane(props: {
             <Show when={state()?.externallyActive}>
               <button
                 class='ml-auto rounded-md border border-input px-2 py-1 text-foreground hover:bg-muted'
-                onClick={() => takeOverHermesSession(key())}
+                onClick={() => session.lifecycle.takeOver()}
               >
                 Take over
               </button>
@@ -662,17 +563,17 @@ export function HermesChatPane(props: {
             const dragged = event.dataTransfer && getFileDragData(event.dataTransfer)
             if (dragged) {
               event.preventDefault()
-              void addHermesDraggedPath(key(), dragged)
+              void session.attachments.addDraggedPath(dragged)
               return
             }
             if (!event.dataTransfer?.files.length) return
             event.preventDefault()
-            void addHermesAttachments(key(), event.dataTransfer.files)
+            void session.attachments.add(event.dataTransfer.files)
           }}
           onPaste={(event) => {
             const files = event.clipboardData?.files
             if (!files?.length) return
-            void addHermesAttachments(key(), files)
+            void session.attachments.add(files)
           }}
         >
           <input
@@ -683,8 +584,7 @@ export function HermesChatPane(props: {
             type='file'
             multiple
             onChange={(event) => {
-              if (event.currentTarget.files)
-                void addHermesAttachments(key(), event.currentTarget.files)
+              if (event.currentTarget.files) void session.attachments.add(event.currentTarget.files)
               event.currentTarget.value = ''
             }}
           />
@@ -703,7 +603,7 @@ export function HermesChatPane(props: {
                     <button
                       aria-label={`Remove ${attachment.name}`}
                       disabled={attachment.status === 'uploading'}
-                      onClick={() => removeHermesAttachment(key(), attachment.id)}
+                      onClick={() => session.attachments.remove(attachment.id)}
                     >
                       <X class='h-3.5 w-3.5' />
                     </button>
@@ -727,26 +627,26 @@ export function HermesChatPane(props: {
                       <button
                         title='Move up'
                         disabled={index() === 0}
-                        onClick={() => moveHermesQueuedPrompt(key(), index(), -1)}
+                        onClick={() => session.prompt.moveQueued(index(), -1)}
                       >
                         <ArrowUp class='h-3 w-3' />
                       </button>
                       <button
                         title='Move down'
                         disabled={index() === (state()?.queuedPrompts.length ?? 0) - 1}
-                        onClick={() => moveHermesQueuedPrompt(key(), index(), 1)}
+                        onClick={() => session.prompt.moveQueued(index(), 1)}
                       >
                         <ArrowDown class='h-3 w-3' />
                       </button>
                       <button
                         title='Edit queued prompt'
-                        onClick={() => editHermesQueuedPrompt(key(), index())}
+                        onClick={() => session.prompt.editQueued(index())}
                       >
                         <Pencil class='h-3 w-3' />
                       </button>
                       <button
                         title='Remove queued prompt'
-                        onClick={() => removeHermesQueuedPrompt(key(), index())}
+                        onClick={() => session.prompt.removeQueued(index())}
                       >
                         <X class='h-3 w-3' />
                       </button>
@@ -756,7 +656,7 @@ export function HermesChatPane(props: {
                 <Show when={state()?.queueParked}>
                   <button
                     class='rounded border border-input px-2 py-1 text-foreground'
-                    onClick={() => resumeHermesQueue(key())}
+                    onClick={() => session.prompt.resumeQueue()}
                   >
                     Resume queue
                   </button>
@@ -771,7 +671,7 @@ export function HermesChatPane(props: {
                   <button
                     class='flex w-full items-center gap-3 px-3 py-2 text-left text-xs hover:bg-muted'
                     onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => applyHermesCompletion(key(), completion)}
+                    onClick={() => session.composer.applyCompletion(completion)}
                   >
                     <span class='font-mono text-violet-500'>
                       {completion.display || completion.text}
@@ -800,8 +700,8 @@ export function HermesChatPane(props: {
               disabled={!ownsEditor() || state()?.connection !== 'connected'}
               onFocus={() => void claimCurrentEditor()}
               onInput={(event) => {
-                setHermesComposer(key(), event.currentTarget.value)
-                setPromptHistoryIndex(-1)
+                session.composer.set(event.currentTarget.value)
+                ui.promptHistory.resetCursor()
                 event.currentTarget.style.height = 'auto'
                 event.currentTarget.style.height = `${Math.min(event.currentTarget.scrollHeight, 112)}px`
               }}
@@ -811,26 +711,21 @@ export function HermesChatPane(props: {
                   !state()?.completions.length &&
                   !event.shiftKey
                 ) {
-                  const history = promptHistory()
                   const atStart = event.currentTarget.selectionStart === 0
                   const atEnd =
                     event.currentTarget.selectionStart === event.currentTarget.value.length
                   if (
-                    history.length &&
-                    ((event.key === 'ArrowUp' && atStart) || (event.key === 'ArrowDown' && atEnd))
+                    (event.key === 'ArrowUp' && atStart) ||
+                    (event.key === 'ArrowDown' && atEnd)
                   ) {
-                    event.preventDefault()
-                    const current = promptHistoryIndex()
-                    const next =
-                      event.key === 'ArrowUp'
-                        ? Math.min(history.length - 1, current + 1)
-                        : Math.max(-1, current - 1)
-                    setPromptHistoryIndex(next)
-                    setHermesComposer(
-                      key(),
-                      next < 0 ? '' : (history[history.length - 1 - next] ?? ''),
+                    const prompt = ui.promptHistory.navigate(
+                      event.key === 'ArrowUp' ? 'older' : 'newer',
                     )
-                    return
+                    if (prompt !== undefined) {
+                      event.preventDefault()
+                      session.composer.set(prompt)
+                      return
+                    }
                   }
                 }
                 if (event.key === 'Enter' && !event.shiftKey) {
@@ -851,7 +746,7 @@ export function HermesChatPane(props: {
                   <Show when={state()?.status === 'sending' || state()?.status === 'streaming'}>
                     <button
                       class='rounded px-2 py-1 text-left text-destructive hover:bg-muted'
-                      onClick={() => void stopHermesTurn(key())}
+                      onClick={() => void session.prompt.stop()}
                     >
                       Stop response
                     </button>
@@ -860,8 +755,7 @@ export function HermesChatPane(props: {
                     <button
                       class='rounded px-2 py-1 text-left hover:bg-muted'
                       onClick={() => {
-                        setRenameValue(state()?.title ?? '')
-                        setRenameOpen(true)
+                        ui.dialogs.openRename(state()?.title ?? '')
                       }}
                     >
                       Rename
@@ -869,7 +763,7 @@ export function HermesChatPane(props: {
                     <button
                       class='rounded px-2 py-1 text-left hover:bg-muted'
                       onClick={() =>
-                        void branchHermesSession(key()).then((branch) =>
+                        void session.lifecycle.branch().then((branch) =>
                           untrack(() => {
                             if (branch) props.onBranchCreated?.(branch.sessionId, branch.title)
                           }),
@@ -880,7 +774,7 @@ export function HermesChatPane(props: {
                     </button>
                     <button
                       class='rounded px-2 py-1 text-left hover:bg-muted'
-                      onClick={() => void exportHermesSession(key())}
+                      onClick={() => void session.lifecycle.export()}
                     >
                       Export
                     </button>
@@ -888,9 +782,9 @@ export function HermesChatPane(props: {
                       class='rounded px-2 py-1 text-left hover:bg-muted disabled:opacity-50'
                       disabled={state()?.status !== 'idle' || !!state()?.queuedPrompts.length}
                       onClick={() =>
-                        void archiveHermesSession(key()).catch((error) =>
-                          untrack(() => setHermesError(key(), error)),
-                        )
+                        void session.lifecycle
+                          .archive()
+                          .catch((error) => untrack(() => session.composer.setError(error)))
                       }
                     >
                       Archive
@@ -908,7 +802,7 @@ export function HermesChatPane(props: {
                       }
                       disabled={state()?.status !== 'idle'}
                       onChange={(event) =>
-                        void sendHermesControl(key(), `/model ${event.currentTarget.value}`)
+                        void session.composer.control(`/model ${event.currentTarget.value}`)
                       }
                     >
                       <option value='' disabled>
@@ -924,7 +818,7 @@ export function HermesChatPane(props: {
                         aria-label='Reasoning effort'
                         disabled={state()?.status !== 'idle'}
                         onChange={(event) =>
-                          void sendHermesControl(key(), `/reasoning ${event.currentTarget.value}`)
+                          void session.composer.control(`/reasoning ${event.currentTarget.value}`)
                         }
                       >
                         <option value=''>Reasoning</option>
@@ -937,7 +831,7 @@ export function HermesChatPane(props: {
                       <button
                         class='rounded-md border border-border px-2 py-1.5 text-left text-xs'
                         disabled={state()?.status !== 'idle'}
-                        onClick={() => void sendHermesControl(key(), '/fast')}
+                        onClick={() => void session.composer.control('/fast')}
                       >
                         Toggle Fast mode
                       </button>
@@ -964,7 +858,7 @@ export function HermesChatPane(props: {
                       : 'Push to talk'
                 }
                 disabled={voiceGates().recordDisabled}
-                onClick={() => void toggleRecording()}
+                onClick={() => void voiceRecorder.toggle()}
               >
                 <Show when={!recording()} fallback={<Square class='h-4 w-4' />}>
                   <Mic class='h-4 w-4' />
@@ -994,12 +888,12 @@ export function HermesChatPane(props: {
           </div>
         </div>
       </Show>
-      <Show when={editTarget()}>
+      <Show when={ui.dialogs.editTarget()}>
         {(target) => (
           <div
             class='absolute inset-0 z-50 flex items-center justify-center bg-black/45 p-3'
             role='presentation'
-            onClick={() => setEditTarget(null)}
+            onClick={() => ui.dialogs.close('edit')}
           >
             <form
               class='w-full max-w-md rounded-lg border border-border bg-card p-3 shadow-xl'
@@ -1011,13 +905,13 @@ export function HermesChatPane(props: {
                 if (event.key !== 'Escape') return
                 event.preventDefault()
                 event.stopPropagation()
-                setEditTarget(null)
+                ui.dialogs.close('edit')
               }}
               onSubmit={(event) => {
                 event.preventDefault()
-                const text = editValue().trim()
+                const text = ui.dialogs.editValue().trim()
                 if (!text) return
-                void rewindHermesSession(key(), target().id, text).then(() => setEditTarget(null))
+                void session.prompt.rewind(target().id, text).then(() => ui.dialogs.close('edit'))
               }}
             >
               <h2 id='hermes-edit-title' class='text-sm font-semibold'>
@@ -1029,21 +923,21 @@ export function HermesChatPane(props: {
               <textarea
                 autofocus
                 class='mt-3 max-h-52 min-h-24 w-full resize-y rounded-md border border-input bg-background p-2 text-sm'
-                value={editValue()}
-                onInput={(event) => setEditValue(event.currentTarget.value)}
+                value={ui.dialogs.editValue()}
+                onInput={(event) => ui.dialogs.updateEdit(event.currentTarget.value)}
               />
               <div class='mt-3 flex justify-end gap-2'>
                 <button
                   type='button'
                   class='h-8 rounded-md border border-input px-3 text-xs'
-                  onClick={() => setEditTarget(null)}
+                  onClick={() => ui.dialogs.close('edit')}
                 >
                   Cancel
                 </button>
                 <button
                   type='submit'
                   class='h-8 rounded-md bg-primary px-3 text-xs text-primary-foreground disabled:opacity-50'
-                  disabled={!editValue().trim()}
+                  disabled={!ui.dialogs.editValue().trim()}
                 >
                   Rewind
                 </button>
@@ -1052,11 +946,11 @@ export function HermesChatPane(props: {
           </div>
         )}
       </Show>
-      <Show when={renameOpen()}>
+      <Show when={ui.dialogs.renameOpen()}>
         <div
           class='absolute inset-0 z-50 flex items-center justify-center bg-black/45 p-3'
           role='presentation'
-          onClick={() => setRenameOpen(false)}
+          onClick={() => ui.dialogs.close('rename')}
         >
           <form
             class='w-full max-w-sm rounded-lg border border-border bg-card p-3 shadow-xl'
@@ -1068,16 +962,16 @@ export function HermesChatPane(props: {
               if (event.key !== 'Escape') return
               event.preventDefault()
               event.stopPropagation()
-              setRenameOpen(false)
+              ui.dialogs.close('rename')
             }}
             onSubmit={(event) => {
               event.preventDefault()
-              const title = renameValue().trim()
+              const title = ui.dialogs.renameValue().trim()
               if (!title) return
-              void renameHermesSession(key(), title).then(() =>
+              void session.lifecycle.rename(title).then(() =>
                 untrack(() => {
                   props.onTitleChanged?.(title)
-                  setRenameOpen(false)
+                  ui.dialogs.close('rename')
                 }),
               )
             }}
@@ -1088,21 +982,21 @@ export function HermesChatPane(props: {
             <input
               autofocus
               class='mt-3 h-9 w-full rounded-md border border-input bg-background px-2.5 text-sm'
-              value={renameValue()}
-              onInput={(event) => setRenameValue(event.currentTarget.value)}
+              value={ui.dialogs.renameValue()}
+              onInput={(event) => ui.dialogs.updateRename(event.currentTarget.value)}
             />
             <div class='mt-3 flex justify-end gap-2'>
               <button
                 type='button'
                 class='h-8 rounded-md border border-input px-3 text-xs'
-                onClick={() => setRenameOpen(false)}
+                onClick={() => ui.dialogs.close('rename')}
               >
                 Cancel
               </button>
               <button
                 type='submit'
                 class='h-8 rounded-md bg-primary px-3 text-xs text-primary-foreground disabled:opacity-50'
-                disabled={!renameValue().trim()}
+                disabled={!ui.dialogs.renameValue().trim()}
               >
                 Rename
               </button>
@@ -1110,11 +1004,11 @@ export function HermesChatPane(props: {
           </form>
         </div>
       </Show>
-      <Show when={takeoverConfirmOpen()}>
+      <Show when={ui.dialogs.takeoverOpen()}>
         <div
           class='absolute inset-0 z-50 flex items-center justify-center bg-black/45 p-3'
           role='presentation'
-          onClick={() => setTakeoverConfirmOpen(false)}
+          onClick={() => ui.dialogs.close('takeover')}
         >
           <div
             class='w-full max-w-xs rounded-lg border border-border bg-card p-3 shadow-xl'
@@ -1126,7 +1020,7 @@ export function HermesChatPane(props: {
               if (event.key !== 'Escape') return
               event.preventDefault()
               event.stopPropagation()
-              setTakeoverConfirmOpen(false)
+              ui.dialogs.close('takeover')
             }}
           >
             <h2 id='hermes-takeover-title' class='text-sm font-semibold'>
@@ -1138,14 +1032,14 @@ export function HermesChatPane(props: {
             <div class='mt-3 flex justify-end gap-2'>
               <button
                 class='h-8 rounded-md border border-input px-3 text-xs'
-                onClick={() => setTakeoverConfirmOpen(false)}
+                onClick={() => ui.dialogs.close('takeover')}
               >
                 Cancel
               </button>
               <button
                 class='h-8 rounded-md bg-primary px-3 text-xs text-primary-foreground'
                 onClick={() => {
-                  setTakeoverConfirmOpen(false)
+                  ui.dialogs.close('takeover')
                   void submit(true)
                 }}
               >
@@ -1155,7 +1049,7 @@ export function HermesChatPane(props: {
           </div>
         </div>
       </Show>
-      <Show when={previewImage()}>
+      <Show when={ui.dialogs.previewImage()}>
         {(src) => (
           <div
             class='absolute inset-0 z-50 flex items-center justify-center bg-black/90 p-3'
@@ -1163,18 +1057,18 @@ export function HermesChatPane(props: {
             aria-modal='true'
             aria-label='Hermes image preview'
             tabindex={0}
-            onClick={(event) => event.target === event.currentTarget && setPreviewImage(null)}
+            onClick={(event) => event.target === event.currentTarget && ui.dialogs.close('image')}
             onKeyDown={(event) => {
               if (event.key !== 'Escape') return
               event.preventDefault()
               event.stopPropagation()
-              setPreviewImage(null)
+              ui.dialogs.close('image')
             }}
           >
             <button
               class='absolute top-2 right-2 rounded-md bg-black/50 p-1.5 text-white/80 hover:bg-black/70 hover:text-white'
               aria-label='Close image preview'
-              onClick={() => setPreviewImage(null)}
+              onClick={() => ui.dialogs.close('image')}
             >
               <X class='h-4 w-4' />
             </button>

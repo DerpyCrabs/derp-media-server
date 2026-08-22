@@ -58,11 +58,11 @@ export function WorkspaceSessionProvider(props: {
   useAdminEventsStream(
     true,
     (mutation) => {
-      const current = session.document()
-      if (current) session.replace(applyWorkspacePathMutation(current, mutation))
-      void session.reconcileRemoteChange()
+      const current = session.document.value()
+      if (current) session.document.replace(applyWorkspacePathMutation(current, mutation))
+      void session.catalog.reconcileRemoteChange()
     },
-    () => void session.reconcileRemoteChange(),
+    () => void session.catalog.reconcileRemoteChange(),
   )
 
   const publicSession: WorkspaceSession = {

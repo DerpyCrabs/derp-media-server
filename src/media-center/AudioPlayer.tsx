@@ -1,6 +1,7 @@
-import { api, post } from '@/lib/api/client'
+import { post } from '@/lib/api/client'
+import { fetchDirectoryFiles } from '@/lib/files/files-client'
 import { queryKeys } from '@/lib/api/query-keys'
-import { MediaType, type FileItem } from '@/lib/files/types'
+import { MediaType } from '@/lib/files/types'
 import { useQuery } from '@tanstack/solid-query'
 import Monitor from 'lucide-solid/icons/monitor'
 import Pause from 'lucide-solid/icons/pause'
@@ -49,7 +50,7 @@ export function AudioPlayer() {
 
   const filesQuery = useQuery(() => ({
     queryKey: queryKeys.files(currentDir()),
-    queryFn: () => api<{ files: FileItem[] }>(`/api/files?dir=${encodeURIComponent(currentDir())}`),
+    queryFn: () => fetchDirectoryFiles(currentDir()),
   }))
   const allFiles = createMemo(() => {
     const files = filesQuery.data?.files ?? []

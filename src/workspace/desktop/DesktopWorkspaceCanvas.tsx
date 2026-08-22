@@ -1,11 +1,7 @@
 import type { AssistGridSpan } from '@/workspace/model/workspace-assist-grid'
-import type { AssistSlotPick } from '@/workspace/model/workspace-snap-pick'
 import { WorkspaceDocumentCommands } from '@/workspace/model/workspace-document-commands'
 import type { PersistedWorkspaceState } from '@/workspace/model/use-workspace'
-import type {
-  TabGroupSplitState,
-  WindowDefinition as WorkspaceWindowDefinition,
-} from '@/lib/models/window-model'
+import type { WindowDefinition as WorkspaceWindowDefinition } from '@/lib/models/window-model'
 import {
   getTabGroupSplit,
   resolveGroupVisibleTabId,
@@ -21,60 +17,56 @@ import { WorkspaceSnapAssistBar } from '@/workspace/desktop/layout/WorkspaceSnap
 import { WorkspaceTilingPicker } from '@/workspace/desktop/layout/WorkspaceTilingPicker'
 import type { Accessor, Setter } from 'solid-js'
 import { For, Show, createMemo } from 'solid-js'
-import type { MergeTarget } from '@/workspace/desktop/layout/merge-target'
 import type { FileDragData } from '@/lib/files/file-drag-data'
 import type { FileIconContext } from '@/features/explorer/use-file-icon'
 import type { WorkspaceWindowActions } from '@/workspace/shared/workspace-window-actions'
+import type { WorkspaceSnapDragModel } from '@/workspace/desktop/layout/create-workspace-snap-drag-model'
 
 export type DesktopWorkspaceCanvasProps = {
-  hasWorkspaceWindows: () => boolean
-  onOpenBrowser: () => void
-  bindSnapPreview: (el: HTMLDivElement | null) => void
-  workspaceAreaNode: () => HTMLDivElement | null
-  getWorkspaceAreaElement: () => HTMLDivElement | undefined
-  snapAssistShown: () => boolean
-  engageSnapAssistFromHandle: () => void
-  disengageSnapAssistFromPanel: () => void
-  assistHoverPick: () => AssistSlotPick | null
-  bindSnapAssistRoot: (el: HTMLDivElement | null) => void
-  renderedGroupIds: () => string[]
-  workspace: () => PersistedWorkspaceState | null
-  setWorkspace: Setter<PersistedWorkspaceState | null>
-  mergeTargetPreview: () => MergeTarget | null
-  dragSnapWindowId: () => string | null
-  layoutPicker: () => { windowId: string; anchor: DOMRect } | null
-  closeLayoutPicker: () => void
-  onTilingPick: (windowId: string, span: AssistGridSpan) => void
-  setTilingPickerHoverPreview: (span: AssistGridSpan | null) => void
-  openLayoutPicker: (windowId: string, anchor: DOMRect) => void
-  editableFolders: () => string[]
-  knowledgeBases: () => string[]
-  workspaceFileIconContext: () => FileIconContext
-  focusWindow: (windowId: string) => void
-  closeWindow: (windowId: string) => void
-  setWindowMinimized: (windowId: string, minimized: boolean) => void
-  toggleFullscreenWindow: (windowId: string) => void
-  restoreDrag: (windowId: string, clientX: number, clientY: number) => WorkspaceBounds | undefined
-  handleDragPointerMove: (windowId: string, clientX: number, clientY: number) => void
-  onDragPointerEnd: (
-    windowId: string,
-    bounds: WorkspaceBounds,
-    clientX: number,
-    clientY: number,
-  ) => void
-  updateWindowBounds: (windowId: string, bounds: WorkspaceBounds) => void
-  resizeSnappedWindowBounds: (windowId: string, bounds: WorkspaceBounds, direction: string) => void
-  beginPointerGesture: () => WorkspacePointerGesture
-  activateTab: (groupId: string, tabId: string) => void
-  closeTab: (tabId: string, opts?: { ignoreTabPinForListenOnlyDismiss?: boolean }) => void
-  toggleTabPinned: (tabId: string) => void
-  handleTabPullStart: (groupId: string, tabId: string, e: PointerEvent) => void
-  dropFileToTabBar: (targetLeaderWindowId: string, data: FileDragData, insertIndex?: number) => void
-  startSplitPaneDrag: (groupId: string, e: PointerEvent) => void
-  windowActions: WorkspaceWindowActions
+  empty: { hasWindows: () => boolean; openBrowser: () => void }
+  document: {
+    state: () => PersistedWorkspaceState | null
+    set: Setter<PersistedWorkspaceState | null>
+    groupIds: () => string[]
+  }
+  snap: {
+    model: WorkspaceSnapDragModel
+    canMutate: () => boolean
+    moveDrag: (windowId: string, clientX: number, clientY: number) => void
+    endDrag: (windowId: string, bounds: WorkspaceBounds, clientX: number, clientY: number) => void
+  }
+  picker: {
+    state: () => { windowId: string; anchor: DOMRect } | null
+    close: () => void
+    pick: (windowId: string, span: AssistGridSpan) => void
+    setHover: (span: AssistGridSpan | null) => void
+    open: (windowId: string, anchor: DOMRect) => void
+  }
+  content: {
+    editableFolders: () => string[]
+    knowledgeBases: () => string[]
+    fileIconContext: () => FileIconContext
+    windowActions: WorkspaceWindowActions
+  }
+  windows: {
+    focus: (windowId: string) => void
+    close: (windowId: string) => void
+    minimize: (windowId: string, minimized: boolean) => void
+    toggleFullscreen: (windowId: string) => void
+    beginPointerGesture: () => WorkspacePointerGesture
+  }
+  tabs: {
+    activate: (groupId: string, tabId: string) => void
+    close: (tabId: string, opts?: { ignoreTabPinForListenOnlyDismiss?: boolean }) => void
+    togglePinned: (tabId: string) => void
+    pull: (groupId: string, tabId: string, e: PointerEvent) => void
+    dropFile: (targetLeaderWindowId: string, data: FileDragData, insertIndex?: number) => void
+    startSplitDrag: (groupId: string, e: PointerEvent) => void
+  }
 }
 
 export function DesktopWorkspaceCanvas(props: DesktopWorkspaceCanvasProps) {
+  const snap = () => props.snap.model
   const renderWindowContent = (
     windowId: string | Accessor<string>,
     definition: Accessor<WorkspaceWindowDefinition | undefined>,
@@ -85,13 +77,13 @@ export function DesktopWorkspaceCanvas(props: DesktopWorkspaceCanvasProps) {
       <ApplicationWindowContent
         windowId={id}
         definition={definition}
-        windowState={props.workspace}
+        windowState={props.document.state}
         visible={visible}
-        active={() => props.workspace()?.activeWindowId === id()}
-        editableFolders={() => props.editableFolders()}
-        knowledgeBases={() => props.knowledgeBases()}
-        fileIconContext={props.workspaceFileIconContext}
-        actions={props.windowActions}
+        active={() => props.document.state()?.activeWindowId === id()}
+        editableFolders={props.content.editableFolders}
+        knowledgeBases={props.content.knowledgeBases}
+        fileIconContext={props.content.fileIconContext}
+        actions={props.content.windowActions}
         autoPlayVideo
       />
     )
@@ -99,7 +91,7 @@ export function DesktopWorkspaceCanvas(props: DesktopWorkspaceCanvasProps) {
 
   return (
     <Show
-      when={props.hasWorkspaceWindows()}
+      when={props.empty.hasWindows()}
       fallback={
         <div class='flex h-full items-center justify-center p-6'>
           <div class='w-full max-w-md rounded-xl border border-border bg-card/95 p-8 text-center shadow-2xl backdrop-blur'>
@@ -111,7 +103,7 @@ export function DesktopWorkspaceCanvas(props: DesktopWorkspaceCanvasProps) {
               <button
                 type='button'
                 class='inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90'
-                onClick={() => props.onOpenBrowser()}
+                onClick={props.empty.openBrowser}
               >
                 Open Browser
               </button>
@@ -122,82 +114,94 @@ export function DesktopWorkspaceCanvas(props: DesktopWorkspaceCanvasProps) {
     >
       <div
         ref={(el) => {
-          props.bindSnapPreview(el ?? null)
+          snap().bindSnapPreview(el ?? null)
         }}
         data-snap-preview
         class='pointer-events-none absolute border-2 border-blue-400/50 bg-blue-500/15 transition-all duration-150'
         style={{ display: 'none', 'z-index': 9000 }}
       />
-      <Show when={props.workspaceAreaNode()}>
+      <Show when={snap().workspaceAreaNode()}>
         {(_area) => (
           <WorkspaceSnapAssistBar
-            visible={props.snapAssistShown()}
-            dragging={props.dragSnapWindowId() != null}
-            onHandleEnter={props.engageSnapAssistFromHandle}
-            onPanelLeave={props.disengageSnapAssistFromPanel}
-            hoverPick={props.assistHoverPick()}
+            visible={snap().snapAssistShown()}
+            dragging={snap().dragSnapWindowId() != null}
+            onHandleEnter={snap().engageSnapAssistFromHandle}
+            onPanelLeave={snap().disengageSnapAssistFromPanel}
+            hoverPick={snap().assistHoverPick()}
             rootRef={(el) => {
-              props.bindSnapAssistRoot(el ?? null)
+              snap().bindSnapAssistRoot(el ?? null)
             }}
           />
         )}
       </Show>
-      <For each={props.renderedGroupIds()}>
+      <For each={props.document.groupIds()}>
         {(gid) => {
-          const tabs = () => tabsInGroup(props.workspace()?.windows ?? [], gid)
+          const tabs = () => tabsInGroup(props.document.state()?.windows ?? [], gid)
           const leader = () => tabs()[0]
           const visibleTabId = () => {
-            const wk = props.workspace()
+            const wk = props.document.state()
             if (!wk) return ''
             return resolveGroupVisibleTabId(wk, gid)
           }
           const tabList = () => tabs()
           const tabIds = createMemo(() => tabs().map((w) => w.id))
           const splitState = createMemo(() => {
-            const w = props.workspace()
+            const w = props.document.state()
             return w ? getTabGroupSplit(w, gid) : undefined
           })
           return (
             <Show when={leader()}>
               <WorkspaceWindowChrome
-                leaderWindowId={leader()!.id}
-                groupId={gid}
-                tabWindows={tabList}
-                visibleTabId={visibleTabId}
-                workspace={props.workspace}
-                fileIconContext={props.workspaceFileIconContext}
-                isActive={visibleTabId() === props.workspace()?.activeWindowId}
-                containerEl={props.getWorkspaceAreaElement}
-                onFocusWindow={props.focusWindow}
-                onClose={props.closeWindow}
-                onMinimize={(id) => props.setWindowMinimized(id, true)}
-                onToggleFullscreen={props.toggleFullscreenWindow}
-                onOpenLayoutPicker={props.openLayoutPicker}
-                onRestoreDrag={props.restoreDrag}
-                onDragPointerMove={props.handleDragPointerMove}
-                onDragPointerEnd={props.onDragPointerEnd}
-                onDragDuringMove={props.updateWindowBounds}
-                onResizeSnapped={props.resizeSnappedWindowBounds}
-                onUpdateBounds={props.updateWindowBounds}
-                beginPointerGesture={props.beginPointerGesture}
-                onActivateTab={props.activateTab}
-                onCloseTab={props.closeTab}
-                onToggleTabPinned={props.toggleTabPinned}
-                onTabPullStart={props.handleTabPullStart}
-                mergeTargetPreview={props.mergeTargetPreview}
-                draggingWindowId={props.dragSnapWindowId}
-                splitLeftTabId={() => splitState()?.leftTabId}
-                onExitSplitView={() =>
-                  props.setWorkspace((p) => (p ? WorkspaceDocumentCommands.exitSplit(p, gid) : p))
-                }
-                onUseAsSplitLeftTab={(tabId) =>
-                  props.setWorkspace((p) =>
-                    p ? WorkspaceDocumentCommands.setSplitLeft(p, tabId) : p,
-                  )
-                }
-                onDropFileToTabBar={(data, insertIndex) =>
-                  props.dropFileToTabBar(leader()!.id, data, insertIndex)
-                }
+                window={{
+                  leaderId: leader()!.id,
+                  groupId: gid,
+                  tabs: tabList,
+                  visibleTabId,
+                  workspace: props.document.state,
+                  isActive: visibleTabId() === props.document.state()?.activeWindowId,
+                }}
+                environment={{
+                  fileIconContext: props.content.fileIconContext,
+                  container: snap().getWorkspaceAreaElement,
+                  mergeTarget: snap().mergeTargetPreview,
+                  draggingWindowId: snap().dragSnapWindowId,
+                }}
+                commands={{
+                  focus: props.windows.focus,
+                  close: props.windows.close,
+                  minimize: (id) => props.windows.minimize(id, true),
+                  toggleFullscreen: props.windows.toggleFullscreen,
+                  openLayoutPicker: props.picker.open,
+                  restoreDrag: (id, x, y) =>
+                    props.snap.canMutate() ? snap().restoreDrag(id, x, y) : undefined,
+                  moveDrag: props.snap.moveDrag,
+                  endDrag: props.snap.endDrag,
+                  updateDuringDrag: (id, bounds) =>
+                    props.snap.canMutate() && snap().updateWindowBounds(id, bounds),
+                  resizeSnapped: (id, bounds, direction) =>
+                    props.snap.canMutate() &&
+                    snap().resizeSnappedWindowBounds(id, bounds, direction),
+                  updateBounds: (id, bounds) =>
+                    props.snap.canMutate() && snap().updateWindowBounds(id, bounds),
+                  beginPointerGesture: props.windows.beginPointerGesture,
+                }}
+                tabs={{
+                  activate: props.tabs.activate,
+                  close: props.tabs.close,
+                  togglePinned: props.tabs.togglePinned,
+                  pull: props.tabs.pull,
+                  splitLeftId: () => splitState()?.leftTabId,
+                  exitSplit: () =>
+                    props.document.set((p) =>
+                      p ? WorkspaceDocumentCommands.exitSplit(p, gid) : p,
+                    ),
+                  useAsSplitLeft: (tabId) =>
+                    props.document.set((p) =>
+                      p ? WorkspaceDocumentCommands.setSplitLeft(p, tabId) : p,
+                    ),
+                  dropFile: (data, insertIndex) =>
+                    props.tabs.dropFile(leader()!.id, data, insertIndex),
+                }}
               >
                 <Show
                   when={splitState()}
@@ -225,9 +229,7 @@ export function DesktopWorkspaceCanvas(props: DesktopWorkspaceCanvasProps) {
                   }
                 >
                   {(split) => {
-                    const splitSnap = () =>
-                      (split as unknown as () => TabGroupSplitState | undefined)()
-                    const leftTabId = () => splitSnap()?.leftTabId ?? ''
+                    const leftTabId = () => split().leftTabId
                     const leftWindowDef = createMemo(() => tabs().find((w) => w.id === leftTabId()))
                     const rightWindowDef = createMemo(() =>
                       tabs().find((w) => w.id === visibleTabId()),
@@ -238,7 +240,7 @@ export function DesktopWorkspaceCanvas(props: DesktopWorkspaceCanvasProps) {
                           data-testid='workspace-split-left-pane'
                           class='workspace-window-content relative min-h-0 min-w-0 flex flex-col overflow-hidden text-sm text-muted-foreground'
                           style={{
-                            width: `${(splitSnap()?.leftPaneFraction ?? 0.5) * 100}%`,
+                            width: `${split().leftPaneFraction * 100}%`,
                           }}
                         >
                           {renderWindowContent(leftTabId, leftWindowDef, () => true)}
@@ -248,7 +250,7 @@ export function DesktopWorkspaceCanvas(props: DesktopWorkspaceCanvasProps) {
                           data-no-window-drag
                           class='w-1.5 shrink-0 cursor-col-resize border-border bg-muted/40 hover:bg-primary/25'
                           style={{ 'border-left-width': '1px', 'border-right-width': '1px' }}
-                          onPointerDown={(e) => props.startSplitPaneDrag(gid, e)}
+                          onPointerDown={(e) => props.tabs.startSplitDrag(gid, e)}
                         />
                         <div
                           data-testid='workspace-split-right-pane'
@@ -270,18 +272,18 @@ export function DesktopWorkspaceCanvas(props: DesktopWorkspaceCanvasProps) {
           )
         }}
       </For>
-      <Show when={props.layoutPicker()}>
+      <Show when={props.picker.state()}>
         {(get) => {
           const p = get()
-          const c = props.getWorkspaceAreaElement()
+          const c = snap().getWorkspaceAreaElement()
           if (!c) return null
           return (
             <WorkspaceTilingPicker
               anchorRect={p.anchor}
               container={c}
-              onSelectSpan={(span) => props.onTilingPick(p.windowId, span)}
-              onClose={props.closeLayoutPicker}
-              onHoverSpanChange={props.setTilingPickerHoverPreview}
+              onSelectSpan={(span) => props.picker.pick(p.windowId, span)}
+              onClose={props.picker.close}
+              onHoverSpanChange={props.picker.setHover}
             />
           )
         }}

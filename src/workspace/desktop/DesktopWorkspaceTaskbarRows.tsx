@@ -7,7 +7,7 @@ import { FloatingContextMenu } from '@/features/explorer/FloatingContextMenu'
 import { Show, createSignal } from 'solid-js'
 import type { Accessor } from 'solid-js'
 import { resolveGroupVisibleTabId, tabsInGroup } from '../tabs/tab-group-ops'
-import { hermesSessionForId } from '@/features/hermes/hermes-session-store'
+import { HermesSessions } from '@/features/hermes/hermes-session-store'
 
 export function TaskbarGroupRow(props: {
   groupId: string
@@ -54,7 +54,7 @@ export function TaskbarGroupRow(props: {
   const isMinimized = () => leader()?.layout?.minimized ?? false
   const hermesState = () => {
     const id = displayWindow()?.hermes?.sessionId
-    return id ? hermesSessionForId(id) : undefined
+    return id ? HermesSessions.forId(id) : undefined
   }
 
   const onSelect = () => {

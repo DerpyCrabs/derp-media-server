@@ -4,7 +4,7 @@ import type { FileItem } from '@/lib/files/types'
 import type { HermesOpenTarget } from './hermes-open-target'
 import { useModalFocus } from '@/lib/ui/modal-focus'
 import { HermesChatPane } from './HermesChatPane'
-import { canCloseHermesWindow, discardHermesDraft } from './hermes-session-store'
+import { HermesSessions } from './hermes-session-store'
 
 export function HermesChatDialog(props: {
   file: FileItem
@@ -27,8 +27,8 @@ export function HermesChatDialog(props: {
     closing = true
     const target = { draftId, sessionId: sessionId() }
     try {
-      if (!(await canCloseHermesWindow(target))) return
-      discardHermesDraft(target)
+      if (!(await HermesSessions.canClose(target))) return
+      HermesSessions.discardDraft(target)
       props.onClose()
     } finally {
       closing = false

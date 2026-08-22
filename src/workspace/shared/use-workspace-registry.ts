@@ -17,6 +17,7 @@ import {
   type WorkspaceType,
 } from '@/workspace/model/workspace-conversion'
 import type { WorkspaceViewport } from '@/workspace/model/workspace-placement'
+import { transferWorkspaceGroups } from '@/workspace/model/workspace-transfer'
 import {
   createWorkspaceOperationCoordinator,
   createWorkspaceSaveCoordinator,
@@ -79,6 +80,14 @@ type WorkspaceSavePayload = {
 }
 
 type PendingSave = PendingWorkspaceSave<WorkspaceSavePayload>
+
+export type WorkspaceSessionTransferInput = {
+  sourceId: string
+  destinationId: string
+  destinationFallback: PersistedWorkspaceState
+  windowIds: string[]
+  viewport: WorkspaceViewport
+}
 
 function sameWorkspace(left: PersistedWorkspaceState, right: PersistedWorkspaceState) {
   return (
@@ -615,10 +624,6 @@ export function useWorkspaceRegistry(options: WorkspaceRegistryOptions) {
     await saveCoordinator.flush(id)
   }
 
-  async function acquire(id: string, initial: PersistedWorkspaceState) {
-    return openWorkspace(id, initial)
-  }
-
   async function convertWorkspace(id: string, target: WorkspaceType, viewport: WorkspaceViewport) {
     const isActive = active().id === id
     if (isActive) await flushWorkspace(id)
@@ -684,6 +689,59 @@ export function useWorkspaceRegistry(options: WorkspaceRegistryOptions) {
     return result
   }
 
+  async function transferWindows(input: WorkspaceSessionTransferInput) {
+    const destinationRecord = registry().records[input.destinationId]
+    let destinationAcquired = false
+    const destinationCreated = !destinationRecord
+    let moveStarted = false
+    try {
+      const opened = await openWorkspace(
+        input.destinationId,
+        destinationRecord?.snapshot ?? input.destinationFallback,
+      )
+      if (!opened.editable) throw new Error('Workspace is open elsewhere.')
+      destinationAcquired = true
+
+      await flush()
+      const source = document()
+      if (!source || active().id !== input.sourceId) {
+        throw new Error('Workspace is no longer available.')
+      }
+      const moved = transferWorkspaceGroups(source, opened.record.snapshot, {
+        windowIds: input.windowIds,
+        viewport: input.viewport,
+      })
+      if (moved.source === source) throw new Error('Windows are no longer available.')
+      const sourceRecord = registry().records[input.sourceId]
+      const deleteSource = !sourceRecord?.name && moved.source.windows.length === 0
+      moveStarted = true
+      await moveWorkspaces({
+        sourceId: input.sourceId,
+        destinationId: input.destinationId,
+        sourceRevision: currentRevision(input.sourceId),
+        destinationRevision: opened.record.revision,
+        sourceSnapshot: moved.source,
+        destinationSnapshot: moved.destination,
+        deleteSource,
+      })
+      destinationAcquired = false
+      return { kind: 'moved' as const, destinationId: input.destinationId }
+    } catch (error) {
+      const rollback = !moveStarted || isApiError(error)
+      if (rollback) {
+        try {
+          if (destinationCreated) await deleteWorkspace(input.destinationId)
+          else if (destinationAcquired) await releaseLease(input.destinationId)
+        } catch {}
+      }
+      return {
+        kind: 'failed' as const,
+        rollback,
+        message: error instanceof Error ? error.message : 'Could not move windows to workspace.',
+      }
+    }
+  }
+
   async function reorder(order: string[]) {
     await operations.run('__registry__', () => http.post('/api/workspaces/reorder', { order }))
     setRegistry((current) => ({ ...current, order }))
@@ -704,40 +762,48 @@ export function useWorkspaceRegistry(options: WorkspaceRegistryOptions) {
   }
 
   return {
-    clientId,
-    registry,
-    active,
-    ready,
-    document,
-    update,
-    replace,
-    opened: () => {
-      const current = active()
-      return current.id === options.workspaceId() && current.phase === 'open'
+    state: {
+      clientId,
+      active,
+      ready,
+      opened: () => {
+        const current = active()
+        return current.id === options.workspaceId() && current.phase === 'open'
+      },
+      editable,
+      saving,
+      saveError,
+      revision: () => {
+        const current = active()
+        return current.id === options.workspaceId() ? current.revision : 0
+      },
+      deleted: (id: string) => tombstones.has(id),
     },
-    editable,
-    saving,
-    saveError,
-    retrySave,
-    revision: () => {
-      const current = active()
-      return current.id === options.workspaceId() ? current.revision : 0
+    document: {
+      value: document,
+      update,
+      replace,
+      retrySave,
+      flush,
     },
-    deleted: (id: string) => tombstones.has(id),
-    refresh,
-    reconcileRemoteChange,
-    activate,
-    takeControl,
-    updateMetadata: (update: { name?: string; icon?: string; iconColor?: string }) =>
-      updateMetadataFor(options.workspaceId(), update),
-    updateMetadataFor,
-    flush,
-    transition,
-    acquire,
-    release: releaseLease,
-    moveWorkspaces,
-    convertWorkspace,
-    reorder,
-    deleteWorkspace,
+    catalog: {
+      value: registry,
+      refresh,
+      reconcileRemoteChange,
+      updateMetadata: (update: { name?: string; icon?: string; iconColor?: string }) =>
+        updateMetadataFor(options.workspaceId(), update),
+      updateMetadataFor,
+      reorder,
+      delete: deleteWorkspace,
+    },
+    lifecycle: {
+      activate,
+      takeControl,
+      transition,
+      convert: convertWorkspace,
+    },
+    transfer: {
+      windows: transferWindows,
+    },
   }
 }

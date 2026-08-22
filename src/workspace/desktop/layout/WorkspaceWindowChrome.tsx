@@ -32,41 +32,44 @@ export type WorkspaceBounds = {
 export type WorkspacePointerGesture = { commit: () => void; cancel: () => void }
 
 export type WorkspaceWindowChromeProps = {
-  leaderWindowId: string
-  groupId: string
-  tabWindows: Accessor<WorkspaceWindowDefinition[]>
-  visibleTabId: Accessor<string>
-  workspace: Accessor<PersistedWorkspaceState | null>
-  fileIconContext: () => FileIconContext
-  isActive: boolean
-  containerEl: Accessor<HTMLElement | undefined>
-  onFocusWindow: (id: string) => void
-  onClose: (id: string) => void
-  onMinimize: (id: string) => void
-  onToggleFullscreen: (id: string) => void
-  onOpenLayoutPicker: (windowId: string, rect: DOMRect) => void
-  onRestoreDrag: (windowId: string, clientX: number, clientY: number) => WorkspaceBounds | undefined
-  onDragPointerMove: (windowId: string, clientX: number, clientY: number) => void
-  onDragPointerEnd: (
-    windowId: string,
-    bounds: WorkspaceBounds,
-    clientX: number,
-    clientY: number,
-  ) => void
-  onDragDuringMove: (windowId: string, bounds: WorkspaceBounds) => void
-  onResizeSnapped: (windowId: string, bounds: WorkspaceBounds, direction: string) => void
-  onUpdateBounds: (windowId: string, bounds: WorkspaceBounds) => void
-  beginPointerGesture: () => WorkspacePointerGesture
-  onActivateTab?: (groupId: string, tabId: string) => void
-  onCloseTab?: (tabId: string) => void
-  onToggleTabPinned?: (tabId: string) => void
-  onTabPullStart?: (groupId: string, tabId: string, e: PointerEvent) => void
-  onDropFileToTabBar?: (data: FileDragData, groupInsertIndex?: number) => void
-  mergeTargetPreview?: Accessor<MergeTarget | null>
-  draggingWindowId?: Accessor<string | null>
-  splitLeftTabId?: Accessor<string | null | undefined>
-  onExitSplitView?: () => void
-  onUseAsSplitLeftTab?: (tabId: string) => void
+  window: {
+    leaderId: string
+    groupId: string
+    tabs: Accessor<WorkspaceWindowDefinition[]>
+    visibleTabId: Accessor<string>
+    workspace: Accessor<PersistedWorkspaceState | null>
+    isActive: boolean
+  }
+  environment: {
+    fileIconContext: () => FileIconContext
+    container: Accessor<HTMLElement | undefined>
+    mergeTarget?: Accessor<MergeTarget | null>
+    draggingWindowId?: Accessor<string | null>
+  }
+  commands: {
+    focus: (id: string) => void
+    close: (id: string) => void
+    minimize: (id: string) => void
+    toggleFullscreen: (id: string) => void
+    openLayoutPicker: (windowId: string, rect: DOMRect) => void
+    restoreDrag: (windowId: string, clientX: number, clientY: number) => WorkspaceBounds | undefined
+    moveDrag: (windowId: string, clientX: number, clientY: number) => void
+    endDrag: (windowId: string, bounds: WorkspaceBounds, clientX: number, clientY: number) => void
+    updateDuringDrag: (windowId: string, bounds: WorkspaceBounds) => void
+    resizeSnapped: (windowId: string, bounds: WorkspaceBounds, direction: string) => void
+    updateBounds: (windowId: string, bounds: WorkspaceBounds) => void
+    beginPointerGesture: () => WorkspacePointerGesture
+  }
+  tabs: {
+    activate?: (groupId: string, tabId: string) => void
+    close?: (tabId: string) => void
+    togglePinned?: (tabId: string) => void
+    pull?: (groupId: string, tabId: string, e: PointerEvent) => void
+    dropFile?: (data: FileDragData, groupInsertIndex?: number) => void
+    splitLeftId?: Accessor<string | null | undefined>
+    exitSplit?: () => void
+    useAsSplitLeft?: (tabId: string) => void
+  }
   children: JSX.Element
 }
 
@@ -120,7 +123,7 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
         if (e.button !== 0) return
         const t = e.target as HTMLElement | null
         if (t?.closest?.('.workspace-window-drag-handle')) return
-        props.onFocusWindow(props.visibleTabId())
+        props.commands.focus(props.window.visibleTabId())
       }
       el.addEventListener('mousedown', onMouseDownCapture, true)
       // eslint-disable-next-line solid/reactivity
@@ -129,12 +132,14 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
   )
 
   const liveLeaderId = createMemo(() => {
-    const rows = props.workspace()?.windows ?? []
-    const leaderWin = rows.find((w) => groupIdForWindow(w) === props.groupId)
-    return leaderWin?.id ?? props.leaderWindowId
+    const rows = props.window.workspace()?.windows ?? []
+    const leaderWin = rows.find((w) => groupIdForWindow(w) === props.window.groupId)
+    return leaderWin?.id ?? props.window.leaderId
   })
 
-  const win = createMemo(() => props.workspace()?.windows.find((w) => w.id === liveLeaderId()))
+  const win = createMemo(() =>
+    props.window.workspace()?.windows.find((w) => w.id === liveLeaderId()),
+  )
   const b = createMemo(
     () => win()?.layout?.bounds ?? createDefaultBounds(0, win()?.type ?? 'browser'),
   )
@@ -149,7 +154,7 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
     return useWorkspacePreferredSnapStore.getState().tiledWindowGap
   })
   const visualBounds = createMemo(() => {
-    const container = props.containerEl()
+    const container = props.environment.container()
     const rect = container?.getBoundingClientRect()
     return applyWorkspaceTileGap(
       b(),
@@ -161,7 +166,7 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
   const useRoundedTileCorners = createMemo(() => isSnapped() && tiledWindowGap() > 0)
 
   const resizeMap = createMemo(() => {
-    const container = props.containerEl()
+    const container = props.environment.container()
     const rect = container?.getBoundingClientRect()
     const canvas = rect ? { width: rect.width, height: rect.height } : null
     return getWorkspaceSnapResizeHandleMap(
@@ -176,37 +181,41 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
   const showResize = createMemo(() => !isFullscreen())
 
   const mergeHighlightInsertIndex = createMemo(() => {
-    const p = props.mergeTargetPreview?.()
-    if (!p || p.groupId !== props.groupId) return null as number | null
+    const p = props.environment.mergeTarget?.()
+    if (!p || p.groupId !== props.window.groupId) return null as number | null
     return p.insertIndex
   })
 
   const mergeDim = createMemo(
-    () => props.draggingWindowId?.() === liveLeaderId() && props.mergeTargetPreview?.() != null,
+    () =>
+      props.environment.draggingWindowId?.() === liveLeaderId() &&
+      props.environment.mergeTarget?.() != null,
   )
 
   const loneTabStripDrag = createMemo(
     () =>
-      (props.workspace()?.windows.filter((window) => groupIdForWindow(window) === props.groupId)
-        .length ?? props.tabWindows().length) <= 1,
+      (props.window
+        .workspace()
+        ?.windows.filter((window) => groupIdForWindow(window) === props.window.groupId).length ??
+        props.window.tabs().length) <= 1,
   )
 
   const startWindowDrag = (e: PointerEvent, pointerCaptureEl: HTMLElement) => {
     if (shouldBlockWindowDragStart(e.target, loneTabStripDrag())) return
 
-    const container = props.containerEl()
+    const container = props.environment.container()
     if (!container) return
 
     const lid = liveLeaderId()
-    const initialWorkspace = props.workspace()
+    const initialWorkspace = props.window.workspace()
     if (!initialWorkspace) return
     const wb = initialWorkspace.windows.find((w) => w.id === lid)?.layout?.bounds
     if (!wb) return
-    const pointerGesture = props.beginPointerGesture()
+    const pointerGesture = props.commands.beginPointerGesture()
 
     e.preventDefault()
     e.stopPropagation()
-    props.onFocusWindow(props.visibleTabId())
+    props.commands.focus(props.window.visibleTabId())
 
     const cRect = container.getBoundingClientRect()
 
@@ -226,7 +235,7 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
         ) {
           return
         }
-        const after = props.onRestoreDrag(lid, pointerDownX, pointerDownY)
+        const after = props.commands.restoreDrag(lid, pointerDownX, pointerDownY)
         if (after) {
           grabBase = after
           liveBounds = { ...after }
@@ -236,7 +245,7 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
         dragStarted = true
       }
       const id = liveLeaderId()
-      props.onDragPointerMove(id, ev.clientX, ev.clientY)
+      props.commands.moveDrag(id, ev.clientX, ev.clientY)
       const cur = liveBounds
       let nx = ev.clientX - cRect.left - grabDx
       let ny = ev.clientY - cRect.top - grabDy
@@ -248,7 +257,7 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
       const maxY = cRect.height - vis
       ny = Math.max(minY, Math.min(ny, maxY))
       liveBounds = { ...cur, x: nx, y: ny }
-      props.onDragDuringMove(id, liveBounds)
+      props.commands.updateDuringDrag(id, liveBounds)
     }
 
     startPointerGesture({
@@ -258,7 +267,7 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
       commit: (ev) => {
         if (dragStarted) {
           const id = liveLeaderId()
-          props.onDragPointerEnd(id, liveBounds, ev.clientX, ev.clientY)
+          props.commands.endDrag(id, liveBounds, ev.clientX, ev.clientY)
         }
         pointerGesture.commit()
       },
@@ -281,15 +290,15 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
   )
 
   const startResize = (direction: string, e: PointerEvent) => {
-    const container = props.containerEl()
+    const container = props.environment.container()
     if (!container) return
-    const initialWorkspace = props.workspace()
+    const initialWorkspace = props.window.workspace()
     if (!initialWorkspace) return
-    const pointerGesture = props.beginPointerGesture()
+    const pointerGesture = props.commands.beginPointerGesture()
 
     e.preventDefault()
     e.stopPropagation()
-    props.onFocusWindow(props.visibleTabId())
+    props.commands.focus(props.window.visibleTabId())
 
     const cRect = container.getBoundingClientRect()
 
@@ -336,9 +345,9 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
 
       const id = liveLeaderId()
       if (isSnapped()) {
-        props.onResizeSnapped(id, applyFreeResize(nb), direction)
+        props.commands.resizeSnapped(id, applyFreeResize(nb), direction)
       } else {
-        props.onUpdateBounds(id, applyFreeResize(nb))
+        props.commands.updateBounds(id, applyFreeResize(nb))
       }
     }
 
@@ -373,8 +382,8 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
       }
     } else return
     e.preventDefault()
-    if (isSnapped()) props.onResizeSnapped(liveLeaderId(), nb, direction)
-    else props.onUpdateBounds(liveLeaderId(), nb)
+    if (isSnapped()) props.commands.resizeSnapped(liveLeaderId(), nb, direction)
+    else props.commands.updateBounds(liveLeaderId(), nb)
   }
 
   return (
@@ -400,38 +409,38 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
     >
       <div
         ref={(el) => setWindowGroupEl(el ?? null)}
-        data-window-group={props.groupId}
+        data-window-group={props.window.groupId}
         data-workspace-window-snapped={isSnapped() ? '' : undefined}
         data-workspace-window-minimized={isMinimized() ? '' : undefined}
         class={`relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden border border-border bg-background shadow-2xl ${
           isFloating() || useRoundedTileCorners()
             ? 'rounded-lg outline outline-1 -outline-offset-1 outline-border'
             : 'rounded-none'
-        } ${props.isActive ? 'border-border shadow-black/20' : ''}`}
+        } ${props.window.isActive ? 'border-border shadow-black/20' : ''}`}
       >
         <WorkspaceWindowTitlebar
-          groupId={props.groupId}
-          tabs={props.tabWindows}
-          visibleTabId={props.visibleTabId}
-          active={props.isActive}
-          fileIconContext={props.fileIconContext}
+          groupId={props.window.groupId}
+          tabs={props.window.tabs}
+          visibleTabId={props.window.visibleTabId}
+          active={props.window.isActive}
+          fileIconContext={props.environment.fileIconContext}
           maximized={isFullscreen}
           onRoot={(element) => setTitleBarEl(element)}
           testId='window-drag-handle'
           mergeHighlightInsertIndex={mergeHighlightInsertIndex}
-          splitLeftTabId={props.splitLeftTabId}
-          onActivateTab={props.onActivateTab}
-          onFocusWindow={props.onFocusWindow}
-          onCloseTab={props.onCloseTab}
-          onToggleTabPinned={props.onToggleTabPinned}
-          onTabPullStart={props.onTabPullStart}
-          onDropFile={props.onDropFileToTabBar}
-          onExitSplitView={props.onExitSplitView}
-          onUseAsSplitLeftTab={props.onUseAsSplitLeftTab}
-          onMinimize={() => props.onMinimize(liveLeaderId())}
-          onToggleMaximize={() => props.onToggleFullscreen(liveLeaderId())}
-          onOpenLayoutPicker={(rect) => props.onOpenLayoutPicker(liveLeaderId(), rect)}
-          onClose={() => props.onClose(liveLeaderId())}
+          splitLeftTabId={props.tabs.splitLeftId}
+          onActivateTab={props.tabs.activate}
+          onFocusWindow={props.commands.focus}
+          onCloseTab={props.tabs.close}
+          onToggleTabPinned={props.tabs.togglePinned}
+          onTabPullStart={props.tabs.pull}
+          onDropFile={props.tabs.dropFile}
+          onExitSplitView={props.tabs.exitSplit}
+          onUseAsSplitLeftTab={props.tabs.useAsSplitLeft}
+          onMinimize={() => props.commands.minimize(liveLeaderId())}
+          onToggleMaximize={() => props.commands.toggleFullscreen(liveLeaderId())}
+          onOpenLayoutPicker={(rect) => props.commands.openLayoutPicker(liveLeaderId(), rect)}
+          onClose={() => props.commands.close(liveLeaderId())}
         />
         <div
           data-testid='workspace-chrome-content'

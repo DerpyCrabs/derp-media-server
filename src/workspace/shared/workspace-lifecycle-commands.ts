@@ -2,10 +2,7 @@ import { showAppConfirm } from '@/lib/ui/app-dialog'
 import type { WorkspaceSession } from './WorkspaceSession'
 import type { Accessor } from 'solid-js'
 
-type WorkspaceLifecycleSession = Pick<
-  WorkspaceSession,
-  'registry' | 'deleteWorkspace' | 'convertWorkspace'
->
+type WorkspaceLifecycleSession = Pick<WorkspaceSession, 'catalog' | 'lifecycle'>
 
 export function createWorkspaceLifecycleCommands(options: {
   session: WorkspaceLifecycleSession
@@ -13,7 +10,7 @@ export function createWorkspaceLifecycleCommands(options: {
   navigate: (id: string, mode: 'push' | 'replace') => void
 }) {
   async function deleteWorkspace(id: string) {
-    const registry = options.session.registry()
+    const registry = options.session.catalog.value()
     const record = registry.records[id]
     if (!record) return
     const confirmed = await showAppConfirm({
@@ -23,9 +20,9 @@ export function createWorkspaceLifecycleCommands(options: {
       destructive: true,
     })
     if (!confirmed) return
-    const currentRegistry = options.session.registry()
+    const currentRegistry = options.session.catalog.value()
     const index = currentRegistry.order.indexOf(id)
-    await options.session.deleteWorkspace(id)
+    await options.session.catalog.delete(id)
     if (id !== options.activeId()) return
     const next =
       currentRegistry.order[index + 1] ?? currentRegistry.order[index - 1] ?? crypto.randomUUID()
@@ -33,7 +30,7 @@ export function createWorkspaceLifecycleCommands(options: {
   }
 
   async function convertWorkspace(id: string) {
-    const record = options.session.registry().records[id]
+    const record = options.session.catalog.value().records[id]
     if (!record) return
     const target = record.snapshot.workspaceType === 'canvas' ? 'desktop' : 'canvas'
     const label = target === 'canvas' ? 'canvas' : 'desktop'
@@ -43,7 +40,7 @@ export function createWorkspaceLifecycleCommands(options: {
       confirmLabel: 'Convert',
     })
     if (!confirmed) return
-    await options.session.convertWorkspace(id, target, {
+    await options.session.lifecycle.convert(id, target, {
       width: window.innerWidth,
       height: Math.max(1, window.innerHeight - 32),
     })

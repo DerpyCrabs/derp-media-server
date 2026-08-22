@@ -1,38 +1,28 @@
-import {
-  createWorkspaceTransferMachine,
-  transferWorkspaceGroups,
-} from '@/workspace/model/workspace-transfer'
+import { createWorkspaceTransferMachine } from '@/workspace/model/workspace-transfer'
 import { workspaceValueEquals } from '@/workspace/model/workspace-equality'
-import { isApiError } from '@/lib/api/client'
 import type { PersistedWorkspaceState } from '@/workspace/model/use-workspace'
-import type {
-  WorkspaceMoveInput,
-  WorkspaceRecord,
-  WorkspaceRegistry,
-} from '@/workspace/model/workspace-registry'
+import type { WorkspaceSessionTransferInput } from './use-workspace-registry'
 import { createSignal, type Accessor } from 'solid-js'
 
 export type WorkspaceTransferSession = {
-  document: Accessor<PersistedWorkspaceState | null>
-  editable: Accessor<boolean>
-  revision: Accessor<number>
-  registry: Accessor<WorkspaceRegistry>
-  flush(): Promise<void>
-  acquire(
-    id: string,
-    initial: PersistedWorkspaceState,
-  ): Promise<{ editable: boolean; record: WorkspaceRecord }>
-  release(id: string): Promise<void>
-  deleteWorkspace(id: string): Promise<void>
-  moveWorkspaces(
-    input: WorkspaceMoveInput,
-  ): Promise<{ sourceRevision: number; destinationRevision: number }>
-  update(
-    value:
-      | PersistedWorkspaceState
-      | null
-      | ((current: PersistedWorkspaceState | null) => PersistedWorkspaceState | null),
-  ): PersistedWorkspaceState | null
+  state: { editable: Accessor<boolean> }
+  document: {
+    value: Accessor<PersistedWorkspaceState | null>
+    update(
+      value:
+        | PersistedWorkspaceState
+        | null
+        | ((current: PersistedWorkspaceState | null) => PersistedWorkspaceState | null),
+    ): PersistedWorkspaceState | null
+  }
+  transfer: {
+    windows(
+      input: WorkspaceSessionTransferInput,
+    ): Promise<
+      | { kind: 'moved'; destinationId: string }
+      | { kind: 'failed'; rollback: boolean; message: string }
+    >
+  }
 }
 
 type TransferClock = {
@@ -103,8 +93,8 @@ export function createCrossWorkspaceTransferController(
     if (committing()) return false
     reset()
     const sourceId = options.sourceId()
-    const sourceDocument = options.session.document()
-    if (!sourceId || !sourceDocument || !options.session.editable()) return false
+    const sourceDocument = options.session.document.value()
+    if (!sourceId || !sourceDocument || !options.session.state.editable()) return false
     const next = machine.begin(sourceId, windowIds)
     setMachineState(next)
     if (next.phase === 'idle') return false
@@ -141,21 +131,14 @@ export function createCrossWorkspaceTransferController(
   const cancel = () => {
     if (committing()) return false
     const rollback = start
-    const latest = options.session.document()
+    const latest = options.session.document.value()
     if (rollback && latest && options.sourceId() === rollback.sourceId) {
       const next = options.rollbackGesture(latest, rollback.sourceDocument, rollback.windowIds)
-      if (!workspaceValueEquals(latest, next)) options.session.update(() => next)
+      if (!workspaceValueEquals(latest, next)) options.session.document.update(() => next)
     }
     reset()
     options.onSettled?.()
     return !!rollback
-  }
-
-  const cleanupDestination = async (destinationId: string, created: boolean) => {
-    try {
-      if (created) await options.session.deleteWorkspace(destinationId)
-      else await options.session.release(destinationId)
-    } catch {}
   }
 
   const performCommit = async (
@@ -166,55 +149,29 @@ export function createCrossWorkspaceTransferController(
     const destinationId = destinationWasCreated
       ? (options.createId?.() ?? crypto.randomUUID())
       : transfer.destinationId
-    const destinationRecord = options.session.registry().records[destinationId]
-    let destinationAcquired = false
-    let moveStarted = false
     try {
-      const opened = await options.session.acquire(
+      const result = await options.session.transfer.windows({
+        sourceId: started.sourceId,
         destinationId,
-        destinationRecord?.snapshot ?? options.emptyDestination(),
-      )
-      if (!opened.editable) throw new Error('Workspace is open elsewhere.')
-      destinationAcquired = true
-
-      await options.session.flush()
-      const liveSource = options.session.document()
-      if (!liveSource || options.sourceId() !== started.sourceId) {
-        throw new Error('Workspace is no longer available.')
-      }
-      const moved = transferWorkspaceGroups(liveSource, opened.record.snapshot, {
+        destinationFallback: options.emptyDestination(),
         windowIds: transfer.windowIds,
         viewport: options.viewport(),
       })
-      if (moved.source === liveSource) throw new Error('Windows are no longer available.')
-      const sourceRecord = options.session.registry().records[started.sourceId]
-      const deleteSource = !sourceRecord?.name && moved.source.windows.length === 0
-      moveStarted = true
-      await options.session.moveWorkspaces({
-        sourceId: started.sourceId,
-        destinationId,
-        sourceRevision: options.session.revision(),
-        destinationRevision: opened.record.revision,
-        sourceSnapshot: moved.source,
-        destinationSnapshot: moved.destination,
-        deleteSource,
-      })
-      destinationAcquired = false
+      if (result.kind === 'failed') {
+        if (result.rollback) {
+          const latest = options.session.document.value()
+          if (latest && options.sourceId() === started.sourceId) {
+            const next = options.rollbackGesture(latest, started.sourceDocument, started.windowIds)
+            if (!workspaceValueEquals(latest, next)) options.session.document.update(() => next)
+          }
+          options.navigate(started.sourceId)
+        }
+        options.onError?.(result.message)
+        return false
+      }
       options.navigate(destinationId)
       return true
     } catch (error) {
-      const serverRejectedMove = moveStarted && isApiError(error)
-      if (!moveStarted || serverRejectedMove) {
-        if (destinationAcquired || destinationWasCreated) {
-          await cleanupDestination(destinationId, destinationWasCreated)
-        }
-        const latest = options.session.document()
-        if (latest && options.sourceId() === started.sourceId) {
-          const next = options.rollbackGesture(latest, started.sourceDocument, started.windowIds)
-          if (!workspaceValueEquals(latest, next)) options.session.update(() => next)
-        }
-        options.navigate(started.sourceId)
-      }
       options.onError?.(
         error instanceof Error ? error.message : 'Could not move windows to workspace.',
       )

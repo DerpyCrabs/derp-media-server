@@ -31,15 +31,15 @@ function WorkspaceRenderer(props: { workspaceId: () => string }) {
   const history = useBrowserHistory()
   const params = createUrlSearchParamsMemo(history)
   const themeTick = useStoreSync(useThemeStore)
-  useWorkspaceDocumentChrome(() => session.registry().records[props.workspaceId()], themeTick)
+  useWorkspaceDocumentChrome(() => session.catalog.value().records[props.workspaceId()], themeTick)
 
   createEffect(
     () => ({
       id: props.workspaceId(),
       dir: params().get('dir'),
-      ready: session.ready(),
-      active: session.active(),
-      registry: session.registry(),
+      ready: session.state.ready(),
+      active: session.state.active(),
+      registry: session.catalog.value(),
     }),
     ({ id, dir, ready, active, registry }) => {
       if (!ready) return
@@ -54,7 +54,7 @@ function WorkspaceRenderer(props: { workspaceId: () => string }) {
         navigateSearchParams({ ws: last?.id ?? crypto.randomUUID() }, 'replace')
         return
       }
-      if (session.deleted(id)) {
+      if (session.state.deleted(id)) {
         const next = Object.values(registry.records)
           .filter((record) => record.id !== id)
           .sort((left, right) => right.lastOpenedAt - left.lastOpenedAt)[0]
@@ -63,7 +63,7 @@ function WorkspaceRenderer(props: { workspaceId: () => string }) {
       }
       if (active.id === id && active.phase !== 'idle') return
       const record = registry.records[id]
-      void session.activate(
+      void session.lifecycle.activate(
         id,
         record?.snapshot ??
           (dir
@@ -75,15 +75,15 @@ function WorkspaceRenderer(props: { workspaceId: () => string }) {
 
   return (
     <For
-      each={session.document() ? [session.active().id] : []}
+      each={session.document.value() ? [session.state.active().id] : []}
       fallback={<div class='fixed inset-0 bg-background' />}
     >
       {() => (
         <Switch>
-          <Match when={session.document()?.workspaceType === 'canvas'}>
+          <Match when={session.document.value()?.workspaceType === 'canvas'}>
             <CanvasWorkspace />
           </Match>
-          <Match when={session.document()}>
+          <Match when={session.document.value()}>
             <DesktopWorkspace />
           </Match>
         </Switch>

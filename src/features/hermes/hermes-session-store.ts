@@ -1,4 +1,4 @@
-import { createStore, reconcile } from 'solid-js'
+import { createMemo, createStore, reconcile, type Accessor } from 'solid-js'
 import { showAppConfirm } from '@/lib/ui/app-dialog'
 import type { FileDragData } from '@/lib/files/file-drag-data'
 import {
@@ -131,13 +131,13 @@ function stableKeyForSessionId(sessionId: string): string | undefined {
   return sessions[sessionKey] ? sessionKey : undefined
 }
 
-export function hermesChatKey(target: { sessionId?: string; draftId?: string }): string {
+function hermesChatKey(target: { sessionId?: string; draftId?: string }): string {
   return target.sessionId
     ? (stableKeyForSessionId(target.sessionId) ?? durableSessionKey(target.sessionId))
     : `draft:${target.draftId ?? crypto.randomUUID()}`
 }
 
-export function bindHermesSessionId(key: string, sessionId: string): string {
+function bindHermesSessionId(key: string, sessionId: string): string {
   const state = sessions[key]
   if (!state) return key
   if (state.sessionId) durableSessionAliases.set(durableSessionKey(state.sessionId), key)
@@ -149,7 +149,7 @@ export function bindHermesSessionId(key: string, sessionId: string): string {
   return key
 }
 
-export function hermesSessionForId(sessionId: string): HermesChatState | undefined {
+function hermesSessionForId(sessionId: string): HermesChatState | undefined {
   const key = stableKeyForSessionId(sessionId)
   return key ? sessions[key] : undefined
 }
@@ -347,7 +347,7 @@ async function jsonRequest(url: string, init?: RequestInit): Promise<any> {
   return payload
 }
 
-export function ensureHermesChat(target: {
+function ensureHermesChat(target: {
   sessionId?: string
   draftId?: string
   cwd?: string | null
@@ -407,7 +407,7 @@ function blobDataUrl(blob: Blob): Promise<string> {
   })
 }
 
-export async function transcribeHermesAudio(key: string, blob: Blob) {
+async function transcribeHermesAudio(key: string, blob: Blob) {
   const dataUrl = await blobDataUrl(blob)
   const payload = await jsonRequest('/api/hermes/transcribe', {
     method: 'POST',
@@ -424,7 +424,7 @@ export async function transcribeHermesAudio(key: string, blob: Blob) {
 }
 
 let replyAudio: HTMLAudioElement | undefined
-export async function speakHermesText(text: string) {
+async function speakHermesText(text: string) {
   replyAudio?.pause()
   const payload = await jsonRequest('/api/hermes/speak', {
     method: 'POST',
@@ -436,7 +436,7 @@ export async function speakHermesText(text: string) {
   await replyAudio.play()
 }
 
-export async function refreshHermesChat(key: string) {
+async function refreshHermesChat(key: string) {
   const state = sessions[key]
   if (!state?.sessionId) return
   try {
@@ -501,7 +501,7 @@ export async function refreshHermesChat(key: string) {
   }
 }
 
-export async function loadOlderHermesMessages(key: string) {
+async function loadOlderHermesMessages(key: string) {
   const state = sessions[key]
   if (!state?.sessionId || state.historyLoading || !state.hasOlderMessages) return 0
   updateHermesState(key, (state) => {
@@ -557,7 +557,7 @@ async function refreshHermesModelOptions(key: string) {
   }
 }
 
-export async function sendHermesControl(key: string, command: string) {
+async function sendHermesControl(key: string, command: string) {
   if (!sessions[key] || sessions[key]!.readOnly) return
   patchHermesState(key, { composer: command, completions: [] })
   await sendHermesPrompt(key)
@@ -788,7 +788,7 @@ function connectEvents() {
   }
 }
 
-export function setHermesComposer(key: string, value: string) {
+function setHermesComposer(key: string, value: string) {
   if (!sessions[key]) return
   updateHermesState(key, (state) => {
     state.composer = value
@@ -796,7 +796,7 @@ export function setHermesComposer(key: string, value: string) {
   void refreshHermesCompletions(key, value)
 }
 
-export function setHermesError(key: string, error: unknown) {
+function setHermesError(key: string, error: unknown) {
   if (sessions[key])
     updateHermesState(key, (state) => {
       state.error = error instanceof Error ? error.message : String(error)
@@ -835,7 +835,7 @@ async function refreshHermesCompletions(key: string, value: string) {
   }
 }
 
-export function applyHermesCompletion(key: string, completion: HermesCompletion) {
+function applyHermesCompletion(key: string, completion: HermesCompletion) {
   const state = sessions[key]
   if (!state) return
   if (state.composer.startsWith('/')) {
@@ -849,7 +849,7 @@ export function applyHermesCompletion(key: string, completion: HermesCompletion)
   })
 }
 
-export async function renameHermesSession(key: string, title: string) {
+async function renameHermesSession(key: string, title: string) {
   const sessionId = sessions[key]?.sessionId
   if (!sessionId) return
   await jsonRequest('/api/hermes/rename', {
@@ -860,7 +860,7 @@ export async function renameHermesSession(key: string, title: string) {
   patchHermesState(key, { title, error: undefined })
 }
 
-export async function branchHermesSession(key: string, name?: string, count?: number) {
+async function branchHermesSession(key: string, name?: string, count?: number) {
   const sessionId = sessions[key]?.sessionId
   if (!sessionId) return undefined
   const payload = await jsonRequest('/api/hermes/branch', {
@@ -874,7 +874,7 @@ export async function branchHermesSession(key: string, name?: string, count?: nu
   }
 }
 
-export async function rewindHermesSession(key: string, messageId: string, replacement?: string) {
+async function rewindHermesSession(key: string, messageId: string, replacement?: string) {
   const state = sessions[key]
   if (!state?.sessionId || state.status === 'sending' || state.status === 'streaming') return
   const target = rewindTarget(state.messages, messageId)
@@ -914,14 +914,14 @@ export async function rewindHermesSession(key: string, messageId: string, replac
   }
 }
 
-export async function retryHermesLastTurn(key: string) {
+async function retryHermesLastTurn(key: string) {
   const message = [...(sessions[key]?.messages ?? [])]
     .reverse()
     .find((item) => item.role === 'user')
   if (message) await rewindHermesSession(key, message.id)
 }
 
-export async function exportHermesSession(key: string) {
+async function exportHermesSession(key: string) {
   const state = sessions[key]
   if (!state?.sessionId) return
   const content = JSON.stringify(
@@ -947,7 +947,7 @@ function readFileBase64(file: File): Promise<string> {
   })
 }
 
-export async function addHermesAttachments(key: string, files: Iterable<File>) {
+async function addHermesAttachments(key: string, files: Iterable<File>) {
   if (!sessions[key]) return
   for (const file of files) {
     const id = crypto.randomUUID()
@@ -979,7 +979,7 @@ export async function addHermesAttachments(key: string, files: Iterable<File>) {
   }
 }
 
-export async function addHermesDraggedPath(key: string, dragged: FileDragData) {
+async function addHermesDraggedPath(key: string, dragged: FileDragData) {
   if (!sessions[key]) return
   if (dragged.sourceKind !== 'local' || dragged.virtualOpenTarget) {
     updateHermesState(key, (state) => {
@@ -1012,14 +1012,14 @@ export async function addHermesDraggedPath(key: string, dragged: FileDragData) {
   }
 }
 
-export function removeHermesAttachment(key: string, id: string) {
+function removeHermesAttachment(key: string, id: string) {
   if (sessions[key])
     updateHermesState(key, (state) => {
       state.attachments = state.attachments.filter((item) => item.id !== id)
     })
 }
 
-export function queueHermesPrompt(key: string) {
+function queueHermesPrompt(key: string) {
   const text = sessions[key]?.composer.trim()
   if (!text) return
   patchHermesState(key, {
@@ -1055,14 +1055,14 @@ async function drainHermesQueue(key: string) {
   }
 }
 
-export function removeHermesQueuedPrompt(key: string, index: number) {
+function removeHermesQueuedPrompt(key: string, index: number) {
   if (sessions[key])
     updateHermesState(key, (state) => {
       state.queuedPrompts = state.queuedPrompts.filter((_, itemIndex) => itemIndex !== index)
     })
 }
 
-export function editHermesQueuedPrompt(key: string, index: number) {
+function editHermesQueuedPrompt(key: string, index: number) {
   const item = sessions[key]?.queuedPrompts[index]
   if (!item) return
   patchHermesState(key, {
@@ -1072,7 +1072,7 @@ export function editHermesQueuedPrompt(key: string, index: number) {
   })
 }
 
-export function moveHermesQueuedPrompt(key: string, index: number, direction: -1 | 1) {
+function moveHermesQueuedPrompt(key: string, index: number, direction: -1 | 1) {
   const items = [...(sessions[key]?.queuedPrompts ?? [])]
   const target = index + direction
   if (!items[index] || target < 0 || target >= items.length) return
@@ -1082,7 +1082,7 @@ export function moveHermesQueuedPrompt(key: string, index: number, direction: -1
   })
 }
 
-export function resumeHermesQueue(key: string) {
+function resumeHermesQueue(key: string) {
   if (!sessions[key]) return
   updateHermesState(key, (state) => {
     state.queueParked = false
@@ -1090,24 +1090,12 @@ export function resumeHermesQueue(key: string) {
   void drainHermesQueue(key)
 }
 
-export async function steerHermesPrompt(key: string) {
-  const state = sessions[key]
-  const text = state?.composer.trim()
-  if (!state?.sessionId || !text) return
-  await jsonRequest('/api/hermes/steer', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sessionId: state.sessionId, text }),
-  })
-  patchHermesState(key, { composer: '', error: undefined })
-}
-
 export type HermesEditorClaimOptions = {
   /** Return false when caller pane was disposed or switched to another window. */
   isAlive?: () => boolean
 }
 
-export async function claimHermesEditor(
+async function claimHermesEditor(
   key: string,
   owner: string,
   options: HermesEditorClaimOptions = {},
@@ -1140,7 +1128,7 @@ export async function claimHermesEditor(
   return true
 }
 
-export function releaseHermesEditor(key: string, owner: string) {
+function releaseHermesEditor(key: string, owner: string) {
   const generations = editorClaimGenerations.get(key) ?? new Map<string, number>()
   generations.set(owner, (generations.get(owner) ?? 0) + 1)
   editorClaimGenerations.set(key, generations)
@@ -1150,7 +1138,7 @@ export function releaseHermesEditor(key: string, owner: string) {
     })
 }
 
-export async function sendHermesPrompt(key: string, takeover = false): Promise<string | undefined> {
+async function sendHermesPrompt(key: string, takeover = false): Promise<string | undefined> {
   const state = sessions[key]
   const text = state?.composer.trim()
   if (!state || !text || (state.readOnly && !state.takeoverPending)) return state?.sessionId
@@ -1230,7 +1218,7 @@ export async function sendHermesPrompt(key: string, takeover = false): Promise<s
   }
 }
 
-export function takeOverHermesSession(key: string) {
+function takeOverHermesSession(key: string) {
   const state = sessions[key]
   if (!state || state.archived) return
   patchHermesState(key, {
@@ -1241,7 +1229,7 @@ export function takeOverHermesSession(key: string) {
   })
 }
 
-export async function stopHermesTurn(key: string) {
+async function stopHermesTurn(key: string) {
   const sessionId = sessions[key]?.sessionId
   if (!sessionId) return
   await jsonRequest('/api/hermes/stop', {
@@ -1253,14 +1241,14 @@ export async function stopHermesTurn(key: string) {
   await refreshHermesChat(key)
 }
 
-export function markHermesRead(key: string) {
+function markHermesRead(key: string) {
   if (sessions[key]?.unread)
     updateHermesState(key, (state) => {
       state.unread = false
     })
 }
 
-export async function restoreHermesSession(key: string) {
+async function restoreHermesSession(key: string) {
   const sessionId = sessions[key]?.sessionId
   if (!sessionId) return
   await jsonRequest('/api/hermes/restore', {
@@ -1272,7 +1260,7 @@ export async function restoreHermesSession(key: string) {
   await refreshHermesChat(key)
 }
 
-export async function archiveHermesSession(key: string) {
+async function archiveHermesSession(key: string) {
   const state = sessions[key]
   if (!state?.sessionId) return
   await jsonRequest('/api/hermes/archive', {
@@ -1286,7 +1274,7 @@ export async function archiveHermesSession(key: string) {
 
 const answeredDecisions = new Set<string>()
 
-export async function answerHermesDecision(key: string, answer: string) {
+async function answerHermesDecision(key: string, answer: string) {
   const state = sessions[key]
   const decision = state?.decision
   if (!state?.sessionId || !decision) return
@@ -1316,7 +1304,7 @@ export async function answerHermesDecision(key: string, answer: string) {
   }
 }
 
-export async function canCloseHermesWindow(target?: {
+async function canCloseHermesWindow(target?: {
   draftId?: string
   sessionId?: string
 }): Promise<boolean> {
@@ -1333,10 +1321,101 @@ export async function canCloseHermesWindow(target?: {
   })
 }
 
-export function discardHermesDraft(target?: { draftId?: string; sessionId?: string }) {
+function discardHermesDraft(target?: { draftId?: string; sessionId?: string }) {
   if (!target?.draftId || target.sessionId) return
   removeHermesState(`draft:${target.draftId}`)
 }
 
-export { sessions as hermesSessions }
-export const deletedHermesSessionIds = new Set<string>()
+const deletedHermesSessionIds = new Set<string>()
+
+export type HermesSessionTarget = {
+  sessionId?: string
+  draftId?: string
+  cwd?: string | null
+  readOnly?: boolean
+}
+
+/**
+ * Behavioral interface for one Hermes session. Session keys and registry routing stay internal to
+ * this module instead of becoming an ordering constraint at every caller.
+ */
+export function createHermesSession(target: Accessor<HermesSessionTarget>) {
+  const key = createMemo(() => ensureHermesChat(target()))
+  const state = () => sessions[key()]
+
+  return {
+    key,
+    state,
+    identity: {
+      bind: (sessionId: string) => bindHermesSessionId(key(), sessionId),
+    },
+    editor: {
+      claim: (owner: string, options?: HermesEditorClaimOptions) =>
+        claimHermesEditor(key(), owner, options),
+      release: (owner: string) => releaseHermesEditor(key(), owner),
+      acquire: (owner: string, options?: HermesEditorClaimOptions) => {
+        const capturedKey = key()
+        return {
+          owned: () => !sessions[capturedKey]?.editorOwner,
+          claim: () => claimHermesEditor(capturedKey, owner, options),
+          release: () => releaseHermesEditor(capturedKey, owner),
+        }
+      },
+    },
+    composer: {
+      set: (value: string) => setHermesComposer(key(), value),
+      setError: (error: unknown) => setHermesError(key(), error),
+      applyCompletion: (completion: HermesCompletion) => applyHermesCompletion(key(), completion),
+      control: (command: string) => sendHermesControl(key(), command),
+    },
+    prompt: {
+      send: (takeover = false) => sendHermesPrompt(key(), takeover),
+      stop: () => stopHermesTurn(key()),
+      retry: () => retryHermesLastTurn(key()),
+      rewind: (messageId: string, replacement?: string) =>
+        rewindHermesSession(key(), messageId, replacement),
+      queue: () => queueHermesPrompt(key()),
+      removeQueued: (index: number) => removeHermesQueuedPrompt(key(), index),
+      editQueued: (index: number) => editHermesQueuedPrompt(key(), index),
+      moveQueued: (index: number, direction: -1 | 1) =>
+        moveHermesQueuedPrompt(key(), index, direction),
+      resumeQueue: () => resumeHermesQueue(key()),
+    },
+    attachments: {
+      add: (files: Iterable<File>) => addHermesAttachments(key(), files),
+      addDraggedPath: (dragged: FileDragData) => addHermesDraggedPath(key(), dragged),
+      remove: (id: string) => removeHermesAttachment(key(), id),
+    },
+    history: {
+      loadOlder: () => loadOlderHermesMessages(key()),
+    },
+    decision: {
+      answer: (answer: string) => answerHermesDecision(key(), answer),
+    },
+    lifecycle: {
+      markRead: () => markHermesRead(key()),
+      takeOver: () => takeOverHermesSession(key()),
+      restore: () => restoreHermesSession(key()),
+      archive: () => archiveHermesSession(key()),
+      rename: (title: string) => renameHermesSession(key(), title),
+      branch: (name?: string, count?: number) => branchHermesSession(key(), name, count),
+      export: () => exportHermesSession(key()),
+    },
+    voice: {
+      transcribe: (blob: Blob) => transcribeHermesAudio(key(), blob),
+      speak: speakHermesText,
+    },
+  } as const
+}
+
+export const HermesSessions = Object.freeze({
+  forId: hermesSessionForId,
+  canClose: canCloseHermesWindow,
+  discardDraft: discardHermesDraft,
+  deletedIds: deletedHermesSessionIds,
+})
+
+export const HermesVoiceTransport = Object.freeze({
+  transcribe: transcribeHermesAudio,
+  reportError: setHermesError,
+})

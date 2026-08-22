@@ -76,13 +76,33 @@ function createHarness(input: {
       api: input.api ?? (async () => registry(input.records)),
       post: input.post,
     } as unknown as WorkspaceRegistryHttp
-    const session = useWorkspaceRegistry({
+    const registrySession = useWorkspaceRegistry({
       workspaceId: id,
       clientId: 'test-client',
       http,
       savingBlocked: input.savingBlocked,
       waitUntilSavingUnblocked: input.waitUntilSavingUnblocked,
     })
+    const session = {
+      activate: registrySession.lifecycle.activate,
+      active: registrySession.state.active,
+      deleteWorkspace: registrySession.catalog.delete,
+      deleted: registrySession.state.deleted,
+      document: registrySession.document.value,
+      editable: registrySession.state.editable,
+      flush: registrySession.document.flush,
+      reconcileRemoteChange: registrySession.catalog.reconcileRemoteChange,
+      refresh: registrySession.catalog.refresh,
+      registry: registrySession.catalog.value,
+      retrySave: registrySession.document.retrySave,
+      revision: registrySession.state.revision,
+      saveError: registrySession.state.saveError,
+      takeControl: registrySession.lifecycle.takeControl,
+      transferWindows: registrySession.transfer.windows,
+      transition: registrySession.lifecycle.transition,
+      update: registrySession.document.update,
+      updateMetadataFor: registrySession.catalog.updateMetadataFor,
+    }
     return { id, setId, session }
   })
   return { ...harness, dispose }
@@ -577,17 +597,18 @@ describe('workspace session authority', () => {
     }
   })
 
-  test('transfer never pairs a stale snapshot with a newer observed revision', async () => {
+  test('transfer owns source refresh, acquisition, and revision pairing', async () => {
     const sourceV1 = record('a', workspace('Source v1'), 1)
     const destination = record('destination', workspace('Destination'), 4)
-    const records = { a: sourceV1, destination }
+    const records: Record<string, WorkspaceRecord> = { a: sourceV1, destination }
     let moveBody: Record<string, unknown> | null = null
     const harness = createHarness({
       id: 'a',
       records,
       post: async (url, body) => {
         if (url === '/api/workspaces/open') {
-          return { record: records.a, editable: true, leaseDurationMs: 10_000 }
+          const id = body.id as string
+          return { record: records[id], editable: true, leaseDurationMs: 10_000 }
         }
         if (url === '/api/workspaces/move') {
           moveBody = body
@@ -602,17 +623,19 @@ describe('workspace session authority', () => {
       records.a = record('a', workspace('Remote v2'), 2)
       await harness.session.refresh()
 
-      await harness.session.moveWorkspaces({
+      const result = await harness.session.transferWindows({
         sourceId: 'a',
         destinationId: 'destination',
-        sourceRevision: 1,
-        destinationRevision: 4,
-        sourceSnapshot: sourceV1.snapshot,
-        destinationSnapshot: destination.snapshot,
-        deleteSource: false,
+        destinationFallback: workspace('Fallback'),
+        windowIds: ['browser'],
+        viewport: { width: 1280, height: 720 },
       })
 
-      expect(moveBody).toMatchObject({ sourceRevision: 1, destinationRevision: 4 })
+      expect(result.kind).toBe('moved')
+      expect(moveBody).toMatchObject({ sourceRevision: 2, destinationRevision: 4 })
+      expect(
+        (moveBody!['destinationSnapshot'] as PersistedWorkspaceState).windows.at(-1)?.title,
+      ).toBe('Remote v2')
     } finally {
       harness.dispose()
     }

@@ -1,5 +1,5 @@
-import { api } from '@/lib/api/client'
-import { MediaType, type FileItem } from '@/lib/files/types'
+import { fetchDirectoryFiles } from '@/lib/files/files-client'
+import { MediaType } from '@/lib/files/types'
 import { queryKeys } from '@/lib/api/query-keys'
 import { useQuery } from '@tanstack/solid-query'
 import Headphones from 'lucide-solid/icons/headphones'
@@ -63,7 +63,7 @@ export function WorkspaceTaskbarAudio(props: Props) {
 
   const filesQuery = useQuery(() => ({
     queryKey: queryKeys.files(currentDir()),
-    queryFn: () => api<{ files: FileItem[] }>(`/api/files?dir=${encodeURIComponent(currentDir())}`),
+    queryFn: () => fetchDirectoryFiles(currentDir()),
     enabled: shouldHandleAudio() && !!playingPath(),
   }))
   const allFiles = createMemo(() => {

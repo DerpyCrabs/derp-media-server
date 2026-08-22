@@ -386,34 +386,40 @@ export function FileBrowserView(props: FileBrowserViewProps) {
           </Show>
           <Show when={!props.listing.loading()}>
             <FileBrowserPane
-              files={props.listing.displayedFiles}
-              viewMode={props.listing.viewMode}
-              columns={props.controller.displaySettings.fileColumns}
-              includeParent={() => !!props.controller.currentPath()}
-              scrollTarget={props.listing.scrollTarget}
-              scrollScope={props.listing.scrollScope}
-              gridContainerClass='p-2 max-sm:p-4'
-              listContainerClass='max-sm:py-2'
-              gridClass='gap-4'
-              listClass='relative w-full overflow-x-auto overflow-y-hidden'
-              listSizeColumnClass='w-28'
-              showEmpty={props.listing.empty}
-              canUpload={props.controller.editable}
-              onParentClick={props.host.openParent}
-              onFileClick={props.host.openFile}
-              parentGridAttributes={parentAttributes<HTMLDivElement>('grid')}
-              parentRowAttributes={parentAttributes<HTMLTableRowElement>('list')}
-              fileGridAttributes={(file) => fileAttributes<HTMLDivElement>(file, 'grid')}
-              fileRowAttributes={(file) => fileAttributes<HTMLTableRowElement>(file, 'list')}
-              renderGridIcon={renderGridIcon}
-              renderGridOverlay={renderGridOverlay}
-              renderGridDetails={renderGridDetails}
-              renderListIcon={renderListIcon}
-              renderListName={renderListName}
-              renderListNameTrailing={renderListNameTrailing}
-              renderListSize={renderListSize}
-              renderListActions={renderListActions}
-              renderParentRowEnd={() => <td class='sm:hidden' />}
+              listing={{
+                files: props.listing.displayedFiles,
+                viewMode: props.listing.viewMode,
+                columns: props.controller.displaySettings.fileColumns,
+                includeParent: () => !!props.controller.currentPath(),
+                scrollTarget: props.listing.scrollTarget,
+                scrollScope: props.listing.scrollScope,
+                showEmpty: props.listing.empty,
+                canUpload: props.controller.editable,
+              }}
+              layout={{
+                gridContainerClass: 'p-2 max-sm:p-4',
+                listContainerClass: 'max-sm:py-2',
+                gridClass: 'gap-4',
+                listClass: 'relative w-full overflow-x-auto overflow-y-hidden',
+                listSizeColumnClass: 'w-28',
+              }}
+              rows={{
+                onParentClick: props.host.openParent,
+                onFileClick: props.host.openFile,
+                parentGridAttributes: () => parentAttributes<HTMLDivElement>('grid'),
+                parentRowAttributes: () => parentAttributes<HTMLTableRowElement>('list'),
+                fileGridAttributes: (file) => fileAttributes<HTMLDivElement>(file, 'grid'),
+                fileRowAttributes: (file) => fileAttributes<HTMLTableRowElement>(file, 'list'),
+                renderGridIcon,
+                renderGridOverlay,
+                renderGridDetails,
+                renderListIcon,
+                renderListName,
+                renderListNameTrailing,
+                renderListSize,
+                renderListActions,
+                renderParentRowEnd: () => <td class='sm:hidden' />,
+              }}
             />
           </Show>
         </>

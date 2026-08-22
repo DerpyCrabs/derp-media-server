@@ -1,8 +1,8 @@
 import { useQuery } from '@tanstack/solid-query'
-import { api } from '@/lib/api/client'
+import { fetchDirectoryFiles } from '@/lib/files/files-client'
 import { createEffect, createMemo, createSignal, onSettled } from 'solid-js'
 import { queryKeys } from '@/lib/api/query-keys'
-import { MediaType, type FileItem } from '@/lib/files/types'
+import { MediaType } from '@/lib/files/types'
 import { navigateSearchParams } from '@/lib/browser/browser-history'
 import { parentPath } from '@/lib/files/path-utils'
 import {
@@ -39,7 +39,7 @@ export function PlaybackMediaHost() {
 
   const filesQuery = useQuery(() => ({
     queryKey: queryKeys.files(currentDir()),
-    queryFn: () => api<{ files: FileItem[] }>(`/api/files?dir=${encodeURIComponent(currentDir())}`),
+    queryFn: () => fetchDirectoryFiles(currentDir()),
     enabled: handlesAudio() && !!playingPath(),
   }))
   const allFiles = createMemo(() => filesQuery.data?.files ?? [])
