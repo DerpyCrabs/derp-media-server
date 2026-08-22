@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import {
   DEFAULT_READER_POSITION,
+  normalizeBookReaderPosition,
+  normalizePagedReaderPosition,
   normalizeReaderPosition,
 } from '../../src/features/reader/reader-position'
 
@@ -31,6 +33,48 @@ describe('reader position', () => {
       fitMode: 'height',
       selectionMode: 'image',
       defaultAction: 'translate',
+    })
+  })
+
+  test('normalizes legacy saved state into a discriminated paged position', () => {
+    expect(
+      normalizePagedReaderPosition({
+        pageIndex: 2,
+        scrollTop: 1_809,
+        zoom: 1.4,
+        viewMode: 'page',
+        fitMode: 'width',
+        outlineExpanded: ['one', 2, 'two'],
+        selectionMode: 'image',
+        defaultAction: 'translate',
+      }),
+    ).toEqual({
+      kind: 'paged',
+      pageIndex: 2,
+      scrollTop: 1_809,
+      zoom: 1.4,
+      viewMode: 'page',
+      fitMode: 'width',
+      outlineExpanded: ['one', 'two'],
+    })
+  })
+
+  test('keeps only book navigation fields in a book position', () => {
+    expect(
+      normalizeBookReaderPosition({
+        chapterId: 'chapter-2',
+        anchor: 'middle',
+        chapterProgress: 4,
+        outlineExpanded: ['contents'],
+        pageIndex: 9,
+        zoom: 3,
+      }),
+    ).toEqual({
+      kind: 'book',
+      chapterId: 'chapter-2',
+      anchor: 'middle',
+      chapterProgress: 1,
+      outlineExpanded: ['contents'],
     })
   })
 })

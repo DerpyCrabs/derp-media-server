@@ -3,9 +3,10 @@ import * as pdfjs from 'pdfjs-dist'
 import type { ReaderPage } from '../../reader-position'
 import type { ReaderSelection } from '../../ReaderSelectionMenu'
 import type { ReaderSelectionMode } from '../../reader-position'
-import { createEffect, createSignal, onSettled } from 'solid-js'
+import { Show, createEffect, createSignal, onSettled } from 'solid-js'
 import { TextLayerBuilder } from 'pdfjs-dist/web/pdf_viewer.mjs'
 import { RegionLayer } from '../../RegionLayer'
+import 'pdfjs-dist/web/pdf_viewer.css'
 
 export type PdfDocument = pdfjs.PDFDocumentProxy
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
@@ -21,17 +22,6 @@ export function PdfContent(props: {
   let host!: HTMLDivElement
   let canvas!: HTMLCanvasElement
   const [near, setNear] = createSignal(false)
-
-  createEffect(
-    () => ({ width: props.page.width, height: props.page.height, zoom: props.zoom }),
-    ({ width, height, zoom }) => {
-      if (!host || !canvas) return
-      host.style.width = `${width * zoom}px`
-      host.style.height = `${height * zoom}px`
-      canvas.style.width = `${width * zoom}px`
-      canvas.style.height = `${height * zoom}px`
-    },
-  )
 
   onSettled(() => {
     if (!host) return undefined
@@ -119,13 +109,14 @@ export function PdfContent(props: {
         }}
         data-testid='pdf-canvas'
         class='block'
+        style={{
+          width: `${props.page.width * props.zoom}px`,
+          height: `${props.page.height * props.zoom}px`,
+        }}
       />
-      <RegionLayer
-        active={props.selectionMode === 'image'}
-        host={() => host}
-        source={() => canvas}
-        onRegion={props.onRegion}
-      />
+      <Show when={props.selectionMode === 'image'}>
+        <RegionLayer host={() => host} source={() => canvas} onRegion={props.onRegion} />
+      </Show>
     </div>
   )
 }

@@ -1,5 +1,5 @@
 import { api, ApiError, post } from '@/lib/api/client'
-import { normalizeReaderPosition, type ReaderPosition } from './reader-position'
+import { normalizeReaderPosition } from './reader-position'
 
 export type BookAppearance = {
   fontFamily: 'publisher' | 'serif' | 'sans'
@@ -19,7 +19,15 @@ export const DEFAULT_BOOK_APPEARANCE: BookAppearance = {
   theme: 'publisher',
 }
 
-export type ReaderSyncedState = ReaderPosition & {
+export type ReaderSyncedState = {
+  kind?: 'paged' | 'book'
+  pageIndex?: number
+  scrollTop?: number
+  zoom?: number
+  viewMode?: 'continuous' | 'page'
+  fitMode?: 'manual' | 'width' | 'height'
+  selectionMode?: 'text' | 'image'
+  defaultAction?: 'define' | 'translate' | 'none'
   chapterId?: string
   anchor?: string
   progress?: number
@@ -62,8 +70,19 @@ const finiteInRange = (value: unknown, minimum: number, maximum: number, fallbac
 function parseSyncedState(value: unknown): ReaderSyncedState | null {
   if (!value || typeof value !== 'object') return null
   const input = value as Partial<ReaderSyncedState>
+  const paged = normalizeReaderPosition(input)
   return {
-    ...normalizeReaderPosition(input),
+    kind: input.kind === 'book' ? 'book' : input.kind === 'paged' ? 'paged' : undefined,
+    pageIndex: paged.pageIndex,
+    scrollTop: paged.scrollTop,
+    zoom: paged.zoom,
+    viewMode: paged.viewMode,
+    fitMode: paged.fitMode,
+    selectionMode: input.selectionMode === 'image' ? 'image' : undefined,
+    defaultAction:
+      input.defaultAction === 'translate' || input.defaultAction === 'none'
+        ? input.defaultAction
+        : undefined,
     chapterId: typeof input.chapterId === 'string' ? input.chapterId.slice(0, 1_024) : undefined,
     anchor: typeof input.anchor === 'string' ? input.anchor.slice(0, 1_024) : undefined,
     progress: finiteInRange(input.progress, 0, 1, 0),

@@ -1,9 +1,8 @@
-import { createEffect, createMemo, createSignal, onSettled, Show } from 'solid-js'
+import { createMemo, createSignal, onSettled, Show } from 'solid-js'
 import type { ReaderSelection } from './ReaderSelectionMenu'
 import { menuPositionForRect } from './reader-geometry'
 
 export function RegionLayer(props: {
-  active: boolean
   host: () => HTMLElement
   source: () => HTMLCanvasElement | HTMLImageElement
   onRegion: (selection: Omit<ReaderSelection, 'id'>) => void
@@ -56,15 +55,6 @@ export function RegionLayer(props: {
     }
   })
 
-  createEffect(
-    () => props.active,
-    (active) => {
-      if (active) return
-      setDrag(null)
-      setCommittedRegion(null)
-    },
-  )
-
   onSettled(() => {
     const observer = new ResizeObserver(() => setSourceSizeVersion((version) => version + 1))
     observer.observe(props.host())
@@ -113,13 +103,9 @@ export function RegionLayer(props: {
   return (
     <div
       data-testid='region-layer'
-      class={['absolute inset-0', { 'cursor-crosshair': props.active }]}
-      style={{
-        'pointer-events': props.active ? 'auto' : 'none',
-        'z-index': props.active ? 5 : 2,
-      }}
+      class='absolute inset-0 cursor-crosshair'
+      style={{ 'pointer-events': 'auto', 'z-index': 5 }}
       onPointerDown={(event) => {
-        if (!props.active) return
         const next = point(event)
         event.currentTarget.setPointerCapture(event.pointerId)
         setCommittedRegion(null)

@@ -64,6 +64,11 @@ async function openFileFromBrowser(page: Page, folder: string, fileName: string)
   return getWindowGroups(page).nth(1).locator('.workspace-window-content')
 }
 
+async function useContinuousReaderView(reader: Locator) {
+  await reader.getByTestId('reader-settings-button').click()
+  await reader.getByRole('button', { name: 'continuous', exact: true }).click()
+}
+
 function uniqueWorkspaceMarkdownPath(prefix: string) {
   const fileName = `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}.md`
   return { fileName, filePath: `MediaContent/${fileName}` }
@@ -397,6 +402,7 @@ test.describe('Workspace PDF Viewer', () => {
     await expect(readerWindow.getByTestId('reader-dialog')).toBeVisible()
     await expect(readerWindow.locator('svg.lucide-book-open').first()).toBeVisible()
     await expect(readerWindow.locator('svg.lucide-folder')).toHaveCount(0)
+    await useContinuousReaderView(readerWindow)
     await expect(readerWindow.getByTestId('reader-image-page')).toHaveCount(2)
     await expect(readerWindow.getByTestId('region-layer').first()).toHaveCSS(
       'pointer-events',
@@ -411,6 +417,7 @@ test.describe('Workspace PDF Viewer', () => {
     await expect(restoredReaderWindow.getByTestId('reader-dialog')).toBeVisible()
     await expect(restoredReaderWindow.locator('svg.lucide-book-open').first()).toBeVisible()
     await expect(restoredReaderWindow.locator('svg.lucide-folder')).toHaveCount(0)
+    await useContinuousReaderView(restoredReaderWindow)
     await expect(restoredReaderWindow.getByTestId('reader-image-page')).toHaveCount(2)
     await expect(restoredReaderWindow.getByText('This file type cannot be previewed.')).toHaveCount(
       0,

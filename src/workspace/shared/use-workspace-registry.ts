@@ -173,6 +173,31 @@ export function useWorkspaceRegistry(options: WorkspaceRegistryOptions) {
     else saveCoordinator.enqueue(pending)
   }
 
+  function reconcileRegistry(incoming: WorkspaceRegistry) {
+    const current = registry()
+    const records = Object.fromEntries(
+      Object.entries(incoming.records).map(([id, remote]) => {
+        const local = current.records[id]
+        const pending = deferredSaves.get(id) ?? saveCoordinator.pending(id)
+        if (pending) {
+          const next: WorkspaceRecord = {
+            ...remote,
+            snapshot: pending.state.document,
+            revision: Math.max(remote.revision, local?.revision ?? 0),
+          }
+          for (const key of ['name', 'icon', 'iconColor'] as const) {
+            const value = pending.state.metadata[key]
+            if (value === null) delete next[key]
+            else next[key] = value
+          }
+          return [id, next]
+        }
+        return [id, local && local.revision > remote.revision ? local : remote]
+      }),
+    )
+    return { ...incoming, records }
+  }
+
   async function refreshRegistry() {
     const sequence = ++refreshSequence
     try {
@@ -182,7 +207,7 @@ export function useWorkspaceRegistry(options: WorkspaceRegistryOptions) {
         ),
       )
       if (sequence !== refreshSequence) return { value: registry(), applied: false }
-      const value = incoming
+      const value = reconcileRegistry(incoming)
       setRegistry(value)
 
       const current = active()

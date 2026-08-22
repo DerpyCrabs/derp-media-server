@@ -40,8 +40,8 @@ import {
   usePlaybackSnapshot,
 } from '@/features/playback/PlaybackProvider'
 
-const ReaderDialog = lazy(() =>
-  import('@/features/reader/ReaderDialog').then((module) => ({ default: module.ReaderDialog })),
+const Reader = lazy(() =>
+  import('@/features/reader/Reader').then((module) => ({ default: module.Reader })),
 )
 
 type Props = {
@@ -73,6 +73,10 @@ export function ViewerPane(props: Props) {
 
   const viewingPath = createMemo(() => props.viewingPath())
   const readerKind = createMemo(() => props.readerKind?.() ?? null)
+  const contentReaderKind = createMemo(() => {
+    const kind = readerKind()
+    return kind === 'folder' ? 'directory' : kind
+  })
 
   createEffect(
     () => props.presentation === 'modal' && Boolean(viewingPath()),
@@ -658,9 +662,9 @@ export function ViewerPane(props: Props) {
       <Show when={readerKind() && viewingPath()} keyed>
         {(sourcePath) => (
           <div class='relative h-full min-h-0 overflow-hidden bg-neutral-900'>
-            <ReaderDialog
+            <Reader
               sourcePath={sourcePath}
-              sourceKind={readerKind()!}
+              kind={contentReaderKind()!}
               embedded={props.presentation !== 'modal'}
               showClose={props.presentation === 'modal'}
               onClose={props.onClose}
@@ -685,9 +689,9 @@ export function ViewerPane(props: Props) {
       <Show when={!readerKind() && mediaType() === MediaType.PDF && viewingPath()} keyed>
         {(sourcePath) => (
           <div class='relative h-full min-h-0 overflow-hidden bg-neutral-900'>
-            <ReaderDialog
+            <Reader
               sourcePath={sourcePath}
-              sourceKind='pdf'
+              kind='pdf'
               embedded={props.presentation !== 'modal'}
               showClose={props.presentation === 'modal'}
               onClose={props.onClose}
@@ -699,9 +703,9 @@ export function ViewerPane(props: Props) {
       <Show when={!readerKind() && mediaType() === MediaType.BOOK && viewingPath()} keyed>
         {(sourcePath) => (
           <div class='relative h-full min-h-0 overflow-hidden bg-neutral-900'>
-            <ReaderDialog
+            <Reader
               sourcePath={sourcePath}
-              sourceKind='book'
+              kind='book'
               embedded={props.presentation !== 'modal'}
               showClose={props.presentation === 'modal'}
               onClose={props.onClose}

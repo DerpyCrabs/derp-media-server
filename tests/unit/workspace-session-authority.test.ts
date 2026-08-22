@@ -437,7 +437,7 @@ describe('workspace session authority', () => {
     }
   })
 
-  test('metadata and document edits share one revisioned save queue', async () => {
+  test('stale registry refresh cannot erase metadata from the revisioned save queue', async () => {
     const base = record('a', workspace('Base'), 1)
     const records: Record<string, WorkspaceRecord> = { a: base }
     const firstSave = deferred<void>()
@@ -483,6 +483,7 @@ describe('workspace session authority', () => {
       })
       await firstSaveStarted.promise
       const metadataWrite = harness.session.updateMetadataFor('a', { name: 'Renamed' })
+      await harness.session.refresh()
 
       harness.session.update((current) => {
         const next = structuredClone(current!)

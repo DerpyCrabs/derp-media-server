@@ -425,11 +425,15 @@ export function CanvasWorkspace() {
   let viewportEl: HTMLDivElement | undefined
   let worldEl: HTMLDivElement | undefined
   let animationTimer: number | undefined
+  let cameraInteractionRevision = 0
   const panController = createCanvasPanController({
     camera: () => state().camera,
     viewport: () => viewportEl,
     world: () => worldEl,
-    commit: (camera) => setState((current) => ({ ...current, camera })),
+    commit: (camera) => {
+      cameraInteractionRevision += 1
+      setState((current) => ({ ...current, camera }))
+    },
   })
 
   const server = useWorkspacePageServerData()
@@ -786,7 +790,11 @@ export function CanvasWorkspace() {
   }
 
   function scheduleEnsureWindowsVisible(windowIds: string[]) {
-    window.requestAnimationFrame(() => untrack(() => ensureWindowsVisible(windowIds)))
+    const scheduledRevision = cameraInteractionRevision
+    window.requestAnimationFrame(() => {
+      if (cameraInteractionRevision !== scheduledRevision) return
+      untrack(() => ensureWindowsVisible(windowIds))
+    })
   }
 
   function clearSelection() {
@@ -1479,6 +1487,7 @@ export function CanvasWorkspace() {
             x: camera.x + velocity.x * (elapsed / 1000),
             y: camera.y + velocity.y * (elapsed / 1000),
           }
+          cameraInteractionRevision += 1
           setState((current) => ({ ...current, camera: nextCamera }))
           updateDragPreview(nextCamera)
         }
@@ -1789,6 +1798,7 @@ export function CanvasWorkspace() {
     const sy = clientY - rect.top
     const worldX = (sx - current.x) / current.zoom
     const worldY = (sy - current.y) / current.zoom
+    cameraInteractionRevision += 1
     setState((value) => ({
       ...value,
       camera: { zoom, x: sx - worldX * zoom, y: sy - worldY * zoom },

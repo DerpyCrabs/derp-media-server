@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createSignal, onSettled } from 'solid-js'
+import { For, Show, createSignal, onSettled } from 'solid-js'
 import type { RenderedBook } from './book-sanitize'
 import type { BookAppearance } from '../../reader-state-client'
 
@@ -9,18 +9,11 @@ function Chapter(props: {
   viewport: HTMLElement
 }) {
   let host: HTMLElement | undefined
-  const [contentElement, setContentElement] = createSignal<HTMLDivElement>()
-  const [near, setNear] = createSignal(false)
+  const [intersecting, setIntersecting] = createSignal(false)
   const [height, setHeight] = createSignal(680)
 
   const isNear = () => Math.abs(props.index - props.currentIndex) <= 2
-
-  createEffect(
-    () => isNear(),
-    (nearEnough) => {
-      if (nearEnough) setNear(true)
-    },
-  )
+  const near = () => isNear() || intersecting()
 
   onSettled(() => {
     if (!host) return undefined
@@ -28,9 +21,7 @@ function Chapter(props: {
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (!entry) return
-        if (entry.isIntersecting) {
-          setNear(true)
-        } else if (Math.abs(props.index - props.currentIndex) > 2) setNear(false)
+        setIntersecting(entry.isIntersecting)
       },
       { root: props.viewport, rootMargin: '1200px 0px', threshold: 0.01 },
     )
@@ -44,19 +35,6 @@ function Chapter(props: {
       resize.disconnect()
     }
   })
-
-  createEffect(
-    () => {
-      const element = contentElement()
-      return near() && element ? { element, html: props.chapter.html } : null
-    },
-    (content) => {
-      if (!content) return
-      const template = document.createElement('template')
-      template.innerHTML = content.html
-      content.element.replaceChildren(template.content.cloneNode(true))
-    },
-  )
 
   return (
     <article
@@ -72,7 +50,9 @@ function Chapter(props: {
       <Show when={near()}>
         <div
           ref={(element) => {
-            setContentElement(element)
+            const template = document.createElement('template')
+            template.innerHTML = props.chapter.html
+            element.replaceChildren(template.content.cloneNode(true))
           }}
         />
       </Show>
@@ -87,13 +67,6 @@ export function BookContent(props: {
   viewport: HTMLElement
   onNavigate: (chapterId: string, anchor?: string, recordHistory?: boolean) => void
 }) {
-  let publisherStyle: HTMLStyleElement | undefined
-  createEffect(
-    () => props.document.css,
-    (css) => {
-      if (publisherStyle) publisherStyle.textContent = css
-    },
-  )
   const currentIndex = () =>
     Math.max(
       0,
@@ -130,11 +103,7 @@ export function BookContent(props: {
         props.onNavigate(chapterId, link.dataset.anchor, true)
       }}
     >
-      <style
-        ref={(element) => {
-          publisherStyle = element
-        }}
-      />
+      <style>{props.document.css}</style>
       <For each={props.document.chapters}>
         {(chapter, index) => (
           <Chapter

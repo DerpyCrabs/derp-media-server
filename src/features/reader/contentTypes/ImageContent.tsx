@@ -2,6 +2,7 @@ import type { ReaderPage } from '../reader-position'
 import type { ReaderSelectionMode } from '../reader-position'
 import type { ReaderSelection } from '../ReaderSelectionMenu'
 import { RegionLayer } from '../RegionLayer'
+import { Show } from 'solid-js'
 
 export function ImageContent(props: {
   page: ReaderPage
@@ -29,12 +30,9 @@ export function ImageContent(props: {
         draggable={false}
         data-testid='reader-image-page'
       />
-      <RegionLayer
-        active={props.selectionMode === 'image'}
-        host={() => host}
-        source={() => image}
-        onRegion={props.onRegion}
-      />
+      <Show when={props.selectionMode === 'image'}>
+        <RegionLayer host={() => host} source={() => image} onRegion={props.onRegion} />
+      </Show>
     </div>
   )
 }
