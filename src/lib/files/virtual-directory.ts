@@ -17,12 +17,12 @@ export type VirtualCapability =
   | 'removeProjectFolder'
   | 'setPrimaryFolder'
   | 'setAppearance'
+  | 'pin'
 
 export type VirtualOpenTarget = {
-  type: 'hermesSession' | 'hermesDraft'
-  sessionId?: string
-  projectPath?: string | null
-  readOnly: boolean
+  provider: string
+  type: string
+  [key: string]: unknown
 }
 
 export type VirtualEntryAppearance = {

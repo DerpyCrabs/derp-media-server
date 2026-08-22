@@ -2,7 +2,7 @@ import { isVirtualFolderPath } from '@/lib/files/constants'
 import { directoryTitle } from '@/lib/files/directory-title'
 import { fileNameFromPath, parentPath } from '@/lib/files/path-utils'
 import { MediaType, type FileItem } from '@/lib/files/types'
-import type { VirtualOpenTarget } from '@/lib/files/virtual-directory'
+import type { HermesOpenTarget } from '@/features/hermes/hermes-open-target'
 import type {
   WindowDefinition as WorkspaceWindowDefinition,
   WindowLayout as WorkspaceWindowLayout,
@@ -37,7 +37,7 @@ export type WorkspaceReaderOpenIntent = WorkspaceOpenIdentity & {
 export type WorkspaceHermesOpenIntent = WorkspaceOpenIdentity & {
   kind: 'hermes'
   file: FileItem
-  target: VirtualOpenTarget
+  target: HermesOpenTarget
   draftId?: string
 }
 

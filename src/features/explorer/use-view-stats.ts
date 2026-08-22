@@ -35,5 +35,7 @@ export function useViewStats(_sourceContext?: Accessor<unknown>, options?: Optio
   return {
     incrementView,
     getViewCount,
+    viewCounts: () => statsQuery.data?.views ?? {},
+    query: statsQuery,
   }
 }

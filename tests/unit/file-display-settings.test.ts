@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 import { MediaType, type FileItem } from '../../src/lib/files/types'
-import { sortFileItems } from '../../src/features/explorer/file-display-settings'
+import {
+  createFileSortMetadata,
+  sortFileItems,
+} from '../../src/features/explorer/file-display-settings'
 
 function item(
   name: string,
@@ -63,5 +66,21 @@ describe('file display sorting', () => {
     expect(
       sortFileItems(files, { field: 'createdDate', direction: 'desc' }).map((file) => file.name),
     ).toEqual(['Favorites', 'Most Played', 'Archive'])
+  })
+
+  test('sorts by favorites and views using browser metadata', () => {
+    const files = [item('plain'), item('popular'), item('favorite')]
+    const metadata = createFileSortMetadata(['favorite'], { popular: 10 })
+
+    expect(
+      sortFileItems(files, { field: 'favorite', direction: 'desc' }, metadata).map(
+        (file) => file.name,
+      ),
+    ).toEqual(['favorite', 'plain', 'popular'])
+    expect(
+      sortFileItems(files, { field: 'views', direction: 'desc' }, metadata).map(
+        (file) => file.name,
+      ),
+    ).toEqual(['popular', 'favorite', 'plain'])
   })
 })

@@ -3,6 +3,12 @@ import { api } from '@/lib/api/client'
 import { queryKeys } from '@/lib/api/query-keys'
 import type { FileItem } from '@/lib/files/types'
 import { getKnowledgeBaseRoot } from '@/lib/files/path-utils'
+import {
+  fetchFileBrowserListing,
+  FILE_BROWSER_INITIAL_PAGE,
+  fileBrowserListingQueryKey,
+  nextFileBrowserListingPage,
+} from './file-browser-listing-query'
 
 export type PrefetchFolderHoverContext = {
   queryClient: QueryClient
@@ -21,9 +27,11 @@ function prefetchKbRecentForPath(queryClient: QueryClient, pathWithinKb: string)
 
 function prefetchDirectoryListingAtPath(ctx: PrefetchFolderHoverContext, dirPath: string) {
   const norm = dirPath.replace(/\\/g, '/')
-  void ctx.queryClient.prefetchQuery({
-    queryKey: queryKeys.files(norm),
-    queryFn: () => api<{ files: FileItem[] }>(`/api/files?dir=${encodeURIComponent(norm)}`),
+  void ctx.queryClient.prefetchInfiniteQuery({
+    queryKey: fileBrowserListingQueryKey(norm),
+    initialPageParam: FILE_BROWSER_INITIAL_PAGE,
+    queryFn: ({ pageParam }) => fetchFileBrowserListing(norm, pageParam),
+    getNextPageParam: nextFileBrowserListingPage,
   })
   const kbs = ctx.knowledgeBases
   if (kbs?.length && getKnowledgeBaseRoot(norm, kbs)) {

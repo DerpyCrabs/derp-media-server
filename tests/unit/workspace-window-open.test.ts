@@ -161,7 +161,12 @@ test('Hermes plans dedupe durable sessions but never drafts', () => {
     intent: {
       kind: 'hermes',
       file: { ...image, name: 'Session A', path: 'Hermes Sessions/session/session-a' },
-      target: { type: 'hermesSession', sessionId: 'session-a', readOnly: true },
+      target: {
+        provider: 'hermes',
+        type: 'hermesSession',
+        sessionId: 'session-a',
+        readOnly: true,
+      },
       source,
     },
   })
@@ -174,7 +179,12 @@ test('Hermes plans dedupe durable sessions but never drafts', () => {
     intent: {
       kind: 'hermes',
       file: { ...image, name: 'Draft', path: 'Hermes Sessions/draft' },
-      target: { type: 'hermesDraft', projectPath: 'books', readOnly: false },
+      target: {
+        provider: 'hermes',
+        type: 'hermesDraft',
+        projectPath: 'books',
+        readOnly: false,
+      },
       draftId: 'draft-a',
       source,
     },

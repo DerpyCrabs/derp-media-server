@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createMemo, createSignal, untrack } from 'solid-js'
+import { For, Show, createMemo, createSignal } from 'solid-js'
 import type { JSX } from '@solidjs/web'
 import { getSolidIconComponent, SOLID_AVAILABLE_ICONS } from '@/lib/ui/solid-available-icons'
 import X from 'lucide-solid/icons/x'
@@ -16,25 +16,28 @@ type Props = {
 }
 
 export function IconEditorDialog(props: Props) {
-  const [selectedIcon, setSelectedIcon] = createSignal<string | null>(
-    untrack(() => props.currentIcon),
-  )
+  const [selection, setSelection] = createSignal<{
+    key: string
+    icon: string | null
+  }>({ key: '', icon: null })
+  const selectionKey = () => `${props.fileName}\0${props.currentIcon ?? ''}`
+  const selectedIcon = () =>
+    selection().key === selectionKey() ? selection().icon : props.currentIcon
+  const setSelectedIcon = (icon: string | null) => setSelection({ key: selectionKey(), icon })
 
-  createEffect(
-    () => ({ isOpen: props.isOpen, currentIcon: props.currentIcon }),
-    ({ isOpen, currentIcon }) => {
-      if (isOpen) setSelectedIcon(currentIcon)
-    },
-  )
+  function close() {
+    setSelection({ key: '', icon: null })
+    props.onClose()
+  }
 
   function handleSave() {
     props.onSave(selectedIcon())
-    props.onClose()
+    close()
   }
 
   function handleRemove() {
     props.onSave(null)
-    props.onClose()
+    close()
   }
 
   const previewEl = createMemo((): JSX.Element => {
@@ -50,11 +53,7 @@ export function IconEditorDialog(props: Props) {
 
   return (
     <Show when={props.isOpen}>
-      <div
-        class={modalDialogBackdropClass(props.overlayScope)}
-        role='presentation'
-        onClick={() => props.onClose()}
-      >
+      <div class={modalDialogBackdropClass(props.overlayScope)} role='presentation' onClick={close}>
         <div
           data-slot='dialog-content'
           role='dialog'
@@ -117,7 +116,7 @@ export function IconEditorDialog(props: Props) {
             <button
               type='button'
               class='h-9 rounded-md border border-input bg-background px-4 text-sm font-medium hover:bg-accent'
-              onClick={() => props.onClose()}
+              onClick={close}
               disabled={props.isPending}
             >
               Cancel

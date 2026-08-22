@@ -26,7 +26,7 @@ import {
 import { rememberVideoIntrinsics } from '@/lib/media/video-intrinsics'
 import { viewerBoundsForVideoOpen } from '@/workspace/model/workspace-video-bounds'
 import { useWorkspacePreferredSnapStore } from '@/workspace/model/workspace-preferred-snap-store'
-import { getFileOpenTarget } from '@/features/explorer/file-open-target'
+import { getFileOpenTarget } from '@/workspace/shared/file-open-target'
 import {
   layoutBoundsForWindowHighlight,
   pickWorkspaceWindowAtClientPoint,
@@ -61,7 +61,7 @@ import {
 import { TaskbarGroupRow } from './DesktopWorkspaceTaskbarRows'
 import { defaultPersistedState } from '../shared/workspace-page-persistence'
 import { fileSearchResultToFileItem, type FileSearchResult } from '@/lib/files/file-search'
-import type { VirtualOpenTarget } from '@/lib/files/virtual-directory'
+import { isHermesOpenTarget, type HermesOpenTarget } from '@/features/hermes/hermes-open-target'
 import { canCloseHermesWindow, discardHermesDraft } from '@/features/hermes/hermes-session-store'
 import { createFilesystemPlaybackItem, playbackPathMatches } from '@/features/playback/items'
 import { usePlaybackSession, usePlaybackSnapshot } from '@/features/playback/PlaybackProvider'
@@ -78,6 +78,7 @@ import {
   type WorkspaceWindowOpenIntent,
 } from '@/workspace/model/workspace-window-open'
 import { showAppAlert } from '@/lib/ui/app-dialog'
+import type { WorkspaceWindowActions } from '@/workspace/shared/workspace-window-actions'
 
 function activateDesktopTabState(
   state: PersistedWorkspaceState,
@@ -229,7 +230,7 @@ export function DesktopWorkspace() {
   const editableOpenHermesFromBrowser = (
     windowId: string,
     file: FileItem,
-    target: VirtualOpenTarget,
+    target: HermesOpenTarget,
   ) => ifEditable(() => openHermesFromBrowser(windowId, file, target))
   const editableBindHermesSession = (windowId: string, sessionId: string) =>
     ifEditable(() => bindHermesSession(windowId, sessionId))
@@ -262,6 +263,41 @@ export function DesktopWorkspace() {
     ifEditable(() => beginFileOpenTargetPick(windowId))
   const editableOpenFileInNewFloatingWindow = (windowId: string, file: FileItem) =>
     ifEditable(() => openFileInNewFloatingWindow(windowId, file))
+  const windowActions: WorkspaceWindowActions = {
+    browser: {
+      navigate: editableNavigateDir,
+      openViewer: editableOpenViewerFromBrowser,
+      openReader: editableOpenReaderFromBrowser,
+      openVirtual: (windowId, file, target) => {
+        if (isHermesOpenTarget(target)) editableOpenHermesFromBrowser(windowId, file, target)
+      },
+      addToTaskbar: (windowId, file) => {
+        const source = workspace()?.windows.find((item) => item.id === windowId)?.source
+        if (source) editableAddPinnedItem(file, source)
+      },
+      openInNewTab: editableOpenInNewTabInSameWindow,
+      openInSplitView: editableOpenInSplitViewFromBrowserPane,
+      play: (windowId, path, dir) => {
+        const source =
+          workspace()?.windows.find((item) => item.id === windowId)?.source ??
+          DEFAULT_WORKSPACE_SOURCE
+        editableRequestPlay(source, path, dir)
+      },
+      beginOpenTargetPick: editableBeginFileOpenTargetPick,
+      openInNewWindow: editableOpenFileInNewFloatingWindow,
+    },
+    viewer: {
+      updateViewing: editableUpdateWindowViewing,
+      videoMetadata: editableResizeViewerWindowForVideoMetadata,
+      dismissListenOnly: (windowId) =>
+        editableCloseTab(windowId, { ignoreTabPinForListenOnlyDismiss: true }),
+    },
+    hermes: {
+      sessionCreated: editableBindHermesSession,
+      branchCreated: editableOpenHermesBranch,
+      titleChanged: editableRenameHermesWindow,
+    },
+  }
   const editableHandleWorkspaceTilingPick = (windowId: string, span: AssistGridSpan) =>
     ifEditable(() => handleWorkspaceTilingPick(windowId, span))
   const editableOpenLayoutPicker = (windowId: string, anchor: DOMRect) =>
@@ -690,7 +726,7 @@ export function DesktopWorkspace() {
     data: FileDragData,
     insertIndex?: number,
   ) {
-    if (data.virtualOpenTarget) {
+    if (data.virtualOpenTarget && isHermesOpenTarget(data.virtualOpenTarget)) {
       openHermesFromBrowser(
         targetLeaderWindowId,
         {
@@ -808,7 +844,7 @@ export function DesktopWorkspace() {
   function openHermesFromBrowser(
     windowId: string,
     file: FileItem,
-    target: VirtualOpenTarget,
+    target: HermesOpenTarget,
     forceTab = false,
   ) {
     openDesktopWindow({
@@ -859,7 +895,7 @@ export function DesktopWorkspace() {
         isDirectory: false,
         isVirtual: true,
       },
-      { type: 'hermesSession', sessionId, readOnly: false },
+      { provider: 'hermes', type: 'hermesSession', sessionId, readOnly: false },
       true,
     )
   }
@@ -1020,7 +1056,8 @@ export function DesktopWorkspace() {
       )
       if (!response.ok) return
       const payload = await response.json()
-      const target = payload.openTarget as VirtualOpenTarget | undefined
+      const target = payload.openTarget
+      if (!isHermesOpenTarget(target)) return
       if (target) {
         const synthetic: FileItem = {
           path: pin.path,
@@ -1371,21 +1408,7 @@ export function DesktopWorkspace() {
           handleTabPullStart={editableHandleTabPullStart}
           dropFileToTabBar={editableDropFileToTabBar}
           startSplitPaneDrag={editableStartSplitPaneDrag}
-          navigateDir={editableNavigateDir}
-          openViewerFromBrowser={editableOpenViewerFromBrowser}
-          openReaderFromBrowser={editableOpenReaderFromBrowser}
-          openHermesFromBrowser={editableOpenHermesFromBrowser}
-          bindHermesSession={editableBindHermesSession}
-          openHermesBranch={editableOpenHermesBranch}
-          renameHermesWindow={editableRenameHermesWindow}
-          addPinnedItem={editableAddPinnedItem}
-          openInNewTabInSameWindow={editableOpenInNewTabInSameWindow}
-          openInSplitViewFromBrowserPane={editableOpenInSplitViewFromBrowserPane}
-          requestPlay={editableRequestPlay}
-          updateWindowViewing={editableUpdateWindowViewing}
-          resizeViewerWindowForVideoMetadata={editableResizeViewerWindowForVideoMetadata}
-          onBeginFileOpenTargetPick={editableBeginFileOpenTargetPick}
-          openFileInNewFloatingWindow={editableOpenFileInNewFloatingWindow}
+          windowActions={windowActions}
         />
         <Show when={fileOpenTargetPick()}>
           <Show when={fileOpenPickHoverId()} keyed fallback={null}>

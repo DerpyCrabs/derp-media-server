@@ -17,7 +17,7 @@ export const fileOpenTargetStore = {
   subscribe: clientPreferencesStore.subscribe,
 }
 
-/** Non-reactive read for event handlers. */
+/** Non-reactive workspace preference read for event handlers. */
 export function getFileOpenTarget(): FileOpenTarget {
   return fileOpenTargetStore.getState().target
 }

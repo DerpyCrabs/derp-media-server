@@ -12,7 +12,7 @@ export type PaneSwitchProps = Readonly<{
   hermes?: () => JSX.Element
 }>
 
-/** Shared surface dispatcher for the root browser, workspace windows, and canvas windows. */
+/** Selects the renderer for a workspace window definition. */
 export function PaneSwitch(props: PaneSwitchProps) {
   const activeRenderer = createMemo(() => {
     switch (props.kind()) {

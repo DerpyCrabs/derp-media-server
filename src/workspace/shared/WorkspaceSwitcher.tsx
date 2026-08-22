@@ -13,7 +13,7 @@ import Plus from 'lucide-solid/icons/plus'
 import Trash2 from 'lucide-solid/icons/trash-2'
 import ChevronRight from 'lucide-solid/icons/chevron-right'
 import { Dynamic } from '@solidjs/web'
-import { For, Show, createEffect, createSignal, onCleanup } from 'solid-js'
+import { For, Show, createEffect, createSignal, onCleanup, untrack } from 'solid-js'
 
 export type WorkspaceSwitcherProps = {
   open: boolean
@@ -38,6 +38,29 @@ export type WorkspaceSwitcherProps = {
 }
 
 export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
+  return (
+    <>
+      <Show when={!props.open && props.draggingWindow}>
+        <button
+          type='button'
+          title='Drag a window here to move it to another workspace'
+          aria-label='Show workspaces'
+          class='fixed left-0 top-1/2 z-[1000000] flex h-20 w-4 -translate-y-1/2 items-center justify-center rounded-r-md border border-l-0 border-border bg-popover/90 text-muted-foreground shadow-md hover:w-6 hover:text-foreground'
+          onClick={() => props.onToggle()}
+          data-testid='workspace-edge-handle'
+        >
+          <ChevronRight class='h-4 w-4' />
+        </button>
+      </Show>
+      <Show when={props.open}>
+        <WorkspaceSwitcherPanel props={props} />
+      </Show>
+    </>
+  )
+}
+
+function WorkspaceSwitcherPanel(input: { props: WorkspaceSwitcherProps }) {
+  const props = untrack(() => input.props)
   const [editing, setEditing] = createSignal<string | null>(null)
   const [menu, setMenu] = createSignal<{
     id: string
@@ -49,21 +72,13 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
   let panelPointerInside = false
 
   createEffect(
-    () => props.open,
-    (open) => {
-      if (open) return
-      panelPointerInside = false
-      setMenu(null)
-      setAppearanceOpen(false)
-      setEditing(null)
-    },
-  )
-
-  createEffect(
     () => menu(),
     (currentMenu) => {
       if (!currentMenu) return
-      const close = () => {
+      const close = (event?: PointerEvent) => {
+        if ((event?.target as Element | null)?.closest('[data-testid="workspace-context-menu"]')) {
+          return
+        }
         setMenu(null)
         setAppearanceOpen(false)
       }
@@ -80,12 +95,16 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
   )
 
   createEffect(
-    () => ({ open: props.open, dragging: !!props.draggingWindow, menu: menu() }),
+    () => ({ dragging: !!props.draggingWindow, menu: menu() }),
     (state) => {
-      if (!state.open || state.dragging || state.menu) return
+      if (state.dragging || state.menu) return
       const dismissOutside = (event: PointerEvent) => {
         if (props.draggingWindow || menu()) return
-        if ((event.target as Element | null)?.closest('[data-testid="workspace-switcher"]')) {
+        if (
+          (event.target as Element | null)?.closest(
+            '[data-testid="workspace-switcher"], [data-testid="workspace-context-menu"]',
+          )
+        ) {
           panelPointerInside = true
           return
         }
@@ -104,289 +123,273 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
 
   return (
     <>
-      <Show when={!props.open && props.draggingWindow}>
-        <button
-          type='button'
-          title='Drag a window here to move it to another workspace'
-          aria-label='Show workspaces'
-          class='fixed left-0 top-1/2 z-[1000000] flex h-20 w-4 -translate-y-1/2 items-center justify-center rounded-r-md border border-l-0 border-border bg-popover/90 text-muted-foreground shadow-md hover:w-6 hover:text-foreground'
-          onClick={() => props.onToggle()}
-          data-testid='workspace-edge-handle'
-        >
-          <ChevronRight class='h-4 w-4' />
-        </button>
-      </Show>
-      <Show when={props.open}>
-        <aside
-          class='fixed left-0 top-1/2 z-[1000001] flex max-h-[72vh] w-72 -translate-y-1/2 flex-col items-stretch overflow-hidden rounded-r-xl border border-l-0 border-border bg-popover/95 px-2 text-popover-foreground shadow-2xl backdrop-blur'
-          data-testid='workspace-switcher'
-          onPointerEnter={() => {
-            panelPointerInside = true
-          }}
-          onPointerLeave={() => {
-            if (panelPointerInside && !props.draggingWindow && !menu()) props.onDismiss()
-          }}
-        >
-          <div class='min-h-0 w-full overflow-y-auto py-3'>
-            <Show when={!props.editable}>
-              <button
-                class='mb-2 w-full rounded-md border px-2 py-1.5 text-xs hover:bg-muted'
-                onClick={() => props.onTakeControl()}
-              >
-                Take control
-              </button>
-            </Show>
-            <For each={props.registry.order}>
-              {(id, index) => {
-                const record = () => props.registry.records[id]
-                const active = () => id === props.activeId
-                const locked = () => record()?.locked === true
-                const hovered = () => props.draggingWindow && props.hoverTarget === id
-                const Icon = () =>
-                  getSolidIconComponent(record()?.icon ?? '') ??
-                  (record()?.snapshot.workspaceType === 'canvas' ? Scan : MonitorUp)
-                return (
-                  <div
-                    data-workspace-id={id}
-                    class={cn(
-                      'group relative mb-1 flex items-center gap-1 overflow-hidden rounded-md border px-1 py-1.5 transition-colors',
-                      active()
-                        ? 'border-primary bg-primary/10'
-                        : 'border-transparent hover:bg-muted',
-                      hovered() && 'border-primary bg-primary/20 ring-2 ring-primary/30',
-                    )}
-                    draggable={props.editable && !props.draggingWindow ? 'true' : 'false'}
-                    onDragStart={() => {
-                      draggedId = id
-                    }}
-                    onDragOver={(event) => event.preventDefault()}
-                    onDrop={() => {
-                      if (!props.editable || !draggedId || draggedId === id) return
-                      const order = [...props.registry.order]
-                      const from = order.indexOf(draggedId)
-                      const to = order.indexOf(id)
-                      order.splice(from, 1)
-                      order.splice(to, 0, draggedId)
-                      draggedId = ''
-                      void props.onReorder(order).catch(() => {})
-                    }}
-                    onPointerEnter={() => props.onDragHover?.(id)}
-                    onPointerMove={() => props.onDragHover?.(id)}
-                    onPointerLeave={() => props.onDragHover?.('')}
-                    onDblClick={() => beginRename(id)}
-                    onContextMenu={(event) => {
-                      event.preventDefault()
-                      setAppearanceOpen(false)
-                      setMenu({
-                        id,
-                        x: Math.max(4, Math.min(event.clientX, window.innerWidth - 196)),
-                        y: Math.max(4, Math.min(event.clientY, window.innerHeight - 360)),
-                      })
-                    }}
+      <aside
+        class='fixed left-0 top-1/2 z-[1000001] flex max-h-[72vh] w-72 -translate-y-1/2 flex-col items-stretch overflow-hidden rounded-r-xl border border-l-0 border-border bg-popover/95 px-2 text-popover-foreground shadow-2xl backdrop-blur'
+        data-testid='workspace-switcher'
+        onPointerEnter={() => {
+          panelPointerInside = true
+        }}
+        onPointerLeave={() => {
+          if (panelPointerInside && !props.draggingWindow && !menu()) props.onDismiss()
+        }}
+      >
+        <div class='min-h-0 w-full overflow-y-auto py-3'>
+          <Show when={!props.editable}>
+            <button
+              class='mb-2 w-full rounded-md border px-2 py-1.5 text-xs hover:bg-muted'
+              onClick={() => props.onTakeControl()}
+            >
+              Take control
+            </button>
+          </Show>
+          <For each={props.registry.order}>
+            {(id, index) => {
+              const record = () => props.registry.records[id]
+              const active = () => id === props.activeId
+              const locked = () => record()?.locked === true
+              const hovered = () => props.draggingWindow && props.hoverTarget === id
+              const Icon = () =>
+                getSolidIconComponent(record()?.icon ?? '') ??
+                (record()?.snapshot.workspaceType === 'canvas' ? Scan : MonitorUp)
+              return (
+                <div
+                  data-workspace-id={id}
+                  class={cn(
+                    'group relative mb-1 flex items-center gap-1 overflow-hidden rounded-md border px-1 py-1.5 transition-colors',
+                    active() ? 'border-primary bg-primary/10' : 'border-transparent hover:bg-muted',
+                    hovered() && 'border-primary bg-primary/20 ring-2 ring-primary/30',
+                  )}
+                  draggable={props.editable && !props.draggingWindow ? 'true' : 'false'}
+                  onDragStart={() => {
+                    draggedId = id
+                  }}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={() => {
+                    if (!props.editable || !draggedId || draggedId === id) return
+                    const order = [...props.registry.order]
+                    const from = order.indexOf(draggedId)
+                    const to = order.indexOf(id)
+                    order.splice(from, 1)
+                    order.splice(to, 0, draggedId)
+                    draggedId = ''
+                    void props.onReorder(order).catch(() => {})
+                  }}
+                  onPointerEnter={() => props.onDragHover?.(id)}
+                  onPointerMove={() => props.onDragHover?.(id)}
+                  onPointerLeave={() => props.onDragHover?.('')}
+                  onDblClick={() => beginRename(id)}
+                  onContextMenu={(event) => {
+                    event.preventDefault()
+                    setAppearanceOpen(false)
+                    setMenu({
+                      id,
+                      x: Math.max(4, Math.min(event.clientX, window.innerWidth - 196)),
+                      y: Math.max(4, Math.min(event.clientY, window.innerHeight - 360)),
+                    })
+                  }}
+                >
+                  <GripVertical class='h-4 w-4 shrink-0 cursor-grab text-muted-foreground opacity-50' />
+                  <button
+                    type='button'
+                    class='flex min-w-0 flex-1 items-center gap-2 text-left'
+                    onClick={() => !active() && props.onSelect(id)}
                   >
-                    <GripVertical class='h-4 w-4 shrink-0 cursor-grab text-muted-foreground opacity-50' />
-                    <button
-                      type='button'
-                      class='flex min-w-0 flex-1 items-center gap-2 text-left'
-                      onClick={() => !active() && props.onSelect(id)}
-                    >
-                      <Dynamic component={Icon()} class='h-4 w-4 shrink-0' />
-                      <Show when={record()?.snapshot.workspaceType === 'canvas' && record()?.icon}>
-                        <Scan class='-ml-3 mt-3 size-2.5 shrink-0 rounded-sm bg-popover text-primary' />
-                      </Show>
-                      <span class='min-w-0 flex-1'>
-                        <Show
-                          when={editing() === id}
-                          fallback={
-                            <Show
-                              when={record()}
-                              fallback={
-                                <span class='block truncate text-sm'>Workspace {index() + 1}</span>
-                              }
-                            >
-                              {(value) => (
-                                <span class='block truncate text-sm'>
-                                  {workspaceDisplayName(value(), index() + 1)}
-                                </span>
-                              )}
-                            </Show>
-                          }
-                        >
-                          <input
-                            autofocus
-                            class='h-7 w-full rounded border bg-background px-2 text-sm'
-                            value={record()?.name ?? ''}
-                            onClick={(event) => event.stopPropagation()}
-                            onDblClick={(event) => event.stopPropagation()}
-                            onBlur={(event) => {
+                    <Dynamic component={Icon()} class='h-4 w-4 shrink-0' />
+                    <Show when={record()?.snapshot.workspaceType === 'canvas' && record()?.icon}>
+                      <Scan class='-ml-3 mt-3 size-2.5 shrink-0 rounded-sm bg-popover text-primary' />
+                    </Show>
+                    <span class='min-w-0 flex-1'>
+                      <Show
+                        when={editing() === id}
+                        fallback={
+                          <Show
+                            when={record()}
+                            fallback={
+                              <span class='block truncate text-sm'>Workspace {index() + 1}</span>
+                            }
+                          >
+                            {(value) => (
+                              <span class='block truncate text-sm'>
+                                {workspaceDisplayName(value(), index() + 1)}
+                              </span>
+                            )}
+                          </Show>
+                        }
+                      >
+                        <input
+                          autofocus
+                          class='h-7 w-full rounded border bg-background px-2 text-sm'
+                          value={record()?.name ?? ''}
+                          onClick={(event) => event.stopPropagation()}
+                          onDblClick={(event) => event.stopPropagation()}
+                          onBlur={(event) => {
+                            const name = event.currentTarget.value.trim()
+                            setEditing(null)
+                            setMenu(null)
+                            void props.onRename(id, name).catch(() => {})
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') {
+                              event.preventDefault()
                               const name = event.currentTarget.value.trim()
                               setEditing(null)
                               setMenu(null)
                               void props.onRename(id, name).catch(() => {})
-                            }}
-                            onKeyDown={(event) => {
-                              if (event.key === 'Enter') {
-                                event.preventDefault()
-                                const name = event.currentTarget.value.trim()
-                                setEditing(null)
-                                setMenu(null)
-                                void props.onRename(id, name).catch(() => {})
-                              }
-                              if (event.key === 'Escape') {
-                                setEditing(null)
-                                setMenu(null)
-                              }
-                            }}
-                          />
-                        </Show>
-                        <span class='block text-[11px] text-muted-foreground'>
-                          {hovered()
-                            ? props.transferReady
-                              ? 'Release to move here'
-                              : 'Hold to move here'
-                            : locked()
-                              ? 'Open in another tab'
-                              : record()?.snapshot.workspaceType === 'canvas'
-                                ? `${
-                                    new Set(
-                                      record()?.snapshot.windows.map(
-                                        (window) => window.tabGroupId ?? window.id,
-                                      ) ?? [],
-                                    ).size
-                                  } cards`
-                                : `${record()?.snapshot.windows.length ?? 0} windows`}
-                        </span>
-                      </span>
-                      <Show when={locked()}>
-                        <Lock
-                          class='lucide-lock h-4 w-4 shrink-0 text-muted-foreground'
-                          aria-label='Open in another tab'
+                            }
+                            if (event.key === 'Escape') {
+                              setEditing(null)
+                              setMenu(null)
+                            }
+                          }}
                         />
                       </Show>
-                    </button>
-                    <Show when={hovered()}>
-                      <div class='workspace-dwell-progress pointer-events-none absolute inset-x-0 bottom-0 h-0.5 origin-left bg-primary' />
+                      <span class='block text-[11px] text-muted-foreground'>
+                        {hovered()
+                          ? props.transferReady
+                            ? 'Release to move here'
+                            : 'Hold to move here'
+                          : locked()
+                            ? 'Open in another tab'
+                            : record()?.snapshot.workspaceType === 'canvas'
+                              ? `${
+                                  new Set(
+                                    record()?.snapshot.windows.map(
+                                      (window) => window.tabGroupId ?? window.id,
+                                    ) ?? [],
+                                  ).size
+                                } cards`
+                              : `${record()?.snapshot.windows.length ?? 0} windows`}
+                      </span>
+                    </span>
+                    <Show when={locked()}>
+                      <Lock
+                        class='lucide-lock h-4 w-4 shrink-0 text-muted-foreground'
+                        aria-label='Open in another tab'
+                      />
                     </Show>
-                  </div>
-                )
-              }}
-            </For>
-            <button
-              type='button'
-              data-workspace-id='__new__'
-              class={cn(
-                'relative mt-2 flex w-full items-center gap-2 overflow-hidden rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground',
-                props.draggingWindow &&
-                  props.hoverTarget === '__new__' &&
-                  'border-primary bg-primary/20 text-foreground ring-2 ring-primary/30',
-              )}
-              onPointerEnter={() => props.onDragHover?.('__new__')}
-              onPointerMove={() => props.onDragHover?.('__new__')}
-              onPointerLeave={() => props.onDragHover?.('')}
-              onClick={() => {
-                if (props.draggingWindow) return
-                props.onCreate()
-              }}
-            >
-              <Plus class='h-4 w-4' />
-              {props.draggingWindow && props.hoverTarget === '__new__'
-                ? 'Hold to create and move'
-                : 'New workspace'}
-              <Show when={props.draggingWindow && props.hoverTarget === '__new__'}>
-                <div class='workspace-dwell-progress pointer-events-none absolute inset-x-0 bottom-0 h-0.5 origin-left bg-primary' />
-              </Show>
-            </button>
-          </div>
-        </aside>
-
-        <Show when={menu()} keyed>
-          {(value) => {
-            const record = () => props.registry.records[value.id]
-            return (
-              <div
-                class='fixed z-[1000002] min-w-44 rounded-md border border-border bg-popover p-1 text-sm shadow-xl'
-                style={{ left: `${value.x}px`, top: `${value.y}px` }}
-                data-testid='workspace-context-menu'
-                onPointerDown={(event) => event.stopPropagation()}
-              >
-                <button
-                  class='flex w-full rounded px-2 py-1.5 hover:bg-muted'
-                  onClick={() => beginRename(value.id)}
-                >
-                  Rename
-                </button>
-                <button
-                  class='flex w-full items-center gap-2 rounded px-2 py-1.5 hover:bg-muted'
-                  onClick={() => setAppearanceOpen(!appearanceOpen())}
-                >
-                  <Palette class='h-4 w-4' /> Appearance
-                </button>
-                <Show when={appearanceOpen()}>
-                  <div class='my-1 max-h-52 overflow-y-auto rounded border border-border p-2'>
-                    <div class='grid grid-cols-8 gap-1'>
-                      <For each={SOLID_AVAILABLE_ICONS}>
-                        {(entry) => (
-                          <button
-                            title={entry.name}
-                            class='flex h-7 items-center justify-center rounded hover:bg-muted'
-                            onClick={() =>
-                              void props
-                                .onIcon(value.id, entry.name, record()?.iconColor ?? '')
-                                .catch(() => {})
-                            }
-                          >
-                            <entry.Icon class='h-4 w-4' />
-                          </button>
-                        )}
-                      </For>
-                    </div>
-                    <div class='mt-2 flex flex-wrap gap-1'>
-                      <For each={WORKSPACE_TAB_ICON_SWATCHES}>
-                        {(color) => (
-                          <button
-                            title={color.key}
-                            class={cn('h-6 w-6 rounded border', color.twBg)}
-                            onClick={() =>
-                              void props
-                                .onIcon(value.id, record()?.icon ?? 'PanelsTopLeft', color.key)
-                                .catch(() => {})
-                            }
-                          />
-                        )}
-                      </For>
-                    </div>
-                  </div>
-                </Show>
-                <Show when={value.id !== props.activeId}>
-                  <button
-                    class='flex w-full items-center gap-2 rounded px-2 py-1.5 hover:bg-muted'
-                    onClick={() => props.onOpenNewTab(value.id)}
-                  >
-                    <ExternalLink class='h-4 w-4' /> Open in new tab
                   </button>
-                </Show>
+                  <Show when={hovered()}>
+                    <div class='workspace-dwell-progress pointer-events-none absolute inset-x-0 bottom-0 h-0.5 origin-left bg-primary' />
+                  </Show>
+                </div>
+              )
+            }}
+          </For>
+          <button
+            type='button'
+            data-workspace-id='__new__'
+            class={cn(
+              'relative mt-2 flex w-full items-center gap-2 overflow-hidden rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground',
+              props.draggingWindow &&
+                props.hoverTarget === '__new__' &&
+                'border-primary bg-primary/20 text-foreground ring-2 ring-primary/30',
+            )}
+            onPointerEnter={() => props.onDragHover?.('__new__')}
+            onPointerMove={() => props.onDragHover?.('__new__')}
+            onPointerLeave={() => props.onDragHover?.('')}
+            onClick={() => {
+              if (props.draggingWindow) return
+              props.onCreate()
+            }}
+          >
+            <Plus class='h-4 w-4' />
+            {props.draggingWindow && props.hoverTarget === '__new__'
+              ? 'Hold to create and move'
+              : 'New workspace'}
+            <Show when={props.draggingWindow && props.hoverTarget === '__new__'}>
+              <div class='workspace-dwell-progress pointer-events-none absolute inset-x-0 bottom-0 h-0.5 origin-left bg-primary' />
+            </Show>
+          </button>
+        </div>
+      </aside>
+
+      <Show when={menu()} keyed>
+        {(value) => {
+          const record = () => props.registry.records[value.id]
+          return (
+            <div
+              class='fixed z-[1000002] min-w-44 rounded-md border border-border bg-popover p-1 text-sm shadow-xl'
+              style={{ left: `${value.x}px`, top: `${value.y}px` }}
+              data-testid='workspace-context-menu'
+              onPointerDown={(event) => event.stopPropagation()}
+            >
+              <button
+                class='flex w-full rounded px-2 py-1.5 hover:bg-muted'
+                onClick={() => beginRename(value.id)}
+              >
+                Rename
+              </button>
+              <button
+                class='flex w-full items-center gap-2 rounded px-2 py-1.5 hover:bg-muted'
+                onClick={() => setAppearanceOpen(!appearanceOpen())}
+              >
+                <Palette class='h-4 w-4' /> Appearance
+              </button>
+              <Show when={appearanceOpen()}>
+                <div class='my-1 max-h-52 overflow-y-auto rounded border border-border p-2'>
+                  <div class='grid grid-cols-8 gap-1'>
+                    <For each={SOLID_AVAILABLE_ICONS}>
+                      {(entry) => (
+                        <button
+                          title={entry.name}
+                          class='flex h-7 items-center justify-center rounded hover:bg-muted'
+                          onClick={() =>
+                            void props
+                              .onIcon(value.id, entry.name, record()?.iconColor ?? '')
+                              .catch(() => {})
+                          }
+                        >
+                          <entry.Icon class='h-4 w-4' />
+                        </button>
+                      )}
+                    </For>
+                  </div>
+                  <div class='mt-2 flex flex-wrap gap-1'>
+                    <For each={WORKSPACE_TAB_ICON_SWATCHES}>
+                      {(color) => (
+                        <button
+                          title={color.key}
+                          class={cn('h-6 w-6 rounded border', color.twBg)}
+                          onClick={() =>
+                            void props
+                              .onIcon(value.id, record()?.icon ?? 'PanelsTopLeft', color.key)
+                              .catch(() => {})
+                          }
+                        />
+                      )}
+                    </For>
+                  </div>
+                </div>
+              </Show>
+              <Show when={value.id !== props.activeId}>
                 <button
                   class='flex w-full items-center gap-2 rounded px-2 py-1.5 hover:bg-muted'
-                  onClick={() => void props.onConvert(value.id).catch(() => {})}
+                  onClick={() => props.onOpenNewTab(value.id)}
                 >
-                  <Show
-                    when={record()?.snapshot.workspaceType === 'canvas'}
-                    fallback={<Scan class='h-4 w-4' />}
-                  >
-                    <MonitorUp class='h-4 w-4' />
-                  </Show>
-                  Convert to {record()?.snapshot.workspaceType === 'canvas' ? 'desktop' : 'canvas'}
+                  <ExternalLink class='h-4 w-4' /> Open in new tab
                 </button>
-                <button
-                  class='flex w-full items-center gap-2 rounded px-2 py-1.5 text-destructive hover:bg-muted'
-                  onClick={() => void props.onDelete(value.id).catch(() => {})}
+              </Show>
+              <button
+                class='flex w-full items-center gap-2 rounded px-2 py-1.5 hover:bg-muted'
+                onClick={() => void props.onConvert(value.id).catch(() => {})}
+              >
+                <Show
+                  when={record()?.snapshot.workspaceType === 'canvas'}
+                  fallback={<Scan class='h-4 w-4' />}
                 >
-                  <Trash2 class='h-4 w-4' /> Delete
-                </button>
-              </div>
-            )
-          }}
-        </Show>
+                  <MonitorUp class='h-4 w-4' />
+                </Show>
+                Convert to {record()?.snapshot.workspaceType === 'canvas' ? 'desktop' : 'canvas'}
+              </button>
+              <button
+                class='flex w-full items-center gap-2 rounded px-2 py-1.5 text-destructive hover:bg-muted'
+                onClick={() => void props.onDelete(value.id).catch(() => {})}
+              >
+                <Trash2 class='h-4 w-4' /> Delete
+              </button>
+            </div>
+          )
+        }}
       </Show>
     </>
   )

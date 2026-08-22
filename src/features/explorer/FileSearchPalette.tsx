@@ -87,7 +87,7 @@ function FileSearchPalette(props: {
   const listId = createUniqueId()
   const [query, setQuery] = createSignal('')
   const [debouncedQuery, setDebouncedQuery] = createSignal('')
-  const [activeIndex, setActiveIndex] = createSignal(0)
+  const [selection, setSelection] = createSignal({ key: '', index: 0 })
   let dialogEl: HTMLDivElement | undefined
   let inputEl: HTMLInputElement | undefined
   const previousFocus = document.activeElement as HTMLElement | null
@@ -139,13 +139,19 @@ function FileSearchPalette(props: {
 
   const results = () => (queryLongEnough() ? (searchQuery.data?.results ?? []) : [])
   const status = () => searchQuery.data?.status ?? statusQuery.data
-
-  createEffect(
-    () => `${normalizedQuery()}:${results().length}`,
-    () => {
-      setActiveIndex(0)
-    },
-  )
+  const selectionKey = () =>
+    `${normalizedQuery()}\0${results()
+      .map((result) => result.path)
+      .join('\0')}`
+  const activeIndex = () => {
+    const current = selection()
+    if (current.key !== selectionKey()) return 0
+    return Math.min(current.index, Math.max(0, results().length - 1))
+  }
+  const setActiveIndex = (update: number | ((index: number) => number)) => {
+    const next = typeof update === 'function' ? update(activeIndex()) : update
+    setSelection({ key: selectionKey(), index: next })
+  }
 
   onSettled(() => {
     const oldOverflow = document.body.style.overflow

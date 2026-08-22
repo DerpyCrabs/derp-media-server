@@ -24,6 +24,8 @@ struct DirQuery {
     dir: String,
     surface: Option<String>,
     #[serde(default)]
+    virtual_browser: bool,
+    #[serde(default)]
     offset: usize,
 }
 
@@ -48,27 +50,45 @@ async fn list(
     State(state): State<Shared>,
     Query(query): Query<DirQuery>,
 ) -> AppResult<Json<Value>> {
+    if query.virtual_browser || query.surface.as_deref() == Some("workspace") {
+        return Ok(Json(
+            list_for_browser(&state, &query.dir, query.offset).await?,
+        ));
+    }
     if query.dir == crate::virtual_directory::HERMES_ROOT
         || query
             .dir
             .starts_with(&format!("{}/", crate::virtual_directory::HERMES_ROOT))
     {
-        if query.surface.as_deref() != Some("workspace") {
-            return Err(AppError::not_found("Directory not found"));
-        }
-        return Ok(Json(
-            serde_json::to_value(
-                crate::virtual_directory::list_hermes(&state, &query.dir, query.offset).await?,
-            )
-            .map_err(|error| AppError::internal(error.to_string()))?,
-        ));
+        return Err(AppError::not_found("Directory not found"));
     }
-    let mut files = list_items(&state, &query.dir)?;
-    let mut entries = serde_json::Map::new();
-    if query.dir.is_empty()
-        && query.surface.as_deref() == Some("workspace")
-        && state.hermes.is_some()
+    let files = list_items(&state, &query.dir)?;
+    let directory = crate::virtual_directory::is_builtin_path(&query.dir).then(|| {
+        json!({"provider":"builtin","kind":"collection","path":query.dir,"capabilities":[],
+            "offset":0,"pageSize":files.len(),"total":files.len()})
+    });
+    Ok(Json(
+        json!({"files":files,"virtualEntries":{},"virtualDirectory":directory}),
+    ))
+}
+
+pub(crate) async fn list_for_browser(
+    state: &AppState,
+    dir: &str,
+    offset: usize,
+) -> AppResult<Value> {
+    if dir == crate::virtual_directory::HERMES_ROOT
+        || dir.starts_with(&format!("{}/", crate::virtual_directory::HERMES_ROOT))
     {
+        return serde_json::to_value(
+            crate::virtual_directory::list_hermes(state, dir, offset).await?,
+        )
+        .map_err(|error| AppError::internal(error.to_string()));
+    }
+
+    let mut files = list_items(state, dir)?;
+    let mut entries = serde_json::Map::new();
+    if dir.is_empty() && state.hermes.is_some() {
         let path = crate::virtual_directory::HERMES_ROOT.to_string();
         files.push(media::FileItem {
             name: path.clone(),
@@ -89,13 +109,11 @@ async fn list(
                 "appearance":{"icon":"agent-directory","tone":"violet"}}),
         );
     }
-    let directory = crate::virtual_directory::is_builtin_path(&query.dir).then(|| {
-        json!({"provider":"builtin","kind":"collection","path":query.dir,"capabilities":[],
+    let directory = crate::virtual_directory::is_builtin_path(dir).then(|| {
+        json!({"provider":"builtin","kind":"collection","path":dir,"capabilities":[],
             "offset":0,"pageSize":files.len(),"total":files.len()})
     });
-    Ok(Json(
-        json!({"files":files,"virtualEntries":entries,"virtualDirectory":directory}),
-    ))
+    Ok(json!({"files":files,"virtualEntries":entries,"virtualDirectory":directory}))
 }
 
 async fn virtual_action(

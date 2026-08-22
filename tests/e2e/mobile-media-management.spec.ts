@@ -9,9 +9,8 @@ test.describe('mobile media management', () => {
     await page.getByRole('menuitem', { name: 'Grid view' }).click()
     await expect(page.locator('.file-browser-grid')).toBeVisible()
     const more = page.getByRole('button', { name: 'More actions for photo.jpg', exact: true })
-    const box = await more.boundingBox()
-    expect(box?.width).toBeGreaterThanOrEqual(44)
-    expect(box?.height).toBeGreaterThanOrEqual(44)
+    await expect(more).toHaveCSS('width', '44px')
+    await expect(more).toHaveCSS('height', '44px')
     await more.click()
     await expect(page.getByRole('menu')).toBeVisible()
     await expect(page.getByRole('menu').getByText('Favorite', { exact: true })).toBeVisible()
@@ -32,9 +31,20 @@ test.describe('mobile media management', () => {
     ])
     await page.keyboard.press('Escape')
     await page.getByRole('button', { name: 'Display options' }).click()
-    await page.getByRole('menuitem', { name: 'List view' }).click()
+    await Promise.all([
+      page.waitForResponse(
+        (response) => response.url().includes('/api/settings/viewMode') && response.ok(),
+      ),
+      page.getByRole('menuitem', { name: 'List view' }).click(),
+    ])
     await page.reload()
     await expect(page.locator('table')).toBeVisible()
+    const listMore = page.getByRole('button', {
+      name: 'More actions for photo.jpg',
+      exact: true,
+    })
+    await expect(listMore).toHaveCSS('width', '44px')
+    await expect(listMore).toHaveCSS('height', '44px')
   })
 
   test('swipes between images', async ({ page }) => {

@@ -145,7 +145,6 @@ test('renders parity controls and native export, then archives read-only', async
     }
     await route.fulfill({ status: 404, json: { error: `Unhandled Hermes mock: ${url.pathname}` } })
   })
-
   const workspaceId = `hermes-e2e-${Date.now()}`
   await seedWorkspace(workspaceId, [
     {
@@ -530,6 +529,7 @@ test('pages older history and opens externally active sessions in observer mode'
 })
 
 test('keeps the Hermes project dialog compact inside its browser window', async () => {
+  let gatewayRequests = 0
   await page.route('**/api/files?*', async (route) => {
     const url = new URL(route.request().url())
     if (url.searchParams.get('dir') !== 'Hermes Sessions') {
@@ -552,9 +552,10 @@ test('keeps the Hermes project dialog compact inside its browser window', async 
       },
     })
   })
-  await page.route('**/api/virtual-directory/fs?*', (route) =>
-    route.fulfill({ json: { entries: [] } }),
-  )
+  await page.route('**/api/virtual-directory/fs?*', (route) => {
+    gatewayRequests += 1
+    return route.fulfill({ json: { entries: [] } })
+  })
   const workspaceId = `hermes-project-dialog-${Date.now()}`
   await seedWorkspace(workspaceId, [
     {
@@ -567,7 +568,11 @@ test('keeps the Hermes project dialog compact inside its browser window', async 
     },
   ])
   await page.goto(`/workspace?ws=${workspaceId}`)
-  await page.getByRole('button', { name: 'Create new project' }).click()
+  const createProject = page.getByRole('button', { name: 'Create new project' })
+  await expect(createProject).toBeVisible()
+  expect(gatewayRequests).toBe(0)
+  await createProject.click()
+  await expect.poll(() => gatewayRequests).toBe(1)
   const dialog = page.getByRole('dialog', { name: 'Create Hermes project' })
   await expect(dialog).toBeVisible()
   const browser = dialog.locator(
@@ -687,4 +692,160 @@ test('uses in-window Hermes project actions with gateway-backed choices', async 
   await appearanceDialog.getByRole('button', { name: 'Save' }).click()
   await expect.poll(() => actions.length).toBe(2)
   expect(actions[1]).toMatchObject({ action: 'setAppearance', metadata: { icon: 'Star' } })
+})
+
+test('opens Hermes sessions from Media Center in a fullscreen chat dialog', async () => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, '__DEHYDRATED_STATE__', {
+      configurable: true,
+      get: () => undefined,
+      set: () => undefined,
+    })
+  })
+  await page.route('**/api/files?*', async (route) => {
+    const url = new URL(route.request().url())
+    const dir = url.searchParams.get('dir') ?? ''
+    if (dir === '') {
+      await route.fulfill({
+        json: {
+          files: [
+            {
+              name: 'Hermes Sessions',
+              path: 'Hermes Sessions',
+              type: 'folder',
+              size: 0,
+              extension: '',
+              isDirectory: true,
+              isVirtual: true,
+            },
+          ],
+          virtualEntries: {
+            'Hermes Sessions': {
+              provider: 'hermes',
+              kind: 'root',
+              capabilities: ['open'],
+              appearance: { icon: 'agent-directory', tone: 'violet' },
+            },
+          },
+        },
+      })
+      return
+    }
+    if (dir === 'Hermes Sessions') {
+      await route.fulfill({
+        json: {
+          files: [
+            {
+              name: 'Media Hermes',
+              path: 'Hermes Sessions/session/session-media',
+              type: 'other',
+              size: 0,
+              extension: '',
+              isDirectory: false,
+              isVirtual: true,
+            },
+          ],
+          virtualDirectory: {
+            provider: 'hermes',
+            kind: 'root',
+            path: 'Hermes Sessions',
+            capabilities: ['createFile', 'createFolder'],
+            offset: 0,
+            pageSize: 200,
+            total: 1,
+          },
+          virtualEntries: {
+            'Hermes Sessions/session/session-media': {
+              provider: 'hermes',
+              kind: 'session',
+              id: 'session-media',
+              capabilities: ['open'],
+              openTarget: {
+                provider: 'hermes',
+                type: 'hermesSession',
+                sessionId: 'session-media',
+                readOnly: false,
+              },
+            },
+          },
+        },
+      })
+      return
+    }
+    await route.continue()
+  })
+  await page.route('**/api/hermes/**', async (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.endsWith('/messages')) {
+      await route.fulfill({
+        json: { messages: [{ id: 'assistant-1', role: 'assistant', content: 'Media chat ready' }] },
+      })
+      return
+    }
+    if (url.pathname === '/api/hermes/sessions/session-media') {
+      await route.fulfill({ json: { title: 'Media Hermes', archived: false } })
+      return
+    }
+    if (url.pathname === '/api/hermes/model-options') {
+      await route.fulfill({ json: { providers: [] } })
+      return
+    }
+    if (url.pathname === '/api/hermes/capabilities') {
+      await route.fulfill({ json: {} })
+      return
+    }
+    await route.fulfill({ status: 404, json: { error: `Unhandled Hermes mock: ${url.pathname}` } })
+  })
+  await page.route('**/api/virtual-directory/action', async (route) => {
+    const body = route.request().postDataJSON() as { action?: string }
+    if (body.action === 'createFile') {
+      await route.fulfill({
+        json: {
+          openTarget: {
+            provider: 'hermes',
+            type: 'hermesDraft',
+            projectPath: null,
+            readOnly: false,
+          },
+        },
+      })
+      return
+    }
+    await route.fulfill({ status: 400, json: { error: `Unexpected action: ${body.action}` } })
+  })
+
+  await page.goto('/')
+  await page.getByText('Hermes Sessions', { exact: true }).click()
+  await page.getByText('Media Hermes', { exact: true }).click()
+
+  const dialog = page.getByRole('dialog').filter({ hasText: 'Media Hermes' })
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Close Hermes chat' })).toBeFocused()
+  await expect(dialog.getByTestId('hermes-chat-pane')).toBeVisible()
+  await expect(dialog.getByText('Media chat ready')).toBeVisible()
+  await page.keyboard.press('Control+f')
+  await expect(dialog.getByPlaceholder('Find in chat')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(dialog.getByPlaceholder('Find in chat')).toBeHidden()
+  await expect(dialog).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
+
+  await page.getByRole('button', { name: 'Create new session' }).click()
+  const draftDialog = page.getByRole('dialog').filter({ hasText: 'Untitled session' })
+  await expect(draftDialog).toBeVisible()
+  const composer = draftDialog.getByPlaceholder('Message Hermes…')
+  await expect(composer).toBeEnabled()
+  await composer.fill('Keep this unsent prompt')
+  await draftDialog.getByRole('button', { name: 'Close Hermes chat' }).click()
+
+  const discardDialog = page.getByRole('alertdialog', { name: 'Discard unsent draft?' })
+  await expect(discardDialog).toBeVisible()
+  await discardDialog.getByRole('button', { name: 'Cancel' }).click()
+  await expect(draftDialog).toBeVisible()
+  await expect(composer).toHaveValue('Keep this unsent prompt')
+
+  await draftDialog.getByRole('button', { name: 'Close Hermes chat' }).click()
+  await discardDialog.getByRole('button', { name: 'Discard' }).click()
+  await expect(draftDialog).toBeHidden()
 })

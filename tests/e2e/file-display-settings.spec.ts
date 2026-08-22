@@ -8,7 +8,7 @@ const mediaDir = batchId ? `test-media-${batchId}` : 'test-media'
 async function saveSort(
   page: Page,
   folderPath: string,
-  field: 'name' | 'createdDate' | 'size',
+  field: 'name' | 'createdDate' | 'size' | 'favorite' | 'views',
   direction: 'asc' | 'desc',
 ) {
   const response = await page.request.post('/api/settings/sortOrder', {
@@ -36,7 +36,9 @@ test.describe('File display settings', () => {
       await expect(page.getByRole('menuitem', { name: 'Grid view' })).toBeVisible()
       await page.getByRole('button', { name: 'Display options' }).click()
       await expect(page.locator('thead')).toHaveCount(0)
-      await expect(page.locator('tbody tr[data-file-path] td.tabular-nums')).toHaveCount(0)
+      await expect(
+        page.locator('tbody tr[data-file-path] td[data-column="created-date"]'),
+      ).toHaveCount(0)
 
       const listing = await page.request.get(`/api/files?dir=${encodeURIComponent(folderName)}`)
       const body = (await listing.json()) as { files: { createdDate?: number }[] }
@@ -61,15 +63,29 @@ test.describe('File display settings', () => {
         (response) => response.url().includes('/api/settings/fileColumns') && response.ok(),
       )
       await expect(menu.getByRole('checkbox', { name: 'Created' })).not.toBeChecked()
+      await expect(menu.getByRole('checkbox', { name: 'Favorites' })).toBeChecked()
+      await expect(menu.getByRole('checkbox', { name: 'Views' })).toBeChecked()
+      await expect(menu.getByRole('menuitem', { name: 'Favorites' })).toBeVisible()
+      await expect(menu.getByRole('menuitem', { name: 'Views' })).toBeVisible()
       await menu.getByRole('checkbox', { name: 'Created' }).check()
       await columnsResponse
-      await expect(page.locator('tbody tr[data-file-path] td.tabular-nums')).toHaveCount(3)
+      await expect(
+        page.locator('tbody tr[data-file-path] td[data-column="created-date"]'),
+      ).toHaveCount(3)
       await page.reload()
       await expect(page.locator('thead')).toHaveCount(0)
-      await expect(page.locator('tbody tr[data-file-path] td.tabular-nums')).toHaveCount(3)
+      await expect(
+        page.locator('tbody tr[data-file-path] td[data-column="created-date"]'),
+      ).toHaveCount(3)
     } finally {
       await page.request.post('/api/settings/fileColumns', {
-        data: { createdDate: false, size: true },
+        data: {
+          scope: 'media',
+          createdDate: false,
+          size: true,
+          favorite: true,
+          views: true,
+        },
       })
       await saveSort(page, folderName, 'name', 'asc')
       fs.rmSync(folderPath, { recursive: true, force: true })

@@ -241,9 +241,16 @@ fn add_sessions(
                 .unwrap_or(0)
                 > 0;
         let entry_capabilities = if archived {
-            capabilities(&["open", "restore", "deletePermanently", "download", "copyId"])
+            capabilities(&[
+                "open",
+                "restore",
+                "deletePermanently",
+                "download",
+                "copyId",
+                "pin",
+            ])
         } else if busy {
-            capabilities(&["open", "rename", "download", "copyId"])
+            capabilities(&["open", "rename", "download", "copyId", "pin"])
         } else {
             capabilities(&[
                 "open",
@@ -253,6 +260,7 @@ fn add_sessions(
                 "copyId",
                 "branch",
                 "moveToProject",
+                "pin",
             ])
         };
         entries.insert(
@@ -260,7 +268,7 @@ fn add_sessions(
             json!({
                 "provider":"hermes", "kind":"session", "id":id, "archived":archived,
                 "capabilities":entry_capabilities,
-                "openTarget":{"type":"hermesSession","sessionId":id,"readOnly":archived},
+                "openTarget":{"provider":"hermes","type":"hermesSession","sessionId":id,"readOnly":archived},
                 "metadata":session,
                 "appearance":{"icon":"agent-session","tone":"violet"},
             }),
@@ -423,7 +431,9 @@ pub(crate) async fn action(state: &AppState, body: ActionBody) -> AppResult<Valu
                     "Sessions cannot be created in this directory",
                 ));
             };
-            Ok(json!({"openTarget":{"type":"hermesDraft","projectPath":cwd,"readOnly":false}}))
+            Ok(
+                json!({"openTarget":{"provider":"hermes","type":"hermesDraft","projectPath":cwd,"readOnly":false}}),
+            )
         }
         ("createFolder", _) => {
             let _operation = state.hermes_project_operations.lock().await;
@@ -546,7 +556,9 @@ pub(crate) async fn action(state: &AppState, body: ActionBody) -> AppResult<Valu
                 .ok_or_else(|| AppError::internal("Hermes fork omitted session id"))?;
             crate::hermes::validate_opaque_id(fork_id)
                 .map_err(|_| AppError::internal("Hermes returned an invalid session id"))?;
-            Ok(json!({"openTarget":{"type":"hermesSession","sessionId":fork_id,"readOnly":false}}))
+            Ok(
+                json!({"openTarget":{"provider":"hermes","type":"hermesSession","sessionId":fork_id,"readOnly":false}}),
+            )
         }
         ("moveToProject", Some(("session", id))) => {
             let project_name = body

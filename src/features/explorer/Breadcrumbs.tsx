@@ -58,6 +58,26 @@ export function Breadcrumbs(props: BreadcrumbsProps) {
   const [ellipsisMenuAnchorEl, setEllipsisMenuAnchorEl] = createSignal<HTMLButtonElement | null>(
     null,
   )
+  let previousCompactLayout: boolean | undefined
+
+  function commitLayout(
+    visible: Set<number>,
+    ellipsis: boolean,
+    skipsParent: boolean,
+    compactOnly: boolean,
+  ) {
+    if (previousCompactLayout !== undefined && previousCompactLayout !== compactOnly) {
+      setBreadcrumbFolderMenu(null)
+      setInlinePathMenuOpen(false)
+    }
+    previousCompactLayout = compactOnly
+    if (!compactOnly) clearCompactPathOpenOnly()
+    if (!ellipsis || compactOnly) setInlinePathMenuOpen(false)
+    setVisibleIndices(visible)
+    setPathEllipsis(ellipsis)
+    setEllipsisSkipsParent(skipsParent)
+    setCompactPathOnly(compactOnly)
+  }
 
   const effectiveVisible = createMemo(() => {
     const s = visibleIndices()
@@ -115,10 +135,7 @@ export function Breadcrumbs(props: BreadcrumbsProps) {
 
       const calculate = () => {
         if (bc.length === 0) {
-          setVisibleIndices(new Set<number>())
-          setPathEllipsis(false)
-          setEllipsisSkipsParent(false)
-          setCompactPathOnly(false)
+          commitLayout(new Set<number>(), false, false, false)
           return
         }
 
@@ -149,73 +166,46 @@ export function Breadcrumbs(props: BreadcrumbsProps) {
         const n = bc.length
 
         if (n === 1) {
-          setVisibleIndices(new Set([0]))
-          setPathEllipsis(false)
-          setEllipsisSkipsParent(false)
-          setCompactPathOnly(false)
+          commitLayout(new Set([0]), false, false, false)
           return
         }
 
         if (n === 2) {
           if (rowTotalFor([0, 1], false) <= availableWidth) {
-            setVisibleIndices(new Set([0, 1]))
-            setPathEllipsis(false)
-            setEllipsisSkipsParent(false)
-            setCompactPathOnly(false)
+            commitLayout(new Set([0, 1]), false, false, false)
           } else {
-            setVisibleIndices(new Set([1]))
-            setPathEllipsis(false)
-            setEllipsisSkipsParent(false)
-            setCompactPathOnly(true)
+            commitLayout(new Set([1]), false, false, true)
           }
           return
         }
 
         if (n === 3) {
           if (rowTotalFor([0, 1, 2], false) <= availableWidth) {
-            setVisibleIndices(new Set([0, 1, 2]))
-            setPathEllipsis(false)
-            setEllipsisSkipsParent(false)
-            setCompactPathOnly(false)
+            commitLayout(new Set([0, 1, 2]), false, false, false)
           } else {
-            setVisibleIndices(new Set([2]))
-            setPathEllipsis(false)
-            setEllipsisSkipsParent(false)
-            setCompactPathOnly(true)
+            commitLayout(new Set([2]), false, false, true)
           }
           return
         }
 
         if (rowTotalFor(allIndices, false) <= availableWidth) {
-          setVisibleIndices(new Set(allIndices))
-          setPathEllipsis(false)
-          setEllipsisSkipsParent(false)
-          setCompactPathOnly(false)
+          commitLayout(new Set(allIndices), false, false, false)
           return
         }
 
         const tail = [0, n - 2, n - 1] as number[]
         if (rowTotalFor(tail, true) <= availableWidth) {
-          setVisibleIndices(new Set(tail))
-          setPathEllipsis(true)
-          setEllipsisSkipsParent(false)
-          setCompactPathOnly(false)
+          commitLayout(new Set(tail), true, false, false)
           return
         }
 
         const homeCurrent = [0, n - 1] as number[]
         if (rowTotalFor(homeCurrent, true) <= availableWidth) {
-          setVisibleIndices(new Set(homeCurrent))
-          setPathEllipsis(true)
-          setEllipsisSkipsParent(true)
-          setCompactPathOnly(false)
+          commitLayout(new Set(homeCurrent), true, true, false)
           return
         }
 
-        setVisibleIndices(new Set([n - 1]))
-        setPathEllipsis(false)
-        setEllipsisSkipsParent(false)
-        setCompactPathOnly(true)
+        commitLayout(new Set([n - 1]), false, false, true)
       }
 
       calculate()
@@ -224,32 +214,6 @@ export function Breadcrumbs(props: BreadcrumbsProps) {
       ro.observe(observeEl)
       // eslint-disable-next-line solid/reactivity
       return () => ro.disconnect()
-    },
-  )
-
-  createEffect(
-    () => compactPathOnly(),
-    (compactOnly) => {
-      if (!compactOnly) clearCompactPathOpenOnly()
-    },
-  )
-
-  const [prevCompactLayout, setPrevCompactLayout] = createSignal<boolean | undefined>(undefined)
-  createEffect(
-    () => ({ current: compactPathOnly(), previous: prevCompactLayout() }),
-    ({ current, previous }) => {
-      if (previous !== undefined && previous !== current) {
-        setBreadcrumbFolderMenu(null)
-        setInlinePathMenuOpen(false)
-      }
-      setPrevCompactLayout(current)
-    },
-  )
-
-  createEffect(
-    () => ({ ellipsis: pathEllipsisVisible(), compact: compactPathOnly() }),
-    ({ ellipsis, compact }) => {
-      if (!ellipsis || compact) setInlinePathMenuOpen(false)
     },
   )
 

@@ -14,7 +14,10 @@ fn defaults() -> Value {
     json!({
         "viewModes": {},
         "sortOrders": {},
-        "fileColumns": {"createdDate": false, "size": true},
+        "fileColumns": {
+            "media": {"createdDate": false, "size": true, "favorite": true, "views": true},
+            "workspace": {"createdDate": false, "size": true, "favorite": false, "views": false}
+        },
         "favorites": [],
         "knowledgeBases": [],
         "customIcons": {},
@@ -35,13 +38,37 @@ pub(crate) fn canonical_document(mut value: Value) -> AppResult<Value> {
             .or_insert_with(|| field_default.clone());
     }
     let columns = object
-        .get_mut("fileColumns")
-        .and_then(Value::as_object_mut)
+        .get("fileColumns")
+        .and_then(Value::as_object)
         .ok_or_else(|| AppError::internal("Invalid settings field: fileColumns"))?;
-    for (key, field_default) in default["fileColumns"].as_object().into_iter().flatten() {
-        columns
-            .entry(key.clone())
-            .or_insert_with(|| field_default.clone());
+    let legacy_columns = columns.get("size").and_then(Value::as_bool).is_some();
+    if legacy_columns {
+        let created_date = columns
+            .get("createdDate")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let size = columns.get("size").and_then(Value::as_bool).unwrap_or(true);
+        object["fileColumns"] = json!({
+            "media": {"createdDate": created_date, "size": size, "favorite": true, "views": true},
+            "workspace": {"createdDate": created_date, "size": size, "favorite": false, "views": false}
+        });
+    } else {
+        let columns = object["fileColumns"]
+            .as_object_mut()
+            .ok_or_else(|| AppError::internal("Invalid settings field: fileColumns"))?;
+        for scope in ["media", "workspace"] {
+            let scope_default = default["fileColumns"][scope].clone();
+            let scope_columns = columns
+                .entry(scope)
+                .or_insert(scope_default.clone())
+                .as_object_mut()
+                .ok_or_else(|| AppError::internal("Invalid settings field: fileColumns"))?;
+            for (key, field_default) in scope_default.as_object().into_iter().flatten() {
+                scope_columns
+                    .entry(key.clone())
+                    .or_insert_with(|| field_default.clone());
+            }
+        }
     }
     Ok(value)
 }
@@ -63,8 +90,11 @@ pub(crate) enum SettingsCommand {
         direction: String,
     },
     SetFileColumns {
+        scope: String,
         created_date: bool,
         size: bool,
+        favorite: bool,
+        views: bool,
     },
     ToggleFavorite {
         path: String,
@@ -220,7 +250,7 @@ fn apply_command(settings: &mut Value, command: SettingsCommand) -> AppResult<Va
             field,
             direction,
         } => {
-            if !["name", "createdDate", "size"].contains(&field.as_str()) {
+            if !["name", "createdDate", "size", "favorite", "views"].contains(&field.as_str()) {
                 return Err(AppError::bad("Invalid sort field"));
             }
             if !["asc", "desc"].contains(&direction.as_str()) {
@@ -229,8 +259,22 @@ fn apply_command(settings: &mut Value, command: SettingsCommand) -> AppResult<Va
             settings["sortOrders"][path] = json!({"field":field,"direction":direction});
             Ok(json!({"success":true}))
         }
-        SettingsCommand::SetFileColumns { created_date, size } => {
-            settings["fileColumns"] = json!({"createdDate":created_date,"size":size});
+        SettingsCommand::SetFileColumns {
+            scope,
+            created_date,
+            size,
+            favorite,
+            views,
+        } => {
+            if !["media", "workspace"].contains(&scope.as_str()) {
+                return Err(AppError::bad("Invalid file column scope"));
+            }
+            settings["fileColumns"][scope] = json!({
+                "createdDate":created_date,
+                "size":size,
+                "favorite":favorite,
+                "views":views
+            });
             Ok(json!({"success":true}))
         }
         SettingsCommand::ToggleFavorite { path } => {
@@ -482,7 +526,33 @@ mod tests {
         assert_eq!(completed["sortOrders"], json!({}));
         assert_eq!(
             completed["fileColumns"],
-            json!({"createdDate":false,"size":false})
+            json!({
+                "media": {"createdDate":false,"size":false,"favorite":true,"views":true},
+                "workspace": {"createdDate":false,"size":false,"favorite":false,"views":false}
+            })
+        );
+    }
+
+    #[test]
+    fn file_columns_are_scoped_between_media_and_workspace() {
+        let mut settings = defaults();
+        let original_media = settings["fileColumns"]["media"].clone();
+        apply_command(
+            &mut settings,
+            SettingsCommand::SetFileColumns {
+                scope: "workspace".into(),
+                created_date: true,
+                size: false,
+                favorite: true,
+                views: true,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(settings["fileColumns"]["media"], original_media);
+        assert_eq!(
+            settings["fileColumns"]["workspace"],
+            json!({"createdDate":true,"size":false,"favorite":true,"views":true})
         );
     }
 

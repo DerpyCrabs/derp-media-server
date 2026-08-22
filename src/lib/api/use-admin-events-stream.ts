@@ -6,6 +6,17 @@ import { subscribeSseAdmin } from './sse-shared-worker-client'
 import type { SseEventPayload } from './sse-shared-worker-client'
 import { onSettled } from 'solid-js'
 
+export function createAdminEventInvalidationGuard() {
+  const handled = new WeakSet<object>()
+  return (event: object) => {
+    if (handled.has(event)) return false
+    handled.add(event)
+    return true
+  }
+}
+
+const claimAdminEventInvalidation = createAdminEventInvalidationGuard()
+
 export function handleAdminEvent(
   data: SseEventPayload,
   handlers: {
@@ -56,14 +67,15 @@ export function useAdminEventsStream(
 
     const onData = (data: SseEventPayload) => {
       try {
+        const invalidateQueries = claimAdminEventInvalidation(data)
         handleAdminEvent(data, {
           onPathMutation,
           onWorkspacesChanged,
           invalidateAll: () => {
-            void queryClient.invalidateQueries()
+            if (invalidateQueries) void queryClient.invalidateQueries()
           },
           invalidate: (queryKey) => {
-            void queryClient.invalidateQueries({ queryKey })
+            if (invalidateQueries) void queryClient.invalidateQueries({ queryKey })
           },
         })
       } catch (error) {

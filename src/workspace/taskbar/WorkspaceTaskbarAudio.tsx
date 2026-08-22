@@ -25,8 +25,9 @@ import {
 } from '@/features/playback'
 import { usePlaybackSession, usePlaybackSnapshot } from '@/features/playback/PlaybackProvider'
 import { parentPath } from '@/lib/files/path-utils'
-import { sortFilesForPath } from '@/features/explorer/file-display-settings'
+import { createFileSortMetadata, sortFilesForPath } from '@/features/explorer/file-display-settings'
 import { useExplorerSettings } from '@/features/explorer/use-explorer-settings'
+import { useViewStats } from '@/features/explorer/use-view-stats'
 
 type Props = {
   onShowVideo: (path: string, dir?: string) => void
@@ -38,7 +39,8 @@ export function WorkspaceTaskbarAudio(props: Props) {
   const session = usePlaybackSession()
   const playback = usePlaybackSnapshot()
   const { settingsQuery } = useExplorerSettings()
-  const [detailsOpen, setDetailsOpen] = createSignal(false)
+  const viewStats = useViewStats()
+  const [detailsState, setDetailsState] = createSignal({ key: '', open: false })
   const item = createMemo(() => playback().currentItem)
   const playingPath = createMemo(() => item()?.locator ?? null)
   const currentDir = createMemo(() => parentPath(playingPath() ?? ''))
@@ -47,13 +49,17 @@ export function WorkspaceTaskbarAudio(props: Props) {
     () =>
       !!item() && playback().mode === 'audio' && !(props.suppressTaskbarAudioChrome?.() ?? false),
   )
-
-  createEffect(
-    () => shouldHandleAudio(),
-    (handleAudio) => {
-      if (!handleAudio) setDetailsOpen(false)
-    },
-  )
+  const detailsKey = () => {
+    const state = playback()
+    return shouldHandleAudio() && state.currentItem
+      ? `${state.currentItem.locator}\0${state.source?.generation ?? 0}`
+      : ''
+  }
+  const detailsOpen = () => {
+    const state = detailsState()
+    return !!detailsKey() && state.key === detailsKey() && state.open
+  }
+  const setDetailsOpen = (open: boolean) => setDetailsState({ key: detailsKey(), open })
 
   const filesQuery = useQuery(() => ({
     queryKey: queryKeys.files(currentDir()),
@@ -62,7 +68,13 @@ export function WorkspaceTaskbarAudio(props: Props) {
   }))
   const allFiles = createMemo(() => {
     const files = filesQuery.data?.files ?? []
-    return sortFilesForPath(files, currentDir(), settingsQuery.data?.sortOrders)
+    return sortFilesForPath(
+      files,
+      currentDir(),
+      settingsQuery.data?.sortOrders,
+      false,
+      createFileSortMetadata(settingsQuery.data?.favorites, viewStats.viewCounts()),
+    )
   })
   let queuedSignature = ''
   createEffect(

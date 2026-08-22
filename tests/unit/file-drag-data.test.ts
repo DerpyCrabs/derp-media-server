@@ -41,7 +41,12 @@ describe('file drag data', () => {
       path: 'opaque-provider-entry',
       isDirectory: false,
       sourceKind: 'local',
-      virtualOpenTarget: { type: 'hermesSession', sessionId: 'durable-1', readOnly: false },
+      virtualOpenTarget: {
+        provider: 'hermes',
+        type: 'hermesSession',
+        sessionId: 'durable-1',
+        readOnly: false,
+      },
     }
     setFileDragData(dt, data)
     expect(getFileDragData(dt)).toEqual(data)

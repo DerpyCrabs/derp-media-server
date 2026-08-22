@@ -13,7 +13,6 @@ export type FilePasteVariables = {
 
 export type FileBrowserMutationOptions = {
   onFileCreated?: (path: string) => void
-  onFileSaved?: (path: string) => void
 }
 
 export function useFileBrowserMutations(options: FileBrowserMutationOptions = {}) {
@@ -55,7 +54,6 @@ export function useFileBrowserMutations(options: FileBrowserMutationOptions = {}
         base64Content: vars.base64Content,
         expectedVersion: vars.expectedVersion,
       }),
-    onSuccess: (_data, variables) => options.onFileSaved?.(variables.path),
     onSettled: invalidateFiles,
   }))
 

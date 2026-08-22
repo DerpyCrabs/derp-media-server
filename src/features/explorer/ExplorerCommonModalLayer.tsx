@@ -29,84 +29,109 @@ export type ExplorerFileRowMenuApi = {
   confirmDelete: (file: FileItem) => void
 }
 
-export type ExplorerCommonModalLayerProps = {
-  overlayScope?: ModalOverlayScope
-  iconEditTarget: Accessor<FileItem | null>
-  setIconEditTarget: (value: FileItem | null) => void
+export type ExplorerIconDialog = {
+  target: Accessor<FileItem | null>
+  setTarget: (value: FileItem | null) => void
   customIcons: Accessor<Record<string, string>>
-  onSaveCustomIcon: (iconName: string | null) => void
-  setCustomIconPending: boolean
-  removeCustomIconPending: boolean
-  uploadToast: Accessor<UploadToastState>
-  setUploadToastHidden: () => void
-  breadcrumbMenu: Accessor<BreadcrumbMenuTarget | null>
-  setBreadcrumbMenu: (value: BreadcrumbMenuTarget | null) => void
-  breadcrumbMenuActions: Accessor<ExplorerBreadcrumbMenuActions>
-  onBreadcrumbOpenInNewTab: () => void
-  onBreadcrumbOpenInOtherSurface: () => void
+  save: (iconName: string | null) => void
+  pending: Accessor<boolean>
+}
+
+export type ExplorerUploadNotice = {
+  state: Accessor<UploadToastState>
+  dismiss: () => void
+}
+
+export type ExplorerBreadcrumbMenu = {
+  target: Accessor<BreadcrumbMenuTarget | null>
+  setTarget: (value: BreadcrumbMenuTarget | null) => void
+  availableActions: Accessor<ExplorerBreadcrumbMenuActions>
+  openInNewTab: () => void
+  openInOtherSurface: () => void
   otherSurfaceLabel?: string
-  onBreadcrumbSetIcon: () => void
-  fileRowMenu: ExplorerFileRowMenuApi
+  setIcon: () => void
+}
+
+export type ExplorerRowMenu = {
+  api: ExplorerFileRowMenuApi
   editableFolders: Accessor<string[]>
-  isCurrentDirEditable: Accessor<boolean>
+  currentDirectoryEditable: Accessor<boolean>
   hasEditableFolders: Accessor<boolean>
-  onContextDownload: (file: FileItem) => void
-  onOpenInNewTab?: (file: FileItem) => void
+  download: (file: FileItem) => void
+  openInNewTab?: (file: FileItem) => void
   openInNewTabLabel?: string
   showOpenInNewTabForFiles?: boolean
-  onOpenInSplitView?: (file: FileItem) => void
-  onOpenInOtherSurface?: (file: FileItem) => void
-  onOpenWithBrowser?: (file: FileItem) => void
-  onOpenWithReader?: (file: FileItem) => void
-  onAddToTaskbar?: (file: FileItem) => void
-  onToggleFavorite?: (file: FileItem) => void
-  isFavorite?: (file: FileItem) => boolean
-  onRename?: (file: FileItem) => void
-  onMove?: (file: FileItem) => void
-  onCopy?: (file: FileItem) => void
-  onSetIcon?: (file: FileItem) => void
-  onToggleKnowledgeBase?: (file: FileItem) => void
-  isKnowledgeBase?: (file: FileItem) => boolean
+  openInSplitView?: (file: FileItem) => void
+  openInOtherSurface?: (file: FileItem) => void
   openInOtherSurfaceLabel?: string
-  onPickNewTabTarget?: () => void
+  openWithBrowser?: (file: FileItem) => void
+  openWithReader?: (file: FileItem) => void
+  addToTaskbar?: (file: FileItem) => void
+  toggleFavorite?: (file: FileItem) => void
+  isFavorite?: (file: FileItem) => boolean
+  rename?: (file: FileItem) => void
+  move?: (file: FileItem) => void
+  copy?: (file: FileItem) => void
+  setIcon?: (file: FileItem) => void
+  toggleKnowledgeBase?: (file: FileItem) => void
+  isKnowledgeBase?: (file: FileItem) => boolean
+  pickNewTabTarget?: () => void
   defaultFileOpen?: Accessor<FileOpenTarget>
-  onOpenFileInNewWindow?: (file: FileItem) => void
+  openFileInNewWindow?: (file: FileItem) => void
   getVirtualEntry?: (file: FileItem) => VirtualEntry | undefined
-  onVirtualAction?: (action: VirtualCapability, file: FileItem) => void
-  showRename: Accessor<boolean>
-  renameTarget: Accessor<FileItem | null>
-  renameNewName: Accessor<string>
-  setRenameNewName: (value: string) => void
-  submitRename: () => void
-  cancelRename: () => void
-  renamePending: boolean
-  renameError: Error | null | undefined
-  renameTargetExists: Accessor<boolean>
-  renameTargetIsDirectory: Accessor<boolean>
-  moveTarget: Accessor<FileItem | null>
-  closeMoveDialog: () => void
-  moveDialogFilePath: Accessor<string>
-  confirmMoveTo: (destination: string) => void
-  movePending: boolean
-  moveError: Error | null | undefined
-  deleteTarget: Accessor<FileItem | null>
-  setDeleteTarget: (value: FileItem | null) => void
-  deletePending: boolean
-  onConfirmDelete: () => void
-  deleteTitle?: string
-  deleteDescription?: string
-  deleteConfirmLabel?: string
-  showPasteDialog: Accessor<boolean>
-  pasteData: Accessor<PasteData | null>
-  pastePending: boolean
-  pasteError: Error | null
-  pasteExistingFiles: Accessor<FileItem[]>
-  onPasteFileSubmit: (
-    fileName: string,
-    mode: 'create' | 'replace',
-    expectedVersion?: number,
-  ) => void
-  closePasteDialog: () => void
+  runVirtualAction?: (action: VirtualCapability, file: FileItem) => void
+}
+
+export type ExplorerRenameDialog = {
+  open: Accessor<boolean>
+  target: Accessor<FileItem | null>
+  submit: (name: string) => void
+  cancel: () => void
+  pending: Accessor<boolean>
+  error: Accessor<Error | null | undefined>
+  targetExists: (name: string) => boolean
+  targetIsDirectory: Accessor<boolean>
+}
+
+export type ExplorerMoveDialog = {
+  target: Accessor<FileItem | null>
+  close: () => void
+  filePath: Accessor<string>
+  confirm: (destination: string) => void
+  pending: Accessor<boolean>
+  error: Accessor<Error | null | undefined>
+}
+
+export type ExplorerDeleteDialog = {
+  target: Accessor<FileItem | null>
+  setTarget: (value: FileItem | null) => void
+  pending: Accessor<boolean>
+  confirm: () => void
+  title?: Accessor<string | undefined>
+  description?: Accessor<string | undefined>
+  confirmLabel?: Accessor<string | undefined>
+}
+
+export type ExplorerPasteDialog = {
+  open: Accessor<boolean>
+  data: Accessor<PasteData | null>
+  pending: Accessor<boolean>
+  error: Accessor<Error | null>
+  existingFiles: Accessor<FileItem[]>
+  submit: (fileName: string, mode: 'create' | 'replace', expectedVersion?: number) => void
+  close: () => void
+}
+
+export type ExplorerCommonModalLayerProps = {
+  overlayScope?: ModalOverlayScope
+  icon: ExplorerIconDialog
+  upload: ExplorerUploadNotice
+  breadcrumbs: ExplorerBreadcrumbMenu
+  rowMenu: ExplorerRowMenu
+  rename: ExplorerRenameDialog
+  move: ExplorerMoveDialog
+  remove: ExplorerDeleteDialog
+  paste: ExplorerPasteDialog
   children?: JSX.Element
 }
 
@@ -115,110 +140,108 @@ export function ExplorerCommonModalLayer(props: ExplorerCommonModalLayerProps) {
     <>
       <IconEditorDialog
         overlayScope={props.overlayScope}
-        isOpen={!!props.iconEditTarget()}
-        fileName={props.iconEditTarget()?.name ?? ''}
+        isOpen={!!props.icon.target()}
+        fileName={props.icon.target()?.name ?? ''}
         currentIcon={
-          props.iconEditTarget()
-            ? (props.customIcons()[props.iconEditTarget()!.path] ??
-              props.customIcons()[props.iconEditTarget()!.path.replace(/\\/g, '/')] ??
+          props.icon.target()
+            ? (props.icon.customIcons()[props.icon.target()!.path] ??
+              props.icon.customIcons()[props.icon.target()!.path.replace(/\\/g, '/')] ??
               null)
             : null
         }
-        onClose={() => props.setIconEditTarget(null)}
-        onSave={props.onSaveCustomIcon}
-        isPending={props.setCustomIconPending || props.removeCustomIconPending}
+        onClose={() => props.icon.setTarget(null)}
+        onSave={props.icon.save}
+        isPending={props.icon.pending()}
       />
       <UploadToastStack
         toastAnchor={props.overlayScope}
-        state={props.uploadToast}
-        onDismissError={props.setUploadToastHidden}
+        state={props.upload.state}
+        onDismissError={props.upload.dismiss}
       />
       <BreadcrumbContextMenu
-        target={props.breadcrumbMenu}
-        onDismiss={() => props.setBreadcrumbMenu(null)}
-        showOpenInNewTab={props.breadcrumbMenuActions().showOpenInNewTab}
-        onOpenInNewTab={props.onBreadcrumbOpenInNewTab}
-        showOpenInOtherSurface={props.breadcrumbMenuActions().showOpenInOtherSurface}
-        onOpenInOtherSurface={props.onBreadcrumbOpenInOtherSurface}
-        openInOtherSurfaceLabel={props.otherSurfaceLabel}
-        showSetIcon={props.breadcrumbMenuActions().showSetIcon}
-        onSetIcon={props.onBreadcrumbSetIcon}
+        target={props.breadcrumbs.target}
+        onDismiss={() => props.breadcrumbs.setTarget(null)}
+        showOpenInNewTab={props.breadcrumbs.availableActions().showOpenInNewTab}
+        onOpenInNewTab={props.breadcrumbs.openInNewTab}
+        showOpenInOtherSurface={props.breadcrumbs.availableActions().showOpenInOtherSurface}
+        onOpenInOtherSurface={props.breadcrumbs.openInOtherSurface}
+        openInOtherSurfaceLabel={props.breadcrumbs.otherSurfaceLabel}
+        showSetIcon={props.breadcrumbs.availableActions().showSetIcon}
+        onSetIcon={props.breadcrumbs.setIcon}
       />
       <FileRowContextMenu
-        menu={props.fileRowMenu.menu}
-        editableFolders={props.editableFolders}
-        isCurrentDirEditable={props.isCurrentDirEditable}
-        hasEditableFolders={props.hasEditableFolders}
-        onDismiss={props.fileRowMenu.dismiss}
-        onDownload={props.onContextDownload}
-        onDelete={props.fileRowMenu.confirmDelete}
-        onAddToTaskbar={props.onAddToTaskbar}
-        onRename={props.onRename}
-        onMove={props.onMove}
-        onSetIcon={props.onSetIcon}
-        onOpenInNewTab={props.onOpenInNewTab}
-        openInNewTabLabel={props.openInNewTabLabel}
-        showOpenInNewTabForFiles={props.showOpenInNewTabForFiles}
-        onOpenInSplitView={props.onOpenInSplitView}
-        onOpenInOtherSurface={props.onOpenInOtherSurface}
-        openInOtherSurfaceLabel={props.openInOtherSurfaceLabel}
-        onOpenWithBrowser={props.onOpenWithBrowser}
-        onOpenWithReader={props.onOpenWithReader}
-        onToggleFavorite={props.onToggleFavorite}
-        isFavorite={props.isFavorite}
-        onCopy={props.onCopy}
-        onToggleKnowledgeBase={props.onToggleKnowledgeBase}
-        isKnowledgeBase={props.isKnowledgeBase}
-        onPickNewTabTarget={props.onPickNewTabTarget}
-        defaultFileOpen={props.defaultFileOpen}
-        onOpenFileInNewWindow={props.onOpenFileInNewWindow}
-        getVirtualEntry={props.getVirtualEntry}
-        onVirtualAction={props.onVirtualAction}
+        menu={props.rowMenu.api.menu}
+        editableFolders={props.rowMenu.editableFolders}
+        isCurrentDirEditable={props.rowMenu.currentDirectoryEditable}
+        hasEditableFolders={props.rowMenu.hasEditableFolders}
+        onDismiss={props.rowMenu.api.dismiss}
+        onDownload={props.rowMenu.download}
+        onDelete={props.rowMenu.api.confirmDelete}
+        onAddToTaskbar={props.rowMenu.addToTaskbar}
+        onRename={props.rowMenu.rename}
+        onMove={props.rowMenu.move}
+        onSetIcon={props.rowMenu.setIcon}
+        onOpenInNewTab={props.rowMenu.openInNewTab}
+        openInNewTabLabel={props.rowMenu.openInNewTabLabel}
+        showOpenInNewTabForFiles={props.rowMenu.showOpenInNewTabForFiles}
+        onOpenInSplitView={props.rowMenu.openInSplitView}
+        onOpenInOtherSurface={props.rowMenu.openInOtherSurface}
+        openInOtherSurfaceLabel={props.rowMenu.openInOtherSurfaceLabel}
+        onOpenWithBrowser={props.rowMenu.openWithBrowser}
+        onOpenWithReader={props.rowMenu.openWithReader}
+        onToggleFavorite={props.rowMenu.toggleFavorite}
+        isFavorite={props.rowMenu.isFavorite}
+        onCopy={props.rowMenu.copy}
+        onToggleKnowledgeBase={props.rowMenu.toggleKnowledgeBase}
+        isKnowledgeBase={props.rowMenu.isKnowledgeBase}
+        onPickNewTabTarget={props.rowMenu.pickNewTabTarget}
+        defaultFileOpen={props.rowMenu.defaultFileOpen}
+        onOpenFileInNewWindow={props.rowMenu.openFileInNewWindow}
+        getVirtualEntry={props.rowMenu.getVirtualEntry}
+        onVirtualAction={props.rowMenu.runVirtualAction}
       />
       <RenameDialog
         overlayScope={props.overlayScope}
-        isOpen={props.showRename()}
-        itemName={props.renameTarget()?.name ?? ''}
-        newName={props.renameNewName()}
-        onNewNameChange={props.setRenameNewName}
-        onRename={props.submitRename}
-        onCancel={props.cancelRename}
-        isPending={props.renamePending}
-        error={props.renameError}
-        nameExists={props.renameTargetExists()}
-        isDirectory={props.renameTargetIsDirectory()}
+        isOpen={props.rename.open()}
+        itemName={props.rename.target()?.name ?? ''}
+        onRename={props.rename.submit}
+        onCancel={props.rename.cancel}
+        isPending={props.rename.pending()}
+        error={props.rename.error()}
+        nameExists={props.rename.targetExists}
+        isDirectory={props.rename.targetIsDirectory()}
       />
-      <Show when={props.moveTarget()}>
+      <Show when={props.move.target()}>
         <MoveToDialog
           overlayScope={props.overlayScope}
-          onClose={props.closeMoveDialog}
-          fileName={props.moveTarget()!.name}
-          filePath={props.moveDialogFilePath()}
-          onConfirm={props.confirmMoveTo}
-          isPending={props.movePending}
-          error={props.moveError}
-          editableFolders={props.editableFolders()}
+          onClose={props.move.close}
+          fileName={props.move.target()!.name}
+          filePath={props.move.filePath()}
+          onConfirm={props.move.confirm}
+          isPending={props.move.pending()}
+          error={props.move.error()}
+          editableFolders={props.rowMenu.editableFolders()}
         />
       </Show>
       <DeleteFileDialog
         overlayScope={props.overlayScope}
-        item={props.deleteTarget}
-        isPending={props.deletePending}
-        onDismiss={() => props.setDeleteTarget(null)}
-        onConfirm={props.onConfirmDelete}
-        title={props.deleteTitle}
-        description={props.deleteDescription}
-        confirmLabel={props.deleteConfirmLabel}
+        item={props.remove.target}
+        isPending={props.remove.pending()}
+        onDismiss={() => props.remove.setTarget(null)}
+        onConfirm={props.remove.confirm}
+        title={props.remove.title?.()}
+        description={props.remove.description?.()}
+        confirmLabel={props.remove.confirmLabel?.()}
       />
       <PasteDialog
         overlayScope={props.overlayScope}
-        isOpen={props.showPasteDialog()}
-        pasteData={props.pasteData()}
-        isPending={props.pastePending}
-        error={props.pasteError}
-        existingFiles={props.pasteExistingFiles()}
-        onPaste={props.onPasteFileSubmit}
-        onClose={props.closePasteDialog}
+        isOpen={props.paste.open()}
+        pasteData={props.paste.data()}
+        isPending={props.paste.pending()}
+        error={props.paste.error()}
+        existingFiles={props.paste.existingFiles()}
+        onPaste={props.paste.submit}
+        onClose={props.paste.close}
       />
       {props.children}
     </>

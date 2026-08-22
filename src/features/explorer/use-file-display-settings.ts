@@ -4,6 +4,7 @@ import { createMemo } from 'solid-js'
 import { queryKeys } from '@/lib/api/query-keys'
 import type {
   FileColumnVisibility,
+  FileColumnScope,
   FileSortOrder,
   GlobalSettings,
 } from '@/lib/models/settings-types'
@@ -16,11 +17,14 @@ type ExplorerSettingsQuery = ReturnType<typeof useExplorerSettings>['settingsQue
 export function useFileDisplaySettings(
   path: Accessor<string>,
   settingsQuery: ExplorerSettingsQuery,
+  scope: FileColumnScope,
 ) {
   const queryClient = useQueryClient()
 
   const sortOrder = createMemo(() => settingsQuery.data?.sortOrders?.[path()] ?? DEFAULT_FILE_SORT)
-  const fileColumns = createMemo(() => settingsQuery.data?.fileColumns ?? DEFAULT_FILE_COLUMNS)
+  const fileColumns = createMemo(
+    () => settingsQuery.data?.fileColumns?.[scope] ?? DEFAULT_FILE_COLUMNS[scope],
+  )
 
   const sortOrderMutation = useMutation(() => ({
     mutationFn: (vars: { path: string; sortOrder: FileSortOrder }) =>
@@ -31,7 +35,7 @@ export function useFileDisplaySettings(
   }))
 
   const fileColumnsMutation = useMutation(() => ({
-    mutationFn: persistFileColumns,
+    mutationFn: (columns: FileColumnVisibility) => persistFileColumns(scope, columns),
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
     },
@@ -49,7 +53,7 @@ export function useFileDisplaySettings(
 
   function setFileColumns(next: FileColumnVisibility) {
     queryClient.setQueryData(queryKeys.settings(), (current: GlobalSettings | undefined) =>
-      current ? { ...current, fileColumns: next } : current,
+      current ? { ...current, fileColumns: { ...current.fileColumns, [scope]: next } } : current,
     )
     fileColumnsMutation.mutate(next)
   }

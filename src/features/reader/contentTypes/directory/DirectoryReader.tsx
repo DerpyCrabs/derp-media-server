@@ -1,5 +1,6 @@
-import { sortFilesForPath } from '@/features/explorer/file-display-settings'
+import { createFileSortMetadata, sortFilesForPath } from '@/features/explorer/file-display-settings'
 import { useExplorerSettings } from '@/features/explorer/use-explorer-settings'
+import { useViewStats } from '@/features/explorer/use-view-stats'
 import { MediaType, type FileItem } from '@/lib/files/types'
 import { buildMediaUrl } from '@/lib/media/build-media-url'
 import { ImageContent } from '../ImageContent'
@@ -35,19 +36,28 @@ const loadImageSize = (source: string, signal: AbortSignal) =>
 
 export default function DirectoryReader(props: ReaderContentProps) {
   const { settingsQuery } = useExplorerSettings()
+  const viewStats = useViewStats()
   const load = async (path: string, signal: AbortSignal): Promise<PagedDocument> => {
-    const [response, settings] = await Promise.all([
+    const [response, settings, views] = await Promise.all([
       fetch(`/api/files?dir=${encodeURIComponent(path)}`, { signal }),
       (settingsQuery.data
         ? Promise.resolve(settingsQuery.data)
         : settingsQuery.refetch().then((result) => result.data)
       ).catch(() => undefined),
+      (viewStats.query.data
+        ? Promise.resolve(viewStats.query.data.views)
+        : viewStats.query.refetch().then((result) => result.data?.views ?? {})
+      ).catch(() => ({})),
     ])
     const payload = await response.json()
     if (!response.ok) throw new Error(payload?.error ?? 'Could not open image folder')
-    const files = sortFilesForPath(payload.files as FileItem[], path, settings?.sortOrders).filter(
-      (file) => !file.isDirectory && file.type === MediaType.IMAGE,
-    )
+    const files = sortFilesForPath(
+      payload.files as FileItem[],
+      path,
+      settings?.sortOrders,
+      false,
+      createFileSortMetadata(settings?.favorites, views),
+    ).filter((file) => !file.isDirectory && file.type === MediaType.IMAGE)
     if (!files.length) throw new Error('Folder contains no supported images')
     const pages = await Promise.all(
       files.map(async (file): Promise<ReaderPage> => {

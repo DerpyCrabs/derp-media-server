@@ -141,9 +141,15 @@ export function getMediaType(extension: string): MediaType {
   return MediaType.OTHER
 }
 
-export function getMediaTypeFromPath(path: string): MediaType {
+export function getMediaExtensionFromPath(path: string): string {
   const lower = path.toLowerCase()
-  return getMediaType(lower.endsWith('.fb2.zip') ? 'fb2.zip' : (lower.split('.').at(-1) ?? ''))
+  if (lower.endsWith('.fb2.zip')) return 'fb2.zip'
+  const name = lower.split(/[/\\]/).at(-1) ?? ''
+  return name.includes('.') ? (name.split('.').at(-1) ?? '') : ''
+}
+
+export function getMediaTypeFromPath(path: string): MediaType {
+  return getMediaType(getMediaExtensionFromPath(path))
 }
 
 export function getMimeType(extension: string): string {

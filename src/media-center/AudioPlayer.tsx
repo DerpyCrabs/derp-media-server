@@ -27,8 +27,9 @@ import {
 } from '@/lib/media/build-media-url'
 import { setAudioOnly } from '@/lib/browser/url-state-actions'
 import { parentPath } from '@/lib/files/path-utils'
-import { sortFilesForPath } from '@/features/explorer/file-display-settings'
+import { createFileSortMetadata, sortFilesForPath } from '@/features/explorer/file-display-settings'
 import { useExplorerSettings } from '@/features/explorer/use-explorer-settings'
+import { useViewStats } from '@/features/explorer/use-view-stats'
 
 export function AudioPlayer() {
   const history = useBrowserHistory()
@@ -36,6 +37,7 @@ export function AudioPlayer() {
   const session = usePlaybackSession()
   const snapshot = usePlaybackSnapshot()
   const { settingsQuery } = useExplorerSettings()
+  const viewStats = useViewStats()
 
   const currentItem = createMemo(() => snapshot().currentItem)
   const playbackMode = createMemo(() => snapshot().mode)
@@ -51,7 +53,13 @@ export function AudioPlayer() {
   }))
   const allFiles = createMemo(() => {
     const files = filesQuery.data?.files ?? []
-    return sortFilesForPath(files, currentDir(), settingsQuery.data?.sortOrders)
+    return sortFilesForPath(
+      files,
+      currentDir(),
+      settingsQuery.data?.sortOrders,
+      false,
+      createFileSortMetadata(settingsQuery.data?.favorites, viewStats.viewCounts()),
+    )
   })
 
   createEffect(

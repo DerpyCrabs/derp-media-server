@@ -5,15 +5,13 @@ import type { PersistedWorkspaceState } from '@/workspace/model/use-workspace'
 import type {
   TabGroupSplitState,
   WindowDefinition as WorkspaceWindowDefinition,
-  WindowSource as WorkspaceSource,
 } from '@/lib/models/window-model'
-import type { FileItem } from '@/lib/files/types'
 import {
   getTabGroupSplit,
   resolveGroupVisibleTabId,
   tabsInGroup,
 } from '@/workspace/tabs/tab-group-ops'
-import { ApplicationWindowContent } from '@/features/panes/ApplicationWindowContent'
+import { ApplicationWindowContent } from '@/workspace/shared/ApplicationWindowContent'
 import {
   WorkspaceWindowChrome,
   type WorkspaceBounds,
@@ -26,7 +24,7 @@ import { For, Show, createMemo } from 'solid-js'
 import type { MergeTarget } from '@/workspace/desktop/layout/merge-target'
 import type { FileDragData } from '@/lib/files/file-drag-data'
 import type { FileIconContext } from '@/features/explorer/use-file-icon'
-import type { VirtualOpenTarget } from '@/lib/files/virtual-directory'
+import type { WorkspaceWindowActions } from '@/workspace/shared/workspace-window-actions'
 
 export type DesktopWorkspaceCanvasProps = {
   hasWorkspaceWindows: () => boolean
@@ -73,32 +71,7 @@ export type DesktopWorkspaceCanvasProps = {
   handleTabPullStart: (groupId: string, tabId: string, e: PointerEvent) => void
   dropFileToTabBar: (targetLeaderWindowId: string, data: FileDragData, insertIndex?: number) => void
   startSplitPaneDrag: (groupId: string, e: PointerEvent) => void
-  navigateDir: (windowId: string, dir: string) => void
-  openViewerFromBrowser: (windowId: string, file: FileItem) => void
-  openReaderFromBrowser: (windowId: string, file: FileItem) => void
-  openHermesFromBrowser: (windowId: string, file: FileItem, target: VirtualOpenTarget) => void
-  bindHermesSession: (windowId: string, sessionId: string) => void
-  openHermesBranch: (windowId: string, sessionId: string, title: string) => void
-  renameHermesWindow: (windowId: string, title: string) => void
-  addPinnedItem: (file: FileItem, source: WorkspaceSource) => void
-  openInNewTabInSameWindow: (
-    sourceWindowId: string,
-    file: { path: string; isDirectory: boolean; isVirtual?: boolean },
-    currentPath: string,
-    insertIndex?: number,
-    sourceOverride?: WorkspaceSource,
-  ) => void
-  openInSplitViewFromBrowserPane: (windowId: string, file: FileItem) => void
-  requestPlay: (source: WorkspaceSource, path: string, dir?: string) => void
-  updateWindowViewing: (windowId: string, viewing: string) => void
-  resizeViewerWindowForVideoMetadata: (
-    windowId: string,
-    videoWidth: number,
-    videoHeight: number,
-  ) => void
-  onAudioActivate?: (windowId: string) => void
-  onBeginFileOpenTargetPick: (browserWindowId: string) => void
-  openFileInNewFloatingWindow: (windowId: string, file: FileItem) => void
+  windowActions: WorkspaceWindowActions
 }
 
 export function DesktopWorkspaceCanvas(props: DesktopWorkspaceCanvasProps) {
@@ -118,31 +91,8 @@ export function DesktopWorkspaceCanvas(props: DesktopWorkspaceCanvasProps) {
         editableFolders={() => props.editableFolders()}
         knowledgeBases={() => props.knowledgeBases()}
         fileIconContext={props.workspaceFileIconContext}
-        onNavigateDir={props.navigateDir}
-        onOpenViewer={props.openViewerFromBrowser}
-        onOpenReader={props.openReaderFromBrowser}
-        onOpenVirtualTarget={props.openHermesFromBrowser}
-        onAddToTaskbar={(file) => {
-          const source = definition()?.source
-          if (source) props.addPinnedItem(file, source)
-        }}
-        onOpenInNewTab={(wid, file, path) => props.openInNewTabInSameWindow(wid, file, path)}
-        onOpenInSplitView={props.openInSplitViewFromBrowserPane}
-        onRequestPlay={props.requestPlay}
+        actions={props.windowActions}
         autoPlayVideo
-        onBeginFileOpenTargetPick={props.onBeginFileOpenTargetPick}
-        onOpenFileInNewFloatingWindow={props.openFileInNewFloatingWindow}
-        onUpdateViewing={props.updateWindowViewing}
-        onVideoMetadataLoaded={(wid, width, height) =>
-          props.resizeViewerWindowForVideoMetadata(wid, width, height)
-        }
-        onAudioActivate={props.onAudioActivate}
-        onListenOnlyDismissViewer={(id) =>
-          props.closeTab(id, { ignoreTabPinForListenOnlyDismiss: true })
-        }
-        onHermesSessionCreated={props.bindHermesSession}
-        onHermesBranchCreated={props.openHermesBranch}
-        onHermesTitleChanged={props.renameHermesWindow}
       />
     )
   }

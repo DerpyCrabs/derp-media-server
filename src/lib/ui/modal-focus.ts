@@ -7,6 +7,7 @@ export function useModalFocus(options: {
   active: Accessor<boolean>
   element: Accessor<HTMLElement | undefined>
   onEscape: () => void
+  ignoreEscape?: (event: KeyboardEvent) => boolean
   fallbackFocus?: () => HTMLElement | null
 }) {
   createEffect(
@@ -31,12 +32,15 @@ export function useModalFocus(options: {
   )
 
   return (event: KeyboardEvent) => {
-    event.stopPropagation()
+    if (event.defaultPrevented) return
     if (event.key === 'Escape') {
+      if (options.ignoreEscape?.(event)) return
+      event.stopPropagation()
       event.preventDefault()
       options.onEscape()
       return
     }
+    event.stopPropagation()
     if (event.key !== 'Tab') return
     const element = options.element()
     if (!element) return

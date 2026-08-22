@@ -6,8 +6,9 @@ import { getMediaTypeFromPath } from '@/lib/media/media-utils'
 import { formatFileSize } from '@/lib/media/media-utils'
 import type { FileItem } from '@/lib/files/types'
 import { MediaType } from '@/lib/files/types'
-import { sortFilesForPath } from '@/features/explorer/file-display-settings'
+import { createFileSortMetadata, sortFilesForPath } from '@/features/explorer/file-display-settings'
 import { useExplorerSettings } from '@/features/explorer/use-explorer-settings'
+import { useViewStats } from '@/features/explorer/use-view-stats'
 import Download from 'lucide-solid/icons/download'
 import FileQuestion from 'lucide-solid/icons/file-question-mark'
 import FileText from 'lucide-solid/icons/file-text'
@@ -70,6 +71,7 @@ export function ViewerPane(props: Props) {
   const playback = usePlaybackSnapshot()
   const playbackMediaHost = usePlaybackMediaHost()
   const { settingsQuery } = useExplorerSettings()
+  const viewStats = useViewStats()
 
   const viewingPath = createMemo(() => props.viewingPath())
   const readerKind = createMemo(() => props.readerKind?.() ?? null)
@@ -107,7 +109,7 @@ export function ViewerPane(props: Props) {
   const showPlayback = createMemo(() => props.showPlayback !== false)
 
   const [videoEl, setVideoEl] = createSignal<HTMLVideoElement | undefined>()
-  const [videoReadyGeneration, setVideoReadyGeneration] = createSignal(0)
+  const [videoReadyKey, setVideoReadyKey] = createSignal('')
   const [audioSurfaceEl, setAudioSurfaceEl] = createSignal<HTMLDivElement>()
   const [audioSurfaceSize, setAudioSurfaceSize] = createSignal({ width: 576, height: 256 })
 
@@ -147,7 +149,10 @@ export function ViewerPane(props: Props) {
     if (!videoPlaybackActive()) return false
     const state = playback()
     if (state.phase === 'resolving') return true
-    return !!state.source && videoReadyGeneration() !== state.source.generation
+    const sourceKey = state.source
+      ? `${state.currentItem?.locator ?? ''}\0${state.source.generation}`
+      : ''
+    return !!sourceKey && videoReadyKey() !== sourceKey
   })
   const videoError = createMemo(() => (videoPlaybackActive() ? playback().error : null))
 
@@ -187,16 +192,6 @@ export function ViewerPane(props: Props) {
         autoplay: props.autoPlayVideo !== false,
         mode: 'video',
       })
-    },
-  )
-
-  createEffect(
-    () => {
-      const generation = videoPlaybackActive() ? (playback().source?.generation ?? 0) : 0
-      return { generation, readyGeneration: videoReadyGeneration() }
-    },
-    ({ generation, readyGeneration }) => {
-      if (readyGeneration !== generation) setVideoReadyGeneration(0)
     },
   )
 
@@ -244,7 +239,13 @@ export function ViewerPane(props: Props) {
   const orderedFolderFiles = createMemo(() => {
     const files = filesQuery.data?.files ?? []
     const directory = listDirForFiles()
-    return sortFilesForPath(files, directory, settingsQuery.data?.sortOrders)
+    return sortFilesForPath(
+      files,
+      directory,
+      settingsQuery.data?.sortOrders,
+      false,
+      createFileSortMetadata(settingsQuery.data?.favorites, viewStats.viewCounts()),
+    )
   })
 
   const folderAudioFiles = createMemo(() =>
@@ -768,7 +769,14 @@ export function ViewerPane(props: Props) {
                 videoPlaybackActive() && props.contentVisible() ? 'video' : undefined
               }
               title={fileName()}
-              onCanPlay={() => setVideoReadyGeneration(playback().source?.generation ?? 0)}
+              onCanPlay={() => {
+                const state = playback()
+                setVideoReadyKey(
+                  state.source
+                    ? `${state.currentItem?.locator ?? ''}\0${state.source.generation}`
+                    : '',
+                )
+              }}
               onLoadedMetadata={(e) => {
                 const v = e.currentTarget
                 if (v.videoWidth > 0 && v.videoHeight > 0) {

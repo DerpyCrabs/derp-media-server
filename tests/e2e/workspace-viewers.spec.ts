@@ -243,17 +243,18 @@ test.describe('Workspace File Browser', () => {
     expect(Math.abs(metrics.scrollBottom - metrics.dropZoneBottom)).toBeLessThanOrEqual(1)
   })
 
-  test('unsupported file dialog is contained inside file browser window', async () => {
+  test('unsupported files open in the shared workspace viewer', async () => {
     await gotoWorkspace(page)
     const content = getBrowserContent(page)
     await content.getByText('Documents', { exact: true }).click()
     await content.locator('table').getByText('unsupported.xyz').click()
     await page.waitForTimeout(100)
 
-    const dialogMessage = page.getByText('This file type cannot be previewed.')
-    await expect(dialogMessage).toBeVisible()
-    const windowGroup = getWindowGroups(page).first()
-    await expect(windowGroup.locator('text=This file type cannot be previewed.')).toBeVisible()
+    const viewerWindow = getWindowGroups(page).filter({
+      has: page.getByRole('heading', { name: 'Unsupported File Type' }),
+    })
+    await expect(viewerWindow).toHaveCount(1)
+    await expect(viewerWindow.getByText('This file type cannot be previewed.')).toBeVisible()
   })
 })
 

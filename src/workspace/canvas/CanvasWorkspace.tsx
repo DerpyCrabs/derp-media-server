@@ -31,7 +31,7 @@ import type {
   WindowSource,
   WindowDefinition,
 } from '@/lib/models/window-model'
-import type { VirtualOpenTarget } from '@/lib/files/virtual-directory'
+import { isHermesOpenTarget, type HermesOpenTarget } from '@/features/hermes/hermes-open-target'
 import { canCloseHermesWindow, discardHermesDraft } from '@/features/hermes/hermes-session-store'
 import FileText from 'lucide-solid/icons/file-text'
 import FolderOpen from 'lucide-solid/icons/folder-open'
@@ -41,12 +41,12 @@ import PanelLeft from 'lucide-solid/icons/panel-left'
 import PanelsTopLeft from 'lucide-solid/icons/panels-top-left'
 import Volume2 from 'lucide-solid/icons/volume-2'
 import X from 'lucide-solid/icons/x'
-import { For, Show, createEffect, createMemo, createSignal, onSettled, untrack } from 'solid-js'
+import { For, Show, createMemo, createSignal, onSettled, untrack } from 'solid-js'
 import { canvasEdgeAutoPanVelocity } from './canvas-edge-auto-pan'
 import { cameraForCanvasBounds } from './model/canvas-camera'
 import { createCanvasPanController } from './create-canvas-pan-controller'
 import { EMPTY_FILE_ICON_CONTEXT, windowIcon } from '@/features/explorer/use-file-icon'
-import { ApplicationWindowContent } from '@/features/panes/ApplicationWindowContent'
+import { ApplicationWindowContent } from '@/workspace/shared/ApplicationWindowContent'
 import { usePlaybackSession, usePlaybackSnapshot } from '@/features/playback/PlaybackProvider'
 import {
   createUrlSearchParamsMemo,
@@ -68,6 +68,7 @@ import { createWorkspaceLifecycleCommands } from '@/workspace/shared/workspace-l
 import { WorkspaceSwitcher } from '@/workspace/shared/WorkspaceSwitcher'
 import { WorkspaceTaskbarAudio } from '@/workspace/taskbar/WorkspaceTaskbarAudio'
 import { WorkspaceTaskbarSettings } from '@/workspace/taskbar/WorkspaceTaskbarSettings'
+import type { WorkspaceWindowActions } from '@/workspace/shared/workspace-window-actions'
 import { WorkspaceSaveStatus } from '@/workspace/shared/WorkspaceSaveStatus'
 import {
   WorkspaceTaskbar,
@@ -345,12 +346,60 @@ export function CanvasWorkspace() {
     initialWorkspace.windows.some((window) => window.id === initialWorkspace.activeWindowId)
       ? initialWorkspace.activeWindowId
       : null
-  const [selection, setSelection] = createSignal<Selection>(
-    initialActiveWindowId ? { kind: 'window', id: initialActiveWindowId } : null,
-  )
-  const [selectedIds, setSelectedIds] = createSignal<string[]>(
-    initialActiveWindowId ? [initialActiveWindowId] : [],
-  )
+  type CanvasSelectionState = {
+    activeWindowId: string | null
+    selection: Selection
+    selectedIds: string[]
+  }
+  const [localSelection, setLocalSelection] = createSignal<CanvasSelectionState>({
+    activeWindowId: initialActiveWindowId,
+    selection: initialActiveWindowId ? { kind: 'window', id: initialActiveWindowId } : null,
+    selectedIds: initialActiveWindowId ? [initialActiveWindowId] : [],
+  })
+  const selectionProjection = createMemo(() => {
+    const snapshot = workspaceSnapshot()
+    const ids = new Set(snapshot?.windows.map((window) => window.id) ?? [])
+    const activeWindowId =
+      snapshot?.activeWindowId && ids.has(snapshot.activeWindowId) ? snapshot.activeWindowId : null
+    return { ids, activeWindowId }
+  })
+  const resolvedSelection = createMemo((): CanvasSelectionState => {
+    const local = localSelection()
+    const projection = selectionProjection()
+    if (local.activeWindowId !== projection.activeWindowId) {
+      return {
+        activeWindowId: projection.activeWindowId,
+        selection: projection.activeWindowId
+          ? { kind: 'window', id: projection.activeWindowId }
+          : null,
+        selectedIds: projection.activeWindowId ? [projection.activeWindowId] : [],
+      }
+    }
+    return {
+      activeWindowId: projection.activeWindowId,
+      selection:
+        local.selection?.kind === 'window' && !projection.ids.has(local.selection.id)
+          ? null
+          : local.selection,
+      selectedIds: local.selectedIds.filter((id) => projection.ids.has(id)),
+    }
+  })
+  const selection = () => resolvedSelection().selection
+  const selectedIds = () => resolvedSelection().selectedIds
+  const setSelection = (next: Selection | ((current: Selection) => Selection)) => {
+    const current = resolvedSelection()
+    setLocalSelection({
+      ...current,
+      selection: typeof next === 'function' ? next(current.selection) : next,
+    })
+  }
+  const setSelectedIds = (next: string[] | ((current: string[]) => string[])) => {
+    const current = resolvedSelection()
+    setLocalSelection({
+      ...current,
+      selectedIds: typeof next === 'function' ? next(current.selectedIds) : next,
+    })
+  }
   const [menu, setMenu] = createSignal<ContextMenuState | null>(null)
   const [searchOpen, setSearchOpen] = createSignal(false)
   const [pinMenu, setPinMenu] = createSignal<{ x: number; y: number; pinId: string } | null>(null)
@@ -601,33 +650,6 @@ export function CanvasWorkspace() {
     }
     return { groupId, targetWindowId: members[0]!.id, insertIndex }
   }
-
-  let projectedActiveWindowId = initialActiveWindowId
-  createEffect(
-    () => {
-      const snapshot = workspaceSnapshot()
-      if (!snapshot) return null
-      return {
-        ids: new Set(snapshot.windows.map((window) => window.id)),
-        activeWindowId: snapshot.activeWindowId,
-      }
-    },
-    (projection) => {
-      if (!projection) return
-      const { ids } = projection
-      setSelection((value) => (value?.kind === 'window' && !ids.has(value.id) ? null : value))
-      setSelectedIds((selected) => selected.filter((id) => ids.has(id)))
-      const activeWindowId =
-        projection.activeWindowId && ids.has(projection.activeWindowId)
-          ? projection.activeWindowId
-          : null
-      if (activeWindowId !== projectedActiveWindowId) {
-        setSelection(activeWindowId ? { kind: 'window', id: activeWindowId } : null)
-        setSelectedIds(activeWindowId ? [activeWindowId] : [])
-        projectedActiveWindowId = activeWindowId
-      }
-    },
-  )
 
   onSettled(() => {
     const oldHtmlOverflow = document.documentElement.style.overflow
@@ -1042,7 +1064,8 @@ export function CanvasWorkspace() {
         `/api/virtual-directory/open?path=${encodeURIComponent(pin.path)}`,
       )
       if (!response.ok) return
-      const target = (await response.json()).openTarget as VirtualOpenTarget | undefined
+      const target = (await response.json()).openTarget
+      if (!isHermesOpenTarget(target)) return
       if (!target) return
       addHermesWindow(
         {
@@ -1213,11 +1236,7 @@ export function CanvasWorkspace() {
     if (createdId) scheduleEnsureWindowsVisible([sourceWindowId, createdId])
   }
 
-  function openHermesFromBrowser(
-    sourceWindowId: string,
-    file: FileItem,
-    target: VirtualOpenTarget,
-  ) {
+  function openHermesFromBrowser(sourceWindowId: string, file: FileItem, target: HermesOpenTarget) {
     const source = state().windows.find((window) => window.id === sourceWindowId)
     if (!source) return
     const sourceBounds = source.bounds
@@ -1236,7 +1255,7 @@ export function CanvasWorkspace() {
 
   function addHermesWindow(
     file: FileItem,
-    target: VirtualOpenTarget,
+    target: HermesOpenTarget,
     point: { x: number; y: number },
     requestedBounds?: CanvasRect,
     source: WindowSource = DEFAULT_WORKSPACE_SOURCE,
@@ -1319,7 +1338,7 @@ export function CanvasWorkspace() {
         isDirectory: false,
         isVirtual: true,
       },
-      { type: 'hermesDraft', readOnly: false },
+      { provider: 'hermes', type: 'hermesDraft', readOnly: false },
       point,
     )
   }
@@ -1911,6 +1930,38 @@ export function CanvasWorkspace() {
       )
     )
   })
+  const windowActions: WorkspaceWindowActions = {
+    browser: {
+      navigate: navigateDir,
+      openViewer: openFromBrowser,
+      openReader: openReaderFromBrowser,
+      openVirtual: (windowId, file, target) => {
+        if (isHermesOpenTarget(target)) openHermesFromBrowser(windowId, file, target)
+      },
+      addToTaskbar: (windowId, file) => {
+        const current = state().windows.find((item) => item.id === windowId)
+        if (current) addPinnedItem(file, definitionFor(current).source)
+      },
+      openInNewTab: (windowId, file) =>
+        addFileTab(windowId, fileItemFromDrag(file.path, file.isDirectory)),
+      openInSplitView: openInCanvasSplit,
+      play: (windowId, path) => openFromBrowser(windowId, fileItemFromDrag(path, false)),
+      openInNewWindow: (windowId, file) => openFromBrowser(windowId, file, true),
+      newTabLabel: 'Open in new canvas tab',
+    },
+    viewer: {
+      updateViewing,
+      videoMetadata: sizeVideoWindow,
+      audioActivate: handleAudioActivate,
+    },
+    hermes: {
+      sessionCreated: bindHermesSession,
+      titleChanged: (windowId, title) =>
+        updateCanvasWorkspace((current) =>
+          WorkspaceDocumentCommands.renameWindow(current, windowId, title),
+        ),
+    },
+  }
 
   return (
     <div
@@ -2237,7 +2288,7 @@ export function CanvasWorkspace() {
                   : mediaWindowSizeKey(getMediaTypeFromPath(data.path)),
             )
           setFileDropPreview(null)
-          if (data.virtualOpenTarget) {
+          if (data.virtualOpenTarget && isHermesOpenTarget(data.virtualOpenTarget)) {
             addHermesWindow(
               fileItemFromDrag(data.path, false),
               data.virtualOpenTarget,
@@ -2543,40 +2594,8 @@ export function CanvasWorkspace() {
                                     }
                                     knowledgeBases={knowledgeBases}
                                     fileIconContext={fileIconContext}
-                                    onNavigateDir={navigateDir}
-                                    onOpenViewer={(id, file) => openFromBrowser(id, file)}
-                                    onOpenReader={openReaderFromBrowser}
-                                    onOpenVirtualTarget={openHermesFromBrowser}
-                                    onAddToTaskbar={(file) => {
-                                      const current = pane()
-                                      const source = current
-                                        ? definitionFor(current).source
-                                        : undefined
-                                      if (source) addPinnedItem(file, source)
-                                    }}
-                                    onOpenInNewTab={(id, file) =>
-                                      addFileTab(id, fileItemFromDrag(file.path, file.isDirectory))
-                                    }
-                                    openInNewTabLabel='Open in new canvas tab'
-                                    onOpenInSplitView={openInCanvasSplit}
-                                    onRequestPlay={(_source, path) =>
-                                      openFromBrowser(paneId, fileItemFromDrag(path, false))
-                                    }
+                                    actions={windowActions}
                                     autoPlayVideo={false}
-                                    onOpenFileInNewFloatingWindow={(id, file) =>
-                                      openFromBrowser(id, file, true)
-                                    }
-                                    onUpdateViewing={updateViewing}
-                                    onVideoMetadataLoaded={(id, width, height) =>
-                                      sizeVideoWindow(id, width, height)
-                                    }
-                                    onAudioActivate={handleAudioActivate}
-                                    onHermesSessionCreated={bindHermesSession}
-                                    onHermesTitleChanged={(id, title) =>
-                                      updateCanvasWorkspace((current) =>
-                                        WorkspaceDocumentCommands.renameWindow(current, id, title),
-                                      )
-                                    }
                                   />
                                 </div>
                               </>

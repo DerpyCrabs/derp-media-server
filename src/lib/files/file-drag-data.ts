@@ -22,8 +22,8 @@ export function getFileDragData(dt: DataTransfer): FileDragData | null {
     if (typeof parsed.path !== 'string' || typeof parsed.isDirectory !== 'boolean') return null
     if (
       parsed.virtualOpenTarget &&
-      parsed.virtualOpenTarget.type !== 'hermesSession' &&
-      parsed.virtualOpenTarget.type !== 'hermesDraft'
+      (typeof parsed.virtualOpenTarget.provider !== 'string' ||
+        typeof parsed.virtualOpenTarget.type !== 'string')
     )
       return null
     return parsed

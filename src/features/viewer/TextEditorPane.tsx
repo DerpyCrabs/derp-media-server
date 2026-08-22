@@ -59,7 +59,10 @@ export function TextEditorPane(props: TextEditorPaneProps): JSX.Element {
           return {
             viewModes: {},
             sortOrders: {},
-            fileColumns: { createdDate: false, size: true },
+            fileColumns: {
+              media: { createdDate: false, size: true, favorite: true, views: true },
+              workspace: { createdDate: false, size: true, favorite: false, views: false },
+            },
             favorites: [],
             knowledgeBases: [],
             customIcons: {},

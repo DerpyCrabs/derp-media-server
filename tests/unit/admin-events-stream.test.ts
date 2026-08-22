@@ -1,7 +1,19 @@
 import { describe, expect, test } from 'bun:test'
-import { handleAdminEvent } from '../../src/lib/api/use-admin-events-stream'
+import {
+  createAdminEventInvalidationGuard,
+  handleAdminEvent,
+} from '../../src/lib/api/use-admin-events-stream'
 
 describe('admin event routing', () => {
+  test('invalidates shared query state once when several subscribers receive one event', () => {
+    const claim = createAdminEventInvalidationGuard()
+    const event = { type: 'connected' }
+
+    expect(claim(event)).toBe(true)
+    expect(claim(event)).toBe(false)
+    expect(claim({ type: 'connected' })).toBe(true)
+  })
+
   test('refreshes workspace registry on workspace changes', () => {
     let refreshes = 0
     handleAdminEvent(

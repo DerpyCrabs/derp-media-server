@@ -64,15 +64,30 @@ async fn file_columns(
     State(state): State<Shared>,
     Json(body): Json<Value>,
 ) -> AppResult<Json<Value>> {
+    let scope = body["scope"]
+        .as_str()
+        .ok_or_else(|| AppError::bad("scope must be media or workspace"))?;
     let created_date = body["createdDate"]
         .as_bool()
         .ok_or_else(|| AppError::bad("createdDate must be a boolean"))?;
     let size = body["size"]
         .as_bool()
         .ok_or_else(|| AppError::bad("size must be a boolean"))?;
+    let favorite = body["favorite"]
+        .as_bool()
+        .ok_or_else(|| AppError::bad("favorite must be a boolean"))?;
+    let views = body["views"]
+        .as_bool()
+        .ok_or_else(|| AppError::bad("views must be a boolean"))?;
     execute(
         &state,
-        SettingsCommand::SetFileColumns { created_date, size },
+        SettingsCommand::SetFileColumns {
+            scope: scope.into(),
+            created_date,
+            size,
+            favorite,
+            views,
+        },
     )
 }
 

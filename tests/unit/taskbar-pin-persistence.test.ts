@@ -56,7 +56,10 @@ test('workspace transition command updates canonical settings state', () => {
   const settings: WorkspaceSettings = {
     viewModes: {},
     sortOrders: {},
-    fileColumns: { createdDate: true, size: true },
+    fileColumns: {
+      media: { createdDate: true, size: true, favorite: true, views: true },
+      workspace: { createdDate: true, size: true, favorite: false, views: false },
+    },
     favorites: [],
     knowledgeBases: [],
     customIcons: {},

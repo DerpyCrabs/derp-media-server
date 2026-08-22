@@ -755,6 +755,34 @@ test.describe('File Browsing and Viewers', () => {
     await test.step('navigating into a folder updates browser content', async () => {
       await content.getByText('Videos', { exact: true }).click()
       await expect(content.getByText('sample.mp4')).toBeVisible({ timeout: 10000 })
+      const fileRow = content.locator('tr').filter({ hasText: 'sample.mp4' })
+      await expect(
+        content.getByRole('button', { name: 'More actions for sample.mp4', exact: true }),
+      ).toBeHidden()
+      await expect(content.getByTitle('Add to favorites').first()).toBeHidden()
+      await expect(fileRow.locator('[data-testid=file-view-count]')).toBeHidden()
+      const rowBox = await fileRow.boundingBox()
+      expect(rowBox?.height).toBeLessThanOrEqual(40)
+
+      await content.getByRole('button', { name: 'Display options' }).click()
+      const displayMenu = page.getByTestId('explorer-display-options')
+      const favoriteColumn = displayMenu.getByRole('checkbox', { name: 'Favorites' })
+      const viewsColumn = displayMenu.getByRole('checkbox', { name: 'Views' })
+      await expect(favoriteColumn).not.toBeChecked()
+      await expect(viewsColumn).not.toBeChecked()
+      await Promise.all([
+        page.waitForResponse(
+          (response) => response.url().includes('/api/settings/fileColumns') && response.ok(),
+        ),
+        favoriteColumn.check(),
+      ])
+      await expect(fileRow.getByTitle('Add to favorites')).toBeVisible()
+      await Promise.all([
+        page.waitForResponse(
+          (response) => response.url().includes('/api/settings/fileColumns') && response.ok(),
+        ),
+        favoriteColumn.uncheck(),
+      ])
     })
   })
 

@@ -117,10 +117,15 @@ export function WorkspaceTilingPicker(props: WorkspaceTilingPickerProps) {
     if (!el) return
     const r = el.getBoundingClientRect()
     if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) {
-      setPointerPick(null)
+      updatePointerPick(null)
       return
     }
-    setPointerPick(pickAssistSlotFromPoint(e.clientX, e.clientY, el))
+    updatePointerPick(pickAssistSlotFromPoint(e.clientX, e.clientY, el))
+  }
+
+  function updatePointerPick(pick: AssistSlotPick | null) {
+    setPointerPick(pick)
+    props.onHoverSpanChange?.(pick?.span ?? null)
   }
 
   createEffect(
@@ -134,13 +139,6 @@ export function WorkspaceTilingPicker(props: WorkspaceTilingPickerProps) {
       })
       // eslint-disable-next-line solid/reactivity
       return () => window.removeEventListener('pointermove', onWindow, { capture: true })
-    },
-  )
-
-  createEffect(
-    () => pointerPick()?.span ?? null,
-    (span) => {
-      props.onHoverSpanChange?.(span)
     },
   )
 
@@ -181,7 +179,7 @@ export function WorkspaceTilingPicker(props: WorkspaceTilingPickerProps) {
         top: `${layout().top}px`,
         width: `${surfaceWidth()}px`,
       }}
-      onPointerLeave={() => setPointerPick(null)}
+      onPointerLeave={() => updatePointerPick(null)}
       role='dialog'
       aria-label='Choose window layout'
     >

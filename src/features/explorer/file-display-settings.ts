@@ -8,7 +8,26 @@ import type {
 import { isVirtualFolderPath } from '@/lib/files/constants'
 
 export const DEFAULT_FILE_SORT: FileSortOrder = { field: 'name', direction: 'asc' }
-export const DEFAULT_FILE_COLUMNS: FileColumnVisibility = { createdDate: false, size: true }
+export const DEFAULT_FILE_COLUMNS: Record<'media' | 'workspace', FileColumnVisibility> = {
+  media: { createdDate: false, size: true, favorite: true, views: true },
+  workspace: { createdDate: false, size: true, favorite: false, views: false },
+}
+
+export type FileSortMetadata = Readonly<{
+  isFavorite: (file: FileItem) => boolean
+  viewCount: (file: FileItem) => number
+}>
+
+export function createFileSortMetadata(
+  favorites: readonly string[] | undefined,
+  views: Readonly<Record<string, number>> | undefined,
+): FileSortMetadata {
+  const favoritePaths = new Set(favorites)
+  return {
+    isFavorite: (file) => favoritePaths.has(file.path),
+    viewCount: (file) => views?.[file.path] ?? 0,
+  }
+}
 
 const naturalNameCollator = new Intl.Collator(undefined, {
   numeric: true,
@@ -38,7 +57,11 @@ function compareOptionalNumbers(
   return direction === 'asc' ? result : -result
 }
 
-export function sortFileItems(files: FileItem[], order: FileSortOrder): FileItem[] {
+export function sortFileItems(
+  files: FileItem[],
+  order: FileSortOrder,
+  metadata?: FileSortMetadata,
+): FileItem[] {
   return [...files].sort((a, b) => {
     const virtualOrder = Number(Boolean(b.isVirtual)) - Number(Boolean(a.isVirtual))
     if (virtualOrder !== 0) return virtualOrder
@@ -54,6 +77,20 @@ export function sortFileItems(files: FileItem[], order: FileSortOrder): FileItem
     if (order.field === 'createdDate') {
       result = compareOptionalNumbers(a.createdDate, b.createdDate, order.direction)
     }
+    if (order.field === 'favorite') {
+      result = compareOptionalNumbers(
+        Number(metadata?.isFavorite(a) ?? false),
+        Number(metadata?.isFavorite(b) ?? false),
+        order.direction,
+      )
+    }
+    if (order.field === 'views') {
+      result = compareOptionalNumbers(
+        metadata?.viewCount(a) ?? 0,
+        metadata?.viewCount(b) ?? 0,
+        order.direction,
+      )
+    }
 
     if (result !== 0) {
       return order.field === 'name' && order.direction === 'desc' ? -result : result
@@ -67,9 +104,10 @@ export function sortFilesForPath(
   path: string,
   sortOrders?: Record<string, FileSortOrder>,
   sortingDisabled = false,
+  metadata?: FileSortMetadata,
 ): FileItem[] {
   if (sortingDisabled || isVirtualFolderPath(path)) return files
-  return sortFileItems(files, sortOrders?.[path] ?? DEFAULT_FILE_SORT)
+  return sortFileItems(files, sortOrders?.[path] ?? DEFAULT_FILE_SORT, metadata)
 }
 
 const createdDateFormatter = new Intl.DateTimeFormat(undefined, {

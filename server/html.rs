@@ -32,6 +32,12 @@ fn query(key: Value, data: Value) -> Value {
     json!({"dehydratedAt":now,"queryKey":key,"queryHash":serde_json::to_string(&key).unwrap(),"state":{"data":data,"dataUpdateCount":1,"dataUpdatedAt":now,"error":null,"errorUpdateCount":0,"errorUpdatedAt":0,"fetchFailureCount":0,"fetchFailureReason":null,"fetchMeta":null,"isInvalidated":false,"status":"success","fetchStatus":"idle"}})
 }
 
+fn infinite_query(key: Value, first_page: Value) -> Value {
+    let mut value = query(key, json!({"pages":[first_page],"pageParams":[0]}));
+    value["queryType"] = json!("infinite");
+    value
+}
+
 fn parent(path: &str) -> String {
     path.replace('\\', "/")
         .rsplit_once('/')
@@ -104,12 +110,12 @@ async fn dehydrated(state: &AppState, uri: &axum::http::Uri) -> AppResult<Value>
     let mut queries = Vec::new();
     if path == "/" || path == "/workspace" {
         let dir = params.get("dir").cloned().unwrap_or_default();
-        if path == "/"
-            && dir != "Favorites"
-            && dir != "Most Played"
-            && let Ok(files) = crate::routes::files::list_items(state, &dir)
+        if let Ok(listing) = crate::routes::files::list_for_browser(state, &dir, 0).await
         {
-            queries.push(query(json!(["files", dir]), json!({"files":files})));
+            queries.push(infinite_query(
+                json!(["files", dir, "file-browser"]),
+                listing,
+            ));
         }
         queries.push(query(json!(["settings"]), settings::sanitized(state)?));
         queries.push(query(

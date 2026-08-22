@@ -13,8 +13,12 @@ import Settings from 'lucide-solid/icons/settings'
 import Library from 'lucide-solid/icons/library'
 import Star from 'lucide-solid/icons/star'
 import type { Accessor } from 'solid-js'
-import { Show, createEffect, createSignal } from 'solid-js'
-import type { VirtualCapability, VirtualEntry } from '@/lib/files/virtual-directory'
+import { Show, createSignal } from 'solid-js'
+import {
+  hasVirtualCapability,
+  type VirtualCapability,
+  type VirtualEntry,
+} from '@/lib/files/virtual-directory'
 
 type MenuState = { x: number; y: number; file: FileItem }
 
@@ -56,13 +60,15 @@ type FileRowContextMenuProps = {
 }
 
 export function FileRowContextMenu(props: FileRowContextMenuProps) {
-  const [openWithOpen, setOpenWithOpen] = createSignal(false)
-  createEffect(
-    () => !!props.menu(),
-    (isOpen) => {
-      if (!isOpen) setOpenWithOpen(false)
-    },
-  )
+  const [openWithState, setOpenWithState] = createSignal<{
+    menu: MenuState | null
+    open: boolean
+  }>({ menu: null, open: false })
+  const openWithOpen = () => {
+    const state = openWithState()
+    return state.menu === props.menu() && state.open
+  }
+  const setOpenWithOpen = (open: boolean) => setOpenWithState({ menu: props.menu(), open })
 
   return (
     <FloatingContextMenu
@@ -429,7 +435,7 @@ export function FileRowContextMenu(props: FileRowContextMenuProps) {
             <Show
               when={
                 props.onAddToTaskbar &&
-                (!ctx.file.isVirtual || virtualEntry()?.openTarget?.type === 'hermesSession')
+                (!ctx.file.isVirtual || hasVirtualCapability(virtualEntry(), 'pin'))
               }
             >
               <button

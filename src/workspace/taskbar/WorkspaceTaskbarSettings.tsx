@@ -1,6 +1,6 @@
 import { applyTheme, resolveTheme } from '@/lib/state/theme-dom'
 import { useThemeStore, type ThemeMode, type ThemePalette } from '@/lib/state/theme-store'
-import { fileOpenTargetStore, type FileOpenTarget } from '@/features/explorer/file-open-target'
+import { fileOpenTargetStore, type FileOpenTarget } from '@/workspace/shared/file-open-target'
 import {
   MAX_TILED_WINDOW_GAP,
   useWorkspacePreferredSnapStore,

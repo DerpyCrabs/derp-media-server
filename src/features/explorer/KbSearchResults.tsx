@@ -1,6 +1,6 @@
 import Search from 'lucide-solid/icons/search'
 import { For, Show } from '@solidjs/web'
-import { createEffect, createSignal } from 'solid-js'
+import { createSignal } from 'solid-js'
 
 type SearchResult = { path: string; name: string; snippet: string }
 
@@ -35,20 +35,24 @@ function pathRelativeTo(from: string, to: string): string {
 }
 
 export function KbSearchResults(props: Props) {
-  const [selectedIndex, setSelectedIndex] = createSignal(0)
-  createEffect(
-    () => [props.query, props.results],
-    () => {
-      setSelectedIndex(0)
-    },
-  )
+  const [selection, setSelection] = createSignal({ key: '', index: 0 })
+  const selectionKey = () =>
+    `${props.query}\0${props.results.map((result) => result.path).join('\0')}`
+  const selectedIndex = () => {
+    const current = selection()
+    if (current.key !== selectionKey()) return 0
+    return Math.min(current.index, Math.max(0, props.results.length - 1))
+  }
+  const setSelectedIndex = (update: (index: number) => number) =>
+    setSelection({ key: selectionKey(), index: update(selectedIndex()) })
 
   const onKeyDown = (event: KeyboardEvent) => {
     if (!props.results.length) return
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault()
       const delta = event.key === 'ArrowDown' ? 1 : -1
-      setSelectedIndex((index) => (index + delta + props.results.length) % props.results.length)
+      const resultCount = props.results.length
+      setSelectedIndex((index) => (index + delta + resultCount) % resultCount)
     } else if (event.key === 'Enter') {
       event.preventDefault()
       props.onResultClick(props.results[selectedIndex()]!.path)

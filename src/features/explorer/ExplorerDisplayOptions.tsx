@@ -30,6 +30,8 @@ const fields: { field: FileSortField; label: string }[] = [
   { field: 'name', label: 'Name' },
   { field: 'createdDate', label: 'Created' },
   { field: 'size', label: 'Size' },
+  { field: 'favorite', label: 'Favorites' },
+  { field: 'views', label: 'Views' },
 ]
 
 export function ExplorerDisplayOptions(props: ExplorerDisplayOptionsProps) {
@@ -162,6 +164,29 @@ export function ExplorerDisplayOptions(props: ExplorerDisplayOptionsProps) {
               }
             />
             Size
+          </label>
+          <label class='flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent'>
+            <input
+              type='checkbox'
+              checked={props.columns.favorite}
+              onChange={(event) =>
+                props.onColumnsChange({
+                  ...props.columns,
+                  favorite: event.currentTarget.checked,
+                })
+              }
+            />
+            Favorites
+          </label>
+          <label class='flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent'>
+            <input
+              type='checkbox'
+              checked={props.columns.views}
+              onChange={(event) =>
+                props.onColumnsChange({ ...props.columns, views: event.currentTarget.checked })
+              }
+            />
+            Views
           </label>
         </>
       </FloatingContextMenu>

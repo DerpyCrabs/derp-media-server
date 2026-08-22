@@ -7,6 +7,23 @@ const mediaDir = batchId ? `test-media-${batchId}` : 'test-media'
 const UPLOAD_DIR = 'MediaContent'
 
 test.describe('File browser misc', () => {
+  test('hydrates the active infinite listing with the browser query shape', async ({ page }) => {
+    await page.goto('/?dir=Documents')
+    await expect(page.getByTestId('file-browser')).toBeVisible()
+    const hydrated = await page.evaluate(() => {
+      const state = window.__DEHYDRATED_STATE__
+      const entry = state?.queries.find(
+        (entry) =>
+          JSON.stringify(entry.queryKey) === JSON.stringify(['files', 'Documents', 'file-browser']),
+      )
+      return { queryType: entry?.queryType, data: entry?.state.data }
+    })
+    expect(hydrated).toMatchObject({
+      queryType: 'infinite',
+      data: { pages: [{ files: expect.any(Array) }], pageParams: [0] },
+    })
+  })
+
   test('main media-center listing has no nested vertical scroll surface', async ({ page }) => {
     await page.goto('/?dir=Documents')
     const nestedScrollers = await page
@@ -26,6 +43,24 @@ test.describe('File browser misc', () => {
           })),
       )
     expect(nestedScrollers).toEqual([])
+  })
+
+  test('opens a file in a new Media Center tab without treating it as a directory', async ({
+    page,
+  }) => {
+    await page.goto('/?dir=Documents')
+    await page.locator('tr').filter({ hasText: 'readme.txt' }).click({ button: 'right' })
+    const popupPromise = page.waitForEvent('popup')
+    await page
+      .locator('[data-slot="context-menu-item"]')
+      .getByText('Open in new tab', { exact: true })
+      .click()
+    const popup = await popupPromise
+    await popup.waitForLoadState('domcontentloaded')
+    const url = new URL(popup.url())
+    expect(url.searchParams.get('dir')).toBe('Documents')
+    expect(url.searchParams.get('viewing')).toBe('Documents/readme.txt')
+    await popup.close()
   })
 
   test('modal reader does not leave media-center scroll behind it', async ({ page }) => {
@@ -150,6 +185,7 @@ test.describe('File browser clipboard paste', () => {
     await page.keyboard.press('Control+v')
     await expect(page.getByRole('heading', { name: /Paste Text/i })).toBeVisible()
     await page.getByRole('button', { name: 'Paste' }).click()
+    await expect(page.getByRole('heading', { name: /Paste Text/i })).not.toBeVisible()
     await expect(page.locator('textarea').first()).toBeVisible({ timeout: 10_000 })
     await expect(page.locator('textarea').first()).toHaveValue('paste dialog e2e')
   })
@@ -189,6 +225,7 @@ test.describe('File browser clipboard paste', () => {
       )
       await page.getByRole('button', { name: 'Replace', exact: true }).click()
       await edit
+      await expect(page.getByRole('heading', { name: /Paste Text/i })).not.toBeVisible()
       await expect(page.locator('textarea').first()).toHaveValue('new text')
     } finally {
       fs.rmSync(target, { force: true })
@@ -207,6 +244,7 @@ test.describe('File browser clipboard paste', () => {
       await page.getByRole('button', { name: 'Save with another name' }).click()
       await page.getByLabel('Filename').fill(renamed)
       await page.getByRole('button', { name: 'Paste', exact: true }).click()
+      await expect(page.getByRole('heading', { name: /Paste Text/i })).not.toBeVisible()
       await expect(page.locator('textarea').first()).toHaveValue('copy content')
       expect(fs.readFileSync(target, 'utf8')).toBe('original')
     } finally {

@@ -1,4 +1,3 @@
-import type { WindowDefinition } from '@/lib/models/window-model'
 import {
   addHermesAttachments,
   addHermesDraggedPath,
@@ -32,7 +31,16 @@ import {
   takeOverHermesSession,
   transcribeHermesAudio,
 } from '@/features/hermes/hermes-session-store'
-import { For, Show, createEffect, createMemo, createSignal, onSettled, untrack } from 'solid-js'
+import {
+  For,
+  Show,
+  createEffect,
+  createMemo,
+  createSignal,
+  onSettled,
+  untrack,
+  type Accessor,
+} from 'solid-js'
 import Paperclip from 'lucide-solid/icons/paperclip'
 import X from 'lucide-solid/icons/x'
 import Mic from 'lucide-solid/icons/mic'
@@ -48,16 +56,26 @@ import { getFileDragData, hasFileDragData } from '@/lib/files/file-drag-data'
 import { unsupportedHermesCommand, voiceControlGates } from '@/features/hermes/hermes-chat-parity'
 
 export function HermesChatPane(props: {
-  window: () => WindowDefinition | undefined
+  target: Accessor<
+    | {
+        sessionId?: string
+        draftId?: string
+        cwd?: string | null
+        readOnly?: boolean
+      }
+    | undefined
+  >
+  ownerId?: Accessor<string | undefined>
+  title?: Accessor<string | undefined>
   onSessionCreated?: (sessionId: string) => void
   contentVisible?: () => boolean
   active?: () => boolean
   onBranchCreated?: (sessionId: string, title: string) => void
   onTitleChanged?: (title: string) => void
 }) {
-  const key = createMemo(() => ensureHermesChat(props.window()?.hermes ?? {}))
+  const key = createMemo(() => ensureHermesChat(props.target() ?? {}))
   const state = () => hermesSessions[key()]
-  const owner = () => props.window()?.id ?? key()
+  const owner = () => props.ownerId?.() ?? key()
   const ownsEditor = () => !state()?.editorOwner || state()?.editorOwner === owner()
   function claimCurrentEditor() {
     const claimKey = key()
@@ -66,7 +84,7 @@ export function HermesChatPane(props: {
       isAlive: () => !disposed && key() === claimKey && owner() === claimOwner,
     })
   }
-  const [decisionAnswer, setDecisionAnswer] = createSignal('')
+  const [decisionDraft, setDecisionDraft] = createSignal({ key: '', answer: '' })
   const [recording, setRecording] = createSignal(false)
   const [microphoneDenied, setMicrophoneDenied] = createSignal(false)
   const [previewImage, setPreviewImage] = createSignal<string | null>(null)
@@ -88,12 +106,36 @@ export function HermesChatPane(props: {
   let transcriptEl: HTMLDivElement | undefined
   let transcriptContentEl: HTMLDivElement | undefined
   let paneEl: HTMLDivElement | undefined
+  let findInputEl: HTMLInputElement | undefined
+  let findReturnFocus: HTMLElement | null = null
   let followLatest = true
   let scrollFrame: number | undefined
   let disposed = false
   let microphoneRequest = 0
   let paneActive = false
-  let activeDecisionKey: string | undefined
+  const decisionKey = () => {
+    const decision = state()?.decision
+    return decision ? `${key()}:${decision.kind}:${decision.dedupeId}` : ''
+  }
+  const decisionAnswer = () => {
+    const draft = decisionDraft()
+    return draft.key === decisionKey() ? draft.answer : ''
+  }
+  const setDecisionAnswer = (answer: string) => setDecisionDraft({ key: decisionKey(), answer })
+
+  function openFind() {
+    findReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    setShowFind(true)
+    queueMicrotask(() => findInputEl?.focus())
+  }
+
+  function closeFind() {
+    setShowFind(false)
+    queueMicrotask(() => {
+      if (findReturnFocus?.isConnected) findReturnFocus.focus()
+      findReturnFocus = null
+    })
+  }
 
   function scrollTranscriptToBottom() {
     if (!followLatest) return
@@ -172,18 +214,18 @@ export function HermesChatPane(props: {
       ) {
         event.preventDefault()
         event.stopImmediatePropagation()
-        setShowFind(true)
+        openFind()
       }
     }
     const handlePointer = (event: PointerEvent) => {
       paneActive = !!paneEl?.contains(event.target as Node)
     }
-    window.addEventListener('keydown', handleFind)
+    window.addEventListener('keydown', handleFind, true)
     window.addEventListener('pointerdown', handlePointer)
     // eslint-disable-next-line solid/reactivity
     return () => {
       transcriptObserver.disconnect()
-      window.removeEventListener('keydown', handleFind)
+      window.removeEventListener('keydown', handleFind, true)
       window.removeEventListener('pointerdown', handlePointer)
     }
   })
@@ -258,27 +300,14 @@ export function HermesChatPane(props: {
   createEffect(
     () => ({
       sessionId: state()?.sessionId,
-      windowSessionId: props.window()?.hermes?.sessionId,
+      windowSessionId: props.target()?.sessionId,
     }),
     ({ sessionId, windowSessionId }) => {
       if (sessionId && sessionId !== windowSessionId) props.onSessionCreated?.(sessionId)
     },
   )
   createEffect(
-    () => {
-      const decision = state()?.decision
-      return {
-        nextKey: decision ? `${key()}:${decision.kind}:${decision.dedupeId}` : undefined,
-      }
-    },
-    ({ nextKey }) => {
-      if (nextKey === activeDecisionKey) return
-      activeDecisionKey = nextKey
-      setDecisionAnswer('')
-    },
-  )
-  createEffect(
-    () => ({ title: state()?.title?.trim(), windowTitle: props.window()?.title }),
+    () => ({ title: state()?.title?.trim(), windowTitle: props.title?.() }),
     ({ title, windowTitle }) => {
       if (title && title !== windowTitle) props.onTitleChanged?.(title)
     },
@@ -353,8 +382,14 @@ export function HermesChatPane(props: {
       data-testid='hermes-chat-pane'
     >
       <Show when={showFind()}>
-        <div class='absolute top-1 right-9 z-40 flex items-center gap-1 rounded-md border border-border bg-popover p-1 shadow-md'>
+        <div
+          class='absolute top-1 right-9 z-40 flex items-center gap-1 rounded-md border border-border bg-popover p-1 shadow-md'
+          data-modal-escape-scope
+        >
           <input
+            ref={(element) => {
+              findInputEl = element
+            }}
             autofocus
             class='h-7 w-44 rounded border border-input bg-background px-2 text-xs'
             placeholder='Find in chat'
@@ -366,17 +401,17 @@ export function HermesChatPane(props: {
             }}
             onKeyDown={(event) => {
               if (event.key === 'Enter') jumpToFindMatch(findIndex() + (event.shiftKey ? -1 : 1))
-              if (event.key === 'Escape') setShowFind(false)
+              if (event.key === 'Escape') {
+                event.preventDefault()
+                event.stopPropagation()
+                closeFind()
+              }
             }}
           />
           <span class='min-w-10 text-center text-[10px] text-muted-foreground'>
             {findMatches().length ? `${findIndex() + 1}/${findMatches().length}` : '0/0'}
           </span>
-          <button
-            class='rounded p-1 hover:bg-muted'
-            aria-label='Close find'
-            onClick={() => setShowFind(false)}
-          >
+          <button class='rounded p-1 hover:bg-muted' aria-label='Close find' onClick={closeFind}>
             <X class='h-3.5 w-3.5' />
           </button>
         </div>
@@ -972,6 +1007,12 @@ export function HermesChatPane(props: {
               aria-modal='true'
               aria-labelledby='hermes-edit-title'
               onClick={(event) => event.stopPropagation()}
+              onKeyDown={(event) => {
+                if (event.key !== 'Escape') return
+                event.preventDefault()
+                event.stopPropagation()
+                setEditTarget(null)
+              }}
               onSubmit={(event) => {
                 event.preventDefault()
                 const text = editValue().trim()
@@ -1023,6 +1064,12 @@ export function HermesChatPane(props: {
             aria-modal='true'
             aria-labelledby='hermes-rename-title'
             onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => {
+              if (event.key !== 'Escape') return
+              event.preventDefault()
+              event.stopPropagation()
+              setRenameOpen(false)
+            }}
             onSubmit={(event) => {
               event.preventDefault()
               const title = renameValue().trim()
@@ -1075,6 +1122,12 @@ export function HermesChatPane(props: {
             aria-modal='true'
             aria-labelledby='hermes-takeover-title'
             onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => {
+              if (event.key !== 'Escape') return
+              event.preventDefault()
+              event.stopPropagation()
+              setTakeoverConfirmOpen(false)
+            }}
           >
             <h2 id='hermes-takeover-title' class='text-sm font-semibold'>
               Take over session?
@@ -1112,7 +1165,10 @@ export function HermesChatPane(props: {
             tabindex={0}
             onClick={(event) => event.target === event.currentTarget && setPreviewImage(null)}
             onKeyDown={(event) => {
-              if (event.key === 'Escape') setPreviewImage(null)
+              if (event.key !== 'Escape') return
+              event.preventDefault()
+              event.stopPropagation()
+              setPreviewImage(null)
             }}
           >
             <button
