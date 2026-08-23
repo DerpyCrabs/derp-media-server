@@ -56,11 +56,22 @@ const FB2_FIXTURE = Buffer.from(
   '<?xml version="1.0" encoding="UTF-8"?><FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0"><description><title-info><genre>fiction</genre><author><first-name>Test</first-name><last-name>Author</last-name></author><book-title>Reader FB2 Fixture</book-title><lang>en</lang></title-info></description><body><section id="first"><title><p>First section</p></title><p>Selectable FB2 text begins here.</p><section id="nested"><title><p>Nested section</p></title><p>Nested FB2 content.</p></section></section></body></FictionBook>',
 )
 
+const LARGE_FB2_FIXTURE = Buffer.from(
+  '<?xml version="1.0" encoding="UTF-8"?><FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0"><description><title-info><genre>fiction</genre><book-title>Large Reader FB2 Fixture</book-title><lang>en</lang></title-info></description><body>' +
+    Array.from(
+      { length: 12 },
+      (_, chapter) =>
+        `<section id="large-${chapter}"><title><p>Large section ${chapter + 1}</p></title>${`<p>Long virtualized FB2 paragraph ${chapter + 1} with enough words to wrap across the reader viewport.</p>`.repeat(250)}</section>`,
+    ).join('') +
+    '</body></FictionBook>',
+)
+
 function writeBookFixtures(directory: string) {
   fs.writeFileSync(path.join(directory, 'reader.epub'), EPUB_FIXTURE)
   fs.writeFileSync(path.join(directory, 'reader-switch.epub'), EPUB_FIXTURE)
   fs.writeFileSync(path.join(directory, 'reader-position.epub'), EPUB_FIXTURE)
   fs.writeFileSync(path.join(directory, 'reader.fb2'), FB2_FIXTURE)
+  fs.writeFileSync(path.join(directory, 'reader-large.fb2'), LARGE_FB2_FIXTURE)
   fs.writeFileSync(
     path.join(directory, 'reader.fb2.zip'),
     Buffer.from(zipSync({ 'reader.fb2': FB2_FIXTURE })),

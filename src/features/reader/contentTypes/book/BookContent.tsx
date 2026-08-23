@@ -1,4 +1,4 @@
-import { For, Show, createSignal, onSettled } from 'solid-js'
+import { For, Show, createMemo, createSignal, onSettled } from 'solid-js'
 import type { RenderedBook } from './book-sanitize'
 import type { BookAppearance } from '../../reader-state-client'
 
@@ -7,10 +7,12 @@ function Chapter(props: {
   index: number
   currentIndex: number
   viewport: HTMLElement
+  estimatedHeight: number
+  onMeasure: (index: number, height: number) => void
 }) {
   let host: HTMLElement | undefined
   const [intersecting, setIntersecting] = createSignal(false)
-  const [height, setHeight] = createSignal(680)
+  const [height, setHeight] = createSignal<number>()
 
   const isNear = () => Math.abs(props.index - props.currentIndex) <= 2
   const near = () => isNear() || intersecting()
@@ -27,7 +29,11 @@ function Chapter(props: {
     )
     observer.observe(chapterHost)
     const resize = new ResizeObserver(() => {
-      if (near() && chapterHost.offsetHeight > 80) setHeight(chapterHost.offsetHeight)
+      if (near() && chapterHost.offsetHeight > 80) {
+        const nextHeight = chapterHost.offsetHeight
+        setHeight(nextHeight)
+        props.onMeasure(props.index, nextHeight)
+      }
     })
     resize.observe(host)
     return () => {
@@ -45,7 +51,7 @@ function Chapter(props: {
       data-book-chapter={props.chapter.id}
       aria-label={props.chapter.title}
       class='book-chapter mx-auto w-full scroll-mt-3 px-5 py-8 sm:px-10'
-      style={{ 'min-height': near() ? undefined : `${height()}px` }}
+      style={{ 'min-height': near() ? undefined : `${height() ?? props.estimatedHeight}px` }}
     >
       <Show when={near()}>
         <div
@@ -67,6 +73,42 @@ export function BookContent(props: {
   viewport: HTMLElement
   onNavigate: (chapterId: string, anchor?: string, recordHistory?: boolean) => void
 }) {
+  const [measuredHeights, setMeasuredHeights] = createSignal<Record<number, number>>({})
+  const pixelsPerCharacter = createMemo(() => {
+    let height = 0
+    let characters = 0
+    for (const [rawIndex, measuredHeight] of Object.entries(measuredHeights())) {
+      const chapter = props.document.chapters[Number(rawIndex)]
+      if (!chapter || chapter.textLength < 100) continue
+      height += Math.max(0, measuredHeight - 64)
+      characters += chapter.textLength
+    }
+    if (characters > 0) return height / characters
+
+    const width = Math.min(
+      props.viewport.clientWidth,
+      props.appearance.contentWidth === 'narrow'
+        ? 768
+        : props.appearance.contentWidth === 'wide'
+          ? 1024
+          : props.viewport.clientWidth,
+    )
+    const fontScale = props.appearance.fontScale ?? 1
+    const lineHeight = props.appearance.lineHeight ?? 1.65
+    const usableWidth = Math.max(240, width - 80)
+    return (16 * fontScale * lineHeight * 8 * fontScale) / usableWidth
+  })
+  const estimatedHeight = (index: number) => {
+    const measured = measuredHeights()[index]
+    if (measured !== undefined) return measured
+    const textLength = props.document.chapters[index]?.textLength ?? 0
+    return Math.max(680, Math.ceil(64 + textLength * pixelsPerCharacter()))
+  }
+  const recordHeight = (index: number, height: number) => {
+    setMeasuredHeights((current) =>
+      current[index] === height ? current : { ...current, [index]: height },
+    )
+  }
   const currentIndex = () =>
     Math.max(
       0,
@@ -111,6 +153,8 @@ export function BookContent(props: {
             index={index()}
             currentIndex={currentIndex()}
             viewport={props.viewport}
+            estimatedHeight={estimatedHeight(index())}
+            onMeasure={recordHeight}
           />
         )}
       </For>

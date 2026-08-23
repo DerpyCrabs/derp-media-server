@@ -184,6 +184,35 @@ test.describe('Reader', () => {
     await expect(page.getByTestId('reader-book')).toContainText('Selectable FB2 text begins here.')
   })
 
+  test('keeps a stable honest scroll height while virtualizing a large FB2 book', async ({
+    page,
+  }) => {
+    await page.goto('/?dir=Documents&viewing=Documents%2Freader-large.fb2')
+    const book = page.getByTestId('reader-book')
+    await expect(book).toBeVisible()
+    await expect(book.locator('[data-book-chapter]')).toHaveCount(12)
+    await expect
+      .poll(() => book.locator('[data-book-chapter] > div').count())
+      .toBeLessThanOrEqual(5)
+
+    const viewport = book.locator('..')
+    await expect
+      .poll(() => viewport.evaluate((element) => element.scrollHeight))
+      .toBeGreaterThan(20_000)
+    const initialHeight = await viewport.evaluate((element) => element.scrollHeight)
+    await viewport.evaluate((element) => {
+      element.scrollTop = element.scrollHeight
+    })
+    await expect(page.getByTestId('reader-book-progress')).toContainText('Large section 12')
+    await page.waitForTimeout(250)
+    const finalHeight = await viewport.evaluate((element) => element.scrollHeight)
+
+    expect(finalHeight).toBeLessThanOrEqual(initialHeight * 1.05)
+    await expect
+      .poll(() => book.locator('[data-book-chapter] > div').count())
+      .toBeLessThanOrEqual(5)
+  })
+
   test('keeps book settings separate from chapter controls in narrow readers', async ({ page }) => {
     await page.setViewportSize({ width: 500, height: 720 })
     await page.goto('/?dir=Documents&viewing=Documents%2Freader.epub')
