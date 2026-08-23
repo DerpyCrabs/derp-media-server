@@ -5,7 +5,7 @@ export type BookAppearance = {
   fontFamily: 'publisher' | 'serif' | 'sans'
   fontScale: number | null
   lineHeight: number | null
-  contentWidth: number | null
+  contentWidth: 'narrow' | 'wide' | 'full'
   theme: 'publisher' | 'light' | 'dark' | 'sepia'
 }
 
@@ -15,7 +15,7 @@ export const DEFAULT_BOOK_APPEARANCE: BookAppearance = {
   fontFamily: 'publisher',
   fontScale: null,
   lineHeight: null,
-  contentWidth: null,
+  contentWidth: 'full',
   theme: 'publisher',
 }
 
@@ -168,6 +168,7 @@ export function saveSyncedReaderState(
 function parsePreferences(value: unknown): ReaderPreferences {
   const input = (value && typeof value === 'object' ? value : {}) as Partial<ReaderPreferences>
   const appearance = input.bookAppearance ?? DEFAULT_BOOK_APPEARANCE
+  const contentWidth = (appearance as { contentWidth?: unknown }).contentWidth
   return {
     bookAppearance: {
       fontFamily: ['publisher', 'serif', 'sans'].includes(appearance.fontFamily ?? '')
@@ -178,9 +179,11 @@ function parsePreferences(value: unknown): ReaderPreferences {
       lineHeight:
         appearance.lineHeight === null ? null : finiteInRange(appearance.lineHeight, 0.8, 3, 1.65),
       contentWidth:
-        appearance.contentWidth === null
-          ? null
-          : finiteInRange(appearance.contentWidth, 20, 100, 48),
+        contentWidth === 'narrow' || contentWidth === 48
+          ? 'narrow'
+          : contentWidth === 'wide' || contentWidth === 64
+            ? 'wide'
+            : 'full',
       theme: ['publisher', 'light', 'dark', 'sepia'].includes(appearance.theme ?? '')
         ? appearance.theme!
         : 'publisher',

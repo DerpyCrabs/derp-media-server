@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test'
 
 const originalFetch = globalThis.fetch
 
-const { mergeReaderPreferenceChanges, saveSyncedReaderState } =
+const { loadReaderPreferences, mergeReaderPreferenceChanges, saveSyncedReaderState } =
   await import('@/features/reader/reader-state-client')
 
 afterEach(() => {
@@ -10,6 +10,52 @@ afterEach(() => {
 })
 
 describe('reader state client', () => {
+  test('uses full page width by default for old book preferences', async () => {
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          preferences: {
+            bookAppearance: {
+              fontFamily: 'publisher',
+              fontScale: null,
+              lineHeight: null,
+              contentWidth: null,
+              theme: 'publisher',
+            },
+          },
+          revision: 1,
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      )) as unknown as typeof fetch
+
+    const result = await loadReaderPreferences()
+
+    expect(result.preferences.bookAppearance.contentWidth).toBe('full')
+  })
+
+  test('migrates old numeric book widths to named options', async () => {
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          preferences: {
+            bookAppearance: {
+              fontFamily: 'publisher',
+              fontScale: null,
+              lineHeight: null,
+              contentWidth: 64,
+              theme: 'publisher',
+            },
+          },
+          revision: 1,
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      )) as unknown as typeof fetch
+
+    const result = await loadReaderPreferences()
+
+    expect(result.preferences.bookAppearance.contentWidth).toBe('wide')
+  })
+
   test('serializes state save until network request completes', async () => {
     let completeRequest!: () => void
     globalThis.fetch = (() =>
@@ -49,7 +95,7 @@ describe('reader state client', () => {
         fontFamily: 'publisher' as const,
         fontScale: null,
         lineHeight: null,
-        contentWidth: null,
+        contentWidth: 'full' as const,
         theme: 'publisher' as const,
       },
       selectionMode: 'text' as const,

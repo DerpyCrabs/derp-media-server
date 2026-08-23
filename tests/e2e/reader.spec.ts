@@ -214,12 +214,14 @@ test.describe('Reader', () => {
     for (let index = 0; index < 12; index += 1) {
       await decreases.nth(0).click()
       await decreases.nth(1).click()
-      await decreases.nth(2).click()
     }
     const settings = page.getByTestId('reader-settings')
+    await settings.getByRole('button', { name: 'narrow', exact: true }).click()
     await expect(settings).toContainText('50%')
     await expect(settings).toContainText('0.80')
-    await expect(settings).toContainText('20rem')
+    await expect(settings.getByRole('button', { name: 'narrow', exact: true })).toHaveClass(
+      /bg-\[#303030\]/,
+    )
     const chapter = book.locator('[data-book-chapter="chapter-1"]')
     const appearanceBeforeTheme = await chapter.evaluate((element) => {
       const book = element.closest<HTMLElement>('[data-testid="reader-book"]')!
@@ -234,12 +236,14 @@ test.describe('Reader', () => {
     expect(appearanceBeforeTheme).toEqual({
       fontSize: '8px',
       lineHeight: '6.4px',
-      maxWidth: '320px',
+      maxWidth: '768px',
     })
     await settings.getByRole('button', { name: 'light', exact: true }).click()
     await expect(settings).toContainText('50%')
     await expect(settings).toContainText('0.80')
-    await expect(settings).toContainText('20rem')
+    await expect(settings.getByRole('button', { name: 'narrow', exact: true })).toHaveClass(
+      /bg-\[#303030\]/,
+    )
     await expect
       .poll(() =>
         chapter.evaluate((element) => {
@@ -263,6 +267,9 @@ test.describe('Reader', () => {
       /bg-\[#303030\]/,
     )
     await expect(page.getByRole('button', { name: 'detailed', exact: true })).toHaveClass(
+      /bg-\[#303030\]/,
+    )
+    await expect(page.getByRole('button', { name: 'narrow', exact: true })).toHaveClass(
       /bg-\[#303030\]/,
     )
     await expect(page.getByTestId('reader-book')).toHaveCSS(

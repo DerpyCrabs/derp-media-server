@@ -235,13 +235,14 @@ export function PagedReader<TDocument extends PagedDocument>(props: PagedReaderP
 
   onSettled(() => {
     const element = viewport()
-    if (!element) return
+    if (!element) return undefined
     const resize = new ResizeObserver(() =>
       setViewportSize({ width: element.clientWidth, height: element.clientHeight }),
     )
     resize.observe(element)
     setViewportSize({ width: element.clientWidth, height: element.clientHeight })
-    onCleanup(() => resize.disconnect())
+    // eslint-disable-next-line solid/reactivity
+    return () => resize.disconnect()
   })
 
   onCleanup(() => {

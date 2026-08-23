@@ -81,7 +81,7 @@ export function BookContent(props: {
       props.appearance.fontFamily === 'sans' && 'font-sans',
       props.appearance.fontScale !== null && 'book-custom-font-size',
       props.appearance.lineHeight !== null && 'book-custom-line-height',
-      props.appearance.contentWidth !== null && 'book-custom-width',
+      props.appearance.contentWidth !== 'full' && 'book-custom-width',
     ]
       .filter(Boolean)
       .join(' ')
@@ -92,7 +92,7 @@ export function BookContent(props: {
       style={{
         '--book-font-scale': String(props.appearance.fontScale ?? 1),
         '--book-line-height': String(props.appearance.lineHeight ?? 1.65),
-        '--book-content-width': `${props.appearance.contentWidth ?? 48}rem`,
+        '--book-content-width': props.appearance.contentWidth === 'narrow' ? '48rem' : '64rem',
       }}
       onClick={(event) => {
         const link = (event.target as Element).closest<HTMLAnchorElement>('a')

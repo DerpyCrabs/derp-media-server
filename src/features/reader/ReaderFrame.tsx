@@ -150,7 +150,7 @@ export function ReaderFrame(props: ReaderFrameProps) {
 
   onSettled(() => {
     document.body.append(menuHost)
-    if (!readerRoot) return
+    if (!readerRoot) return undefined
     const root = readerRoot
     if (!activeReaderRoot || !props.embedded) activeReaderRoot = root
     const fullscreenChange = () => {
@@ -200,13 +200,14 @@ export function ReaderFrame(props: ReaderFrameProps) {
     document.addEventListener('pointerup', captureFromRelease)
     document.addEventListener('mouseup', captureFromRelease)
     document.addEventListener('keydown', keydown)
-    onCleanup(() => {
+    // eslint-disable-next-line solid/reactivity
+    return () => {
       window.cancelAnimationFrame(selectionCaptureFrame)
       document.removeEventListener('fullscreenchange', fullscreenChange)
       document.removeEventListener('pointerup', captureFromRelease)
       document.removeEventListener('mouseup', captureFromRelease)
       document.removeEventListener('keydown', keydown)
-    })
+    }
   })
 
   onCleanup(() => {

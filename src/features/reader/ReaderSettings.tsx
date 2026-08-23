@@ -70,15 +70,10 @@ export function BookAppearanceSettings(props: {
 }) {
   const update = (next: Partial<BookAppearance>) =>
     props.onChange((current) => ({ ...current, ...next }))
-  const adjust = (
-    key: 'fontScale' | 'lineHeight' | 'contentWidth',
-    amount: number,
-    fallback: number,
-  ) => {
+  const adjust = (key: 'fontScale' | 'lineHeight', amount: number, fallback: number) => {
     const bounds = {
       fontScale: [0.5, 3],
       lineHeight: [0.8, 3],
-      contentWidth: [20, 100],
     } as const
     const [minimum, maximum] = bounds[key]
     const value = Math.max(minimum, Math.min(maximum, (props.value[key] ?? fallback) + amount))
@@ -119,11 +114,11 @@ export function BookAppearanceSettings(props: {
           onIncrease={() => adjust('lineHeight', 0.1, 1.65)}
         />
       </ReaderSetting>
-      <ReaderSetting label='Content width'>
-        <StepSetting
-          value={props.value.contentWidth === null ? 'Publisher' : `${props.value.contentWidth}rem`}
-          onDecrease={() => adjust('contentWidth', -4, 48)}
-          onIncrease={() => adjust('contentWidth', 4, 48)}
+      <ReaderSetting label='Page width'>
+        <Segmented
+          values={['narrow', 'wide', 'full']}
+          value={props.value.contentWidth}
+          onChange={(value) => update({ contentWidth: value as BookAppearance['contentWidth'] })}
         />
       </ReaderSetting>
       <button
