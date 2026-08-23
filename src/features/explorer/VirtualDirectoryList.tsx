@@ -2,7 +2,7 @@ import type { FileItem } from '@/lib/files/types'
 import { createVirtualizer, createWindowVirtualizer, type VirtualItem } from '@/lib/virtualizer'
 import type { Accessor } from 'solid-js'
 import type { JSX } from '@solidjs/web'
-import { createEffect, createSignal, For, onSettled, Show } from 'solid-js'
+import { createEffect, createSignal, For, onSettled, Show, untrack } from 'solid-js'
 import { registerVirtualFileScroller } from './virtual-directory-scroll'
 
 const VIRTUALIZE_THRESHOLD = 100
@@ -42,9 +42,11 @@ function makeVirtualizer(
   accessors: { count: Accessor<number>; scrollMargin: Accessor<number> },
 ) {
   const getItemKey = (index: number) => {
-    const parentCount = props.includeParent() ? 1 : 0
-    if (parentCount && index === 0) return '__parent__'
-    return props.files()[index - parentCount]?.path ?? index
+    return untrack(() => {
+      const parentCount = props.includeParent() ? 1 : 0
+      if (parentCount && index === 0) return '__parent__'
+      return props.files()[index - parentCount]?.path ?? index
+    })
   }
 
   if (props.scrollTarget.kind === 'element') {
@@ -53,7 +55,7 @@ function makeVirtualizer(
       get count() {
         return accessors.count()
       },
-      getScrollElement: () => getScrollElement() ?? null,
+      getScrollElement: () => untrack(getScrollElement) ?? null,
       get estimateSize() {
         const size = props.estimateSize ?? 48
         return () => size

@@ -7,7 +7,7 @@ import Headphones from 'lucide-solid/icons/headphones'
 import Maximize2 from 'lucide-solid/icons/maximize-2'
 import Minimize2 from 'lucide-solid/icons/minimize-2'
 import X from 'lucide-solid/icons/x'
-import { Show, createEffect, createMemo, createSignal, onSettled } from 'solid-js'
+import { Show, createEffect, createMemo, createSignal, onSettled, untrack } from 'solid-js'
 import {
   usePlaybackMediaHost,
   usePlaybackSession,
@@ -26,7 +26,9 @@ export function VideoPlayer() {
   const fileName = createMemo(() => currentItem()?.name ?? '')
 
   const [isMinimized, setIsMinimized] = createSignal(false)
-  const [position, setPositionView] = createSignal(floatingVideoPositionStore.getState().position)
+  const [position, setPositionView] = createSignal(
+    untrack(() => floatingVideoPositionStore.getState().position),
+  )
   const [videoEl, setVideoEl] = createSignal<HTMLVideoElement>()
 
   onSettled(() => {

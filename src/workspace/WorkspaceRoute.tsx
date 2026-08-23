@@ -34,35 +34,38 @@ function WorkspaceRenderer(props: { workspaceId: () => string }) {
   useWorkspaceDocumentChrome(() => session.catalog.value().records[props.workspaceId()], themeTick)
 
   createEffect(
-    () => ({
-      id: props.workspaceId(),
-      dir: params().get('dir'),
-      ready: session.state.ready(),
-      active: session.state.active(),
-      registry: session.catalog.value(),
-    }),
-    ({ id, dir, ready, active, registry }) => {
+    () => {
+      const id = props.workspaceId()
+      const registry = session.catalog.value()
+      return {
+        id,
+        dir: params().get('dir'),
+        ready: session.state.ready(),
+        active: session.state.active(),
+        deleted: id ? session.state.deleted(id) : false,
+        records: Object.values(registry.records),
+        record: registry.records[id],
+      }
+    },
+    ({ id, dir, ready, active, deleted, records, record }) => {
       if (!ready) return
       if (!id) {
         if (dir) {
           navigateSearchParams({ ws: crypto.randomUUID() }, 'replace')
           return
         }
-        const last = Object.values(registry.records).sort(
-          (left, right) => right.lastOpenedAt - left.lastOpenedAt,
-        )[0]
+        const last = records.sort((left, right) => right.lastOpenedAt - left.lastOpenedAt)[0]
         navigateSearchParams({ ws: last?.id ?? crypto.randomUUID() }, 'replace')
         return
       }
-      if (session.state.deleted(id)) {
-        const next = Object.values(registry.records)
+      if (deleted) {
+        const next = records
           .filter((record) => record.id !== id)
           .sort((left, right) => right.lastOpenedAt - left.lastOpenedAt)[0]
         navigateSearchParams({ ws: next?.id ?? crypto.randomUUID() }, 'replace')
         return
       }
       if (active.id === id && active.phase !== 'idle') return
-      const record = registry.records[id]
       void session.lifecycle.activate(
         id,
         record?.snapshot ??

@@ -145,8 +145,7 @@ export default function BookReader(props: ReaderContentProps) {
       outlineExpanded: [...state.outlineExpanded],
     }
   }
-  const applyPosition = (position: BookReaderPosition, smooth = false) => {
-    const loaded = book.value()
+  const applyPosition = (position: BookReaderPosition, smooth = false, loaded = book.value()) => {
     if (!loaded) return
     const chapterId =
       position.chapterId ||
@@ -233,6 +232,8 @@ export default function BookReader(props: ReaderContentProps) {
           chapterProgress: 0,
           outlineExpanded: allOutlineIds(loaded.outline),
         },
+        false,
+        loaded,
       )
       restored = true
     },

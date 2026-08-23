@@ -494,7 +494,7 @@ export function useWorkspaceRegistry(options: WorkspaceRegistryOptions) {
   }
 
   function activate(id: string, initial: PersistedWorkspaceState, takeover = false) {
-    if (id !== options.workspaceId()) return Promise.resolve(null)
+    if (id !== untrack(options.workspaceId)) return Promise.resolve(null)
     const sequence = ++activationSequence
     return queueActivation(() => untrack(() => activateNow(id, initial, takeover, sequence)))
   }

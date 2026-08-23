@@ -42,7 +42,7 @@ export function useDynamicFavicon(
   createEffect(
     () => {
       void themeTick()
-      const icons = customIcons()
+      const icons = { ...customIcons() }
       const nav = options?.state
         ? options.state()
         : navFromSearch(

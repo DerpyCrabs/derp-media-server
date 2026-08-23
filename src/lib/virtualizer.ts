@@ -9,7 +9,16 @@ import {
   type PartialKeys,
   type VirtualizerOptions,
 } from '@tanstack/virtual-core'
-import { createEffect, createSignal, createStore, merge, onSettled, reconcile } from 'solid-js'
+import {
+  createEffect,
+  createSignal,
+  createStore,
+  merge,
+  onSettled,
+  reconcile,
+  snapshot,
+  untrack,
+} from 'solid-js'
 
 export * from '@tanstack/virtual-core'
 
@@ -27,20 +36,20 @@ function createVirtualizerBase<
   options: VirtualizerOptions<TScrollElement, TItemElement>,
 ): Virtualizer<TScrollElement, TItemElement> {
   const resolvedOptions = merge(options) as VirtualizerOptions<TScrollElement, TItemElement>
-  const instance = new Virtualizer<TScrollElement, TItemElement>(resolvedOptions)
+  const instance = untrack(() => new Virtualizer<TScrollElement, TItemElement>(resolvedOptions))
   const [virtualItems, setVirtualItems] = createStore(instance.getVirtualItems())
   const [totalSize, setTotalSize] = createSignal(instance.getTotalSize())
 
   const virtualizer = new Proxy(instance, {
     get(target, prop: keyof Virtualizer<TScrollElement, TItemElement>) {
-      if (prop === 'getVirtualItems') return () => virtualItems
+      if (prop === 'getVirtualItems') return () => snapshot(virtualItems)
       // eslint-disable-next-line solid/reactivity
       if (prop === 'getTotalSize') return () => totalSize()
       return Reflect.get(target, prop)
     },
   })
 
-  virtualizer.setOptions(resolvedOptions)
+  untrack(() => virtualizer.setOptions(resolvedOptions))
 
   onSettled(() => {
     const cleanup = virtualizer._didMount()
@@ -58,7 +67,7 @@ function createVirtualizerBase<
           options.onChange?.(changed, sync)
         },
       })
-      return trackVirtualizerOptions(nextOptions)
+      return { ...trackVirtualizerOptions(nextOptions) }
     },
     (nextOptions) => {
       virtualizer.setOptions(nextOptions)
