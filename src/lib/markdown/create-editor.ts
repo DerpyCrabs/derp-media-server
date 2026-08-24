@@ -48,7 +48,7 @@ function modeExtensions(mode: MarkdownMode, ariaLabel: string): Extension {
   return [
     markdownModeFacet.of(mode),
     EditorState.readOnly.of(readOnly),
-    EditorView.editable.of(!readOnly),
+    EditorView.editable.of(true),
     EditorView.contentAttributes.of({
       role: readOnly ? 'document' : 'textbox',
       'aria-label': ariaLabel,

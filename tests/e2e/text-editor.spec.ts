@@ -218,7 +218,7 @@ test.describe('Text Editor', () => {
       name: 'markdown-editor-e2e.md Markdown document',
     })
 
-    await expect(reader).toHaveAttribute('contenteditable', 'false')
+    await expect(reader).toHaveAttribute('contenteditable', 'true')
     await expect(document.locator('.cm-md-heading-1')).toContainText('Read Fixture')
     await expect(document.locator('.cm-md-strong')).toContainText('bold')
     await expect(document.locator('.cm-md-emphasis')).toContainText('italic')
@@ -254,6 +254,27 @@ test.describe('Text Editor', () => {
       return transfer.getData('text/plain')
     })
     expect(copied).toBe('# Read Fixture')
+  })
+
+  test('selects Markdown text outside editable folders with the mouse', async ({ page }) => {
+    await page.goto(`/?dir=Documents&viewing=${encodeURIComponent('Documents/notes.md')}`)
+    const document = markdownDocument(page, 'read')
+    const reader = document.getByRole('document', { name: 'notes.md Markdown document' })
+    const line = document.locator('.cm-line').filter({ hasText: 'This is a markdown file' })
+
+    await expect(reader).toHaveAttribute('contenteditable', 'true')
+    const box = await line.boundingBox()
+    expect(box).not.toBeNull()
+    await page.mouse.move(box!.x + 2, box!.y + box!.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(box!.x + box!.width - 2, box!.y + box!.height / 2, { steps: 10 })
+    await page.mouse.up()
+
+    const selectedText = await reader.evaluate((element) => {
+      const selection = element.ownerDocument.getSelection()
+      return selection?.toString() ?? ''
+    })
+    expect(selectedText).toContain('This is a markdown file')
   })
 
   test('markdown image click opens fullscreen overlay', async ({ page }) => {
