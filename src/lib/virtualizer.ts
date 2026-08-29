@@ -16,7 +16,6 @@ import {
   merge,
   onSettled,
   reconcile,
-  snapshot,
   untrack,
 } from 'solid-js'
 
@@ -42,7 +41,7 @@ function createVirtualizerBase<
 
   const virtualizer = new Proxy(instance, {
     get(target, prop: keyof Virtualizer<TScrollElement, TItemElement>) {
-      if (prop === 'getVirtualItems') return () => snapshot(virtualItems)
+      if (prop === 'getVirtualItems') return () => virtualItems
       // eslint-disable-next-line solid/reactivity
       if (prop === 'getTotalSize') return () => totalSize()
       return Reflect.get(target, prop)

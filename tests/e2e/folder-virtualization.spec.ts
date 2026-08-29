@@ -109,4 +109,21 @@ test.describe('Folder virtualization', () => {
       )
       .toBe(true)
   })
+
+  test.describe('on mobile', () => {
+    test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
+
+    test('shows a large image folder after switching from list to grid view', async ({ page }) => {
+      await page.goto(`/?dir=${encodeURIComponent(mediaFolderName)}`)
+      await page.getByRole('button', { name: 'Display options' }).click()
+      await page.getByRole('menuitem', { name: 'List view' }).click()
+      await expect(page.getByText('image-0000.png')).toBeVisible()
+
+      await page.getByRole('button', { name: 'Display options' }).click()
+      await page.getByRole('menuitem', { name: 'Grid view' }).click()
+
+      await expect(page.locator('[data-testid=file-browser] .file-browser-grid')).toBeVisible()
+      await expect(page.getByText('image-0000.png')).toBeVisible()
+    })
+  })
 })
