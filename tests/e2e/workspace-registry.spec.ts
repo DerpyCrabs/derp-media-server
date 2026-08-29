@@ -36,6 +36,30 @@ test.describe('workspace registry', () => {
     await clearWorkspaceRegistry(request)
   })
 
+  test('creates a named canvas workspace from an idempotent creation link', async ({
+    page,
+    request,
+  }) => {
+    const workspaceId = `linked-${Date.now()}`
+    await page.goto(
+      `/workspace?ws=${workspaceId}&new=canvas&name=${encodeURIComponent('Visual notes')}`,
+    )
+    await expect(page.locator('[data-workspace-opened]')).toBeAttached()
+    await expect
+      .poll(() => {
+        const params = new URL(page.url()).searchParams
+        return { create: params.has('new'), name: params.has('name') }
+      })
+      .toEqual({ create: false, name: false })
+
+    const registry = await request.get('/api/workspaces').then((response) => response.json())
+    expect(registry.records[workspaceId]).toMatchObject({
+      id: workspaceId,
+      name: 'Visual notes',
+      snapshot: { workspaceType: 'canvas' },
+    })
+  })
+
   test('creates, names, switches, and locks duplicate workspace views', async ({ browser }) => {
     const sharedContext = await createWorkspaceE2EContext(browser)
     const first = await sharedContext.newPage()

@@ -13,6 +13,10 @@ import { useWorkspaceDocumentChrome } from './shared/use-workspace-document-chro
 import { useThemeStore } from '@/lib/state/theme-store'
 import { useStoreSync } from '@/lib/state/solid-store-sync'
 import { WorkspaceSessionProvider, useWorkspaceSession } from './shared/WorkspaceSession'
+import {
+  createLinkedWorkspaceSnapshot,
+  parseWorkspaceCreationLink,
+} from './model/workspace-creation-link'
 
 export function WorkspaceRoute() {
   const history = useBrowserHistory()
@@ -37,9 +41,11 @@ function WorkspaceRenderer(props: { workspaceId: () => string }) {
     () => {
       const id = props.workspaceId()
       const registry = session.catalog.value()
+      const creation = parseWorkspaceCreationLink(params())
       return {
         id,
         dir: params().get('dir'),
+        creation,
         ready: session.state.ready(),
         active: session.state.active(),
         deleted: id ? session.state.deleted(id) : false,
@@ -47,7 +53,7 @@ function WorkspaceRenderer(props: { workspaceId: () => string }) {
         record: registry.records[id],
       }
     },
-    ({ id, dir, ready, active, deleted, records, record }) => {
+    ({ id, dir, creation, ready, active, deleted, records, record }) => {
       if (!ready) return
       if (!id) {
         if (dir) {
@@ -65,14 +71,28 @@ function WorkspaceRenderer(props: { workspaceId: () => string }) {
         navigateSearchParams({ ws: next?.id ?? crypto.randomUUID() }, 'replace')
         return
       }
+      if (creation && record) {
+        navigateSearchParams({ new: null, name: null }, 'replace')
+        return
+      }
       if (active.id === id && active.phase !== 'idle') return
-      void session.lifecycle.activate(
-        id,
-        record?.snapshot ??
-          (dir
-            ? buildWorkspaceFromDirParam(dir, DEFAULT_WORKSPACE_SOURCE)
-            : defaultPersistedState(DEFAULT_WORKSPACE_SOURCE)),
-      )
+      void session.lifecycle
+        .activate(
+          id,
+          record?.snapshot ??
+            (creation
+              ? createLinkedWorkspaceSnapshot(creation.type)
+              : dir
+                ? buildWorkspaceFromDirParam(dir, DEFAULT_WORKSPACE_SOURCE)
+                : defaultPersistedState(DEFAULT_WORKSPACE_SOURCE)),
+          false,
+          !record && creation?.name ? { name: creation.name } : undefined,
+        )
+        .then((result) => {
+          if (creation && result && new URLSearchParams(window.location.search).get('ws') === id) {
+            navigateSearchParams({ new: null, name: null }, 'replace')
+          }
+        })
     },
   )
 

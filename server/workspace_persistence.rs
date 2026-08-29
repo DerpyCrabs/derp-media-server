@@ -25,6 +25,7 @@ pub(crate) enum WorkspaceCommand {
         client_id: String,
         takeover: bool,
         initial_snapshot: Option<Value>,
+        initial_metadata: Option<Value>,
         now: u128,
     },
     Heartbeat {
@@ -199,6 +200,7 @@ fn apply_workspace_command(
             client_id,
             takeover,
             initial_snapshot,
+            initial_metadata,
             now,
         } => {
             validate_id(&id, "id")?;
@@ -214,19 +216,20 @@ fn apply_workspace_command(
                     .as_ref()
                     .and_then(persistent_snapshot)
                     .ok_or_else(|| AppError::bad("Workspace snapshot is required"))?;
+                let mut record = json!({
+                    "id":id,
+                    "snapshot":snapshot,
+                    "revision":0,
+                    "updatedAt":now_value,
+                    "lastOpenedAt":now_value,
+                });
+                if let Some(metadata) = initial_metadata.as_ref() {
+                    apply_metadata(&mut record, metadata)?;
+                }
                 registry["records"]
                     .as_object_mut()
                     .expect("validated workspace records")
-                    .insert(
-                        id.clone(),
-                        json!({
-                            "id":id,
-                            "snapshot":snapshot,
-                            "revision":0,
-                            "updatedAt":now_value,
-                            "lastOpenedAt":now_value,
-                        }),
-                    );
+                    .insert(id.clone(), record);
                 registry["order"]
                     .as_array_mut()
                     .expect("validated workspace order")
@@ -1105,6 +1108,7 @@ mod tests {
                 client_id: "client".into(),
                 takeover: false,
                 initial_snapshot: Some(snapshot.clone()),
+                initial_metadata: None,
                 now: 100,
             })
             .unwrap();
@@ -1156,6 +1160,7 @@ mod tests {
                 client_id: "client".into(),
                 takeover: false,
                 initial_snapshot: Some(nested_snapshot()),
+                initial_metadata: None,
                 now: 100,
             })
             .unwrap();

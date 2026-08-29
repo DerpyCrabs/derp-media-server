@@ -133,6 +133,8 @@ struct OpenRequest {
     takeover: RequestBool,
     #[serde(default)]
     snapshot: JsonField,
+    #[serde(default)]
+    metadata: JsonField,
 }
 
 #[derive(Default, Deserialize)]
@@ -228,6 +230,7 @@ async fn open(
             client_id: required_id(body.client_id, "clientId")?,
             takeover: body.takeover.0,
             initial_snapshot: body.snapshot.optional(),
+            initial_metadata: body.metadata.optional(),
             now: timestamp_ms(),
         },
     )
@@ -497,23 +500,30 @@ mod tests {
             state.clone(),
             Method::POST,
             "/api/workspaces/open",
-            json!({"id":id,"clientId":"owner","snapshot":snapshot(false)}),
+            json!({
+                "id":id,
+                "clientId":"owner",
+                "snapshot":snapshot(false),
+                "metadata":{"name":"  Linked workspace  "}
+            }),
         )
         .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(opened["editable"], true);
         assert_eq!(opened["leaseDurationMs"], 15_000);
+        assert_eq!(opened["record"]["name"], "Linked workspace");
         let revision = opened["record"]["revision"].as_u64().unwrap();
 
         let (status, duplicate) = request(
             state.clone(),
             Method::POST,
             "/api/workspaces/open",
-            json!({"id":id,"clientId":"observer"}),
+            json!({"id":id,"clientId":"observer","metadata":{"name":"Ignored"}}),
         )
         .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(duplicate["editable"], false);
+        assert_eq!(duplicate["record"]["name"], "Linked workspace");
 
         let (status, listed) = request(
             state.clone(),

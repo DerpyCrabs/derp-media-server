@@ -437,6 +437,7 @@ export function useWorkspaceRegistry(options: WorkspaceRegistryOptions) {
     initial: PersistedWorkspaceState,
     takeover: boolean,
     sequence: number,
+    initialMetadata?: { name?: string },
   ) {
     if (
       !id ||
@@ -464,6 +465,7 @@ export function useWorkspaceRegistry(options: WorkspaceRegistryOptions) {
           clientId,
           takeover,
           snapshot: toPersistentWorkspaceState(initial),
+          metadata: initialMetadata,
         }),
       )
       if (sequence !== activationSequence || id !== options.workspaceId() || tombstones.has(id)) {
@@ -493,10 +495,17 @@ export function useWorkspaceRegistry(options: WorkspaceRegistryOptions) {
     }
   }
 
-  function activate(id: string, initial: PersistedWorkspaceState, takeover = false) {
+  function activate(
+    id: string,
+    initial: PersistedWorkspaceState,
+    takeover = false,
+    initialMetadata?: { name?: string },
+  ) {
     if (id !== untrack(options.workspaceId)) return Promise.resolve(null)
     const sequence = ++activationSequence
-    return queueActivation(() => untrack(() => activateNow(id, initial, takeover, sequence)))
+    return queueActivation(() =>
+      untrack(() => activateNow(id, initial, takeover, sequence, initialMetadata)),
+    )
   }
 
   async function reconcileRemoteChange() {
