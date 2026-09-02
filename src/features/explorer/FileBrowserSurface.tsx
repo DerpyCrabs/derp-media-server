@@ -105,7 +105,7 @@ type FileBrowserViewProps = Readonly<{
 }>
 
 export function FileBrowserView(props: FileBrowserViewProps) {
-  const compact = () => props.layout === 'workspace'
+  const isWorkspace = () => props.layout === 'workspace'
   const parentPath = (path: string) => {
     const parts = path.split(/[/\\]/).filter(Boolean)
     return parts.length <= 1 ? '' : parts.slice(0, -1).join('/')
@@ -305,9 +305,9 @@ export function FileBrowserView(props: FileBrowserViewProps) {
   const onFolderDrop = props.controller.drag.onFolderDrop
 
   function parentAttributes<Element extends HTMLElement>(kind: 'grid' | 'list') {
-    const canDragParent = kind === 'list' || compact()
+    const canDragParent = kind === 'list' || isWorkspace()
     return {
-      ...(compact() ? { 'data-no-window-drag': '' } : {}),
+      ...(isWorkspace() ? { 'data-no-window-drag': '' } : {}),
       class: cn(props.controller.drag.dragOverPath() === '__parent__' ? 'bg-primary/20' : ''),
       onPointerEnter: props.rows.onParentPointerEnter,
       ...(canDragParent && canDropOnParent()
@@ -321,10 +321,10 @@ export function FileBrowserView(props: FileBrowserViewProps) {
   }
 
   function fileAttributes<Element extends HTMLElement>(file: FileItem, kind: 'grid' | 'list') {
-    const dragGrid = kind === 'grid' && compact()
-    const highlightGrid = compact() && kind === 'grid'
+    const dragGrid = kind === 'grid' && isWorkspace()
+    const highlightGrid = isWorkspace() && kind === 'grid'
     return {
-      ...(compact() ? { 'data-no-window-drag': '' } : {}),
+      ...(isWorkspace() ? { 'data-no-window-drag': '' } : {}),
       class: cn(
         props.rows.iconContext().playingPath === file.path ? 'bg-primary/10' : '',
         highlightGrid && file.isDirectory && props.controller.drag.dragOverPath() === file.path
@@ -377,8 +377,8 @@ export function FileBrowserView(props: FileBrowserViewProps) {
         <>
           <Show when={props.controller.inKb() && !!props.controller.currentPath()}>
             <KbDashboard
-              compact={compact()}
-              mode={compact() ? 'Workspace' : undefined}
+              compact={isWorkspace()}
+              mode={isWorkspace() ? 'Workspace' : undefined}
               scopePath={props.controller.currentPath()}
               onFileClick={props.host.openKnowledgeBaseResult}
               recentDragCanMove={props.host.recentDragCanMove}
@@ -461,35 +461,35 @@ export function FileBrowserView(props: FileBrowserViewProps) {
       ref={setRootElement}
       data-testid={props.layout === 'media' ? 'file-browser' : undefined}
       class={
-        compact()
+        isWorkspace()
           ? 'relative flex h-full min-h-0 flex-1 flex-col overflow-hidden'
           : 'flex min-h-0 flex-1 flex-col'
       }
-      tabindex={compact() ? undefined : 0}
+      tabindex={isWorkspace() ? undefined : 0}
       title={
-        !compact() && props.controller.editable() && props.controller.inKb()
+        !isWorkspace() && props.controller.editable() && props.controller.inKb()
           ? 'Focus here and paste (Ctrl+V) to create a file from the clipboard.'
           : undefined
       }
       onPaste={(event) => props.controller.paste.capture(event)}
     >
-      <div class={compact() ? undefined : 'container mx-auto lg:p-4'}>
+      <div class={isWorkspace() ? 'flex min-h-0 flex-1 flex-col' : 'container mx-auto lg:p-4'}>
         <div
           class={
-            compact()
-              ? undefined
+            isWorkspace()
+              ? 'flex min-h-0 flex-1 flex-col'
               : 'ring-foreground/10 bg-card text-card-foreground flex flex-col gap-0 overflow-hidden rounded-none py-0 text-sm shadow-xs ring-1 lg:rounded-xl'
           }
         >
           <div
-            data-no-window-drag={compact() ? '' : undefined}
+            data-no-window-drag={isWorkspace() ? '' : undefined}
             class={
-              compact()
+              isWorkspace()
                 ? 'relative flex h-9 shrink-0 items-center bg-muted/50 px-2 py-0'
                 : 'shrink-0 border-b border-border bg-muted/30 p-1.5 lg:p-2'
             }
           >
-            <Show when={compact()}>
+            <Show when={isWorkspace()}>
               <div
                 class='pointer-events-none absolute inset-x-0 bottom-0 h-px bg-border'
                 aria-hidden='true'
@@ -497,16 +497,16 @@ export function FileBrowserView(props: FileBrowserViewProps) {
             </Show>
             <div
               class={
-                compact()
+                isWorkspace()
                   ? 'flex w-full min-w-0 flex-wrap items-center justify-between gap-1'
                   : 'flex flex-wrap items-center justify-between w-full gap-1.5 lg:gap-2'
               }
             >
               <div
                 data-breadcrumb-slot
-                data-testid={compact() ? undefined : 'breadcrumb-slot'}
+                data-testid={isWorkspace() ? undefined : 'breadcrumb-slot'}
                 class={
-                  compact()
+                  isWorkspace()
                     ? 'relative flex min-h-0 min-w-0 max-w-full flex-1 overflow-hidden'
                     : 'relative flex min-h-0 min-w-0 flex-1 overflow-hidden'
                 }
@@ -514,14 +514,14 @@ export function FileBrowserView(props: FileBrowserViewProps) {
                 <Breadcrumbs
                   currentPath={props.controller.currentPath()}
                   onNavigate={props.host.navigateBreadcrumb}
-                  mode={compact() ? 'Workspace' : undefined}
+                  mode={isWorkspace() ? 'Workspace' : undefined}
                   onCrumbContextMenu={props.host.openBreadcrumbMenu}
                 />
               </div>
               <Show when={props.controller.inKb()}>
                 <div
                   class={
-                    compact()
+                    isWorkspace()
                       ? 'flex shrink-0 flex-wrap items-center justify-end gap-1 md:justify-start'
                       : 'order-last flex basis-full items-center justify-end md:order-0 md:basis-auto md:justify-start'
                   }
@@ -532,7 +532,7 @@ export function FileBrowserView(props: FileBrowserViewProps) {
                     title='Search note contents (Ctrl+K)'
                     aria-pressed={props.controller.search.open() ? 'true' : 'false'}
                     class={
-                      compact()
+                      isWorkspace()
                         ? `inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md outline-none transition-colors ${
                             props.controller.search.open()
                               ? 'bg-accent text-accent-foreground shadow-sm'
@@ -547,7 +547,7 @@ export function FileBrowserView(props: FileBrowserViewProps) {
                     onClick={() => props.controller.search.setOpen(!props.controller.search.open())}
                   >
                     <BookOpenText
-                      class={compact() ? 'h-3.5 w-3.5' : 'h-4 w-4'}
+                      class={isWorkspace() ? 'h-3.5 w-3.5' : 'h-4 w-4'}
                       aria-hidden='true'
                       stroke-width={2}
                     />
@@ -556,7 +556,7 @@ export function FileBrowserView(props: FileBrowserViewProps) {
               </Show>
               <div
                 class={
-                  compact()
+                  isWorkspace()
                     ? 'flex shrink-0 flex-wrap items-center justify-end gap-1 md:justify-start'
                     : 'flex items-center gap-1'
                 }
@@ -567,14 +567,14 @@ export function FileBrowserView(props: FileBrowserViewProps) {
                     title='Create new folder'
                     aria-label='New folder toolbar'
                     class={
-                      compact()
+                      isWorkspace()
                         ? 'inline-flex h-7 w-7 shrink-0 items-center justify-center text-sm font-medium transition-colors hover:bg-muted hover:text-foreground dark:hover:bg-input/50'
                         : 'inline-flex size-8 shrink-0 items-center justify-center rounded-md text-sm font-medium transition-colors hover:bg-muted hover:text-foreground dark:hover:bg-input/50'
                     }
                     onClick={() => props.toolbar.onCreateFolder()}
                   >
                     <FolderPlus
-                      class={compact() ? 'h-3.5 w-3.5' : 'h-4 w-4'}
+                      class={isWorkspace() ? 'h-3.5 w-3.5' : 'h-4 w-4'}
                       aria-hidden='true'
                       stroke-width={2}
                     />
@@ -584,20 +584,20 @@ export function FileBrowserView(props: FileBrowserViewProps) {
                     title='Create new file'
                     aria-label='New file toolbar'
                     class={
-                      compact()
+                      isWorkspace()
                         ? 'inline-flex h-7 w-7 shrink-0 items-center justify-center text-sm font-medium transition-colors hover:bg-muted hover:text-foreground dark:hover:bg-input/50'
                         : 'inline-flex size-8 shrink-0 items-center justify-center rounded-md text-sm font-medium transition-colors hover:bg-muted hover:text-foreground dark:hover:bg-input/50'
                     }
                     onClick={() => props.toolbar.onCreateFile()}
                   >
                     <FilePlus
-                      class={compact() ? 'h-3.5 w-3.5' : 'h-4 w-4'}
+                      class={isWorkspace() ? 'h-3.5 w-3.5' : 'h-4 w-4'}
                       aria-hidden='true'
                       stroke-width={2}
                     />
                   </button>
                   <UploadMenu
-                    compact={compact()}
+                    compact={isWorkspace()}
                     disabled={props.controller.upload.uploading()}
                     onUpload={(files) =>
                       void props.controller.upload.upload(files, props.controller.currentPath())
@@ -643,7 +643,7 @@ export function FileBrowserView(props: FileBrowserViewProps) {
                   sortingDisabled={
                     props.listing.sortingDisabled?.() ?? props.listing.isVirtualFolder()
                   }
-                  compact={compact()}
+                  compact={isWorkspace()}
                   viewMode={props.listing.viewMode()}
                   onSortChange={props.controller.displaySettings.setSortOrder}
                   onColumnsChange={props.controller.displaySettings.setFileColumns}
@@ -653,7 +653,7 @@ export function FileBrowserView(props: FileBrowserViewProps) {
             </div>
             <Show when={props.controller.inKb() && props.controller.search.open()}>
               <div
-                class={compact() ? 'shrink-0 border-b border-border bg-muted/20 p-2' : 'pt-1.5'}
+                class={isWorkspace() ? 'shrink-0 border-b border-border bg-muted/20 p-2' : 'pt-1.5'}
                 data-testid='kb-search-bar'
               >
                 <input
@@ -703,14 +703,14 @@ export function FileBrowserView(props: FileBrowserViewProps) {
           >
             <div
               class={
-                compact()
+                isWorkspace()
                   ? 'relative flex min-h-0 flex-1 flex-col overflow-hidden outline-none'
                   : 'relative flex flex-col'
               }
-              data-testid={compact() ? 'workspace-upload-drop-zone' : 'upload-drop-zone'}
-              tabindex={compact() ? 0 : undefined}
+              data-testid={isWorkspace() ? 'workspace-upload-drop-zone' : 'upload-drop-zone'}
+              tabindex={isWorkspace() ? 0 : undefined}
               title={
-                compact() && props.controller.editable() && props.controller.inKb()
+                isWorkspace() && props.controller.editable() && props.controller.inKb()
                   ? 'Focus this pane and paste (Ctrl+V) to create a file from the clipboard.'
                   : undefined
               }
@@ -731,7 +731,7 @@ export function FileBrowserView(props: FileBrowserViewProps) {
               {scrollableListing()}
               <Show when={props.controller.inline.visible()}>
                 <KbInlineCreateFooter
-                  noWindowDrag={compact()}
+                  noWindowDrag={isWorkspace()}
                   inlineMode={props.controller.inline.mode}
                   setInlineMode={props.controller.inline.setMode}
                   inlineName={props.controller.inline.name}

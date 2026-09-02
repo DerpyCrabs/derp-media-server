@@ -243,6 +243,33 @@ test.describe('Workspace File Browser', () => {
     expect(Math.abs(metrics.scrollBottom - metrics.dropZoneBottom)).toBeLessThanOrEqual(1)
   })
 
+  test('scrolls a workspace directory taller than its window', async () => {
+    await gotoWorkspace(page)
+    const content = getBrowserContent(page)
+    const table = content.locator('table')
+    await expect(table).toBeVisible()
+
+    const metrics = await table.evaluate((element) => {
+      const listContainer = element.parentElement
+      if (listContainer) listContainer.style.minHeight = '1200px'
+
+      let scrollHost: HTMLElement | null = listContainer
+      while (scrollHost && getComputedStyle(scrollHost).overflowY !== 'auto') {
+        scrollHost = scrollHost.parentElement
+      }
+      if (scrollHost) scrollHost.scrollTop = 400
+
+      return {
+        scrollTop: scrollHost?.scrollTop ?? 0,
+        scrollHeight: scrollHost?.scrollHeight ?? 0,
+        clientHeight: scrollHost?.clientHeight ?? 0,
+      }
+    })
+
+    expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight)
+    expect(metrics.scrollTop).toBeGreaterThan(0)
+  })
+
   test('unsupported files open in the shared workspace viewer', async () => {
     await gotoWorkspace(page)
     const content = getBrowserContent(page)
