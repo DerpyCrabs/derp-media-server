@@ -432,6 +432,15 @@ export function createPlaybackSession(options: CreatePlaybackSessionOptions): Pl
         }
         notify(false)
         return changed(command.generation)
+      case 'mediaVolume': {
+        if (stale(command.generation)) return reject('staleSource')
+        const volume = Math.min(1, finiteAtLeast(command.volume, 0, 1))
+        if (state.volume === volume && state.muted === command.muted) return unchanged()
+        state.volume = volume
+        state.muted = command.muted
+        notify()
+        return changed(command.generation)
+      }
       case 'mediaDuration':
         if (stale(command.generation)) return reject('staleSource')
         state.duration = finiteAtLeast(command.duration, 0)

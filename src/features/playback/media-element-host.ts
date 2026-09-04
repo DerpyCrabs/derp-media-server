@@ -10,6 +10,7 @@ export type PlaybackMediaEvent =
   | 'pause'
   | 'seeking'
   | 'seeked'
+  | 'volumechange'
   | 'ended'
   | 'error'
 
@@ -50,6 +51,7 @@ type Attachment = {
   nativePausePending: boolean
   playPending: boolean
   hasStarted: boolean
+  lastMediaPosition: number
   listeners: ReadonlyArray<readonly [PlaybackMediaEvent, EventListener]>
 }
 
@@ -70,6 +72,7 @@ function sameUrl(left: string, right: string): boolean {
 
 export function createMediaElementHost(session: PlaybackSession): MediaElementHost {
   let active: Attachment | null = null
+  const inactive = new Set<Attachment>()
   let disposed = false
 
   function sourceMatches(attachment: Attachment): boolean {
@@ -94,6 +97,7 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
     attachment.nativePausePending = false
     attachment.playPending = false
     attachment.hasStarted = false
+    attachment.lastMediaPosition = 0
     withSuppressedEvents(attachment, () => {
       if (!attachment.element.paused) attachment.element.pause()
       if (attachment.element.src || attachment.element.currentSrc) {
@@ -107,11 +111,29 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
     if (attachment.playPending || !attachment.element.paused) return
     attachment.playPending = true
     try {
-      void attachment.element.play().then(undefined, () => {
-        if (active === attachment) attachment.playPending = false
-      })
-    } catch {
+      void attachment.element.play().then(
+        () => {
+          if (active === attachment) attachment.playPending = false
+        },
+        (error: unknown) => {
+          if (active !== attachment || !sourceMatches(attachment)) return
+          attachment.playPending = false
+          session.dispatch({
+            type: 'mediaError',
+            generation: attachment.generation,
+            message: error instanceof Error ? error.message : 'Playback failed.',
+          })
+        },
+      )
+    } catch (error) {
       attachment.playPending = false
+      if (active === attachment && sourceMatches(attachment)) {
+        session.dispatch({
+          type: 'mediaError',
+          generation: attachment.generation,
+          message: error instanceof Error ? error.message : 'Playback failed.',
+        })
+      }
     }
   }
 
@@ -139,6 +161,7 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
         attachment.nativePausePending = false
         attachment.playPending = false
         attachment.hasStarted = false
+        attachment.lastMediaPosition = snapshot.position
         element.src = source.url
         element.load()
         if (snapshot.position > 0) {
@@ -147,9 +170,13 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
           } catch {}
         }
       })
-    } else if (Math.abs(element.currentTime - snapshot.position) > 0.75) {
+    } else if (
+      Math.abs(snapshot.position - attachment.lastMediaPosition) > 0.01 &&
+      Math.abs(element.currentTime - snapshot.position) > 0.75
+    ) {
       try {
         element.currentTime = snapshot.position
+        attachment.lastMediaPosition = snapshot.position
       } catch {}
     }
 
@@ -163,6 +190,7 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
 
   function capturePosition(attachment: Attachment) {
     if (!sourceMatches(attachment)) return
+    attachment.lastMediaPosition = attachment.element.currentTime
     const duration = finiteDuration(attachment.element)
     session.dispatch({
       type: 'mediaTime',
@@ -172,12 +200,15 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
     })
   }
 
-  function removeAttachment(attachment: Attachment) {
+  function removeAttachment(attachment: Attachment, clear = true) {
     capturePosition(attachment)
+    if (!clear && !attachment.element.paused) {
+      withSuppressedEvents(attachment, () => attachment.element.pause())
+    }
     for (const [type, listener] of attachment.listeners) {
       attachment.element.removeEventListener(type, listener)
     }
-    clearElement(attachment)
+    if (clear) clearElement(attachment)
     session.dispatch({ type: 'checkpoint' })
   }
 
@@ -190,7 +221,12 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
 
   function attach(element: PlaybackMediaElement, mode: PlaybackMode): () => void {
     if (disposed) return () => undefined
-    detach()
+    const previous = active
+    if (previous) {
+      active = null
+      removeAttachment(previous, false)
+      inactive.add(previous)
+    }
     const token = Symbol('playback-media-element')
     const attachment: Attachment = {
       element,
@@ -205,6 +241,7 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
       nativePausePending: false,
       playPending: false,
       hasStarted: false,
+      lastMediaPosition: 0,
       listeners: [],
     }
 
@@ -220,6 +257,7 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
       if (snapshot.position > 0 && Math.abs(element.currentTime - snapshot.position) > 0.01) {
         try {
           element.currentTime = snapshot.position
+          attachment.lastMediaPosition = snapshot.position
         } catch {}
       }
       const duration = finiteDuration(element)
@@ -241,13 +279,7 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
     }
     const onTimeUpdate: EventListener = () => {
       if (!validEvent()) return
-      const duration = finiteDuration(element)
-      session.dispatch({
-        type: 'mediaTime',
-        generation: attachment.generation,
-        position: element.currentTime,
-        ...(duration === undefined ? {} : { duration }),
-      })
+      capturePosition(attachment)
     }
     const onPlay: EventListener = () => {
       if (!validEvent()) return
@@ -263,6 +295,7 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
         if (!element.paused) {
           withSuppressedEvents(attachment, () => element.pause())
         }
+        attachment.playPending = false
         return
       }
       attachment.nativePausePending = false
@@ -276,6 +309,7 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
     }
     const onSeeking: EventListener = () => {
       if (!validEvent()) return
+      capturePosition(attachment)
       attachment.seeking = true
       const state = session.getSnapshot()
       attachment.resumeAfterSeek =
@@ -284,6 +318,7 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
     }
     const onSeeked: EventListener = () => {
       if (!validEvent()) return
+      capturePosition(attachment)
       const shouldResume = attachment.resumeAfterSeek
       attachment.seeking = false
       attachment.resumeAfterSeek = false
@@ -291,11 +326,21 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
         play(attachment)
       }
     }
+    const onVolumeChange: EventListener = () => {
+      if (!validEvent()) return
+      session.dispatch({
+        type: 'mediaVolume',
+        generation: attachment.generation,
+        volume: element.volume,
+        muted: element.muted,
+      })
+    }
     const onPause: EventListener = () => {
       if (!validEvent()) return
       const playPending = attachment.playPending
       attachment.playPending = false
       const state = session.getSnapshot()
+      if (!attachment.hasStarted && playPending && state.desiredPlaying) return
       if (element.seeking && state.desiredPlaying && attachment.hasStarted) {
         attachment.seeking = true
         attachment.resumeAfterSeek = true
@@ -349,6 +394,7 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
       ['pause', onPause],
       ['seeking', onSeeking],
       ['seeked', onSeeked],
+      ['volumechange', onVolumeChange],
       ['ended', onEnded],
       ['error', onError],
     ]
@@ -358,7 +404,11 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
     sync()
 
     return () => {
-      if (active?.token === token) detach()
+      if (active?.token === token) {
+        detach()
+      } else if (inactive.delete(attachment)) {
+        clearElement(attachment)
+      }
     }
   }
 
@@ -369,6 +419,8 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
     dispose() {
       if (disposed) return
       detach()
+      for (const attachment of inactive) clearElement(attachment)
+      inactive.clear()
       disposed = true
       unsubscribe()
     },

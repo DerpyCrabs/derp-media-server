@@ -160,6 +160,7 @@ pub(crate) async fn run() {
         hermes,
         hermes_project_operations: Mutex::new(()),
         file_mutations: Mutex::new(()),
+        audio_extracts: Mutex::new(()),
         hermes_runtime_ids: Mutex::new(HashMap::new()),
         hermes_active_ids: Mutex::new(HashSet::new()),
     });

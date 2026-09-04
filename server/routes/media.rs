@@ -21,6 +21,7 @@ use lofty::{
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use std::{path::Path as FsPath, time::UNIX_EPOCH};
 use tokio::{
     fs,
@@ -127,7 +128,7 @@ fn not_modified(headers: &HeaderMap, etag: &str) -> bool {
         .is_some_and(|value| value.split(',').any(|candidate| candidate.trim() == etag))
 }
 
-fn image_not_modified(etag: &str) -> Response {
+fn not_modified_response(etag: &str) -> Response {
     let mut response = Response::new(Body::empty());
     *response.status_mut() = StatusCode::NOT_MODIFIED;
     let headers = response.headers_mut();
@@ -163,7 +164,7 @@ pub(crate) async fn image_path(
         .await
     {
         if not_modified(headers, &variant.etag) {
-            return Ok(image_not_modified(&variant.etag));
+            return Ok(not_modified_response(&variant.etag));
         }
         let mut response = Response::new(Body::from(variant.data));
         let values = response.headers_mut();
@@ -176,7 +177,7 @@ pub(crate) async fn image_path(
         return Ok(response);
     }
     if not_modified(headers, &source_etag) {
-        return Ok(image_not_modified(&source_etag));
+        return Ok(not_modified_response(&source_etag));
     }
     let mut response = media_path(state, logical, headers).await?;
     let values = response.headers_mut();
@@ -314,24 +315,53 @@ pub(crate) fn parse_byte_range(headers: &HeaderMap, size: u64) -> AppResult<Opti
     Ok(Some((start, end)))
 }
 
-pub(crate) async fn extract_audio_path(full: &FsPath, headers: &HeaderMap) -> AppResult<Response> {
-    let extension = full
-        .extension()
+fn cache_etag(metadata: &std::fs::Metadata) -> String {
+    let modified = metadata
+        .modified()
+        .unwrap_or(UNIX_EPOCH)
+        .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
-        .to_string_lossy()
-        .to_ascii_lowercase();
-    if media::media_type(&extension) != "video" {
-        return Err(AppError::bad("Not a video file"));
+        .as_nanos();
+    format!("\"m{modified}-s{}\"", metadata.len())
+}
+
+fn audio_extract_cache_path(
+    data_path: &FsPath,
+    full: &FsPath,
+    metadata: &std::fs::Metadata,
+) -> std::path::PathBuf {
+    let canonical = std::fs::canonicalize(full).unwrap_or_else(|_| full.to_owned());
+    let digest = Sha256::digest(canonical.to_string_lossy().as_bytes());
+    let source_hash = digest[..12]
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    let modified = metadata
+        .modified()
+        .unwrap_or(UNIX_EPOCH)
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    data_path.join("audio-extracts").join(format!(
+        "{source_hash}-m{modified}-s{}-opus-v1.webm",
+        metadata.len()
+    ))
+}
+
+async fn ensure_audio_extract<F>(cache: &FsPath, command: F) -> AppResult<()>
+where
+    F: FnOnce(&FsPath) -> Command,
+{
+    if fs::metadata(cache).await.is_ok() {
+        return Ok(());
     }
-    let mut command = Command::new("ffmpeg");
-    command
-        .arg("-i")
-        .arg(full)
-        .args([
-            "-vn", "-c:a", "libopus", "-b:a", "128k", "-f", "webm", "pipe:1",
-        ])
-        .kill_on_drop(true);
-    let output = command.output().await.map_err(|error| {
+    let parent = cache
+        .parent()
+        .ok_or_else(|| AppError::internal("Invalid audio cache path"))?;
+    fs::create_dir_all(parent).await.map_err(AppError::io)?;
+    let temporary = cache.with_extension(format!("{}.tmp", uuid::Uuid::new_v4()));
+    let mut command = command(&temporary);
+    let status = command.status().await.map_err(|error| {
         if error.kind() == std::io::ErrorKind::NotFound {
             AppError(
                 StatusCode::NOT_IMPLEMENTED,
@@ -341,85 +371,30 @@ pub(crate) async fn extract_audio_path(full: &FsPath, headers: &HeaderMap) -> Ap
             AppError::io(error)
         }
     })?;
-    if !output.status.success() {
+    if !status.success() {
+        let _ = fs::remove_file(&temporary).await;
         return Err(AppError::internal("Audio extraction failed"));
     }
-    let size = output.stdout.len();
-    if size == 0 {
-        if headers.contains_key(header::RANGE) {
-            return Err(AppError(
-                StatusCode::RANGE_NOT_SATISFIABLE,
-                "Invalid range".into(),
-            ));
-        }
-        let mut response = Response::new(Body::empty());
-        let values = response.headers_mut();
-        values.insert(header::CONTENT_TYPE, HeaderValue::from_static("audio/webm"));
-        values.insert(
-            header::CACHE_CONTROL,
-            HeaderValue::from_static("public, max-age=3600"),
-        );
-        values.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
-        values.insert(header::CONTENT_LENGTH, HeaderValue::from_static("0"));
-        return Ok(response);
+    let metadata = fs::metadata(&temporary).await.map_err(AppError::io)?;
+    if metadata.len() == 0 {
+        let _ = fs::remove_file(&temporary).await;
+        return Err(AppError::internal("Audio extraction produced no audio"));
     }
-    let (start, end, partial) = parse_byte_range(headers, size as u64)?
-        .map(|(start, end)| (start as usize, end as usize, true))
-        .unwrap_or((0, size.saturating_sub(1), false));
-    let mut response = Response::new(Body::from(output.stdout[start..=end].to_vec()));
-    *response.status_mut() = if partial {
-        StatusCode::PARTIAL_CONTENT
-    } else {
-        StatusCode::OK
-    };
-    let values = response.headers_mut();
-    values.insert(header::CONTENT_TYPE, HeaderValue::from_static("audio/webm"));
-    values.insert(
-        header::CACHE_CONTROL,
-        HeaderValue::from_static("public, max-age=3600"),
-    );
-    values.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
-    values.insert(
-        header::CONTENT_LENGTH,
-        HeaderValue::from_str(&(end - start + 1).to_string()).unwrap(),
-    );
-    if partial {
-        values.insert(
-            header::CONTENT_RANGE,
-            HeaderValue::from_str(&format!("bytes {start}-{end}/{size}")).unwrap(),
-        );
-    }
-    Ok(response)
+    fs::rename(&temporary, cache).await.map_err(AppError::io)
 }
 
-async fn extract_audio(
-    State(state): State<Shared>,
-    Path(path): Path<String>,
-    headers: HeaderMap,
-) -> AppResult<Response> {
-    let full = media::resolve(&state.config, &path)?.full;
-    if !full.exists() {
-        return Err(AppError::not_found("File not found"));
-    }
-    if !full.is_file() {
-        return Err(AppError::bad("Not a file"));
-    }
-    extract_audio_path(&full, &headers).await
-}
-
-pub(crate) async fn media_path(
-    state: &AppState,
-    logical: &str,
+async fn ranged_file_response(
+    full: &FsPath,
+    mime: &'static str,
     headers: &HeaderMap,
+    cache_control: &'static str,
+    etag: &str,
 ) -> AppResult<Response> {
-    let resolved = media::resolve(&state.config, logical)?;
-    let metadata = fs::metadata(&resolved.full).await.map_err(AppError::io)?;
-    if !metadata.is_file() {
-        return Err(AppError::bad("Not a file"));
+    if not_modified(headers, etag) {
+        return Ok(not_modified_response(etag));
     }
+    let metadata = fs::metadata(full).await.map_err(AppError::io)?;
     let size = metadata.len();
-    let extension = media::extension(&resolved.full);
-    let mime = media::mime_type(&extension);
     if size == 0 {
         if headers.contains_key(header::RANGE) {
             return Err(AppError(
@@ -434,22 +409,15 @@ pub(crate) async fn media_path(
         values.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
         values.insert(
             header::CACHE_CONTROL,
-            HeaderValue::from_static(
-                if media::media_type(&extension) == "text"
-                    || media::editable(&state.config, logical)
-                {
-                    "no-cache, no-store, must-revalidate"
-                } else {
-                    "public, max-age=31536000"
-                },
-            ),
+            HeaderValue::from_static(cache_control),
         );
+        values.insert(header::ETAG, HeaderValue::from_str(etag).unwrap());
         return Ok(response);
     }
     let (start, end, partial) = parse_byte_range(headers, size)?
         .map(|(start, end)| (start, end, true))
-        .unwrap_or((0, size.saturating_sub(1), false));
-    let mut file = fs::File::open(&resolved.full).await.map_err(AppError::io)?;
+        .unwrap_or((0, size - 1, false));
+    let mut file = fs::File::open(full).await.map_err(AppError::io)?;
     file.seek(std::io::SeekFrom::Start(start))
         .await
         .map_err(AppError::io)?;
@@ -467,23 +435,152 @@ pub(crate) async fn media_path(
         HeaderValue::from_str(&(end - start + 1).to_string()).unwrap(),
     );
     values.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
+    values.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static(cache_control),
+    );
+    values.insert(header::ETAG, HeaderValue::from_str(etag).unwrap());
     if partial {
         values.insert(
             header::CONTENT_RANGE,
             HeaderValue::from_str(&format!("bytes {start}-{end}/{size}")).unwrap(),
         );
     }
-    values.insert(
-        header::CACHE_CONTROL,
-        HeaderValue::from_static(
-            if media::media_type(&extension) == "text" || media::editable(&state.config, logical) {
-                "no-cache, no-store, must-revalidate"
-            } else {
-                "public, max-age=31536000"
-            },
-        ),
-    );
     Ok(response)
+}
+
+pub(crate) async fn extract_audio_path(
+    state: &AppState,
+    full: &FsPath,
+    headers: &HeaderMap,
+) -> AppResult<Response> {
+    let extension = full
+        .extension()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_ascii_lowercase();
+    if media::media_type(&extension) != "video" {
+        return Err(AppError::bad("Not a video file"));
+    }
+    let metadata = fs::metadata(full).await.map_err(AppError::io)?;
+    let cache = audio_extract_cache_path(&state.config.data_path, full, &metadata);
+    let _guard = state.audio_extracts.lock().await;
+    ensure_audio_extract(&cache, |temporary| {
+        let mut command = Command::new("ffmpeg");
+        command
+            .args(["-hide_banner", "-loglevel", "error"])
+            .arg("-i")
+            .arg(full)
+            .args(["-map", "0:a:0", "-vn", "-c:a", "libopus", "-b:a", "128k"])
+            .arg("-f")
+            .arg("webm")
+            .arg(temporary)
+            .kill_on_drop(true);
+        command
+    })
+    .await?;
+    drop(_guard);
+    let cache_metadata = fs::metadata(&cache).await.map_err(AppError::io)?;
+    ranged_file_response(
+        &cache,
+        "audio/webm",
+        headers,
+        "private, no-cache",
+        &cache_etag(&cache_metadata),
+    )
+    .await
+}
+
+#[cfg(test)]
+mod playback_regression_tests {
+    use super::*;
+    use std::{
+        sync::atomic::{AtomicBool, Ordering},
+        time::Duration,
+    };
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn cached_audio_range_does_not_run_the_transcoder_again() {
+        let directory = std::env::temp_dir().join(format!("derp-audio-{}", uuid::Uuid::new_v4()));
+        let cache = directory.join("cached.webm");
+        fs::create_dir_all(&directory).await.unwrap();
+        fs::write(&cache, b"cached audio").await.unwrap();
+        let invoked = AtomicBool::new(false);
+
+        tokio::time::timeout(
+            Duration::from_millis(100),
+            ensure_audio_extract(&cache, |_| {
+                invoked.store(true, Ordering::SeqCst);
+                let mut command = Command::new("sh");
+                command.args(["-c", "sleep 1"]);
+                command
+            }),
+        )
+        .await
+        .expect("cached audio waited for the transcoder")
+        .unwrap();
+
+        assert!(!invoked.load(Ordering::SeqCst));
+        let mut headers = HeaderMap::new();
+        headers.insert(header::RANGE, HeaderValue::from_static("bytes=0-0"));
+        let metadata = fs::metadata(&cache).await.unwrap();
+        let response = ranged_file_response(
+            &cache,
+            "audio/webm",
+            &headers,
+            "private, no-cache",
+            &cache_etag(&metadata),
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(response.headers()[header::CONTENT_RANGE], "bytes 0-0/12");
+        let _ = fs::remove_dir_all(directory).await;
+    }
+}
+
+async fn extract_audio(
+    State(state): State<Shared>,
+    Path(path): Path<String>,
+    headers: HeaderMap,
+) -> AppResult<Response> {
+    let full = media::resolve(&state.config, &path)?.full;
+    if !full.exists() {
+        return Err(AppError::not_found("File not found"));
+    }
+    if !full.is_file() {
+        return Err(AppError::bad("Not a file"));
+    }
+    extract_audio_path(&state, &full, &headers).await
+}
+
+pub(crate) async fn media_path(
+    state: &AppState,
+    logical: &str,
+    headers: &HeaderMap,
+) -> AppResult<Response> {
+    let resolved = media::resolve(&state.config, logical)?;
+    let metadata = fs::metadata(&resolved.full).await.map_err(AppError::io)?;
+    if !metadata.is_file() {
+        return Err(AppError::bad("Not a file"));
+    }
+    let extension = media::extension(&resolved.full);
+    let mime = media::mime_type(&extension);
+    let cache_control =
+        if media::media_type(&extension) == "text" || media::editable(&state.config, logical) {
+            "no-cache, no-store, must-revalidate"
+        } else {
+            "private, no-cache"
+        };
+    ranged_file_response(
+        &resolved.full,
+        mime,
+        headers,
+        cache_control,
+        &cache_etag(&metadata),
+    )
+    .await
 }
 
 async fn media_file(

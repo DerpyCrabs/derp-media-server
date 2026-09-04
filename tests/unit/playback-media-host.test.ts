@@ -26,6 +26,8 @@ class FakeMediaElement {
   volume = 1
   muted = false
   error: { code: number } | null = null
+  rejectPlay = false
+  deferPlay = false
   playCalls = 0
   pauseCalls = 0
   loadCalls = 0
@@ -46,6 +48,8 @@ class FakeMediaElement {
 
   play() {
     this.playCalls += 1
+    if (this.rejectPlay) return Promise.reject(new Error('play rejected'))
+    if (this.deferPlay) return new Promise<void>(() => undefined)
     if (this.paused) {
       this.paused = false
       this.emit('play')
@@ -191,6 +195,20 @@ describe('PlaybackMediaHost', () => {
     host.dispose()
   })
 
+  test('ignores a load pause while the first play request is pending', () => {
+    const session = createPlaybackSession({ sourceResolver: { resolve: resolver } })
+    const host = createMediaElementHost(session)
+    const media = new FakeMediaElement()
+    media.deferPlay = true
+
+    session.dispatch({ type: 'load', item: item('loading'), autoplay: true })
+    attach(host, media, 'audio')
+    media.emit('pause')
+
+    expect(session.getSnapshot().desiredPlaying).toBe(true)
+    host.dispose()
+  })
+
   test('allows native video playback to resume after a native pause', async () => {
     const session = createPlaybackSession({ sourceResolver: { resolve: resolver } })
     const host = createMediaElementHost(session)
@@ -214,7 +232,7 @@ describe('PlaybackMediaHost', () => {
     host.dispose()
   })
 
-  test('keeps playing through a native seek pause', () => {
+  test('preserves the requested position through a native seek pause', () => {
     const session = createPlaybackSession({ sourceResolver: { resolve: resolver } })
     const host = createMediaElementHost(session)
     const media = new FakeMediaElement()
@@ -230,7 +248,69 @@ describe('PlaybackMediaHost', () => {
     media.emit('seeked')
 
     expect(media.paused).toBe(false)
+    expect(media.currentTime).toBe(60)
+    expect(session.getSnapshot().position).toBe(60)
     expect(session.getSnapshot()).toMatchObject({ desiredPlaying: true, phase: 'playing' })
+    host.dispose()
+  })
+
+  test('allows play to be retried after the media element rejects it', async () => {
+    const session = createPlaybackSession({ sourceResolver: { resolve: resolver } })
+    const host = createMediaElementHost(session)
+    const media = new FakeMediaElement()
+
+    session.dispatch({ type: 'load', item: item('rejected-play'), autoplay: false })
+    attach(host, media, 'audio')
+    media.ready(100)
+    media.rejectPlay = true
+    session.dispatch({ type: 'play' })
+    await Promise.resolve()
+    await Promise.resolve()
+
+    media.rejectPlay = false
+    session.dispatch({ type: 'play' })
+
+    expect(media.playCalls).toBe(2)
+    expect(media.paused).toBe(false)
+    host.dispose()
+  })
+
+  test('keeps native video volume and mute changes in session state', () => {
+    const session = createPlaybackSession({ sourceResolver: { resolve: resolver } })
+    const host = createMediaElementHost(session)
+    const media = new FakeMediaElement()
+
+    session.dispatch({ type: 'load', item: item('volume', 'video'), autoplay: true, mode: 'video' })
+    attach(host, media, 'video')
+    media.ready(100)
+    media.volume = 0.25
+    media.muted = true
+    media.emit('volumechange')
+
+    expect(session.getSnapshot()).toMatchObject({ volume: 0.25, muted: true })
+    media.tick(1)
+    expect(media).toMatchObject({ volume: 0.25, muted: true })
+    host.dispose()
+  })
+
+  test('does not clear an existing video when a duplicate pane attaches', () => {
+    const session = createPlaybackSession({ sourceResolver: { resolve: resolver } })
+    const host = createMediaElementHost(session)
+    const first = new FakeMediaElement()
+    const second = new FakeMediaElement()
+
+    session.dispatch({
+      type: 'load',
+      item: item('duplicate', 'video'),
+      autoplay: false,
+      mode: 'video',
+    })
+    attach(host, first, 'video')
+    first.ready(100)
+    attach(host, second, 'video')
+
+    expect(first.currentSrc).toBe('/video/duplicate.mp4')
+    expect(second.currentSrc).toBe('/video/duplicate.mp4')
     host.dispose()
   })
 

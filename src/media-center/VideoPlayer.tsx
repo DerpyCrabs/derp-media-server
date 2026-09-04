@@ -86,6 +86,7 @@ export function VideoPlayer() {
     if (!currentItem()) return
     checkpointVideo()
     session.dispatch({ type: 'setMode', mode: 'audio' })
+    session.dispatch({ type: 'play' })
     setAudioOnly(true)
   }
 

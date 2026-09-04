@@ -42,11 +42,11 @@ export function buildImageConfigUrl(): string {
 }
 
 export function buildAudioExtractUrl(filePath: string): string {
-  return `/api/audio/extract/${filePath}`
+  return `/api/audio/extract/${encodeSegments(filePath)}`
 }
 
 export function buildAudioMetadataUrl(filePath: string): string {
-  return `/api/audio/metadata/${filePath}`
+  return `/api/audio/metadata/${encodeSegments(filePath)}`
 }
 
 export function buildThumbnailUrl(filePath: string, version?: number): string {

@@ -38,6 +38,7 @@ pub(crate) struct AppState {
     pub hermes: Option<Arc<dyn crate::hermes::HermesTransport>>,
     pub hermes_project_operations: Mutex<()>,
     pub file_mutations: Mutex<()>,
+    pub audio_extracts: Mutex<()>,
     pub hermes_runtime_ids: Mutex<HashMap<String, String>>,
     pub hermes_active_ids: Mutex<HashSet<String>>,
 }

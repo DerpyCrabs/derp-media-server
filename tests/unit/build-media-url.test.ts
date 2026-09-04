@@ -22,6 +22,15 @@ describe('media URLs', () => {
     expect(buildAudioExtractUrl('Video/clip.mp4')).toBe('/api/audio/extract/Video/clip.mp4')
   })
 
+  test('encodes reserved characters in audio endpoint paths', () => {
+    expect(buildAudioMetadataUrl('Audio/100% #1?.mp3')).toBe(
+      '/api/audio/metadata/Audio/100%25%20%231%3F.mp3',
+    )
+    expect(buildAudioExtractUrl('Video/100% #1?.mp4')).toBe(
+      '/api/audio/extract/Video/100%25%20%231%3F.mp4',
+    )
+  })
+
   test('builds responsive image requests', () => {
     expect(
       buildImageUrl('Images/photo.jpg', {

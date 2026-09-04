@@ -71,6 +71,12 @@ export type PlaybackCommand =
   | Readonly<{ type: 'refreshSource' }>
   | Readonly<{ type: 'seek'; position: number }>
   | Readonly<{ type: 'mediaTime'; generation: number; position: number; duration?: number }>
+  | Readonly<{
+      type: 'mediaVolume'
+      generation: number
+      volume: number
+      muted: boolean
+    }>
   | Readonly<{ type: 'mediaDuration'; generation: number; duration: number }>
   | Readonly<{
       type: 'mediaReady' | 'mediaPlay' | 'mediaPause' | 'mediaEnded'
