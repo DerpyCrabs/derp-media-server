@@ -18,7 +18,7 @@ export function MediaCenterPage() {
       <div
         class={cn(
           audioPlayerVisible() &&
-            'max-[649px]:pb-[calc(2.875rem+env(safe-area-inset-bottom,0px))] min-[650px]:pb-12',
+            'max-[649px]:pb-[calc(3.125rem+env(safe-area-inset-bottom,0px))] min-[650px]:pb-[calc(4.5625rem+env(safe-area-inset-bottom,0px))]',
         )}
         data-testid='media-chrome-pad-root'
       >

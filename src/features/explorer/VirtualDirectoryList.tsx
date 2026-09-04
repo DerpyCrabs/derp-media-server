@@ -6,6 +6,15 @@ import { createEffect, createSignal, For, onSettled, Show, untrack } from 'solid
 import { registerVirtualFileScroller } from './virtual-directory-scroll'
 
 const VIRTUALIZE_THRESHOLD = 100
+const MOBILE_ROW_HEIGHT_PX = 53
+const DESKTOP_ROW_HEIGHT_PX = 37
+
+function defaultRowHeight() {
+  if (typeof window === 'undefined') return 48
+  return window.matchMedia('(min-width: 640px)').matches
+    ? DESKTOP_ROW_HEIGHT_PX
+    : MOBILE_ROW_HEIGHT_PX
+}
 
 type ScrollTarget =
   | { kind: 'window' }
@@ -70,8 +79,7 @@ function makeVirtualizer(
       return accessors.count()
     },
     get estimateSize() {
-      const size = props.estimateSize ?? 48
-      return () => size
+      return () => props.estimateSize ?? defaultRowHeight()
     },
     getItemKey,
     overscan: props.overscan ?? 12,

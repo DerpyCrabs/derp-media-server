@@ -14,7 +14,15 @@ test.describe('Audio Player', () => {
 
   test('reserves bottom space for the fixed audio bar', async ({ page }) => {
     await page.goto(`/?dir=${MUSIC_DIR}&playing=${encodeURIComponent(AUDIO_FILE)}`)
-    await expect(page.getByTestId('media-chrome-pad-root')).toHaveClass(/pb-12/)
+    const [paddingBottom, playerHeight] = await Promise.all([
+      page
+        .getByTestId('media-chrome-pad-root')
+        .evaluate((element) => Number.parseFloat(getComputedStyle(element).paddingBottom)),
+      page
+        .getByTestId('audio-player-chrome')
+        .evaluate((element) => element.getBoundingClientRect().height),
+    ])
+    expect(paddingBottom).toBeGreaterThanOrEqual(playerHeight)
   })
 
   test('shows play/pause controls', async ({ page }) => {

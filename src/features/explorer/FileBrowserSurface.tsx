@@ -400,7 +400,9 @@ export function FileBrowserView(props: FileBrowserViewProps) {
                 gridContainerClass: 'p-2 max-sm:p-4',
                 listContainerClass: 'max-sm:py-2',
                 gridClass: 'gap-4',
-                listClass: 'relative w-full overflow-x-auto overflow-y-hidden',
+                listClass: isWorkspace()
+                  ? 'relative w-full'
+                  : 'relative w-full overflow-x-auto overflow-y-hidden',
                 listSizeColumnClass: 'w-28',
               }}
               rows={{
