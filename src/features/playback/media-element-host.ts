@@ -19,6 +19,7 @@ export interface PlaybackMediaElement {
   currentTime: number
   readonly duration: number
   readonly paused: boolean
+  readonly seeking: boolean
   volume: number
   muted: boolean
   readonly error: { readonly code: number } | null
@@ -277,7 +278,9 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
       if (!validEvent()) return
       attachment.seeking = true
       const state = session.getSnapshot()
-      attachment.resumeAfterSeek = state.desiredPlaying && attachment.hasStarted && !element.paused
+      attachment.resumeAfterSeek =
+        attachment.resumeAfterSeek ||
+        (state.desiredPlaying && attachment.hasStarted && (!element.paused || element.seeking))
     }
     const onSeeked: EventListener = () => {
       if (!validEvent()) return
@@ -290,10 +293,17 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
     }
     const onPause: EventListener = () => {
       if (!validEvent()) return
+      const playPending = attachment.playPending
+      attachment.playPending = false
       const state = session.getSnapshot()
+      if (element.seeking && state.desiredPlaying && attachment.hasStarted) {
+        attachment.seeking = true
+        attachment.resumeAfterSeek = true
+        return
+      }
       if (
         attachment.seeking &&
-        (attachment.resumeAfterSeek || attachment.playPending || !attachment.hasStarted)
+        (attachment.resumeAfterSeek || playPending || !attachment.hasStarted)
       ) {
         return
       }

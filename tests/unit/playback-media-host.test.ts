@@ -22,6 +22,7 @@ class FakeMediaElement {
   currentTime = 0
   duration = Number.NaN
   paused = true
+  seeking = false
   volume = 1
   muted = false
   error: { code: number } | null = null
@@ -74,6 +75,8 @@ class FakeMediaElement {
   }
 
   emit(type: string) {
+    if (type === 'seeking') this.seeking = true
+    if (type === 'seeked') this.seeking = false
     for (const listener of [...(this.listeners.get(type) ?? [])]) {
       listener.call(this, new Event(type))
     }
@@ -224,6 +227,34 @@ describe('PlaybackMediaHost', () => {
     media.emit('seeking')
     media.pause()
     media.currentTime = 60
+    media.emit('seeked')
+
+    expect(media.paused).toBe(false)
+    expect(session.getSnapshot()).toMatchObject({ desiredPlaying: true, phase: 'playing' })
+    host.dispose()
+  })
+
+  test('resumes when a seek pause event arrives before seeking', () => {
+    const session = createPlaybackSession({ sourceResolver: { resolve: resolver } })
+    const host = createMediaElementHost(session)
+    const media = new FakeMediaElement()
+
+    session.dispatch({
+      type: 'load',
+      item: item('early-pause', 'video'),
+      autoplay: true,
+      mode: 'video',
+    })
+    attach(host, media, 'video')
+    media.ready(100)
+    expect(media.paused).toBe(false)
+
+    media.seeking = true
+    media.pause()
+    media.emit('seeking')
+    media.currentTime = 60
+    media.emit('play')
+    media.emit('pause')
     media.emit('seeked')
 
     expect(media.paused).toBe(false)

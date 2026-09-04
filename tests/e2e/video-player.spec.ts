@@ -80,34 +80,13 @@ test.describe('Video Player', () => {
       },
       { timeout: 15_000 },
     )
-    const targetTime = 0.5
-    await video.evaluate(
-      (element: HTMLVideoElement, time) =>
-        new Promise<void>((resolve) => {
-          element.addEventListener(
-            'pause',
-            () => {
-              element.currentTime = time
-              element.dispatchEvent(new Event('seeked'))
-              resolve()
-            },
-            { once: true },
-          )
-          element.dispatchEvent(new Event('seeking'))
-          element.pause()
-        }),
-      targetTime,
-    )
+    const initialTime = await video.evaluate((element: HTMLVideoElement) => element.currentTime)
+    const box = await video.boundingBox()
+    expect(box).not.toBeNull()
+    await video.click({ position: { x: box!.width * 0.75, y: box!.height - 16 } })
     await expect
-      .poll(
-        async () =>
-          video.evaluate(
-            (element: HTMLVideoElement, time) => element.currentTime >= time - 0.1,
-            targetTime,
-          ),
-        { timeout: 10_000 },
-      )
-      .toBe(true)
+      .poll(() => video.evaluate((element: HTMLVideoElement) => element.currentTime))
+      .not.toBeCloseTo(initialTime, 1)
     await page.waitForTimeout(100)
     expect(await video.evaluate((element: HTMLVideoElement) => element.paused)).toBe(false)
   })
