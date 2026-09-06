@@ -45,6 +45,7 @@ export const BATCHES = [
       'stage2-playback-continuity',
       'media-ai-interactions',
       'media-ai-unconfigured',
+      'media-ai-ranking',
       'media-ai-regressions',
     ],
   },

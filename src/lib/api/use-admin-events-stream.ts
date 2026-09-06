@@ -72,7 +72,11 @@ export function useAdminEventsStream(
           onPathMutation,
           onWorkspacesChanged,
           invalidateAll: () => {
-            if (invalidateQueries) void queryClient.invalidateQueries()
+            if (invalidateQueries)
+              void queryClient.invalidateQueries({
+                predicate: (query) =>
+                  data.type === 'resync-required' || query.meta?.refetchOnSseConnect !== false,
+              })
           },
           invalidate: (queryKey) => {
             if (invalidateQueries) void queryClient.invalidateQueries({ queryKey })

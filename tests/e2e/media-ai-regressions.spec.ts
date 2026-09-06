@@ -74,14 +74,18 @@ test('hiding cached picks still allows the next recommendation page to generate'
   expect(firstResponse.ok()).toBe(true)
   const first = (await firstResponse.json()) as Home
   expect(first.rows.flatMap((row) => row.items)).toHaveLength(23)
-  expect(first.nextCursor).not.toBeNull()
-  const nextResponse = await request.get(
-    `${library.url}/api/media-ai/home?cursor=${first.nextCursor}`,
-  )
-  expect(nextResponse.ok()).toBe(true)
-  const next = (await nextResponse.json()) as Home
-  const nextItems = next.rows.flatMap((row) => row.items)
-  expect(nextItems.length).toBeGreaterThan(0)
+  expect(first.warming).toBe(true)
+  let nextItems: Home['rows'][number]['items'] = []
+  await expect
+    .poll(async () => {
+      const response = await request.get(
+        `${library.url}/api/media-ai/home?cursor=${first.resumeCursor}&feedId=${first.feedId}`,
+      )
+      expect(response.ok()).toBe(true)
+      nextItems = ((await response.json()) as Home).rows.flatMap((row) => row.items)
+      return nextItems.length
+    })
+    .toBeGreaterThan(0)
   expect(library.providerRequests.length).toBeGreaterThan(0)
   const previousIds = new Set(first.rows.flatMap((row) => row.items.map((item) => item.id)))
   expect(nextItems.some((item) => previousIds.has(item.id))).toBe(false)
@@ -95,8 +99,67 @@ test('a fresh single-root library can recommend files directly in its root', asy
   const response = await request.get(`${library.url}/api/media-ai/home`)
   expect(response.ok()).toBe(true)
   const result = (await response.json()) as Home
-  const picks = result.rows.flatMap((row) => row.items)
-  expect(picks.length).toBeGreaterThan(0)
+  expect(result.warming).toBe(true)
+  let picks: Home['rows'][number]['items'] = []
+  await expect
+    .poll(async () => {
+      const ready = await request.get(`${library.url}/api/media-ai/home?feedId=${result.feedId}`)
+      expect(ready.ok()).toBe(true)
+      picks = ((await ready.json()) as Home).rows.flatMap((row) => row.items)
+      return picks.length
+    })
+    .toBeGreaterThan(0)
   const paths = new Set(items.map((item) => item.path))
   expect(picks.every((pick) => paths.has(pick.path))).toBe(true)
+})
+
+test('real refresh and pagination stay responsive while the provider is blocked', async ({
+  request,
+  library,
+}) => {
+  library.cache(library.seed(60))
+  const release = library.pauseProvider()
+  try {
+    const first = (await (await request.get(`${library.url}/api/media-ai/home`)).json()) as Home
+    await expect.poll(() => library.providerRequests.length).toBeGreaterThan(0)
+    const refreshedResponse = await request.post(`${library.url}/api/media-ai/refresh`, {
+      data: { hour: 9 },
+      timeout: 1000,
+    })
+    expect(refreshedResponse.ok()).toBe(true)
+    const refreshed = (await refreshedResponse.json()) as Home
+    expect(refreshed.rows.flatMap((row) => row.items)).toHaveLength(24)
+    expect(refreshed.feedId).not.toBe(first.feedId)
+    const nextResponse = await request.get(
+      `${library.url}/api/media-ai/home?feedId=${first.feedId}&cursor=${first.nextCursor}`,
+      { timeout: 1000 },
+    )
+    expect(nextResponse.ok()).toBe(true)
+    const next = (await nextResponse.json()) as Home
+    const previous = new Set(first.rows.flatMap((row) => row.items.map((item) => item.id)))
+    expect(next.rows.flatMap((row) => row.items)).toHaveLength(24)
+    expect(next.rows.flatMap((row) => row.items).every((item) => !previous.has(item.id))).toBe(true)
+  } finally {
+    release()
+  }
+})
+
+test('background ranking advances beyond the first truncated collection inventory', async ({
+  request,
+  library,
+}) => {
+  test.setTimeout(30000)
+  library.seed(300)
+  await request.get(`${library.url}/api/media-ai/home`)
+  await expect
+    .poll(
+      () => {
+        const row = library.database
+          .prepare('SELECT count(*) AS count FROM media_rankings WHERE score>=50')
+          .get() as { count: number }
+        return row.count
+      },
+      { timeout: 20000 },
+    )
+    .toBeGreaterThanOrEqual(75)
 })

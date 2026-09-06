@@ -58,6 +58,13 @@ File search is enabled by default and stores its rebuildable SQLite index under
 best-effort recursive watchers on local Windows/macOS roots. Linux and network roots use polling so
 large libraries do not consume per-directory watcher limits.
 
+When Media AI is enabled, the model scores media in the background and stores those scores with
+prepared previews and metadata. Refresh and scrolling use a local mix of those scores, likes,
+playback history, and recent exposure. Time-of-day habits provide a small live adjustment without
+another model call. A new library needs an initial ranking pass; existing cards remain available
+while the background worker prepares more. With `mediaAi.paused`, opening or refreshing the feed
+can still request a bounded reserve of ranked media, while idle catalog analysis stays paused.
+
 ```jsonc
 {
   "fileSearch": {

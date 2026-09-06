@@ -173,7 +173,7 @@ test('collection cards open their folder and use three icon menu actions', async
   await page.getByRole('button', { name: 'Options for Music', exact: true }).click()
   const menu = page.getByRole('menu')
   await expect(menu.getByRole('button')).toHaveCount(3)
-  await expect(menu.locator('svg')).toHaveCount(3)
+  await expect(menu.getByRole('button').locator('svg')).toHaveCount(3)
   await page.keyboard.press('Escape')
   await page.getByRole('button', { name: 'Open Music', exact: true }).click()
   await expect(page).toHaveURL(/dir=Music/)
@@ -224,12 +224,12 @@ test('mobile touch targets, menu dismissal and playback fit the viewport', async
   await page.route('**/api/media-ai/feedback', (route) => route.fulfill({ json: { ok: true } }))
   await page.goto('/')
   const like = page.getByRole('button', { name: 'Like First track', exact: true })
-  await expect(like).toBeVisible()
+  const options = page.getByRole('button', { name: 'Options for First track', exact: true })
+  await expect(options).toBeVisible()
+  await expect(like).toBeHidden()
   await page.getByRole('button', { name: 'Search library', exact: true }).tap()
   for (const control of [
-    like,
-    page.getByRole('button', { name: 'Dislike First track', exact: true }),
-    page.getByRole('button', { name: 'Options for First track', exact: true }),
+    options,
     page.getByRole('button', { name: 'For you', exact: true }),
     page.getByRole('button', { name: 'Library', exact: true }),
     page.getByRole('button', { name: 'Search', exact: true }),
@@ -238,9 +238,20 @@ test('mobile touch targets, menu dismissal and playback fit the viewport', async
     expect(box!.width).toBeGreaterThanOrEqual(44)
     expect(box!.height).toBeGreaterThanOrEqual(44)
   }
+  await options.tap()
+  for (const control of [
+    like,
+    page.getByRole('button', { name: 'Dislike First track', exact: true }),
+  ]) {
+    await expect(control).toBeVisible()
+    const box = await control.boundingBox()
+    expect(box!.width).toBeGreaterThanOrEqual(44)
+    expect(box!.height).toBeGreaterThanOrEqual(44)
+  }
   await like.tap()
+  await expect(page.getByRole('menu')).toHaveCount(0)
+  await options.tap()
   await expect(like).toHaveAttribute('aria-pressed', 'true')
-  await page.getByRole('button', { name: 'Options for First track', exact: true }).tap()
   const menu = page.getByRole('menu')
   await expect(menu).toBeVisible()
   const box = await menu.boundingBox()

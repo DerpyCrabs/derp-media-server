@@ -48,9 +48,14 @@ type Answer = { items: Pick[]; message: string; intent: string }
 type Home = {
   rows: Row[]
   generatedAt: number
+  feedId?: string
+  resumeCursor?: number
+  warming?: boolean
   profileResetAt?: number
   nextCursor?: number | null
 }
+type PageParam = { cursor: number; feedId?: string }
+type HomePages = { pages: Home[]; pageParams: PageParam[] }
 async function readyPicks(items: Pick[]) {
   const ready = await Promise.all(
     items
@@ -70,6 +75,18 @@ async function readyPicks(items: Pick[]) {
       }),
   )
   return ready.filter((item): item is Pick => item !== null)
+}
+async function loadPage(param: PageParam, signal?: AbortSignal): Promise<Home> {
+  const query = new URLSearchParams({
+    hour: String(new Date().getHours()),
+    cursor: String(param.cursor),
+  })
+  if (param.feedId) query.set('feedId', param.feedId)
+  const page = await api<Home>(`/api/media-ai/home?${query}`, { signal })
+  return {
+    ...page,
+    rows: [{ title: 'For you', items: await readyPicks(page.rows.flatMap((row) => row.items)) }],
+  }
 }
 function itemTitle(item: Pick) {
   return (
@@ -126,31 +143,87 @@ export function ForYou(props: {
   )
   const home = useInfiniteQuery(() => ({
     queryKey: ['media-ai', 'home'],
-    initialPageParam: 0,
-    queryFn: async ({ pageParam }) => {
-      const page = await api<Home>(
-        `/api/media-ai/home?hour=${new Date().getHours()}&cursor=${pageParam}`,
-      )
-      const items = await readyPicks(page.rows.flatMap((row) => row.items))
-      return { ...page, rows: [{ title: 'For you', items }] }
-    },
-    getNextPageParam: (page) => page.nextCursor ?? undefined,
+    reconcile: 'path',
+    meta: { refetchOnSseConnect: false },
+    initialPageParam: { cursor: 0 } as PageParam,
+    queryFn: ({ pageParam, signal }) => loadPage(pageParam, signal),
+    getNextPageParam: (page) =>
+      page.nextCursor == null ? undefined : { cursor: page.nextCursor, feedId: page.feedId },
     staleTime: 60_000,
   }))
   const [sentinel, setSentinel] = createSignal<HTMLDivElement>()
   const refresh = useMutation(() => ({
-    mutationFn: () => post('/api/media-ai/refresh', {}),
-    onSuccess: async () => {
-      await client.cancelQueries({ queryKey: ['media-ai', 'home'] })
-      client.setQueryData<{ pages: Home[]; pageParams: number[] }>(['media-ai', 'home'], (data) =>
-        data ? { pages: data.pages.slice(0, 1), pageParams: data.pageParams.slice(0, 1) } : data,
-      )
-      await home.refetch()
+    onMutate: () => client.cancelQueries({ queryKey: ['media-ai', 'home'] }),
+    mutationFn: async () => {
+      const page = await post<Home>('/api/media-ai/refresh', { hour: new Date().getHours() })
+      if (!page.rows) return loadPage({ cursor: 0 })
+      return {
+        ...page,
+        rows: [
+          { title: 'For you', items: await readyPicks(page.rows.flatMap((row) => row.items)) },
+        ],
+      }
+    },
+    onSuccess: (page) => {
+      client.setQueryData<HomePages>(['media-ai', 'home'], {
+        pages: [page],
+        pageParams: [{ cursor: 0, feedId: page.feedId }],
+      })
       setAnswer(undefined)
       setHistory([])
       setQuery('')
     },
   }))
+  createEffect(
+    () => {
+      const last = home.data?.pages.at(-1)
+      return last?.warming && last.nextCursor == null ? last : undefined
+    },
+    (last) => {
+      if (!last?.feedId || last.resumeCursor === undefined) return undefined
+      const param = { cursor: last.resumeCursor, feedId: last.feedId }
+      const controller = new AbortController()
+      let active = true
+      let timer: ReturnType<typeof setTimeout>
+      const poll = async () => {
+        try {
+          const page = await loadPage(param, controller.signal)
+          if (!active) return
+          const hasItems = page.rows.some((row) => row.items.length > 0)
+          if (hasItems || !page.warming) {
+            client.setQueryData<HomePages>(['media-ai', 'home'], (data) => {
+              if (!data || data.pages.at(-1)?.feedId !== param.feedId) return data
+              if (!hasItems)
+                return {
+                  ...data,
+                  pages: data.pages.map((item, i) =>
+                    i === data.pages.length - 1 ? { ...item, warming: false } : item,
+                  ),
+                }
+              const replaceEmpty = !last.rows.some((row) => row.items.length > 0)
+              return {
+                pages: [...(replaceEmpty ? data.pages.slice(0, -1) : data.pages), page],
+                pageParams: [
+                  ...(replaceEmpty ? data.pageParams.slice(0, -1) : data.pageParams),
+                  param,
+                ],
+              }
+            })
+            return
+          }
+        } catch {
+          if (!active) return
+        }
+        timer = setTimeout(() => void poll(), 1500)
+      }
+      timer = setTimeout(() => void poll(), 1500)
+      return () => {
+        active = false
+        clearTimeout(timer)
+        controller.abort()
+      }
+    },
+  )
   createEffect(
     () => ({
       element: sentinel(),
@@ -314,12 +387,12 @@ export function ForYou(props: {
     const visible = () =>
       props.items.filter((i) => !hidden().some((p) => i.path === p || i.path.startsWith(`${p}/`)))
     return (
-      <div class='grid grid-cols-1 gap-x-5 gap-y-7 min-[520px]:grid-cols-2 min-[1000px]:grid-cols-3 min-[1440px]:grid-cols-4'>
+      <div class='grid grid-cols-2 gap-x-2 gap-y-4 sm:gap-x-5 sm:gap-y-7 min-[1000px]:grid-cols-3 min-[1440px]:grid-cols-4'>
         <For each={visible()}>
           {(item) => (
             <article class='group min-w-0'>
               <button
-                class='relative block aspect-video w-full overflow-hidden rounded-xl bg-secondary text-left focus-visible:ring-2 focus-visible:ring-ring'
+                class='relative block aspect-video w-full overflow-hidden rounded-lg bg-secondary text-left focus-visible:ring-2 focus-visible:ring-ring sm:rounded-xl'
                 aria-label={`${item.type === MediaType.FOLDER ? 'Open' : 'Play'} ${item.name}`}
                 title={item.reason}
                 onClick={() => open(asFile(item), visible().map(asFile))}
@@ -336,7 +409,7 @@ export function ForYou(props: {
                     </Show>
                   </span>
                 </span>
-                <span class='absolute bottom-2 left-2 rounded bg-black/75 px-2 py-1 text-[11px] font-medium text-white'>
+                <span class='absolute top-1 left-1 rounded bg-black/75 px-1 py-0.5 text-[10px] font-medium text-white sm:top-auto sm:bottom-2 sm:left-2 sm:px-2 sm:py-1 sm:text-[11px]'>
                   {item.type === MediaType.FOLDER
                     ? `${item.itemCount ?? 0} items · Folder`
                     : item.type === MediaType.AUDIO
@@ -344,21 +417,21 @@ export function ForYou(props: {
                       : 'Video'}
                 </span>
                 <Show when={durationLabel(item.duration)}>
-                  <span class='absolute right-2 bottom-2 rounded bg-black/75 px-1.5 py-0.5 text-xs tabular-nums text-white'>
+                  <span class='absolute right-1 bottom-1 rounded bg-black/75 px-1 py-0.5 text-[10px] tabular-nums text-white sm:right-2 sm:bottom-2 sm:px-1.5 sm:text-xs'>
                     {durationLabel(item.duration)}
                   </span>
                 </Show>
               </button>
-              <div class='mt-3'>
+              <div class='relative mt-1.5 min-h-11 pr-8 sm:mt-3 sm:min-h-0 sm:pr-0'>
                 <button
-                  class='flex h-10 w-full items-start text-left text-[15px] leading-5 font-medium hover:text-primary'
+                  class='flex w-full items-start text-left text-[13px] leading-[18px] font-medium hover:text-primary sm:h-10 sm:text-[15px] sm:leading-5'
                   onClick={() => open(asFile(item), visible().map(asFile))}
                 >
                   <span class='line-clamp-2 min-w-0'>{itemTitle(item)}</span>
                 </button>
-                <div class='mt-1 flex items-center gap-1'>
+                <div class='mt-0.5 flex items-center gap-1 sm:mt-1'>
                   <p
-                    class='min-w-0 flex-1 truncate text-[13px] text-muted-foreground'
+                    class='min-w-0 flex-1 truncate text-[11px] text-muted-foreground sm:text-[13px]'
                     title={item.path}
                   >
                     {item.subtitle || item.path.split('/').at(-2) || 'Your library'}
@@ -367,7 +440,7 @@ export function ForYou(props: {
                     aria-label={`Like ${item.name}`}
                     title='More like this'
                     aria-pressed={(likes()[item.path] ?? item.liked ?? false) ? 'true' : 'false'}
-                    class={`inline-flex items-center justify-center rounded-full p-2 transition-colors min-h-11 min-w-11 hover:bg-secondary ${(likes()[item.path] ?? item.liked) ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+                    class={`hidden items-center justify-center rounded-full p-2 transition-colors min-h-11 min-w-11 hover:bg-secondary sm:inline-flex ${(likes()[item.path] ?? item.liked) ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
                     disabled={feedback.isPending}
                     onClick={() =>
                       feedback.mutate({
@@ -381,7 +454,7 @@ export function ForYou(props: {
                   <button
                     aria-label={`Dislike ${item.name}`}
                     title='Not interested'
-                    class='inline-flex items-center justify-center rounded-full p-2 text-muted-foreground transition-colors min-h-11 min-w-11 hover:bg-secondary hover:text-foreground'
+                    class='hidden items-center justify-center rounded-full p-2 text-muted-foreground transition-colors min-h-11 min-w-11 hover:bg-secondary hover:text-foreground sm:inline-flex'
                     disabled={feedback.isPending}
                     onClick={() => feedback.mutate({ path: item.path, kind: 'hide' })}
                   >
@@ -390,10 +463,10 @@ export function ForYou(props: {
                   <button
                     aria-label={`Options for ${item.name}`}
                     title='More'
-                    class='-mr-2 inline-flex items-center justify-center rounded-full p-2 text-muted-foreground min-h-11 min-w-11 hover:bg-secondary hover:text-foreground'
+                    class='absolute -top-1.5 -right-2 inline-flex items-center justify-center rounded-full p-2 text-muted-foreground min-h-11 min-w-11 hover:bg-secondary hover:text-foreground sm:static sm:-mr-2'
                     onClick={(e) => {
                       const r = e.currentTarget.getBoundingClientRect()
-                      setMenu({ item, x: r.right - 240, y: r.bottom })
+                      setMenu({ item, x: Math.max(8, r.right - 240), y: r.bottom })
                     }}
                   >
                     <EllipsisVertical size={18} />
@@ -408,7 +481,7 @@ export function ForYou(props: {
   }
   return (
     <main
-      class='mx-auto w-full max-w-[1920px] space-y-4 px-4 pt-3 pb-5 sm:px-7 lg:px-9'
+      class='mx-auto w-full max-w-[1920px] space-y-3 px-2 pt-1 pb-3 sm:space-y-4 sm:px-7 sm:pt-3 sm:pb-5 lg:px-9'
       data-testid='for-you'
     >
       <MediaCenterPlaybackSync
@@ -524,7 +597,7 @@ export function ForYou(props: {
       </Show>
       <Show when={!answer()}>
         <Cards items={feed()} />
-        <Show when={home.isPending || home.isFetchingNextPage}>
+        <Show when={home.isPending || home.isFetchingNextPage || home.data?.pages.at(-1)?.warming}>
           <div
             role='status'
             class='flex items-center justify-center gap-3 py-12 text-sm text-muted-foreground'
@@ -554,7 +627,11 @@ export function ForYou(props: {
           </div>
         </Show>
         <div ref={setSentinel} />
-        <Show when={!home.isPending && !home.error && !feed().length}>
+        <Show
+          when={
+            !home.isPending && !home.error && !home.data?.pages.at(-1)?.warming && !feed().length
+          }
+        >
           <p class='py-12 text-center text-sm text-muted-foreground'>
             Nothing to play yet. Try searching your library.
           </p>
@@ -576,6 +653,36 @@ export function ForYou(props: {
       >
         {(value) => (
           <>
+            <button
+              class={`${actionClass} sm:hidden`}
+              aria-label={`Like ${value.item.name}`}
+              aria-pressed={
+                (likes()[value.item.path] ?? value.item.liked ?? false) ? 'true' : 'false'
+              }
+              disabled={feedback.isPending}
+              onClick={() => {
+                feedback.mutate({
+                  path: value.item.path,
+                  kind: (likes()[value.item.path] ?? value.item.liked) ? 'clear' : 'more',
+                })
+                setMenu(undefined)
+              }}
+            >
+              <ThumbsUp size={17} />
+              {(likes()[value.item.path] ?? value.item.liked) ? 'Remove like' : 'More like this'}
+            </button>
+            <button
+              class={`${actionClass} sm:hidden`}
+              aria-label={`Dislike ${value.item.name}`}
+              disabled={feedback.isPending}
+              onClick={() => {
+                feedback.mutate({ path: value.item.path, kind: 'hide' })
+                setMenu(undefined)
+              }}
+            >
+              <ThumbsDown size={17} />
+              Not interested
+            </button>
             <button
               class={actionClass}
               onClick={() => {

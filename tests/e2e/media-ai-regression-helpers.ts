@@ -22,11 +22,15 @@ export type Home = {
   rows: { items: Pick[] }[]
   nextCursor: number | null
   hasMore: boolean
+  feedId: string
+  resumeCursor: number
+  warming: boolean
 }
 type Library = {
   url: string
   database: DatabaseSync
   providerRequests: ProviderRequest[]
+  pauseProvider: () => () => void
   seed: (count: number, folder?: string) => Pick[]
   cache: (items: Pick[]) => void
 }
@@ -53,9 +57,10 @@ function modelReply(request: ProviderRequest) {
   if (properties.collectionIds)
     return { collectionIds: prompt.collections?.map((collection) => collection.id) ?? [] }
   if (properties.approvedIds) return { approvedIds: properties.approvedIds.items?.enum ?? [] }
+  const scoring = !!properties.items?.items?.properties?.score
   const items = (properties.items?.items?.properties?.id?.enum ?? [])
-    .slice(0, 12)
-    .map((id) => ({ id, reason: 'Matching fixture media' }))
+    .slice(0, scoring ? 48 : 12)
+    .map((id) => ({ id, reason: 'Matching fixture media', ...(scoring ? { score: 85 } : {}) }))
   return properties.message ? { items, message: 'Fixture matches' } : { items }
 }
 
@@ -75,12 +80,14 @@ export const test = base.extend<{ library: Library; aiEnabled: boolean }>({
     const media = path.join(directory, 'media')
     fs.mkdirSync(media)
     const providerRequests: ProviderRequest[] = []
+    let providerGate: Promise<void> | undefined
     const provider = http.createServer(async (request, response) => {
       try {
         const chunks: Buffer[] = []
         for await (const chunk of request) chunks.push(Buffer.from(chunk))
         const body = JSON.parse(Buffer.concat(chunks).toString()) as ProviderRequest
         providerRequests.push(body)
+        if (providerGate) await providerGate
         response.setHeader('Content-Type', 'application/json')
         response.end(
           JSON.stringify({
@@ -154,6 +161,16 @@ export const test = base.extend<{ library: Library; aiEnabled: boolean }>({
         url,
         database: db,
         providerRequests,
+        pauseProvider() {
+          let release!: () => void
+          providerGate = new Promise<void>((resolve) => {
+            release = resolve
+          })
+          return () => {
+            providerGate = undefined
+            release()
+          }
+        },
         seed(count, folder = 'Songs') {
           const items: Pick[] = []
           for (let id = 1; id <= count; id++) {

@@ -1,4 +1,5 @@
 mod catalog;
+mod feed;
 mod provider;
 use crate::{
     activity::sql_error,
@@ -13,13 +14,15 @@ use axum::{
 use rusqlite::{Connection, params};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use tokio::sync::{Mutex, Semaphore};
 
 use crate::config::MediaAiConfig as Settings;
 
 pub struct Runtime {
     gate: Semaphore,
+    rank_requested: AtomicBool,
+    feed_lock: std::sync::Mutex<()>,
     interactive: AtomicUsize,
     pub status: Mutex<Value>,
     catalog_error: Mutex<Option<String>>,
@@ -28,6 +31,8 @@ impl Runtime {
     pub fn new() -> Self {
         Self {
             gate: Semaphore::new(1),
+            rank_requested: AtomicBool::new(false),
+            feed_lock: std::sync::Mutex::new(()),
             interactive: AtomicUsize::new(0),
             status: Mutex::new(json!({"phase":"idle"})),
             catalog_error: Mutex::new(None),
@@ -35,6 +40,7 @@ impl Runtime {
     }
 }
 pub fn initialize(c: &Connection) -> AppResult<()> {
+    feed::initialize(c)?;
     c.execute_batch("CREATE TABLE IF NOT EXISTS media_catalog (
       id INTEGER PRIMARY KEY, path TEXT NOT NULL UNIQUE, name TEXT NOT NULL, kind TEXT NOT NULL,
       description TEXT NOT NULL DEFAULT '', tags TEXT NOT NULL DEFAULT '', duration REAL NOT NULL DEFAULT 0, retry_after INTEGER NOT NULL DEFAULT 0,
@@ -105,81 +111,51 @@ async fn test(State(state): State<Shared>) -> AppResult<Json<Value>> {
 struct HomeContext {
     hour: Option<i64>,
     cursor: Option<usize>,
+    #[serde(rename = "feedId")]
+    feed_id: Option<String>,
 }
 async fn home(
     State(state): State<Shared>,
     Query(context): Query<HomeContext>,
 ) -> AppResult<Json<Value>> {
-    let s = settings(&state)?;
-    let mut value = state.database.document(
-        "media-ai-home",
-        &state.config.library_key,
-        json!({"rows":[],"generatedAt":0}),
-    )?;
-    let cursor = context.cursor.unwrap_or(0).min(10_000);
-    catalog::filter_response(&state, &mut value)?;
-    let count = |v: &Value| {
-        v["rows"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .map(|r| r["items"].as_array().map_or(0, Vec::len))
-            .sum::<usize>()
-    };
-    if s.enabled
-        && (value["version"] != 3 || (cursor >= count(&value) && value["hasMore"] != false))
-    {
-        state.media_ai.interactive.fetch_add(1, Ordering::SeqCst);
-        let _waiting = Interactive(&state.media_ai.interactive);
-        let _permit = state.media_ai.gate.acquire().await.map_err(sql_error)?;
-        value = state
-            .database
-            .document("media-ai-home", &state.config.library_key, json!({}))?;
-        catalog::filter_response(&state, &mut value)?;
-        if value["version"] != 3 || (cursor >= count(&value) && value["hasMore"] != false) {
-            catalog::generate_page(&state, value["version"] != 3).await?;
-            value =
-                state
-                    .database
-                    .document("media-ai-home", &state.config.library_key, json!({}))?;
-        }
+    if !settings(&state)?.enabled {
+        return Ok(Json(
+            json!({"enabled":false,"rows":[],"nextCursor":null,"warming":false}),
+        ));
     }
-    catalog::filter_response(&state, &mut value)?;
-    value["enabled"] = json!(s.enabled);
-    value["profileResetAt"] =
-        state
-            .database
-            .document("media-ai-profile", &state.config.library_key, json!({}))?["resetAt"]
-            .clone();
-    if let Some(hour) = context.hour.filter(|h| (0..24).contains(h)) {
-        catalog::apply_time_preference(&state, &mut value, hour)?;
+    let work = state.clone();
+    let value = tokio::task::spawn_blocking(move || {
+        feed::page(
+            &work,
+            context.cursor.unwrap_or(0).min(10_000),
+            context.feed_id.as_deref(),
+            false,
+            context.hour.unwrap_or(12).clamp(0, 23),
+        )
+    })
+    .await
+    .map_err(sql_error)??;
+    if value["warming"] == true {
+        state.media_ai.rank_requested.store(true, Ordering::SeqCst);
     }
-    let all: Vec<Value> = value["rows"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .flat_map(|r| r["items"].as_array().into_iter().flatten().cloned())
-        .collect();
-    let page: Vec<Value> = all.iter().skip(cursor).take(24).cloned().collect();
-    let next = cursor + page.len();
-    value["nextCursor"] = if !page.is_empty() && (next < all.len() || value["hasMore"] == true) {
-        json!(next)
-    } else {
-        Value::Null
-    };
-    value["rows"] = json!([{"title":"For you","items":page}]);
-    value.as_object_mut().unwrap().remove("consideredIds");
     Ok(Json(value))
 }
-async fn refresh(State(state): State<Shared>) -> AppResult<Json<Value>> {
+async fn refresh(State(state): State<Shared>, body: Option<Json<Value>>) -> AppResult<Json<Value>> {
     if !settings(&state)?.enabled {
         return Err(AppError::bad("Media AI is disabled in the server config"));
     }
-    state.media_ai.interactive.fetch_add(1, Ordering::SeqCst);
-    let _waiting = Interactive(&state.media_ai.interactive);
-    let _permit = state.media_ai.gate.acquire().await.map_err(sql_error)?;
-    catalog::recommend(&state).await?;
-    Ok(Json(json!({"ok":true})))
+    let hour = body
+        .and_then(|v| v["hour"].as_i64())
+        .unwrap_or(12)
+        .clamp(0, 23);
+    let work = state.clone();
+    let value = tokio::task::spawn_blocking(move || feed::page(&work, 0, None, true, hour))
+        .await
+        .map_err(sql_error)??;
+    if value["warming"] == true {
+        state.media_ai.rank_requested.store(true, Ordering::SeqCst);
+    }
+    Ok(Json(value))
 }
 
 #[derive(Deserialize)]
@@ -227,7 +203,7 @@ async fn feedback(State(state): State<Shared>, Json(body): Json<Value>) -> AppRe
     Ok(Json(json!({"ok":true})))
 }
 async fn reset(State(state): State<Shared>) -> AppResult<Json<Value>> {
-    state.database.transaction(|tx|{tx.execute_batch("UPDATE media_sessions SET excluded=1; UPDATE media_totals SET learned_seconds=0,learned_plays=0; DELETE FROM media_feedback;").map_err(sql_error)})?;
+    state.database.transaction(|tx|{tx.execute_batch("UPDATE media_sessions SET excluded=1; UPDATE media_totals SET learned_seconds=0,learned_plays=0; DELETE FROM media_feedback; DELETE FROM media_rankings; DELETE FROM media_feeds;").map_err(sql_error)})?;
     state.database.update(
         "media-ai-profile",
         &state.config.library_key,
@@ -341,31 +317,53 @@ pub fn start(state: &Shared) {
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
             let Some(state) = weak.upgrade() else { break };
             let Ok(s) = settings(&state) else { continue };
-            if !s.enabled || s.paused || state.media_ai.interactive.load(Ordering::SeqCst) > 0 {
+            let requested = state.media_ai.rank_requested.load(Ordering::SeqCst);
+            if !s.enabled
+                || (s.paused && !requested)
+                || state.media_ai.interactive.load(Ordering::SeqCst) > 0
+            {
                 continue;
             }
             let Ok(permit) = state.media_ai.gate.try_acquire() else {
                 continue;
             };
-            let cached = state
-                .database
-                .document("media-ai-home", &state.config.library_key, json!({}))
-                .unwrap_or_default();
-            let due = crate::app::timestamp_ms() as i64
-                - cached["generatedAt"].as_i64().unwrap_or(0)
-                > 86_400_000;
+            let profile = match feed::profile_key(&state) {
+                Ok(profile) => profile,
+                Err(error) => {
+                    *state.media_ai.status.lock().await = json!({"phase":"error","error":error.1});
+                    continue;
+                }
+            };
+            let rank = feed::needs_ranking(&state, &profile).unwrap_or(false);
+            if !rank {
+                state.media_ai.rank_requested.store(false, Ordering::SeqCst);
+                if s.paused {
+                    continue;
+                }
+            }
             *state.media_ai.status.lock().await =
-                json!({"phase":if due {"recommending"} else {"analyzing"}});
-            let result = if due {
-                catalog::recommend(&state).await
+                json!({"phase":if rank {"ranking"} else {"analyzing"}});
+            let result = if rank {
+                catalog::rank_batch(&state, &profile).await
             } else {
                 catalog::enrich(&state).await
             };
             match result {
                 Ok(worked) => {
+                    if rank {
+                        let _ = feed::ranking_finished(&state, &profile, worked, false);
+                        state
+                            .media_ai
+                            .rank_requested
+                            .store(worked, Ordering::SeqCst);
+                    }
                     *state.media_ai.status.lock().await = json!({"phase":if worked {"running"} else {"up-to-date"},"lastSuccess":crate::app::timestamp_ms()});
                 }
                 Err(e) => {
+                    if rank {
+                        let _ = feed::ranking_finished(&state, &profile, false, true);
+                    }
+                    state.media_ai.rank_requested.store(false, Ordering::SeqCst);
                     *state.media_ai.status.lock().await = json!({"phase":"error","error":e.1});
                     drop(permit);
                     drop(state);
@@ -377,6 +375,8 @@ pub fn start(state: &Shared) {
 }
 
 pub fn move_paths(tx: &rusqlite::Transaction<'_>, old: &str, new: &str) -> AppResult<()> {
+    feed::invalidate_paths(tx, old)?;
+    feed::invalidate_paths(tx, new)?;
     for table in [
         "media_sessions",
         "media_totals",
@@ -391,6 +391,7 @@ pub fn move_paths(tx: &rusqlite::Transaction<'_>, old: &str, new: &str) -> AppRe
     Ok(())
 }
 pub fn remove_paths(tx: &rusqlite::Transaction<'_>, path: &str) -> AppResult<()> {
+    feed::invalidate_paths(tx, path)?;
     for table in [
         "media_sessions",
         "media_totals",
