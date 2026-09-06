@@ -77,7 +77,7 @@ impl Thumbnailer {
     pub fn cached(&self, file: &Path, modified: std::time::SystemTime) -> bool {
         self.existing_cache_path(file, modified)
             .is_some_and(|path| path.exists())
-            || self.legacy_cache_path(file, modified).exists()
+            || (!is_audio(file) && self.legacy_cache_path(file, modified).exists())
     }
 
     fn modified_ms(modified: std::time::SystemTime) -> u128 {
@@ -140,11 +140,11 @@ impl Thumbnailer {
         self.existing_cache_id(file)
             .ok()
             .flatten()
-            .map(|id| self.cache_path_for_id(&id, modified))
+            .map(|id| self.cache_path_for_id(&versioned_id(file, &id), modified))
     }
 
     fn cache_path(&self, file: &Path, modified: std::time::SystemTime) -> AppResult<PathBuf> {
-        Ok(self.cache_path_for_id(&self.cache_id(file)?, modified))
+        Ok(self.cache_path_for_id(&versioned_id(file, &self.cache_id(file)?), modified))
     }
 
     pub async fn read(&self, file: &Path, modified: std::time::SystemTime) -> AppResult<Vec<u8>> {
@@ -153,7 +153,7 @@ impl Thumbnailer {
             .map_err(AppError::io)?;
         let cache = self.cache_path(file, modified)?;
         let legacy = self.legacy_cache_path(file, modified);
-        if !cache.exists() && legacy.exists() {
+        if !is_audio(file) && !cache.exists() && legacy.exists() {
             let _ = fs::rename(&legacy, &cache).await;
         }
         if cache.exists() {
@@ -304,6 +304,7 @@ async fn generate_and_commit(
     let result = match media::media_type(&extension) {
         "image" => generate_image(file.to_owned(), temp.to_owned(), cancellation.clone()).await,
         "video" => generate_video(file, temp, cancellation).await,
+        "audio" => generate_audio(file, temp, cancellation).await,
         _ => Err(AppError::bad("Unsupported thumbnail media type")),
     };
     if let Err(error) = result {
@@ -413,6 +414,138 @@ async fn command_output(
     }
 }
 
+fn is_audio(file: &Path) -> bool {
+    file.extension().is_some_and(|ext| {
+        media::media_type(&ext.to_string_lossy().to_ascii_lowercase()) == "audio"
+    })
+}
+
+fn versioned_id(file: &Path, id: &str) -> String {
+    if is_audio(file) {
+        format!("{id}-audio-v2")
+    } else {
+        id.to_owned()
+    }
+}
+
+fn waveform_image(samples: &[f32]) -> image::RgbImage {
+    const BARS: usize = 112;
+    let levels: Vec<f32> = (0..BARS)
+        .map(|i| {
+            let start = samples.len() * i / BARS;
+            let end = samples.len() * (i + 1) / BARS;
+            let slice = &samples[start..end];
+            (slice
+                .iter()
+                .map(|v| if v.is_finite() { v * v } else { 0.0 })
+                .sum::<f32>()
+                / slice.len().max(1) as f32)
+                .sqrt()
+        })
+        .collect();
+    let peak = levels
+        .iter()
+        .copied()
+        .fold(0.0_f32, f32::max)
+        .max(f32::EPSILON);
+    let mut canvas = image::RgbImage::from_fn(640, 360, |_, y| {
+        let shade = 30 - (y * 5 / 360) as u8;
+        image::Rgb([shade, shade + 2, shade + 7])
+    });
+    for (i, level) in levels.iter().enumerate() {
+        let half = ((level / peak).powf(0.65) * 108.0).round().max(2.0) as i32;
+        let mix = i as f32 / (BARS - 1) as f32;
+        let color = image::Rgb([
+            (128.0 + 48.0 * mix) as u8,
+            (155.0 + 27.0 * mix) as u8,
+            (193.0 + 24.0 * mix) as u8,
+        ]);
+        for dx in 0..3_u32 {
+            for dy in -half..=half {
+                if dx != 1 && dy.abs() == half {
+                    continue;
+                }
+                canvas.put_pixel(41 + i as u32 * 5 + dx, (180 + dy) as u32, color);
+            }
+        }
+    }
+    canvas
+}
+
+async fn generate_audio(
+    file: &Path,
+    output: &Path,
+    cancellation: &CancellationToken,
+) -> AppResult<()> {
+    // Prefer embedded album art; otherwise render a waveform from the first minute.
+    let common = vec![
+        "-v".into(),
+        "error".into(),
+        "-i".into(),
+        file.to_string_lossy().into_owned(),
+    ];
+    let mut cover = common.clone();
+    cover.extend(
+        [
+            "-an",
+            "-map",
+            "0:v:0",
+            "-vf",
+            "scale=640:-1",
+            "-frames:v",
+            "1",
+            "-y",
+        ]
+        .map(String::from),
+    );
+    cover.push(output.to_string_lossy().into_owned());
+    if command_output("ffmpeg", &cover, Duration::from_secs(10), cancellation)
+        .await
+        .is_ok_and(|r| r.status.success())
+    {
+        return Ok(());
+    }
+    let wave = vec![
+        "-v".into(),
+        "error".into(),
+        "-t".into(),
+        "60".into(),
+        "-i".into(),
+        file.to_string_lossy().into_owned(),
+        "-vn".into(),
+        "-ac".into(),
+        "1".into(),
+        "-ar".into(),
+        "8000".into(),
+        "-f".into(),
+        "f32le".into(),
+        "pipe:1".into(),
+    ];
+    let result = command_output("ffmpeg", &wave, Duration::from_secs(15), cancellation).await?;
+    if !result.status.success() {
+        return Err(AppError::internal("Could not prepare audio preview"));
+    }
+    let samples: Vec<f32> = result
+        .stdout
+        .chunks_exact(4)
+        .map(|v| f32::from_le_bytes(v.try_into().unwrap()))
+        .collect();
+    if samples.is_empty() {
+        return Err(AppError::internal("Audio preview contains no samples"));
+    }
+    let canvas = waveform_image(&samples);
+    let writer = std::fs::File::create(output).map_err(AppError::io)?;
+    JpegEncoder::new_with_quality(writer, 90)
+        .write_image(
+            &canvas,
+            canvas.width(),
+            canvas.height(),
+            image::ExtendedColorType::Rgb8,
+        )
+        .map_err(|error| AppError::internal(error.to_string()))?;
+    Ok(())
+}
+
 async fn generate_video(
     file: &Path,
     output: &Path,
@@ -505,6 +638,24 @@ static TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 mod tests {
     use super::*;
     use std::sync::Arc;
+
+    #[test]
+    fn waveform_preserves_dynamics_and_normalizes_quiet_audio() {
+        let quiet: Vec<f32> = (0..1120)
+            .map(|i| if i < 560 { 0.0001 } else { 0.001 })
+            .collect();
+        let loud: Vec<f32> = quiet.iter().map(|v| v * 100.0).collect();
+        let a = waveform_image(&quiet);
+        let b = waveform_image(&loud);
+        assert_eq!(a, b);
+        assert_ne!(a.get_pixel(42, 180), a.get_pixel(40, 180));
+        assert_eq!(a.get_pixel(42, 90), a.get_pixel(40, 90));
+        assert_ne!(a.get_pixel(42 + 70 * 5, 90), a.get_pixel(40, 90));
+        let silence = waveform_image(&vec![0.0; 1120]);
+        assert_eq!(silence.get_pixel(42, 90), silence.get_pixel(40, 90));
+        assert_ne!(versioned_id(Path::new("track.mp3"), "id"), "id");
+        assert_eq!(versioned_id(Path::new("movie.mp4"), "id"), "id");
+    }
 
     fn test_database(base: &Path) -> AppDatabase {
         let database = AppDatabase::new(base.join("app.sqlite3"));

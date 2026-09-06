@@ -6,7 +6,7 @@ import { queryKeys } from '@/lib/api/query-keys'
 import { VIRTUAL_FOLDERS } from '@/lib/files/constants'
 import { fileDownloadHref } from '@/lib/files/download-urls'
 import { isPathEditable, type ClientMediaRoot } from '@/lib/files/path-utils'
-import type { FileItem } from '@/lib/files/types'
+import { MediaType, type FileItem } from '@/lib/files/types'
 import type { VirtualOpenTarget } from '@/lib/files/virtual-directory'
 import { getMediaExtensionFromPath, getMediaTypeFromPath } from '@/lib/media/media-utils'
 import { useStoreSync } from '@/lib/state/solid-store-sync'
@@ -124,7 +124,8 @@ function FileBrowserInstance(props: { host: FileBrowserHost; currentPath: Access
       return
     }
     if (fileActions.virtual?.open(file)) return
-    viewStats.incrementView(file.path)
+    if (![MediaType.AUDIO, MediaType.VIDEO, MediaType.IMAGE].includes(file.type))
+      viewStats.incrementView(file.path)
     host.present({ kind: 'default', file, sourceDir, orderedFiles: displayedFiles() })
   }
 

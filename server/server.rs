@@ -74,6 +74,8 @@ fn vite_port(server_port: u16) -> u16 {
 
 fn router(state: Shared) -> Router {
     Router::new()
+        .merge(crate::activity::router())
+        .merge(crate::media_ai::router())
         .merge(routes::config::router())
         .merge(routes::files::router())
         .merge(routes::hermes_chat::router())
@@ -137,6 +139,7 @@ pub(crate) async fn run() {
     });
     let state = Arc::new(AppState {
         config: config.clone(),
+        media_ai: crate::media_ai::Runtime::new(),
         dev,
         vite_port,
         client,
@@ -164,6 +167,7 @@ pub(crate) async fn run() {
         hermes_runtime_ids: Mutex::new(HashMap::new()),
         hermes_active_ids: Mutex::new(HashSet::new()),
     });
+    crate::media_ai::start(&state);
     routes::hermes_chat::start_event_bridge(&state, hermes_transport_events.subscribe());
     let address = format!("0.0.0.0:{}", config.port);
     let listener = tokio::net::TcpListener::bind(&address).await.unwrap();

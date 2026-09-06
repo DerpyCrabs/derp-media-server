@@ -21,6 +21,10 @@ impl DocumentStore {
         }
     }
 
+    pub(crate) fn connection(&self) -> AppResult<rusqlite::Connection> {
+        self.database.connection()
+    }
+
     pub(crate) fn from_config(config: &Config) -> Self {
         Self {
             database: state_db::AppDatabase::from_config(config),

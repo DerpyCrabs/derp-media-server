@@ -78,6 +78,7 @@ export type PlaybackCommand =
       muted: boolean
     }>
   | Readonly<{ type: 'mediaDuration'; generation: number; duration: number }>
+  | Readonly<{ type: 'mediaBuffering'; generation: number; buffering: boolean }>
   | Readonly<{
       type: 'mediaReady' | 'mediaPlay' | 'mediaPause' | 'mediaEnded'
       generation: number

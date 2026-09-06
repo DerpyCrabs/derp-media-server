@@ -407,6 +407,7 @@ mod tests {
             },
             image_optimization: ImageOptimizationConfig::default(),
             hermes: None,
+            media_ai: Default::default(),
         };
         state_db::initialize(&config).unwrap();
         let (admin_events, _) = broadcast::channel(4);

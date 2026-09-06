@@ -204,6 +204,16 @@ pub(crate) fn initialize(config: &Config) -> Result<(), String> {
             .map_err(|error| error.to_string())?;
         transaction.commit().map_err(|error| error.to_string())?;
     }
+    crate::activity::initialize(&connection).map_err(|e| e.1)?;
+    crate::media_ai::initialize(&connection).map_err(|e| e.1)?;
+    if version < 6 {
+        connection
+            .execute(
+                "INSERT INTO schema_migrations(version,applied_at) VALUES(6,?1)",
+                [now_ms()],
+            )
+            .map_err(|e| e.to_string())?;
+    }
     let _ = fs::remove_file(config.data_path.join("shares.json"));
     import_legacy(config, &mut connection)?;
     Ok(())
@@ -482,6 +492,7 @@ mod tests {
             image_optimization: ImageOptimizationConfig::default(),
             data_path,
             hermes: None,
+            media_ai: Default::default(),
         }
     }
 

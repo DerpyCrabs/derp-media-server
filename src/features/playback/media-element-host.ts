@@ -7,6 +7,8 @@ export type PlaybackMediaEvent =
   | 'timeupdate'
   | 'play'
   | 'playing'
+  | 'waiting'
+  | 'stalled'
   | 'pause'
   | 'seeking'
   | 'seeked'
@@ -50,6 +52,7 @@ type Attachment = {
   resumeAfterSeek: boolean
   nativePausePending: boolean
   playPending: boolean
+  playRequest: symbol | null
   hasStarted: boolean
   lastMediaPosition: number
   listeners: ReadonlyArray<readonly [PlaybackMediaEvent, EventListener]>
@@ -96,6 +99,7 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
     attachment.sourceUrl = ''
     attachment.nativePausePending = false
     attachment.playPending = false
+    attachment.playRequest = null
     attachment.hasStarted = false
     attachment.lastMediaPosition = 0
     withSuppressedEvents(attachment, () => {
@@ -109,31 +113,27 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
 
   function play(attachment: Attachment) {
     if (attachment.playPending || !attachment.element.paused) return
+    const request = Symbol('play')
+    attachment.playRequest = request
     attachment.playPending = true
-    try {
-      void attachment.element.play().then(
-        () => {
-          if (active === attachment) attachment.playPending = false
-        },
-        (error: unknown) => {
-          if (active !== attachment || !sourceMatches(attachment)) return
-          attachment.playPending = false
-          session.dispatch({
-            type: 'mediaError',
-            generation: attachment.generation,
-            message: error instanceof Error ? error.message : 'Playback failed.',
-          })
-        },
-      )
-    } catch (error) {
+    const finish = () => {
+      if (active !== attachment || attachment.playRequest !== request) return false
+      attachment.playRequest = null
       attachment.playPending = false
-      if (active === attachment && sourceMatches(attachment)) {
-        session.dispatch({
-          type: 'mediaError',
-          generation: attachment.generation,
-          message: error instanceof Error ? error.message : 'Playback failed.',
-        })
-      }
+      return true
+    }
+    const failed = (error: unknown) => {
+      if (!finish() || !sourceMatches(attachment)) return
+      session.dispatch({
+        type: 'mediaError',
+        generation: attachment.generation,
+        message: error instanceof Error ? error.message : 'Playback failed.',
+      })
+    }
+    try {
+      void attachment.element.play().then(finish, failed)
+    } catch (error) {
+      failed(error)
     }
   }
 
@@ -160,6 +160,7 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
         attachment.sourceUrl = source.url
         attachment.nativePausePending = false
         attachment.playPending = false
+        attachment.playRequest = null
         attachment.hasStarted = false
         attachment.lastMediaPosition = snapshot.position
         element.src = source.url
@@ -240,6 +241,7 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
       resumeAfterSeek: false,
       nativePausePending: false,
       playPending: false,
+      playRequest: null,
       hasStarted: false,
       lastMediaPosition: 0,
       listeners: [],
@@ -287,7 +289,11 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
       const internalPlayPending = attachment.playPending
       attachment.playPending = true
       if (!state.desiredPlaying) {
-        if (attachment.nativePausePending && !internalPlayPending) {
+        if (
+          !internalPlayPending &&
+          (attachment.nativePausePending ||
+            (attachment.mode === 'video' && !attachment.playRequest))
+        ) {
           attachment.nativePausePending = false
           session.dispatch({ type: 'mediaPlay', generation: attachment.generation })
           return
@@ -306,9 +312,23 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
       if (!validEvent()) return
       attachment.hasStarted = true
       attachment.playPending = false
+      session.dispatch({
+        type: 'mediaBuffering',
+        generation: attachment.generation,
+        buffering: false,
+      })
+    }
+    const onBuffering: EventListener = () => {
+      if (validEvent())
+        session.dispatch({
+          type: 'mediaBuffering',
+          generation: attachment.generation,
+          buffering: true,
+        })
     }
     const onSeeking: EventListener = () => {
       if (!validEvent()) return
+      onBuffering(new Event('waiting'))
       capturePosition(attachment)
       attachment.seeking = true
       const state = session.getSnapshot()
@@ -319,6 +339,11 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
     const onSeeked: EventListener = () => {
       if (!validEvent()) return
       capturePosition(attachment)
+      session.dispatch({
+        type: 'mediaBuffering',
+        generation: attachment.generation,
+        buffering: false,
+      })
       const shouldResume = attachment.resumeAfterSeek
       attachment.seeking = false
       attachment.resumeAfterSeek = false
@@ -391,6 +416,8 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
       ['timeupdate', onTimeUpdate],
       ['play', onPlay],
       ['playing', onPlaying],
+      ['waiting', onBuffering],
+      ['stalled', onBuffering],
       ['pause', onPause],
       ['seeking', onSeeking],
       ['seeked', onSeeked],

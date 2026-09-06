@@ -1,3 +1,4 @@
+import { trackPlayback } from '@/features/media-ai/activity'
 import { buildAudioExtractUrl, buildMediaUrl } from '@/lib/media/build-media-url'
 import { createPlaybackSession } from './playback-session'
 import { videoPlaybackProgress } from './video-progress-persistence'
@@ -40,5 +41,7 @@ export function createOwnerBrowserPlaybackSession(): PlaybackSession {
       legacyVideoPlaybackPersistence.save(state)
     },
   }
-  return createPlaybackSession({ sourceResolver: ownerPlaybackSourceResolver, persistence })
+  return trackPlayback(
+    createPlaybackSession({ sourceResolver: ownerPlaybackSourceResolver, persistence }),
+  )
 }

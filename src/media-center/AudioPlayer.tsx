@@ -1,4 +1,4 @@
-import { post } from '@/lib/api/client'
+import { selection } from '@/features/media-ai/selection'
 import { fetchDirectoryFiles } from '@/lib/files/files-client'
 import { queryKeys } from '@/lib/api/query-keys'
 import { MediaType } from '@/lib/files/types'
@@ -18,7 +18,6 @@ import {
   fetchAudioMetadata,
   formatPlaybackTime,
   playbackQueuesEqual,
-  type PlaybackItem,
 } from '@/features/playback'
 import { usePlaybackSession, usePlaybackSnapshot } from '@/features/playback/PlaybackProvider'
 import {
@@ -66,7 +65,12 @@ export function AudioPlayer() {
   createEffect(
     () => {
       const current = currentItem()
-      if (!current || playbackMode() !== 'audio') return null
+      if (
+        !current ||
+        playbackMode() !== 'audio' ||
+        selection().some((f) => f.path === current.locator)
+      )
+        return null
       return { current, queue: audioPlaybackQueueFromFiles(allFiles(), current) }
     },
     (next) => {
@@ -120,19 +124,11 @@ export function AudioPlayer() {
     return state.currentIndex >= 0 && state.currentIndex + 1 < state.queue.length
   })
 
-  function incrementView(item: PlaybackItem | undefined) {
-    if (item) void post('/api/stats/views', { filePath: item.locator }).catch(() => undefined)
-  }
-
   function playPrevious() {
-    const state = session.getSnapshot()
-    if (state.position <= 20) incrementView(state.queue[state.currentIndex - 1])
     session.dispatch({ type: 'previous' })
   }
 
   function playNext() {
-    const state = session.getSnapshot()
-    incrementView(state.queue[state.currentIndex + 1])
     session.dispatch({ type: 'next' })
   }
 

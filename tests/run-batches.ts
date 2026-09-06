@@ -8,7 +8,7 @@ import path from 'path'
 export const BATCHES = [
   {
     id: '1',
-    tests: ['workspace-layout-snap-resize', 'workspace-layout-chrome'],
+    tests: ['workspace-layout-snap-resize', 'workspace-layout-chrome', 'media-ai-feed'],
   },
   {
     id: '2',
@@ -38,12 +38,22 @@ export const BATCHES = [
   },
   {
     id: '4',
-    tests: ['editable-folders', 'url-state', 'multiple-media-dirs', 'stage2-playback-continuity'],
+    tests: [
+      'editable-folders',
+      'url-state',
+      'multiple-media-dirs',
+      'stage2-playback-continuity',
+      'media-ai-interactions',
+      'media-ai-unconfigured',
+      'media-ai-regressions',
+    ],
   },
   {
     id: '5',
     tests: [
       'audio-player',
+      'media-ai',
+      'media-ai-video',
       'file-display-settings',
       'folder-virtualization',
       'mobile-landscape-regressions',

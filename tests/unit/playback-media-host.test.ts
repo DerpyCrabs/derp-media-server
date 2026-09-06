@@ -232,6 +232,58 @@ describe('PlaybackMediaHost', () => {
     host.dispose()
   })
 
+  test('native video Play recovers after the initial autoplay request is rejected', async () => {
+    const session = createPlaybackSession({ sourceResolver: { resolve: resolver } })
+    const host = createMediaElementHost(session)
+    const media = new FakeMediaElement()
+    media.rejectPlay = true
+    session.dispatch({ type: 'load', item: item('blocked', 'video'), autoplay: true })
+    attach(host, media, 'video')
+    media.ready(100)
+    await Promise.resolve()
+    expect(session.getSnapshot().phase).toBe('error')
+    media.rejectPlay = false
+    await media.play()
+    expect(media.paused).toBe(false)
+    expect(session.getSnapshot()).toMatchObject({
+      phase: 'playing',
+      desiredPlaying: true,
+      error: null,
+    })
+    host.dispose()
+  })
+
+  test('native video Play resumes after an application pause', async () => {
+    const session = createPlaybackSession({ sourceResolver: { resolve: resolver } })
+    const host = createMediaElementHost(session)
+    const media = new FakeMediaElement()
+    session.dispatch({ type: 'load', item: item('paused', 'video'), autoplay: true })
+    attach(host, media, 'video')
+    media.ready(100)
+    await Promise.resolve()
+    media.tick(24)
+    session.dispatch({ type: 'pause' })
+    await media.play()
+    expect(media.paused).toBe(false)
+    expect(session.getSnapshot()).toMatchObject({ phase: 'playing', position: 24 })
+    host.dispose()
+  })
+
+  test('a pending programmatic video play cannot override a later pause', () => {
+    const session = createPlaybackSession({ sourceResolver: { resolve: resolver } })
+    const host = createMediaElementHost(session)
+    const media = new FakeMediaElement()
+    media.deferPlay = true
+    session.dispatch({ type: 'load', item: item('late-video', 'video'), autoplay: true })
+    attach(host, media, 'video')
+    session.dispatch({ type: 'pause' })
+    media.paused = false
+    media.emit('play')
+    expect(media.paused).toBe(true)
+    expect(session.getSnapshot().desiredPlaying).toBe(false)
+    host.dispose()
+  })
+
   test('preserves the requested position through a native seek pause', () => {
     const session = createPlaybackSession({ sourceResolver: { resolve: resolver } })
     const host = createMediaElementHost(session)

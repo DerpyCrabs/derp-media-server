@@ -441,6 +441,8 @@ export function createPlaybackSession(options: CreatePlaybackSessionOptions): Pl
         notify()
         return changed(command.generation)
       }
+      case 'mediaBuffering':
+        return stale(command.generation) ? reject('staleSource') : unchanged()
       case 'mediaDuration':
         if (stale(command.generation)) return reject('staleSource')
         state.duration = finiteAtLeast(command.duration, 0)
@@ -454,6 +456,7 @@ export function createPlaybackSession(options: CreatePlaybackSessionOptions): Pl
         return changed(command.generation)
       case 'mediaPlay':
         if (stale(command.generation)) return reject('staleSource')
+        state.error = null
         state.desiredPlaying = true
         state.phase = 'playing'
         notify()

@@ -1,3 +1,5 @@
+import StepBack from 'lucide-solid/icons/step-back'
+import StepForward from 'lucide-solid/icons/step-forward'
 import {
   getDefaultPosition,
   floatingVideoPositionStore,
@@ -142,6 +144,26 @@ export function VideoPlayer() {
             <div class='border-border z-10 flex items-center justify-between border-b bg-background/90 p-2 backdrop-blur-sm'>
               <span class='flex-1 truncate px-2 text-sm font-medium'>{fileName()}</span>
               <div class='flex items-center gap-1'>
+                <Show when={snapshot().queue.length > 1}>
+                  <button
+                    type='button'
+                    class='inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-muted disabled:opacity-40'
+                    aria-label='Previous video'
+                    disabled={snapshot().currentIndex === 0 && snapshot().position <= 20}
+                    onClick={() => session.dispatch({ type: 'previous' })}
+                  >
+                    <StepBack size={16} />
+                  </button>
+                  <button
+                    type='button'
+                    class='inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-muted disabled:opacity-40'
+                    aria-label='Next video'
+                    disabled={snapshot().currentIndex >= snapshot().queue.length - 1}
+                    onClick={() => session.dispatch({ type: 'next' })}
+                  >
+                    <StepForward size={16} />
+                  </button>
+                </Show>
                 <button
                   type='button'
                   class='inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-muted'

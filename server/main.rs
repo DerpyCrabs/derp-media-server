@@ -1,3 +1,4 @@
+mod activity;
 mod app;
 mod config;
 mod error;
@@ -9,6 +10,7 @@ mod html;
 mod image_variants;
 mod logical_path;
 mod media;
+mod media_ai;
 mod path_metadata;
 mod reader_state;
 mod routes;

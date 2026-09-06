@@ -1,3 +1,4 @@
+import { selection } from '@/features/media-ai/selection'
 import { createEffect } from 'solid-js'
 import {
   audioPlaybackQueueFromFiles,
@@ -18,6 +19,14 @@ function playbackItemForPath(files: FileItem[], path: string): PlaybackItem | nu
 }
 
 export function mediaCenterPlaybackQueue(files: FileItem[], item: PlaybackItem): PlaybackItem[] {
+  const selected = selection()
+  if (selected.some((f) => f.path === item.locator))
+    return selected
+      .filter((f) => f.type === item.media)
+      .flatMap((f) => {
+        const next = playbackItemFromFileItem(f)
+        return next ? [next] : []
+      })
   if (item.media === 'video') return [item]
   const queue = audioPlaybackQueueFromFiles(files, item)
   return queue.some((candidate) => playbackPathMatches(candidate, item.locator))

@@ -17,7 +17,7 @@ import Folder from 'lucide-solid/icons/folder'
 import RefreshCw from 'lucide-solid/icons/refresh-cw'
 import Search from 'lucide-solid/icons/search'
 import X from 'lucide-solid/icons/x'
-import { For, Show, createEffect, createSignal, createUniqueId, onSettled } from 'solid-js'
+import { For, Show, createEffect, createSignal, createUniqueId, flush, onSettled } from 'solid-js'
 import { Portal } from '@solidjs/web'
 import { showAppConfirm } from '@/lib/ui/app-dialog'
 
@@ -186,8 +186,10 @@ function FileSearchPalette(props: {
   })
 
   function choose(result: FileSearchResult) {
-    props.onSelect(result)
+    const select = props.onSelect
     props.onClose()
+    flush()
+    select(result)
   }
 
   function onInputKeyDown(event: KeyboardEvent) {

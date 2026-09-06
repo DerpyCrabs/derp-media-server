@@ -49,6 +49,8 @@ struct RawConfig {
     file_search: Option<RawFileSearchConfig>,
     image_optimization: Option<serde_json::Value>,
     hermes: Option<RawHermesConfig>,
+    #[serde(default)]
+    media_ai: MediaAiConfig,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -134,6 +136,76 @@ pub struct Config {
     pub file_search: FileSearchConfig,
     pub image_optimization: ImageOptimizationConfig,
     pub hermes: Option<HermesConfig>,
+    pub media_ai: MediaAiConfig,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
+pub struct MediaAiConfig {
+    pub enabled: bool,
+    pub provider: String,
+    pub model: String,
+    pub fast: bool,
+    pub thumbnails: bool,
+    pub endpoint: String,
+    pub api_key: String,
+    pub auth_file: String,
+    pub paused: bool,
+}
+impl Default for MediaAiConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            provider: "subscription".into(),
+            model: "gpt-5.6-luna".into(),
+            fast: true,
+            thumbnails: true,
+            endpoint: "http://localhost:8000/v1".into(),
+            api_key: String::new(),
+            auth_file: String::new(),
+            paused: false,
+        }
+    }
+}
+impl std::fmt::Debug for MediaAiConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MediaAiConfig")
+            .field("enabled", &self.enabled)
+            .field("provider", &self.provider)
+            .field("model", &self.model)
+            .field("fast", &self.fast)
+            .field("thumbnails", &self.thumbnails)
+            .field("paused", &self.paused)
+            .finish_non_exhaustive()
+    }
+}
+impl MediaAiConfig {
+    fn validate(&self, file_search: bool) -> Result<(), String> {
+        if !["subscription", "compatible"].contains(&self.provider.as_str())
+            || self.model.is_empty()
+            || self.model.len() > 100
+        {
+            return Err("Invalid mediaAi.provider or mediaAi.model".into());
+        }
+        if self.enabled && !file_search {
+            return Err("mediaAi requires fileSearch.enabled".into());
+        }
+        if self.provider == "compatible" {
+            let url = url::Url::parse(&self.endpoint)
+                .map_err(|_| "mediaAi.endpoint must be an HTTP URL ending in /v1")?;
+            if !["http", "https"].contains(&url.scheme())
+                || url.host_str().is_none()
+                || !url.username().is_empty()
+                || url.password().is_some()
+                || url.query().is_some()
+                || url.fragment().is_some()
+                || !url.path().trim_end_matches('/').ends_with("/v1")
+            {
+                return Err("mediaAi.endpoint must be an HTTP URL ending in /v1".into());
+            }
+        }
+        Ok(())
+    }
 }
 
 fn hermes_config(raw: Option<RawHermesConfig>) -> Result<Option<HermesConfig>, String> {
@@ -682,6 +754,14 @@ impl Config {
             ),
         };
         let hermes = hermes_config(raw.hermes)?;
+        let mut media_ai = raw.media_ai;
+        media_ai.validate(file_search.enabled)?;
+        if !media_ai.auth_file.is_empty() && Path::new(&media_ai.auth_file).is_relative() {
+            media_ai.auth_file = config_dir
+                .join(&media_ai.auth_file)
+                .to_string_lossy()
+                .into_owned();
+        }
         Ok(Self {
             port,
             roots,
@@ -690,6 +770,7 @@ impl Config {
             file_search,
             image_optimization,
             hermes,
+            media_ai,
         })
     }
 }
@@ -697,6 +778,21 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn media_ai_config_defaults_validation_and_secret_redaction() {
+        let absent: RawConfig = json5::from_str("{}").unwrap();
+        assert!(!absent.media_ai.enabled);
+        let configured: RawConfig = json5::from_str(r#"{mediaAi: {enabled: true, paused: true, provider: "compatible", endpoint: "http://localhost:8000/v1", apiKey: "test-secret"}}"#).unwrap();
+        assert!(configured.media_ai.enabled);
+        assert!(configured.media_ai.paused);
+        assert!(configured.media_ai.validate(true).is_ok());
+        assert!(configured.media_ai.validate(false).is_err());
+        assert!(!format!("{:?}", configured).contains("test-secret"));
+        assert!(json5::from_str::<RawConfig>(r#"{mediaAi: {unknownOption: true}}"#).is_err());
+        let invalid: RawConfig = json5::from_str(r#"{mediaAi: {provider: "compatible", endpoint: "https://user:password@example.com/v1"}}"#).unwrap();
+        assert!(invalid.media_ai.validate(true).is_err());
+    }
 
     #[test]
     fn hermes_config_validates_and_defaults() {

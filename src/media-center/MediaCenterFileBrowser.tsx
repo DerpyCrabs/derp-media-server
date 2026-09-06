@@ -1,3 +1,4 @@
+import { clearImageSelection, setMediaSelection } from '@/features/media-ai/selection'
 import { createMemo, createSignal, Show } from 'solid-js'
 import {
   FileBrowser,
@@ -27,10 +28,14 @@ import { MediaCenterPlaybackSync, mediaCenterPlaybackQueue } from './MediaCenter
 const scrollScope = () => 'main-file-browser'
 
 function MediaCenterToolbar(props: {
+  hideSearch?: boolean
+  searchOpen?: () => boolean
+  onSearchOpenChange?: (open: boolean) => void
   present: (request: FileBrowserPresentation) => void
   navigate: (path: string) => void
 }) {
   function openSearchResult(result: FileSearchResult) {
+    props.onSearchOpenChange?.(false)
     const file = fileSearchResultToFileItem(result)
     if (file.isDirectory) {
       props.navigate(file.path)
@@ -48,6 +53,9 @@ function MediaCenterToolbar(props: {
       <FileSearchButton
         title='Search library'
         testId='classic-file-search-trigger'
+        class={props.hideSearch ? 'hidden' : undefined}
+        open={props.searchOpen}
+        onOpenChange={props.onSearchOpenChange}
         onSelect={openSearchResult}
       />
       <ThemeSwitcher />
@@ -55,7 +63,11 @@ function MediaCenterToolbar(props: {
   )
 }
 
-export function MediaCenterFileBrowser() {
+export function MediaCenterFileBrowser(props: {
+  hideSearch?: boolean
+  searchOpen?: () => boolean
+  onSearchOpenChange?: (open: boolean) => void
+}) {
   const history = useBrowserHistory()
   const params = createUrlSearchParamsMemo(history)
   const playbackSession = usePlaybackSession()
@@ -88,6 +100,8 @@ export function MediaCenterFileBrowser() {
 
   function present(request: FileBrowserPresentation) {
     const { file, sourceDir } = request
+    if (file.type === MediaType.IMAGE) clearImageSelection()
+    if (file.type === MediaType.AUDIO || file.type === MediaType.VIDEO) setMediaSelection([])
     if (request.kind === 'reader') {
       openInReader(file)
       return
@@ -161,7 +175,13 @@ export function MediaCenterFileBrowser() {
       otherSurfaceLabel: 'Open in Workspace',
     },
     toolbarExtras: () => (
-      <MediaCenterToolbar present={present} navigate={(path) => navigateToFolder(path)} />
+      <MediaCenterToolbar
+        hideSearch={props.hideSearch}
+        searchOpen={props.searchOpen}
+        onSearchOpenChange={props.onSearchOpenChange}
+        present={present}
+        navigate={(path) => navigateToFolder(path)}
+      />
     ),
     renderExtras: (listing) => (
       <>

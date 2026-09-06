@@ -1,3 +1,4 @@
+import { imageSelection } from '@/features/media-ai/selection'
 import { createMemo } from 'solid-js'
 import { createUrlSearchParamsMemo, useBrowserHistory } from '@/lib/browser/browser-history'
 import { ViewerPane } from '@/features/viewer'
@@ -23,6 +24,7 @@ function RootViewerPane(props: Props) {
   return (
     <ViewerPane
       viewingPath={viewingPath}
+      selection={imageSelection}
       directory={directory}
       contentVisible={() => true}
       active={() => true}

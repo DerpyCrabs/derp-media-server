@@ -1,3 +1,4 @@
+import { createActivityId, sendActivity, type ActivityEvent } from '@/features/media-ai/activity'
 import { MediaType, type FileItem } from '@/lib/files/types'
 import Download from 'lucide-solid/icons/download'
 import Maximize2 from 'lucide-solid/icons/maximize-2'
@@ -6,7 +7,15 @@ import LoaderCircle from 'lucide-solid/icons/loader-circle'
 import X from 'lucide-solid/icons/x'
 import ZoomIn from 'lucide-solid/icons/zoom-in'
 import ZoomOut from 'lucide-solid/icons/zoom-out'
-import { Show, createMemo, createSignal, onSettled, type Accessor } from 'solid-js'
+import {
+  Show,
+  untrack,
+  createEffect,
+  createMemo,
+  createSignal,
+  onSettled,
+  type Accessor,
+} from 'solid-js'
 import type { JSX } from '@solidjs/web'
 import { createUrlSearchParamsMemo, useBrowserHistory } from '@/lib/browser/browser-history'
 import { createResponsiveImage } from '@/features/viewer/responsive-image'
@@ -72,6 +81,52 @@ export function ImageViewerPane(props: ImageViewerPaneProps): JSX.Element {
       setRotation(0)
     },
   })
+
+  createEffect(
+    () => props.viewingPath,
+    (path) => {
+      if (!path) return undefined
+      const id = createActivityId()
+      let seq = 0
+      let last = Date.now()
+      let active = false
+      const isActive = () =>
+        (props.active?.() ?? true) && !responsiveImage.loading() && !responsiveImage.error()
+      const report = () => {
+        const end = Date.now()
+        const visible = document.visibilityState === 'visible' && untrack(isActive)
+        const seconds = active ? Math.min(5, (end - last) / 1000) : 0
+        const event: ActivityEvent = {
+          id,
+          path,
+          kind: 'image',
+          source: 'chosen',
+          seq: seq++,
+          start: Math.max(last, end - 30_000),
+          end,
+          seconds,
+          duration: 0,
+          hour: new Date(end).getHours(),
+          completed: false,
+          excluded: false,
+        }
+        sendActivity(event)
+        last = end
+        active = visible
+      }
+      report()
+      createEffect(isActive, () => report())
+      const timer = window.setInterval(report, 5000)
+      document.addEventListener('visibilitychange', report)
+      window.addEventListener('pagehide', report)
+      return () => {
+        report()
+        clearInterval(timer)
+        document.removeEventListener('visibilitychange', report)
+        window.removeEventListener('pagehide', report)
+      }
+    },
+  )
 
   function handleClose() {
     if (props.onClose) props.onClose()

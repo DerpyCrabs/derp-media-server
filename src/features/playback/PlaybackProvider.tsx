@@ -1,3 +1,4 @@
+import { restoreActivityQueue } from '@/features/media-ai/activity'
 import {
   createContext,
   createSignal,
@@ -34,10 +35,12 @@ export function PlaybackProvider(props: PlaybackProviderProps) {
   const value = Object.freeze({ session, snapshot, mediaHost })
 
   onSettled(() => {
+    const stopActivityQueue = restoreActivityQueue()
     const unsubscribe = session.subscribe(() => setSnapshot(session.getSnapshot()))
     const checkpoint = () => session.dispatch({ type: 'checkpoint' })
     window.addEventListener('pagehide', checkpoint)
     return () => {
+      stopActivityQueue()
       window.removeEventListener('pagehide', checkpoint)
       unsubscribe()
       mediaHost.dispose()

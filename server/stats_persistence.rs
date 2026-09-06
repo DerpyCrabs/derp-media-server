@@ -44,13 +44,43 @@ impl StatsRepository {
         Self { store }
     }
 
-    pub fn views(&self) -> AppResult<Value> {
+    pub fn historical_views(&self) -> AppResult<Value> {
         let value = self.store.read(KIND, defaults())?;
         value["views"]
             .as_object()
             .cloned()
             .map(Value::Object)
             .ok_or_else(|| AppError::internal("Invalid stats document"))
+    }
+
+    pub fn views(&self) -> AppResult<Value> {
+        let Value::Object(mut views) = self.historical_views()? else {
+            unreachable!()
+        };
+        let connection = self.store.connection()?;
+        let exists: bool = connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='media_totals')",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(crate::activity::sql_error)?;
+        if exists {
+            let mut statement = connection
+                .prepare("SELECT path,opens FROM media_totals")
+                .map_err(crate::activity::sql_error)?;
+            for row in statement
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+                })
+                .map_err(crate::activity::sql_error)?
+            {
+                let (path, count) = row.map_err(crate::activity::sql_error)?;
+                let legacy = views.get(&path).and_then(Value::as_u64).unwrap_or(0);
+                views.insert(path, json!(legacy.saturating_add(count.max(0) as u64)));
+            }
+        }
+        Ok(Value::Object(views))
     }
 
     pub fn increment(&self, path: &str) -> AppResult<u64> {
@@ -143,6 +173,24 @@ mod tests {
                 [value.to_string()],
             )
             .unwrap();
+    }
+
+    #[test]
+    fn measured_opens_are_not_reclassified_as_legacy_preferences() {
+        let (_, repository, database) = repositories();
+        insert_raw(&database, &json!({"views":{"song.mp3":3}}));
+        let connection = crate::state_db::connection(&database).unwrap();
+        crate::activity::initialize(&connection).unwrap();
+        connection
+            .execute(
+                "INSERT INTO media_totals(path,opens) VALUES('song.mp3',7)",
+                [],
+            )
+            .unwrap();
+        assert_eq!(repository.views().unwrap()["song.mp3"], 10);
+        assert_eq!(repository.historical_views().unwrap()["song.mp3"], 3);
+        drop(connection);
+        let _ = std::fs::remove_file(database);
     }
 
     #[test]

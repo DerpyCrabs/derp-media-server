@@ -45,6 +45,7 @@ Path: `CONFIG_PATH` or `--config-path=...`. Options can also be set via environm
 | `editableFolders`   | `EDITABLE_FOLDERS` | Comma-separated paths under single-root `mediaDir` where writes are allowed |
 | `fileSearch`        |                    | Persistent filename/path search index settings                              |
 | `imageOptimization` |                    | Responsive viewer variants and disk-cache settings                          |
+| `mediaAi`           |                    | Optional recommendations and natural-language search                        |
 | `hermes`            |                    | Optional Hermes gateway, profile, and filesystem integration                |
 
 `dataPath` is config-file only and contains app-created settings, stats, search index,

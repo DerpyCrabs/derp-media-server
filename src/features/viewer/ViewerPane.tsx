@@ -4,7 +4,7 @@ import { fileDownloadHref } from '@/lib/files/download-urls'
 import { getMediaTypeFromPath } from '@/lib/media/media-utils'
 import { formatFileSize } from '@/lib/media/media-utils'
 import { fetchDirectoryFiles } from '@/lib/files/files-client'
-import { MediaType } from '@/lib/files/types'
+import { MediaType, type FileItem } from '@/lib/files/types'
 import { createFileSortMetadata, sortFilesForPath } from '@/features/explorer/file-display-settings'
 import { useExplorerSettings } from '@/features/explorer/use-explorer-settings'
 import { useViewStats } from '@/features/explorer/use-view-stats'
@@ -22,6 +22,7 @@ const Reader = lazy(() =>
 )
 
 type Props = {
+  selection?: Accessor<FileItem[]>
   viewingPath: Accessor<string>
   directory?: Accessor<string>
   contentVisible: Accessor<boolean>
@@ -142,7 +143,11 @@ export function ViewerPane(props: Props) {
       <Show when={!readerKind() && mediaType() === MediaType.IMAGE && viewingPath()}>
         <ImageViewerPane
           viewingPath={viewingPath()}
-          allFiles={orderedFolderFiles}
+          allFiles={() =>
+            props.selection?.().some((f) => f.path === viewingPath())
+              ? props.selection()
+              : orderedFolderFiles()
+          }
           directory={dirFromWindow}
           embedded={props.presentation !== 'modal'}
           showClose={props.presentation === 'modal'}

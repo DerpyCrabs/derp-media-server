@@ -21,6 +21,7 @@ pub fn moved_in_transaction(
     state
         .stats
         .move_paths_in_transaction(transaction, old_path, new_path)?;
+    crate::media_ai::move_paths(transaction, old_path, new_path)?;
     reader_state::move_prefix_in_transaction(transaction, old_path, new_path)
 }
 
@@ -37,10 +38,17 @@ pub fn removed_in_transaction(
         .workspaces
         .remove_paths_in_transaction(transaction, path, changed_at)?;
     state.stats.remove_paths_in_transaction(transaction, path)?;
+    crate::media_ai::remove_paths(transaction, path)?;
     reader_state::remove_prefix_in_transaction(transaction, None, path)
 }
 
 pub fn content_replaced_in_transaction(transaction: &Transaction<'_>, path: &str) -> AppResult<()> {
+    transaction
+        .execute(
+            "UPDATE media_catalog SET analyzed=0,description='',tags='' WHERE path=?1",
+            [path],
+        )
+        .map_err(crate::activity::sql_error)?;
     reader_state::remove_exact_all_in_transaction(transaction, path)
 }
 

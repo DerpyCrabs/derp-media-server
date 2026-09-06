@@ -21,6 +21,7 @@ use tokio::sync::Mutex;
 
 pub(crate) struct AppState {
     pub config: Config,
+    pub media_ai: crate::media_ai::Runtime,
     pub dev: bool,
     pub vite_port: u16,
     pub client: reqwest::Client,
