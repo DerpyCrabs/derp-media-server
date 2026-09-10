@@ -28,6 +28,7 @@ type Positioning =
     }
 
 type MenuSurfaceProps = {
+  mount?: HTMLElement
   positioning: Positioning
   trackScroll: boolean
   zIndex: number
@@ -38,7 +39,7 @@ type MenuSurfaceProps = {
   'data-slot'?: string
   'data-testid'?: string
   class?: string
-  role?: 'menu'
+  role?: 'menu' | 'presentation'
   noWindowDrag?: boolean
   pinContextMenuRoot?: boolean
   breadcrumbFolderMenuSurface?: boolean
@@ -142,7 +143,7 @@ function MenuSurface(props: MenuSurfaceProps) {
   const floatingMount = getFloatingLayerMount()
 
   return (
-    <Portal mount={floatingMount}>
+    <Portal mount={props.mount ?? floatingMount}>
       <div
         ref={(e) => setSurfaceRef(e ?? null)}
         data-floating-surface
@@ -167,6 +168,7 @@ function MenuSurface(props: MenuSurfaceProps) {
 }
 
 type CommonFloatingProps = {
+  mount?: HTMLElement
   onDismiss: () => void
   zIndex?: number
   extraDismissRoots?: Accessor<Array<HTMLElement | null | undefined>>
@@ -175,7 +177,7 @@ type CommonFloatingProps = {
   'data-slot'?: string
   'data-testid'?: string
   class?: string
-  role?: 'menu'
+  role?: 'menu' | 'presentation'
   noWindowDrag?: boolean
   pinContextMenuRoot?: boolean
   breadcrumbFolderMenuSurface?: boolean
@@ -204,6 +206,7 @@ function FloatingContextMenuAnchorBranch(props: FloatingContextMenuAnchorProps) 
   return (
     <Show when={props.open()}>
       <MenuSurface
+        mount={props.mount}
         positioning={{
           kind: 'anchor',
           anchorRef: props.anchorRef,
@@ -237,6 +240,7 @@ function FloatingContextMenuPointerBranch<T>(props: FloatingContextMenuPointerPr
         const a = props.anchor(value)
         return (
           <MenuSurface
+            mount={props.mount}
             positioning={{ kind: 'pointer', left: a.x, top: a.y }}
             trackScroll={false}
             zIndex={

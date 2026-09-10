@@ -12,6 +12,7 @@ mod logical_path;
 mod media;
 mod media_ai;
 mod path_metadata;
+mod playback_cache;
 mod reader_state;
 mod routes;
 mod server;
@@ -21,6 +22,7 @@ mod stats_persistence;
 mod store;
 mod thumbnails;
 mod virtual_directory;
+mod video_playback;
 mod workspace_persistence;
 
 #[tokio::main]

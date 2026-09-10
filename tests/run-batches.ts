@@ -65,6 +65,7 @@ export const BATCHES = [
     id: '6',
     tests: [
       'video-player',
+      'video-controls',
       'playback-regressions',
       'image-viewer',
       'pdf-viewer',

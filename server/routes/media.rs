@@ -21,12 +21,10 @@ use lofty::{
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 use std::{path::Path as FsPath, time::UNIX_EPOCH};
 use tokio::{
     fs,
     io::{AsyncReadExt, AsyncSeekExt},
-    process::Command,
 };
 use tokio_util::io::ReaderStream;
 
@@ -325,65 +323,7 @@ fn cache_etag(metadata: &std::fs::Metadata) -> String {
     format!("\"m{modified}-s{}\"", metadata.len())
 }
 
-fn audio_extract_cache_path(
-    data_path: &FsPath,
-    full: &FsPath,
-    metadata: &std::fs::Metadata,
-) -> std::path::PathBuf {
-    let canonical = std::fs::canonicalize(full).unwrap_or_else(|_| full.to_owned());
-    let digest = Sha256::digest(canonical.to_string_lossy().as_bytes());
-    let source_hash = digest[..12]
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
-    let modified = metadata
-        .modified()
-        .unwrap_or(UNIX_EPOCH)
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    data_path.join("audio-extracts").join(format!(
-        "{source_hash}-m{modified}-s{}-opus-v1.webm",
-        metadata.len()
-    ))
-}
-
-async fn ensure_audio_extract<F>(cache: &FsPath, command: F) -> AppResult<()>
-where
-    F: FnOnce(&FsPath) -> Command,
-{
-    if fs::metadata(cache).await.is_ok() {
-        return Ok(());
-    }
-    let parent = cache
-        .parent()
-        .ok_or_else(|| AppError::internal("Invalid audio cache path"))?;
-    fs::create_dir_all(parent).await.map_err(AppError::io)?;
-    let temporary = cache.with_extension(format!("{}.tmp", uuid::Uuid::new_v4()));
-    let mut command = command(&temporary);
-    let status = command.status().await.map_err(|error| {
-        if error.kind() == std::io::ErrorKind::NotFound {
-            AppError(
-                StatusCode::NOT_IMPLEMENTED,
-                "FFmpeg not found. Please install ffmpeg on the server.".into(),
-            )
-        } else {
-            AppError::io(error)
-        }
-    })?;
-    if !status.success() {
-        let _ = fs::remove_file(&temporary).await;
-        return Err(AppError::internal("Audio extraction failed"));
-    }
-    let metadata = fs::metadata(&temporary).await.map_err(AppError::io)?;
-    if metadata.len() == 0 {
-        let _ = fs::remove_file(&temporary).await;
-        return Err(AppError::internal("Audio extraction produced no audio"));
-    }
-    fs::rename(&temporary, cache).await.map_err(AppError::io)
-}
-
-async fn ranged_file_response(
+pub(crate) async fn ranged_file_response(
     full: &FsPath,
     mime: &'static str,
     headers: &HeaderMap,
@@ -454,74 +394,18 @@ pub(crate) async fn extract_audio_path(
     full: &FsPath,
     headers: &HeaderMap,
 ) -> AppResult<Response> {
-    let extension = full
-        .extension()
-        .unwrap_or_default()
-        .to_string_lossy()
-        .to_ascii_lowercase();
-    if media::media_type(&extension) != "video" {
-        return Err(AppError::bad("Not a video file"));
-    }
-    let metadata = fs::metadata(full).await.map_err(AppError::io)?;
-    let cache = audio_extract_cache_path(&state.config.data_path, full, &metadata);
-    let _guard = state.audio_extracts.lock().await;
-    ensure_audio_extract(&cache, |temporary| {
-        let mut command = Command::new("ffmpeg");
-        command
-            .args(["-hide_banner", "-loglevel", "error"])
-            .arg("-i")
-            .arg(full)
-            .args(["-map", "0:a:0", "-vn", "-c:a", "libopus", "-b:a", "128k"])
-            .arg("-f")
-            .arg("webm")
-            .arg(temporary)
-            .kill_on_drop(true);
-        command
-    })
-    .await?;
-    drop(_guard);
-    let cache_metadata = fs::metadata(&cache).await.map_err(AppError::io)?;
-    ranged_file_response(
-        &cache,
-        "audio/webm",
-        headers,
-        "private, no-cache",
-        &cache_etag(&cache_metadata),
-    )
-    .await
+    crate::video_playback::extract_audio(state, full, headers).await
 }
 
 #[cfg(test)]
 mod playback_regression_tests {
     use super::*;
-    use std::{
-        sync::atomic::{AtomicBool, Ordering},
-        time::Duration,
-    };
-
-    #[cfg(unix)]
     #[tokio::test]
-    async fn cached_audio_range_does_not_run_the_transcoder_again() {
+    async fn cached_audio_supports_byte_ranges() {
         let directory = std::env::temp_dir().join(format!("derp-audio-{}", uuid::Uuid::new_v4()));
         let cache = directory.join("cached.webm");
         fs::create_dir_all(&directory).await.unwrap();
         fs::write(&cache, b"cached audio").await.unwrap();
-        let invoked = AtomicBool::new(false);
-
-        tokio::time::timeout(
-            Duration::from_millis(100),
-            ensure_audio_extract(&cache, |_| {
-                invoked.store(true, Ordering::SeqCst);
-                let mut command = Command::new("sh");
-                command.args(["-c", "sleep 1"]);
-                command
-            }),
-        )
-        .await
-        .expect("cached audio waited for the transcoder")
-        .unwrap();
-
-        assert!(!invoked.load(Ordering::SeqCst));
         let mut headers = HeaderMap::new();
         headers.insert(header::RANGE, HeaderValue::from_static("bytes=0-0"));
         let metadata = fs::metadata(&cache).await.unwrap();

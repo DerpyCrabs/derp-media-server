@@ -1,3 +1,4 @@
+import { createPlaybackScrubber } from '@/features/playback/create-playback-scrubber'
 import { fetchDirectoryFiles } from '@/lib/files/files-client'
 import { MediaType } from '@/lib/files/types'
 import { queryKeys } from '@/lib/api/query-keys'
@@ -49,17 +50,20 @@ export function WorkspaceTaskbarAudio(props: Props) {
     () =>
       !!item() && playback().mode === 'audio' && !(props.suppressTaskbarAudioChrome?.() ?? false),
   )
-  const detailsKey = () => {
+  const detailsKey = createMemo(() => {
     const state = playback()
     return shouldHandleAudio() && state.currentItem
-      ? `${state.currentItem.locator}\0${state.source?.generation ?? 0}`
+      ? `${state.currentItem.locator}\0${state.mode}`
       : ''
-  }
+  })
   const detailsOpen = () => {
     const state = detailsState()
     return !!detailsKey() && state.key === detailsKey() && state.open
   }
   const setDetailsOpen = (open: boolean) => setDetailsState({ key: detailsKey(), open })
+  createEffect(detailsKey, (key) => {
+    setDetailsState({ key, open: false })
+  })
 
   const filesQuery = useQuery(() => ({
     queryKey: queryKeys.files(currentDir()),
@@ -116,6 +120,12 @@ export function WorkspaceTaskbarAudio(props: Props) {
   })
   const fileName = createMemo(() => item()?.name ?? '')
   const displayDuration = createMemo(() => playback().duration || audioMetadata()?.duration || 0)
+  const scrubber = createPlaybackScrubber({
+    key: () => `${playingPath()}\0${playback().mode}`,
+    position: () => playback().position,
+    duration: displayDuration,
+    onSeek: (position) => session.dispatch({ type: 'seek', position }),
+  })
   const hasPreviousAudio = createMemo(() => playback().currentIndex > 0 || playback().position > 20)
   const hasNextAudio = createMemo(
     () => playback().currentIndex >= 0 && playback().currentIndex + 1 < playback().queue.length,
@@ -227,21 +237,17 @@ export function WorkspaceTaskbarAudio(props: Props) {
 
               <div class='text-muted-foreground flex items-center gap-2 text-[11px]'>
                 <span class='w-9 text-right tabular-nums'>
-                  {formatPlaybackTime(playback().position)}
+                  {formatPlaybackTime(scrubber.position())}
                 </span>
                 <input
                   type='range'
                   aria-label='Playback position'
-                  aria-valuetext={`${formatPlaybackTime(playback().position)} of ${formatPlaybackTime(displayDuration())}`}
+                  aria-valuetext={`${formatPlaybackTime(scrubber.position())} of ${formatPlaybackTime(displayDuration())}`}
                   min={0}
                   max={displayDuration() || 0}
-                  value={playback().position}
-                  onInput={(event) =>
-                    session.dispatch({
-                      type: 'seek',
-                      position: Number.parseFloat(event.currentTarget.value),
-                    })
-                  }
+                  step={0.1}
+                  value={scrubber.position()}
+                  {...scrubber.handlers}
                   class='[&::-webkit-slider-thumb]:bg-primary h-1.5 flex-1 cursor-pointer appearance-none rounded-none bg-secondary [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full'
                 />
                 <span class='w-9 tabular-nums'>{formatPlaybackTime(displayDuration())}</span>

@@ -77,7 +77,14 @@ describe('admin event routing', () => {
       { invalidate: (key) => invalidated.push([...key]) },
     )
 
-    expect(invalidated).toEqual([['files'], ['content', 'admin'], ['settings'], ['stats']])
+    expect(invalidated).toEqual([
+      ['files'],
+      ['content', 'admin'],
+      ['video-info'],
+      ['video-subtitles'],
+      ['settings'],
+      ['stats'],
+    ])
   })
 
   test('invalidates stats on a stats event', () => {

@@ -1,3 +1,4 @@
+import { dragPlaybackPosition } from './playback-seek-helpers'
 import { test, expect } from '@playwright/test'
 
 const MUSIC_DIR = 'Music'
@@ -265,3 +266,22 @@ test.describe('Audio Player', () => {
       .toBe('looped-playing')
   })
 })
+
+for (const width of [1440, 390]) {
+  test(`audio seek previews during a drag and accepts keyboard input at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto(`/?dir=${MUSIC_DIR}&playing=${encodeURIComponent(AUDIO_FILE)}`)
+    const audio = page.locator('audio').first()
+    const slider = page
+      .getByTestId('audio-player-chrome')
+      .locator('input[aria-label="Playback position"]:visible')
+    const target = await dragPlaybackPosition(page, audio, slider, width === 390)
+    await slider.focus()
+    await page.keyboard.press('ArrowRight')
+    await expect
+      .poll(() => audio.evaluate((element: HTMLAudioElement) => element.currentTime))
+      .toBeGreaterThan(target)
+  })
+}

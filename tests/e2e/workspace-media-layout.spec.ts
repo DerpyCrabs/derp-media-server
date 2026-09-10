@@ -1,3 +1,4 @@
+import { dragPlaybackPosition } from './playback-seek-helpers'
 import { test, expect, type BrowserContext, type Locator, type Page } from '@playwright/test'
 import { getWindowGroups, gotoWorkspace } from './workspace-layout-helpers'
 import { createWorkspaceE2EContext } from './workspace-e2e-context'
@@ -243,6 +244,25 @@ test.describe('Workspace audio and video playback', () => {
       .locator('video')
       .evaluate((v) => (v.parentElement as HTMLElement | null)?.getBoundingClientRect().height ?? 0)
     expect(mediaAreaH).toBeGreaterThan(innerH * 0.5)
+    await playerGroup.locator('video').hover()
+    const surfaceBox = await playerGroup.locator('.video-surface').boundingBox()
+    const controlsBox = await playerGroup.getByTestId('video-controls').boundingBox()
+    expect(controlsBox!.x).toBeCloseTo(surfaceBox!.x, 1)
+    expect(controlsBox!.width).toBeCloseTo(surfaceBox!.width, 1)
+    expect(controlsBox!.y + controlsBox!.height).toBeCloseTo(surfaceBox!.y + surfaceBox!.height, 1)
+    await playerGroup.getByRole('button', { name: 'Playback settings', exact: true }).click()
+    const settings = page.getByRole('dialog', { name: 'Playback settings' })
+    await expect(settings.getByLabel('Playback speed')).toBeVisible()
+    await expect(settings.getByLabel('Second subtitles', { exact: true })).toBeVisible()
+    const settingsBox = await settings.boundingBox()
+    expect(settingsBox!.x).toBeGreaterThanOrEqual(0)
+    expect(settingsBox!.x + settingsBox!.width).toBeLessThanOrEqual(page.viewportSize()!.width)
+    await settings.getByRole('button', { name: 'Playback speed', exact: true }).click()
+    await page.getByRole('menuitemradio', { name: '1.5×', exact: true }).click()
+    await expect
+      .poll(() => playerGroup.locator('video').evaluate((v: HTMLVideoElement) => v.playbackRate))
+      .toBe(1.5)
+    await settings.getByRole('button', { name: 'Close', exact: true }).click()
   })
 })
 
@@ -276,4 +296,19 @@ test.describe('Workspace viewer pane height', () => {
     const innerH = winBox!.height - chrome
     expect(bodyHeight).toBeGreaterThan(innerH * 0.45)
   })
+})
+
+test('taskbar audio previews a drag and keeps the controls open after seeking', async () => {
+  await gotoWorkspace(page)
+  const content = getVisibleContent(getWindowGroups(page).first())
+  await content.getByText('Music', { exact: true }).click()
+  await content.locator('table').getByText('track.mp3', { exact: true }).click()
+  await page.getByRole('button', { name: 'Open audio controls' }).click()
+  const popover = page.locator('[data-workspace-taskbar-audio-root] .bg-popover')
+  await dragPlaybackPosition(
+    page,
+    page.locator('[data-workspace-taskbar-media-audio]'),
+    popover.getByRole('slider', { name: 'Playback position' }),
+  )
+  await expect(popover).toBeVisible()
 })

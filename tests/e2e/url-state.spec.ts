@@ -37,9 +37,7 @@ test.describe('URL State – Main Page', () => {
     await expect(page.locator('video')).toBeVisible()
     // The viewer dialog overlays the video player close button; dispatch click via JS
     await page
-      .locator('video')
-      .locator('..')
-      .locator('button:has(.lucide-x)')
+      .getByRole('button', { name: 'Close player', includeHidden: true })
       .dispatchEvent('click')
     await expect(page).not.toHaveURL(/playing=/)
     await expect(page).toHaveURL(/viewing=/)

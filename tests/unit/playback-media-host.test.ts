@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, spyOn, test } from 'bun:test'
 import {
   createMediaElementHost,
   createPlaybackSession,
@@ -25,8 +25,10 @@ class FakeMediaElement {
   seeking = false
   volume = 1
   muted = false
+  playbackRate = 1
   error: { code: number } | null = null
   rejectPlay = false
+  playError: Error | null = null
   deferPlay = false
   playCalls = 0
   pauseCalls = 0
@@ -49,6 +51,7 @@ class FakeMediaElement {
   play() {
     this.playCalls += 1
     if (this.rejectPlay) return Promise.reject(new Error('play rejected'))
+    if (this.playError) return Promise.reject(this.playError)
     if (this.deferPlay) return new Promise<void>(() => undefined)
     if (this.paused) {
       this.paused = false
@@ -122,6 +125,195 @@ function attach(
 }
 
 describe('PlaybackMediaHost', () => {
+  test('autoplay permission denial leaves usable paused controls', async () => {
+    const session = createPlaybackSession({ sourceResolver: { resolve: resolver } })
+    const host = createMediaElementHost(session)
+    const media = new FakeMediaElement()
+    media.playError = new DOMException('Interaction required', 'NotAllowedError')
+    session.dispatch({ type: 'load', item: item('permission', 'video'), autoplay: true })
+    attach(host, media, 'video')
+    await Promise.resolve()
+    expect(session.getSnapshot()).toMatchObject({
+      phase: 'paused',
+      desiredPlaying: false,
+      error: null,
+    })
+    media.playError = null
+    session.dispatch({ type: 'play' })
+    expect(media.paused).toBe(false)
+    host.dispose()
+  })
+
+  test('audio can resume when codec timing places the first buffered sample just after a seek', () => {
+    const session = createPlaybackSession({
+      sourceResolver: {
+        resolve: (request) => ({ ...resolver(request), streaming: true, duration: 100 }),
+      },
+    })
+    const host = createMediaElementHost(session)
+    const media = Object.assign(new FakeMediaElement(), {
+      buffered: { length: 1, start: () => 53.401, end: () => 80 },
+    })
+    session.dispatch({ type: 'load', item: item('opus'), autoplay: false, position: 53.4 })
+    attach(host, media, 'audio')
+    media.ready(100)
+    media.emit('seeked')
+    expect(media.currentTime).toBe(53.401)
+    expect(session.getSnapshot().pendingSeek).toBeNull()
+    session.dispatch({ type: 'play' })
+    expect(media.paused).toBe(false)
+    host.dispose()
+  })
+
+  test('applies small audio seeks instead of accepting the previous nearby time', () => {
+    const session = createPlaybackSession({ sourceResolver: { resolve: resolver } })
+    const host = createMediaElementHost(session)
+    const media = new FakeMediaElement()
+    session.dispatch({ type: 'load', item: item('fine-seek'), autoplay: false })
+    attach(host, media, 'audio')
+    media.ready(100)
+    media.tick(20)
+    session.dispatch({ type: 'seek', position: 20.1 })
+    expect(media.currentTime).toBe(20.1)
+    media.emit('seeked')
+    expect(session.getSnapshot()).toMatchObject({ position: 20.1, pendingSeek: null })
+    host.dispose()
+  })
+
+  test('loading a seek cannot report zero or finish at an earlier keyframe', () => {
+    const session = createPlaybackSession({ sourceResolver: { resolve: resolver } })
+    const host = createMediaElementHost(session)
+    const media = new FakeMediaElement()
+    session.dispatch({ type: 'load', item: item('keyframe', 'video'), autoplay: false })
+    attach(host, media, 'video')
+    media.ready(100)
+    session.dispatch({ type: 'seek', position: 54.3 })
+    media.currentTime = 0
+    media.emit('seeking')
+    media.tick(0)
+    expect(session.getSnapshot().position).toBe(54.3)
+    media.currentTime = 52.5
+    media.emit('seeked')
+    expect(session.getSnapshot().position).toBe(54.3)
+    expect(media.currentTime).toBe(54.3)
+    media.emit('seeked')
+    expect(session.getSnapshot()).toMatchObject({ position: 54.3, pendingSeek: null })
+    host.dispose()
+  })
+
+  test('an interrupted play request does not turn an intentional pause into an error', async () => {
+    const session = createPlaybackSession({ sourceResolver: { resolve: resolver } })
+    const host = createMediaElementHost(session)
+    const media = new FakeMediaElement()
+    media.playError = new DOMException('Interrupted by pause', 'AbortError')
+    session.dispatch({ type: 'load', item: item('cancelled', 'video'), autoplay: true })
+    attach(host, media, 'video')
+    session.dispatch({ type: 'pause' })
+    await Promise.resolve()
+    expect(session.getSnapshot()).toMatchObject({
+      phase: 'paused',
+      desiredPlaying: false,
+      error: null,
+    })
+    host.dispose()
+  })
+
+  test('unsupported play rejection falls back without losing play intent or position', async () => {
+    const requests: PlaybackSourceRequest[] = []
+    const session = createPlaybackSession({
+      sourceResolver: {
+        resolve: (request) => {
+          requests.push(request)
+          return {
+            kind: 'resolved',
+            url: `/video/${request.fallback}`,
+            compatibility: request.fallback,
+          }
+        },
+      },
+    })
+    const host = createMediaElementHost(session)
+    const media = new FakeMediaElement()
+    media.playError = new DOMException('Unsupported codec', 'NotSupportedError')
+    session.dispatch({ type: 'load', item: item('codec', 'video'), autoplay: true, position: 42 })
+    attach(host, media, 'video')
+    media.playError = null
+    await Promise.resolve()
+    expect(requests.at(-1)).toMatchObject({ fallback: 'remux', position: 42 })
+    expect(session.getSnapshot()).toMatchObject({ desiredPlaying: true, error: null, position: 42 })
+    expect(media.paused).toBe(false)
+    host.dispose()
+  })
+
+  test('ignores a late conversion error after switching files', async () => {
+    let finish!: (response: Response) => void
+    const fetchMock = spyOn(globalThis, 'fetch').mockImplementation(
+      Object.assign(
+        () =>
+          new Promise<Response>((resolve) => {
+            finish = resolve
+          }),
+        { preconnect: fetch.preconnect },
+      ),
+    )
+    const session = createPlaybackSession({
+      sourceResolver: {
+        resolve: (request) => ({
+          ...resolver(request),
+          compatibility: 'video',
+          requestId: request.item.locator,
+        }),
+      },
+    })
+    const host = createMediaElementHost(session)
+    const media = new FakeMediaElement()
+    try {
+      session.dispatch({ type: 'load', item: item('first', 'video'), autoplay: false })
+      attach(host, media, 'video')
+      media.emit('error')
+      session.dispatch({ type: 'load', item: item('second', 'video'), autoplay: true })
+      finish(Response.json({ error: 'Old conversion failed' }))
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      expect(session.getSnapshot()).toMatchObject({
+        currentItem: item('second', 'video'),
+        desiredPlaying: true,
+        error: null,
+      })
+    } finally {
+      fetchMock.mockRestore()
+      host.dispose()
+    }
+  })
+
+  test('seeking beyond a streamed buffer resolves from the requested timestamp', () => {
+    const requests: PlaybackSourceRequest[] = []
+    const session = createPlaybackSession({
+      sourceResolver: {
+        resolve: (request) => {
+          requests.push(request)
+          return {
+            kind: 'resolved',
+            url: `/stream?start=${request.position}`,
+            streaming: true,
+            duration: 100,
+          }
+        },
+      },
+    })
+    const host = createMediaElementHost(session)
+    const media = new FakeMediaElement()
+    session.dispatch({ type: 'load', item: item('stream', 'video'), autoplay: false })
+    attach(host, media, 'video')
+    session.dispatch({ type: 'seek', position: 60 })
+    expect(requests.at(-1)).toMatchObject({ reason: 'refresh', position: 60 })
+    expect(media.currentTime).toBe(60)
+    media.tick(0)
+    expect(session.getSnapshot().position).toBe(60)
+    session.dispatch({ type: 'setPlaybackRate', rate: 2.25 })
+    expect(media.playbackRate).toBe(2.25)
+    host.dispose()
+  })
+
   test('owns one media element and mirrors source, transport, and position', () => {
     const session = createPlaybackSession({ sourceResolver: { resolve: resolver } })
     const host = createMediaElementHost(session)

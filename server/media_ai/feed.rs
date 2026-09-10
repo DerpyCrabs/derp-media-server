@@ -626,6 +626,7 @@ mod tests {
                     reconcile_directories_per_second: 1,
                 },
                 image_optimization: ImageOptimizationConfig::default(),
+                playback: Default::default(),
                 hermes: None,
                 media_ai: crate::config::MediaAiConfig {
                     enabled: true,
@@ -662,7 +663,7 @@ mod tests {
                 hermes: None,
                 hermes_project_operations: tokio::sync::Mutex::new(()),
                 file_mutations: tokio::sync::Mutex::new(()),
-                audio_extracts: tokio::sync::Mutex::new(()),
+                playback: crate::video_playback::PlaybackRuntime::new(&config),
                 hermes_runtime_ids: tokio::sync::Mutex::new(HashMap::new()),
                 hermes_active_ids: tokio::sync::Mutex::new(HashSet::new()),
                 database,

@@ -8,3 +8,4 @@ export const FLOATING_Z_BREADCRUMB_FOLDER_MENU = 502_000
 export const FLOATING_Z_PIN_MENU = 510_000
 /** Above maximized canvas windows, whose selected layer reaches 2,000,000. */
 export const FLOATING_Z_EXPLORER_DISPLAY_OPTIONS = 2_100_000
+export const FLOATING_Z_PLAYBACK_MENU = 2_100_000

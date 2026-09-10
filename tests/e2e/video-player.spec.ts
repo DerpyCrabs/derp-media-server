@@ -1,9 +1,73 @@
 import { test, expect } from '@playwright/test'
+import { enableForYou, tracks } from './media-ai-helpers'
 
 const VIDEO_DIR = 'Videos'
 const VIDEO_FILE = 'Videos/sample.mp4'
 
 test.describe('Video Player', () => {
+  test('Library and For You share tab spacing while inline video keeps its own gap', async ({
+    page,
+  }) => {
+    test.setTimeout(30_000)
+    const errors: string[] = []
+    page.on('pageerror', (error) => errors.push(error.message))
+    await enableForYou(page, tracks)
+    async function gap(afterVideo = false) {
+      return page.evaluate((afterVideo) => {
+        const feed = document.querySelector('[data-testid="for-you"]')
+        const browser = document.querySelector('[data-testid="file-browser"]')
+        const content = feed?.firstElementChild ?? browser?.firstElementChild?.firstElementChild
+        const above = document.querySelector(
+          afterVideo ? '[data-video-player-inline]' : '[data-testid="media-navigation-header"]',
+        )
+        if (!content || !above) return -1
+        return content.getBoundingClientRect().top - above.getBoundingClientRect().bottom
+      }, afterVideo)
+    }
+
+    for (const width of [1440, 800, 393]) {
+      await page.setViewportSize({ width, height: 900 })
+      for (const view of ['library', 'for-you']) {
+        const query = new URLSearchParams({ view, dir: VIDEO_DIR })
+        await page.goto(`/?${query}`)
+        await expect(
+          page.getByTestId(view === 'library' ? 'file-browser' : 'for-you'),
+        ).toBeVisible()
+        await expect.poll(() => gap()).toBe(width >= 1024 ? 4 : 0)
+
+        query.set('playing', VIDEO_FILE)
+        await page.goto(`/?${query}`)
+        await expect(page.locator('[data-video-player-inline]')).toBeVisible()
+        await expect.poll(() => gap(true)).toBe(16)
+
+        await page.getByRole('button', { name: 'Minimize player' }).click()
+        await expect(page.getByRole('button', { name: 'Close player' })).toBeInViewport()
+        await expect.poll(() => gap()).toBe(width >= 1024 ? 4 : 0)
+        await page.getByRole('button', { name: 'Close player' }).click()
+        await expect.poll(() => gap()).toBe(width >= 1024 ? 4 : 0)
+      }
+    }
+    expect(errors).toEqual([])
+  })
+
+  test('minimized player stays reachable when the viewport shrinks', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto(`/?dir=${VIDEO_DIR}&playing=${encodeURIComponent(VIDEO_FILE)}`)
+    await page.getByRole('button', { name: 'Minimize player' }).click()
+    await expect(
+      page.getByRole('button', { name: 'Playback settings', exact: true }),
+    ).toBeInViewport()
+    await expect(page.getByRole('button', { name: 'Enter fullscreen' })).toBeInViewport()
+    await page.setViewportSize({ width: 393, height: 600 })
+    await expect(page.getByRole('button', { name: 'Close player' })).toBeInViewport()
+    await expect(page.getByRole('button', { name: 'Maximize player' })).toBeInViewport()
+    const video = await page.locator('video').boundingBox()
+    expect(video!.x).toBeGreaterThanOrEqual(0)
+    expect(video!.x + video!.width).toBeLessThanOrEqual(393)
+    await page.getByRole('button', { name: 'Close player' }).click()
+    await expect(page.locator('video')).toBeHidden()
+  })
+
   test('opens video player when clicking a video file', async ({ page }) => {
     await page.goto(`/?dir=${VIDEO_DIR}`)
     await page.locator(`[data-file-path="${VIDEO_FILE}"]`).click()
@@ -11,11 +75,13 @@ test.describe('Video Player', () => {
     await expect(page.locator('video')).toBeVisible()
   })
 
-  test('video element has native controls', async ({ page }) => {
+  test('video has app controls instead of native controls', async ({ page }) => {
     await page.goto(`/?dir=${VIDEO_DIR}&playing=${encodeURIComponent(VIDEO_FILE)}`)
     const video = page.locator('video')
     await expect(video).toBeVisible()
-    await expect(video).toHaveAttribute('controls', '')
+    await expect(video).not.toHaveAttribute('controls', '')
+    await video.hover()
+    await expect(page.getByRole('button', { name: 'Playback settings', exact: true })).toBeVisible()
   })
 
   test('shows audio-only mode toggle', async ({ page }) => {
@@ -81,9 +147,11 @@ test.describe('Video Player', () => {
       { timeout: 15_000 },
     )
     const initialTime = await video.evaluate((element: HTMLVideoElement) => element.currentTime)
-    const box = await video.boundingBox()
+    await video.hover()
+    const seek = page.getByRole('slider', { name: 'Seek video' })
+    const box = await seek.boundingBox()
     expect(box).not.toBeNull()
-    await video.click({ position: { x: box!.width * 0.75, y: box!.height - 16 } })
+    await seek.click({ position: { x: box!.width * 0.75, y: box!.height / 2 } })
     await expect
       .poll(() => video.evaluate((element: HTMLVideoElement) => element.currentTime))
       .not.toBeCloseTo(initialTime, 1)

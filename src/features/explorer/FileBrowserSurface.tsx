@@ -465,7 +465,7 @@ export function FileBrowserView(props: FileBrowserViewProps) {
       class={
         isWorkspace()
           ? 'relative flex h-full min-h-0 flex-1 flex-col overflow-hidden'
-          : 'flex min-h-0 flex-1 flex-col'
+          : 'flex min-h-0 flex-1 flex-col outline-none'
       }
       tabindex={isWorkspace() ? undefined : 0}
       title={
@@ -475,7 +475,9 @@ export function FileBrowserView(props: FileBrowserViewProps) {
       }
       onPaste={(event) => props.controller.paste.capture(event)}
     >
-      <div class={isWorkspace() ? 'flex min-h-0 flex-1 flex-col' : 'container mx-auto lg:p-4'}>
+      <div
+        class={isWorkspace() ? 'flex min-h-0 flex-1 flex-col' : 'container mx-auto lg:px-4 lg:pb-4'}
+      >
         <div
           class={
             isWorkspace()

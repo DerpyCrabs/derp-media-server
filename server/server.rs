@@ -84,6 +84,7 @@ fn router(state: Shared) -> Router {
         .merge(routes::stats::router())
         .merge(routes::workspaces::router())
         .merge(routes::media::router())
+        .merge(crate::video_playback::router())
         .merge(routes::reader_state::router())
         .merge(routes::sse::router())
         .fallback(crate::html::fallback)
@@ -163,7 +164,7 @@ pub(crate) async fn run() {
         hermes,
         hermes_project_operations: Mutex::new(()),
         file_mutations: Mutex::new(()),
-        audio_extracts: Mutex::new(()),
+        playback: crate::video_playback::PlaybackRuntime::new(&config),
         hermes_runtime_ids: Mutex::new(HashMap::new()),
         hermes_active_ids: Mutex::new(HashSet::new()),
     });

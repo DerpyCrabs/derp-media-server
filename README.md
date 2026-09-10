@@ -7,12 +7,13 @@ Self-hosted media library with a **Solid.js** + Vite web UI and a **Rust/Axum** 
 ## Features (high level)
 
 - Workspaces: snap zones, viewers (image, video, PDF, text), audio player, and persisted layouts.
+- Video: shared app controls, two subtitle tracks, audio-track selection, saved speed and language preferences, and optional compatibility conversion.
 - Knowledge bases: full-text search, recent files, `![[image]]` from `images/`.
 - File ops in editable folders: upload, move/copy, rename, delete, inline text edit; grid/list, thumbnails (FFmpeg optional), drag-and-drop.
 
 ## Quick start
 
-**Needs:** [Rust](https://www.rust-lang.org/tools/install) and [Bun](https://bun.sh). **Optional:** FFmpeg for video thumbnails, audio-only video playback and tests.
+**Needs:** [Rust](https://www.rust-lang.org/tools/install) and [Bun](https://bun.sh). **Optional:** FFmpeg and ffprobe for video thumbnails, track selection, subtitles, compatibility playback, audio-only video playback and tests.
 
 ```bash
 bun install
@@ -45,6 +46,7 @@ Path: `CONFIG_PATH` or `--config-path=...`. Options can also be set via environm
 | `editableFolders`   | `EDITABLE_FOLDERS` | Comma-separated paths under single-root `mediaDir` where writes are allowed |
 | `fileSearch`        |                    | Persistent filename/path search index settings                              |
 | `imageOptimization` |                    | Responsive viewer variants and disk-cache settings                          |
+| `playback`          |                    | Video conversion permission, shared playback cache, and CPU thread limit    |
 | `mediaAi`           |                    | Optional recommendations and natural-language search                        |
 | `hermes`            |                    | Optional Hermes gateway, profile, and filesystem integration                |
 
@@ -95,6 +97,53 @@ and cache size remain configurable; omitted fields use these defaults:
 `maxCacheSize` accepts `KB`, `MB`, `GB`, `KiB`, `MiB`, and `GiB` suffixes case-insensitively.
 Variants live under `<dataPath>/image-variants`; changing widths or quality creates distinct cache
 entries. Generated thumbnails live under `<dataPath>/thumbnails`.
+
+The workspace and media center use the same video controls. Controls and the cursor hide after
+2.5 seconds while playing, including fullscreen; moving the pointer or tapping reveals them.
+Pausing, opening settings, or using keyboard focus keeps controls visible. With the video focused,
+Space/K toggles playback, arrows seek 5 seconds, J/L seek 10 seconds, F toggles fullscreen, and M
+toggles mute.
+
+Playback settings offer audio-track selection, primary and optional second subtitles, and speed
+from 0.25× to 3×. Language preferences and per-video track/speed overrides are stored on the server
+and synchronize across devices. New videos start at 1×. Embedded text subtitles and matching SRT,
+VTT, ASS or SSA files beside the video or one folder below it are supported (for example,
+`movie.en.srt` or `Subs/movie.ja.ass`). ASS/SSA display as plain text; bitmap subtitles such as PGS
+and original ASS styling are unsupported.
+
+These are the playback defaults in `config.jsonc`; restart the server after changing them:
+
+```jsonc
+{
+  "playback": {
+    "allowVideoTranscoding": false,
+    "maxCacheSize": "10GiB",
+    "threads": 4,
+  },
+}
+```
+
+Compatible originals play directly. Container remuxing, selected audio tracks, audio conversion,
+and subtitle extraction work without enabling video conversion. Set `allowVideoTranscoding` to
+`true` to allow incompatible video to be converted to H.264 while it plays. This requires FFmpeg
+with libx264; HDR conversion also requires zscale and tonemap. Video conversion preserves the source
+dimensions with no resolution ceiling or automatic downscaling. PQ/HLG HDR with BT.2020 primaries is
+tone-mapped to BT.709 SDR when conversion is needed; unsupported dimensions or color information
+produce an error.
+
+Audio and video share a playback session that keeps requested seeks separate from media events.
+Dragging previews a position and seeks on release. Compatibility streams use MediaSource with
+original timestamps, the full timeline, and a bounded browser buffer; seeking outside that buffer
+starts a stream at the requested position. Near the end, the player reads the remaining frames and
+uses their actual duration when container metadata runs long.
+
+One video conversion and up to two audio/remux/subtitle jobs can run at once. `threads` limits
+FFmpeg decode, filter and video-encode threads (1–64). Processing begins on demand, and closing or
+switching playback cancels its unfinished stream. Completed outputs are reused under
+`<dataPath>/playback-cache`. Its shared `maxCacheSize` budget includes audio, subtitles, temporary
+output, and legacy audio extracts; image caches have a separate budget. Unused outputs are evicted
+oldest first, active transfers are protected, and playback reports an error if the output cannot
+fit. Cancelled temporary output is deleted; stale temporary files are removed on startup.
 
 Hermes chat and Reader AI are optional and use the configured Hermes gateway.
 

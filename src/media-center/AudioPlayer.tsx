@@ -1,3 +1,4 @@
+import { createPlaybackScrubber } from '@/features/playback/create-playback-scrubber'
 import { selection } from '@/features/media-ai/selection'
 import { fetchDirectoryFiles } from '@/lib/files/files-client'
 import { queryKeys } from '@/lib/api/query-keys'
@@ -107,13 +108,19 @@ export function AudioPlayer() {
     if (isVideoFile() && path) return buildThumbnailUrl(path)
     return audioMetadata()?.coverArt || coverArtUrl()
   })
-  const scrubTime = createMemo(() => snapshot().position)
   const displayDuration = createMemo(() => {
     const metadataDuration = audioMetadata()?.duration
     return isVideoFile() && metadataDuration && metadataDuration > 0
       ? metadataDuration
       : snapshot().duration
   })
+  const scrubber = createPlaybackScrubber({
+    key: () => `${playingPath()}\0${playbackMode()}`,
+    position: () => snapshot().position,
+    duration: displayDuration,
+    onSeek: (position) => session.dispatch({ type: 'seek', position }),
+  })
+  const scrubTime = scrubber.position
   const isRepeat = createMemo(() => snapshot().repeat)
   const hasPreviousAudio = createMemo(() => {
     const state = snapshot()
@@ -157,14 +164,10 @@ export function AudioPlayer() {
             aria-valuetext={`${formatPlaybackTime(scrubTime())} of ${formatPlaybackTime(displayDuration())}`}
             min={0}
             max={displayDuration() || 0}
+            step={0.1}
             value={scrubTime()}
-            onInput={(event) =>
-              session.dispatch({
-                type: 'seek',
-                position: Number.parseFloat(event.currentTarget.value),
-              })
-            }
-            class='absolute top-0 left-0 h-full w-full cursor-pointer opacity-0'
+            {...scrubber.handlers}
+            class='absolute -top-2.5 left-0 h-5 w-full cursor-pointer touch-none opacity-0'
             disabled={!currentItem()}
           />
         </div>
@@ -241,13 +244,9 @@ export function AudioPlayer() {
                 aria-valuetext={`${formatPlaybackTime(scrubTime())} of ${formatPlaybackTime(displayDuration())}`}
                 min={0}
                 max={displayDuration() || 0}
+                step={0.1}
                 value={scrubTime()}
-                onInput={(event) =>
-                  session.dispatch({
-                    type: 'seek',
-                    position: Number.parseFloat(event.currentTarget.value),
-                  })
-                }
+                {...scrubber.handlers}
                 class='h-2 flex-1 cursor-pointer appearance-none rounded-lg bg-secondary [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary'
                 disabled={!currentItem()}
               />

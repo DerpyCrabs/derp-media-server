@@ -1,3 +1,4 @@
+import { createPlaybackScrubber } from '@/features/playback/create-playback-scrubber'
 import { useQueries, useQuery } from '@tanstack/solid-query'
 import Download from 'lucide-solid/icons/download'
 import LoaderCircle from 'lucide-solid/icons/loader-circle'
@@ -78,7 +79,6 @@ export function AudioViewerPane(props: Props) {
     )
   })
   const playing = createMemo(() => active() && playback().desiredPlaying)
-  const currentTime = createMemo(() => (active() ? playback().position : 0))
   const duration = createMemo(() => (active() ? playback().duration : 0))
   const loading = createMemo(() => active() && playback().phase === 'resolving')
   const error = createMemo(() => (active() ? playback().error : null))
@@ -198,6 +198,14 @@ export function AudioViewerPane(props: Props) {
   const artworkUrl = createMemo(() => metadataQuery.data?.coverArt || folderCoverUrl())
   const displayDuration = createMemo(() => duration() || metadataQuery.data?.duration || 0)
 
+  const scrubber = createPlaybackScrubber({
+    key: () => props.viewingPath(),
+    position: () => (active() ? playback().position : 0),
+    duration: displayDuration,
+    onSeek: seek,
+  })
+  const currentTime = scrubber.position
+
   function Artwork(local: { class: string }) {
     return (
       <div
@@ -257,7 +265,7 @@ export function AudioViewerPane(props: Props) {
           max={displayDuration()}
           step={0.1}
           value={currentTime()}
-          onInput={(event) => seek(Number.parseFloat(event.currentTarget.value))}
+          {...scrubber.handlers}
           class='[&::-webkit-slider-thumb]:bg-primary h-1.5 min-w-0 flex-1 cursor-pointer appearance-none rounded-full bg-secondary [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full'
         />
         <span class='w-8 tabular-nums'>{formatPlaybackTime(displayDuration())}</span>

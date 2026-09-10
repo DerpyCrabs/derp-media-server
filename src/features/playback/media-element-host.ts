@@ -1,9 +1,11 @@
-import type { PlaybackMode, PlaybackSession } from './types'
+import type { PlaybackFallback, PlaybackMode, PlaybackSession } from './types'
+import { createStreamingMediaSource } from './streaming-media-source'
 
 export type PlaybackMediaEvent =
   | 'loadedmetadata'
   | 'canplay'
   | 'durationchange'
+  | 'progress'
   | 'timeupdate'
   | 'play'
   | 'playing'
@@ -21,10 +23,15 @@ export interface PlaybackMediaElement {
   readonly currentSrc: string
   currentTime: number
   readonly duration: number
+  readonly readyState?: number
   readonly paused: boolean
   readonly seeking: boolean
   volume: number
   muted: boolean
+  playbackRate: number
+  readonly buffered?: TimeRanges
+  readonly videoWidth?: number
+  readonly webkitAudioDecodedByteCount?: number
   readonly error: { readonly code: number } | null
   play(): Promise<void>
   pause(): void
@@ -46,6 +53,11 @@ type Attachment = {
   token: symbol
   generation: number
   sourceUrl: string
+  mediaUrl: string
+  stream: ReturnType<typeof createStreamingMediaSource> | null
+  sourceDuration: number | undefined
+  errorGeneration: number | null
+  handleError: () => void
   suppressEvents: boolean
   repeating: boolean
   seeking: boolean
@@ -54,7 +66,8 @@ type Attachment = {
   playPending: boolean
   playRequest: symbol | null
   hasStarted: boolean
-  lastMediaPosition: number
+  metadataLoaded: boolean
+  appliedSeekId: number | null
   listeners: ReadonlyArray<readonly [PlaybackMediaEvent, EventListener]>
 }
 
@@ -80,9 +93,14 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
 
   function sourceMatches(attachment: Attachment): boolean {
     const source = session.getSnapshot().source
-    if (!source || source.generation !== attachment.generation) return false
+    if (
+      !source ||
+      session.getSnapshot().phase === 'resolving' ||
+      source.generation !== attachment.generation
+    )
+      return false
     const elementUrl = attachment.element.currentSrc || attachment.element.src
-    return !!elementUrl && sameUrl(elementUrl, attachment.sourceUrl)
+    return !!elementUrl && sameUrl(elementUrl, attachment.mediaUrl)
   }
 
   function withSuppressedEvents(attachment: Attachment, action: () => void) {
@@ -95,13 +113,21 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
   }
 
   function clearElement(attachment: Attachment) {
+    attachment.stream?.dispose()
+    attachment.stream = null
+    attachment.mediaUrl = ''
     attachment.generation = 0
     attachment.sourceUrl = ''
+    attachment.sourceDuration = undefined
+    attachment.errorGeneration = null
     attachment.nativePausePending = false
     attachment.playPending = false
     attachment.playRequest = null
     attachment.hasStarted = false
-    attachment.lastMediaPosition = 0
+    attachment.metadataLoaded = false
+    attachment.appliedSeekId = null
+    attachment.seeking = false
+    attachment.resumeAfterSeek = false
     withSuppressedEvents(attachment, () => {
       if (!attachment.element.paused) attachment.element.pause()
       if (attachment.element.src || attachment.element.currentSrc) {
@@ -124,6 +150,15 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
     }
     const failed = (error: unknown) => {
       if (!finish() || !sourceMatches(attachment)) return
+      if (error instanceof Error && error.name === 'AbortError') return
+      if (error instanceof Error && error.name === 'NotAllowedError') {
+        session.dispatch({ type: 'pause' })
+        return
+      }
+      if (error instanceof Error && error.name === 'NotSupportedError') {
+        attachment.handleError()
+        return
+      }
       session.dispatch({
         type: 'mediaError',
         generation: attachment.generation,
@@ -137,62 +172,138 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
     }
   }
 
+  function applySeek(attachment: Attachment, retry = false): boolean {
+    const snapshot = session.getSnapshot()
+    const pending = snapshot.pendingSeek
+    if (!pending || !snapshot.source) return true
+    const element = attachment.element
+    const buffered = element.buffered
+    const bufferedRange =
+      buffered &&
+      Array.from({ length: buffered.length }, (_, index) => index).find(
+        (index) =>
+          pending.position >= buffered.start(index) - 0.025 &&
+          pending.position <= buffered.end(index) + 0.025,
+      )
+    const bufferedTarget = bufferedRange !== undefined
+    const seekPosition =
+      buffered && bufferedRange !== undefined
+        ? Math.max(
+            buffered.start(bufferedRange),
+            Math.min(pending.position, buffered.end(bufferedRange)),
+          )
+        : pending.position
+    if (
+      snapshot.source.streaming &&
+      !bufferedTarget &&
+      Math.abs((snapshot.source.initialPosition ?? 0) - pending.position) > 0.01
+    ) {
+      session.dispatch({ type: 'refreshSource' })
+      return false
+    }
+    if (attachment.metadataLoaded && snapshot.source.streaming && !bufferedTarget) return false
+    if (
+      attachment.appliedSeekId === pending.id &&
+      attachment.metadataLoaded &&
+      !element.seeking &&
+      (element.readyState ?? 4) >= 2 &&
+      Math.abs(element.currentTime - pending.position) <= 0.15
+    ) {
+      session.dispatch({
+        type: 'mediaSeeked',
+        generation: attachment.generation,
+        seekId: pending.id,
+        position: element.currentTime,
+      })
+      return true
+    }
+    if (attachment.appliedSeekId !== pending.id || (retry && !element.seeking)) {
+      attachment.appliedSeekId = pending.id
+      try {
+        element.currentTime = seekPosition
+      } catch {}
+    }
+    return false
+  }
+
   function sync() {
     const attachment = active
     if (!attachment || disposed) return
     const snapshot = session.getSnapshot()
     const element = attachment.element
-    element.volume = snapshot.volume
-    element.muted = snapshot.muted
+    if (element.volume !== snapshot.volume) element.volume = snapshot.volume
+    if (element.muted !== snapshot.muted) element.muted = snapshot.muted
+    if (element.playbackRate !== snapshot.playbackRate) element.playbackRate = snapshot.playbackRate
 
+    if (snapshot.phase === 'resolving' && snapshot.source && snapshot.mode === attachment.mode) {
+      if (!element.paused) withSuppressedEvents(attachment, () => element.pause())
+      return
+    }
     if (snapshot.phase === 'destroyed' || !snapshot.source || snapshot.mode !== attachment.mode) {
       if (attachment.generation || attachment.sourceUrl) clearElement(attachment)
       return
     }
-
     const source = snapshot.source
-    const sourceChanged =
-      attachment.generation !== source.generation || !sameUrl(attachment.sourceUrl, source.url)
-    if (sourceChanged) {
+    if (attachment.generation !== source.generation || !sameUrl(attachment.sourceUrl, source.url)) {
       withSuppressedEvents(attachment, () => {
+        attachment.stream?.dispose()
+        attachment.stream = null
+        attachment.playRequest = null
+        attachment.playPending = false
         if (!element.paused) element.pause()
         attachment.generation = source.generation
         attachment.sourceUrl = source.url
+        attachment.sourceDuration = source.duration
+        attachment.errorGeneration = null
         attachment.nativePausePending = false
-        attachment.playPending = false
-        attachment.playRequest = null
         attachment.hasStarted = false
-        attachment.lastMediaPosition = snapshot.position
-        element.src = source.url
-        element.load()
-        if (snapshot.position > 0) {
-          try {
-            element.currentTime = snapshot.position
-          } catch {}
+        attachment.metadataLoaded = false
+        attachment.appliedSeekId = null
+        attachment.seeking = false
+        attachment.resumeAfterSeek = false
+        if (source.streaming && source.mimeType && typeof MediaSource !== 'undefined') {
+          const generation = attachment.generation
+          attachment.stream = createStreamingMediaSource(
+            element,
+            source,
+            () => {
+              if (!sourceMatches(attachment)) return
+              const duration = attachment.stream?.duration
+              if (duration !== undefined) {
+                attachment.sourceDuration = duration
+                session.dispatch({ type: 'mediaDuration', generation, duration })
+              }
+              applySeek(attachment, true)
+            },
+            (message) => {
+              if (!sourceMatches(attachment) || attachment.generation !== generation) return
+              if (message) session.dispatch({ type: 'mediaError', generation, message })
+              else attachment.handleError()
+            },
+          )
         }
+        attachment.mediaUrl = attachment.stream?.url ?? source.url
+        element.src = attachment.mediaUrl
+        element.load()
       })
-    } else if (
-      Math.abs(snapshot.position - attachment.lastMediaPosition) > 0.01 &&
-      Math.abs(element.currentTime - snapshot.position) > 0.75
-    ) {
-      try {
-        element.currentTime = snapshot.position
-        attachment.lastMediaPosition = snapshot.position
-      } catch {}
     }
-
-    if (snapshot.desiredPlaying && snapshot.phase === 'ready' && element.paused) {
+    const seekComplete = applySeek(attachment)
+    if (!sourceMatches(attachment)) return
+    if (
+      snapshot.desiredPlaying &&
+      snapshot.phase === 'ready' &&
+      element.paused &&
+      (seekComplete || !attachment.metadataLoaded)
+    )
       play(attachment)
-    }
-    if (!snapshot.desiredPlaying && !element.paused) {
+    if (!snapshot.desiredPlaying && !element.paused)
       withSuppressedEvents(attachment, () => element.pause())
-    }
   }
 
   function capturePosition(attachment: Attachment) {
     if (!sourceMatches(attachment)) return
-    attachment.lastMediaPosition = attachment.element.currentTime
-    const duration = finiteDuration(attachment.element)
+    if (!attachment.metadataLoaded || session.getSnapshot().pendingSeek) return
+    const duration = attachment.sourceDuration ?? finiteDuration(attachment.element)
     session.dispatch({
       type: 'mediaTime',
       generation: attachment.generation,
@@ -235,6 +346,11 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
       token,
       generation: 0,
       sourceUrl: '',
+      mediaUrl: '',
+      stream: null,
+      sourceDuration: undefined,
+      errorGeneration: null,
+      handleError: () => undefined,
       suppressEvents: false,
       repeating: false,
       seeking: false,
@@ -243,7 +359,8 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
       playPending: false,
       playRequest: null,
       hasStarted: false,
-      lastMediaPosition: 0,
+      metadataLoaded: false,
+      appliedSeekId: null,
       listeners: [],
     }
 
@@ -253,35 +370,61 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
       attachment.generation > 0 &&
       sourceMatches(attachment)
 
+    const recover = (requested?: PlaybackFallback): boolean => {
+      if (attachment.mode === 'audio') return false
+      const source = session.getSnapshot().source
+      if (!source?.compatibility) return false
+      const stages: PlaybackFallback[] = ['original', 'remux', 'audio', 'video']
+      const current = stages.indexOf(source.compatibility)
+      const next = requested ? stages.indexOf(requested) : current + 1
+      if (next <= current || next >= stages.length) return false
+      session.dispatch({ type: 'refreshSource', fallback: stages[next] })
+      return true
+    }
+
     const onReady: EventListener = () => {
       if (!validEvent()) return
       const snapshot = session.getSnapshot()
-      if (snapshot.position > 0 && Math.abs(element.currentTime - snapshot.position) > 0.01) {
-        try {
-          element.currentTime = snapshot.position
-          attachment.lastMediaPosition = snapshot.position
-        } catch {}
-      }
-      const duration = finiteDuration(element)
+      if (snapshot.source?.expectedVideo && element.videoWidth === 0 && recover('video')) return
+      const duration = attachment.sourceDuration ?? finiteDuration(element)
+      attachment.metadataLoaded = true
+      const seekComplete = applySeek(attachment, true)
       if (duration !== undefined) {
         session.dispatch({ type: 'mediaDuration', generation: attachment.generation, duration })
       }
       session.dispatch({ type: 'mediaReady', generation: attachment.generation })
       const readySnapshot = session.getSnapshot()
-      if (readySnapshot.desiredPlaying && readySnapshot.phase === 'ready' && element.paused) {
+      if (
+        seekComplete &&
+        readySnapshot.desiredPlaying &&
+        readySnapshot.phase === 'ready' &&
+        element.paused
+      ) {
         play(attachment)
       }
     }
     const onDurationChange: EventListener = () => {
       if (!validEvent()) return
-      const duration = finiteDuration(element)
+      const duration = attachment.sourceDuration ?? finiteDuration(element)
       if (duration !== undefined) {
         session.dispatch({ type: 'mediaDuration', generation: attachment.generation, duration })
       }
     }
     const onTimeUpdate: EventListener = () => {
       if (!validEvent()) return
+      if (session.getSnapshot().pendingSeek && !applySeek(attachment, true)) return
+      if (
+        attachment.hasStarted &&
+        element.currentTime > 1 &&
+        session.getSnapshot().source?.expectedAudio &&
+        element.webkitAudioDecodedByteCount === 0 &&
+        recover('audio')
+      )
+        return
       capturePosition(attachment)
+    }
+    const onProgress: EventListener = () => {
+      if (validEvent() && session.getSnapshot().pendingSeek) applySeek(attachment, true)
     }
     const onPlay: EventListener = () => {
       if (!validEvent()) return
@@ -338,6 +481,7 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
     }
     const onSeeked: EventListener = () => {
       if (!validEvent()) return
+      if (!applySeek(attachment, true)) return
       capturePosition(attachment)
       session.dispatch({
         type: 'mediaBuffering',
@@ -402,17 +546,41 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
     }
     const onError: EventListener = () => {
       if (!validEvent()) return
+      const generation = attachment.generation
+      if (attachment.errorGeneration === generation) return
+      attachment.errorGeneration = generation
       const code = element.error?.code
+      const requestId = session.getSnapshot().source?.requestId
+      if (requestId) {
+        void fetch(`/api/playback/status?${new URLSearchParams({ id: requestId })}`)
+          .then((response) => response.json() as Promise<{ error?: string | null }>)
+          .catch(() => ({ error: null }))
+          .then((result) => {
+            if (!validEvent() || attachment.generation !== generation) return
+            if (!result.error && recover()) return
+            session.dispatch({
+              type: 'mediaError',
+              generation: attachment.generation,
+              message:
+                result.error ??
+                'Compatibility playback failed. This codec or resolution may not be supported.',
+            })
+          })
+        return
+      }
+      if (recover()) return
       session.dispatch({
         type: 'mediaError',
         generation: attachment.generation,
         message: code ? `Playback failed (media error ${code}).` : 'Playback failed.',
       })
     }
+    attachment.handleError = () => onError(new Event('error'))
     const listeners: Array<readonly [PlaybackMediaEvent, EventListener]> = [
       ['loadedmetadata', onReady],
       ['canplay', onReady],
       ['durationchange', onDurationChange],
+      ['progress', onProgress],
       ['timeupdate', onTimeUpdate],
       ['play', onPlay],
       ['playing', onPlaying],
@@ -427,6 +595,8 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
     ]
     attachment.listeners = listeners
     for (const [type, listener] of listeners) element.addEventListener(type, listener)
+    if (session.getSnapshot().position > 0 && !session.getSnapshot().pendingSeek)
+      session.dispatch({ type: 'seek', position: session.getSnapshot().position })
     active = attachment
     sync()
 

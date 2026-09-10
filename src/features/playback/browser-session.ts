@@ -2,6 +2,8 @@ import { trackPlayback } from '@/features/media-ai/activity'
 import { buildAudioExtractUrl, buildMediaUrl } from '@/lib/media/build-media-url'
 import { createPlaybackSession } from './playback-session'
 import { videoPlaybackProgress } from './video-progress-persistence'
+import type { QueryClient } from '@tanstack/solid-query'
+import { resolveVideoSource } from './video-source'
 import type {
   PersistedPlaybackState,
   PlaybackPersistence,
@@ -34,7 +36,7 @@ const legacyVideoPlaybackPersistence: PlaybackPersistence = {
   },
 }
 
-export function createOwnerBrowserPlaybackSession(): PlaybackSession {
+export function createOwnerBrowserPlaybackSession(queryClient: QueryClient): PlaybackSession {
   const persistence: PlaybackPersistence = {
     ...legacyVideoPlaybackPersistence,
     save(state) {
@@ -42,6 +44,14 @@ export function createOwnerBrowserPlaybackSession(): PlaybackSession {
     },
   }
   return trackPlayback(
-    createPlaybackSession({ sourceResolver: ownerPlaybackSourceResolver, persistence }),
+    createPlaybackSession({
+      sourceResolver: {
+        resolve: (request) =>
+          request.item.media === 'video'
+            ? resolveVideoSource(queryClient, request)
+            : ownerPlaybackSourceResolver.resolve(request),
+      },
+      persistence,
+    }),
   )
 }

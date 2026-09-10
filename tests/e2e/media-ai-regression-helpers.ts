@@ -75,6 +75,15 @@ async function freePort() {
 
 export const test = base.extend<{ library: Library; aiEnabled: boolean }>({
   aiEnabled: [true, { option: true }],
+  page: async ({ context, library }, use) => {
+    void library
+    const page = await context.newPage()
+    try {
+      await use(page)
+    } finally {
+      await page.close()
+    }
+  },
   library: async ({ aiEnabled }, use) => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'derp-media-ai-regression-'))
     const media = path.join(directory, 'media')

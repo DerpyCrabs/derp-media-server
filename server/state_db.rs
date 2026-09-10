@@ -490,6 +490,7 @@ mod tests {
                 reconcile_directories_per_second: 1,
             },
             image_optimization: ImageOptimizationConfig::default(),
+            playback: Default::default(),
             data_path,
             hermes: None,
             media_ai: Default::default(),

@@ -1,3 +1,4 @@
+import { dragPlaybackPosition } from './playback-seek-helpers'
 import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test'
 import { dispatchRecordedPointerCancel, recordNextPointerId } from './workspace-layout-helpers'
 
@@ -1053,4 +1054,55 @@ test('moves a canvas card into a desktop workspace after the shared dwell', asyn
       return registry.records[sourceId]?.snapshot.windows.length
     })
     .toBe(0)
+})
+
+test('canvas audio previews a drag and inactive video controls activate their own file', async ({
+  page,
+  request,
+}) => {
+  const id = new URL(page.url()).searchParams.get('ws')!
+  const snapshot = canvasSnapshot([
+    {
+      id: 'audio-player',
+      type: 'viewer',
+      title: 'track.mp3',
+      source: { kind: 'local' },
+      initialState: { viewing: 'Music/track.mp3', dir: 'Music' },
+      tabGroupId: null,
+      layout: { bounds: { x: 40, y: 60, width: 420, height: 360 }, zIndex: 1 },
+    },
+    {
+      id: 'video-player',
+      type: 'viewer',
+      title: 'sample.mp4',
+      source: { kind: 'local' },
+      initialState: { viewing: 'Videos/sample.mp4', dir: 'Videos' },
+      tabGroupId: null,
+      layout: { bounds: { x: 520, y: 60, width: 500, height: 400 }, zIndex: 2 },
+    },
+  ])
+  await replaceCanvasWorkspace(request, id, snapshot)
+  await page.reload()
+  const audioUI = page.getByTestId('canvas-audio-player-ui')
+  await audioUI.getByRole('button', { name: 'Play', exact: true }).click()
+  const audio = page.locator('audio').first()
+  await dragPlaybackPosition(
+    page,
+    audio,
+    audioUI.getByRole('slider', { name: 'Playback position' }),
+  )
+  const videoUI = page.getByTestId('video-controls')
+  await videoUI.getByRole('button', { name: 'Play video' }).click()
+  const video = page.locator('video')
+  await expect
+    .poll(() => video.evaluate((element: HTMLVideoElement) => element.currentTime))
+    .toBeGreaterThan(0)
+  await expect.poll(() => audio.evaluate((element: HTMLAudioElement) => element.paused)).toBe(true)
+  await video.hover()
+  await videoUI.getByRole('button', { name: 'Playback settings', exact: true }).click()
+  await page.getByRole('button', { name: 'Playback speed', exact: true }).click()
+  await page.getByRole('menuitemradio', { name: '1.5×', exact: true }).click()
+  await expect
+    .poll(() => video.evaluate((element: HTMLVideoElement) => element.playbackRate))
+    .toBe(1.5)
 })

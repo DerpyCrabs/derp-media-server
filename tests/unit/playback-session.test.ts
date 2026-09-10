@@ -134,6 +134,12 @@ describe('PlaybackSession', () => {
 
     session.dispatch({ type: 'load', item: item('remember', 'video') })
     expect(session.getSnapshot().position).toBe(7)
+    session.dispatch({
+      type: 'mediaSeeked',
+      generation: 1,
+      seekId: session.getSnapshot().pendingSeek!.id,
+      position: 7,
+    })
     session.dispatch({ type: 'mediaTime', generation: 1, position: 13, duration: 100 })
     session.dispatch({ type: 'checkpoint' })
     expect(saves.at(-1)).toMatchObject({
@@ -142,5 +148,83 @@ describe('PlaybackSession', () => {
       currentIndex: 0,
       queue: [item('remember', 'video')],
     })
+  })
+
+  test('holds a requested seek through zero timestamps and ignores superseded acknowledgments', () => {
+    const { sourceResolver } = resolverHarness()
+    const session = createPlaybackSession({ sourceResolver })
+    session.dispatch({ type: 'load', item: item('seeking', 'video') })
+    session.dispatch({ type: 'mediaDuration', generation: 1, duration: 120 })
+    session.dispatch({ type: 'seek', position: 45 })
+    const firstSeek = session.getSnapshot().pendingSeek!
+    session.dispatch({ type: 'mediaTime', generation: 1, position: 0 })
+    session.dispatch({ type: 'mediaTime', generation: 1, position: 43 })
+    session.dispatch({ type: 'mediaSeeked', generation: 1, seekId: firstSeek.id, position: 43 })
+    expect(session.getSnapshot().position).toBe(45)
+    session.dispatch({ type: 'seek', position: 70 })
+    const secondSeek = session.getSnapshot().pendingSeek!
+    session.dispatch({ type: 'mediaSeeked', generation: 1, seekId: firstSeek.id, position: 45 })
+    expect(session.getSnapshot().position).toBe(70)
+    session.dispatch({ type: 'mediaSeeked', generation: 1, seekId: secondSeek.id, position: 70 })
+    session.dispatch({ type: 'mediaTime', generation: 1, position: 71 })
+    expect(session.getSnapshot()).toMatchObject({ position: 71, pendingSeek: null })
+  })
+
+  test('retains the source while preparing a seek and rejects events from that retired source', async () => {
+    let finish!: (value: PlaybackSourceResolution) => void
+    const { sourceResolver } = resolverHarness((request) =>
+      request.reason === 'refresh'
+        ? new Promise((resolve) => {
+            finish = resolve
+          })
+        : { kind: 'resolved', url: '/original' },
+    )
+    const session = createPlaybackSession({ sourceResolver })
+    session.dispatch({ type: 'load', item: item('preparing', 'video') })
+    session.dispatch({ type: 'seek', position: 55 })
+    session.dispatch({ type: 'refreshSource' })
+    expect(session.getSnapshot()).toMatchObject({
+      phase: 'resolving',
+      position: 55,
+      source: { url: '/original' },
+    })
+    expect(session.dispatch({ type: 'mediaTime', generation: 1, position: 0 }).accepted).toBe(false)
+    session.dispatch({ type: 'pause' })
+    finish({ kind: 'resolved', url: '/new' })
+    await flush()
+    expect(session.getSnapshot()).toMatchObject({
+      phase: 'paused',
+      position: 55,
+      desiredPlaying: false,
+      source: { url: '/new' },
+    })
+  })
+
+  test('play while resolving keeps one request and late settings do not overwrite a new speed', async () => {
+    let finish!: (value: PlaybackSourceResolution) => void
+    const { sourceResolver, requests } = resolverHarness(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        }),
+    )
+    const session = createPlaybackSession({ sourceResolver })
+    session.dispatch({ type: 'load', item: item('loading', 'video'), autoplay: false })
+    session.dispatch({ type: 'play' })
+    session.dispatch({ type: 'setPlaybackRate', rate: 2 })
+    expect(requests).toHaveLength(1)
+    finish({ kind: 'resolved', url: '/ready', playbackRate: 1 })
+    await flush()
+    expect(session.getSnapshot()).toMatchObject({ desiredPlaying: true, playbackRate: 2 })
+  })
+
+  test('loading the already active file preserves its source and pending seek', () => {
+    const { sourceResolver, requests } = resolverHarness()
+    const session = createPlaybackSession({ sourceResolver })
+    session.dispatch({ type: 'load', item: item('same', 'video') })
+    session.dispatch({ type: 'seek', position: 15 })
+    session.dispatch({ type: 'load', item: item('same', 'video') })
+    expect(requests).toHaveLength(1)
+    expect(session.getSnapshot()).toMatchObject({ position: 15, source: { generation: 1 } })
   })
 })

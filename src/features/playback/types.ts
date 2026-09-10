@@ -11,6 +11,7 @@ export type PlaybackPhase =
   | 'destroyed'
 
 export type PlaybackResolveReason = 'load' | 'restore' | 'refresh' | 'retry' | 'mode'
+export type PlaybackFallback = 'original' | 'remux' | 'audio' | 'video'
 
 export type PlaybackItem = Readonly<{
   locator: string
@@ -21,6 +22,14 @@ export type PlaybackItem = Readonly<{
 export type PlaybackSource = Readonly<{
   url: string
   generation: number
+  initialPosition?: number
+  streaming?: boolean
+  mimeType?: string
+  duration?: number
+  compatibility?: PlaybackFallback
+  requestId?: string
+  expectedVideo?: boolean
+  expectedAudio?: boolean
 }>
 
 export type PlaybackSnapshot = Readonly<{
@@ -31,11 +40,14 @@ export type PlaybackSnapshot = Readonly<{
   currentItem: PlaybackItem | null
   position: number
   duration: number
+  pendingSeek: Readonly<{ id: number; position: number }> | null
+  buffering: boolean
   desiredPlaying: boolean
   mode: PlaybackMode
   volume: number
   muted: boolean
   repeat: boolean
+  playbackRate: number
   source: PlaybackSource | null
   error: string | null
 }>
@@ -45,10 +57,17 @@ export type PlaybackSourceRequest = Readonly<{
   mode: PlaybackMode
   reason: PlaybackResolveReason
   signal: AbortSignal
+  position?: number
+  fallback?: PlaybackFallback
 }>
 
 export type PlaybackSourceResolution =
-  | Readonly<{ kind: 'resolved'; url: string; item?: PlaybackItem }>
+  | Readonly<
+      { kind: 'resolved'; item?: PlaybackItem; playbackRate?: number } & Omit<
+        PlaybackSource,
+        'generation'
+      >
+    >
   | Readonly<{ kind: 'error'; message: string }>
 
 export interface PlaybackSourceResolver {
@@ -68,9 +87,10 @@ export type PlaybackCommand =
     }>
   | Readonly<{ type: 'setQueue'; queue: readonly PlaybackItem[]; current?: PlaybackItem }>
   | Readonly<{ type: 'play' | 'pause' | 'toggle' | 'next' | 'previous' | 'retry' }>
-  | Readonly<{ type: 'refreshSource' }>
+  | Readonly<{ type: 'refreshSource'; fallback?: PlaybackFallback }>
   | Readonly<{ type: 'seek'; position: number }>
   | Readonly<{ type: 'mediaTime'; generation: number; position: number; duration?: number }>
+  | Readonly<{ type: 'mediaSeeked'; generation: number; seekId: number; position: number }>
   | Readonly<{
       type: 'mediaVolume'
       generation: number
@@ -86,6 +106,7 @@ export type PlaybackCommand =
   | Readonly<{ type: 'mediaError'; generation: number; message?: string }>
   | Readonly<{ type: 'setMode'; mode: PlaybackMode }>
   | Readonly<{ type: 'setVolume'; volume: number }>
+  | Readonly<{ type: 'setPlaybackRate'; rate: number }>
   | Readonly<{ type: 'setMuted'; muted: boolean }>
   | Readonly<{ type: 'setRepeat'; repeat: boolean }>
   | Readonly<{ type: 'toggleRepeat' | 'checkpoint' | 'stop' | 'destroy' }>

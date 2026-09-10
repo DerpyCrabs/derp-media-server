@@ -481,7 +481,7 @@ export function ForYou(props: {
   }
   return (
     <main
-      class='mx-auto w-full max-w-[1920px] space-y-3 px-2 pt-1 pb-3 sm:space-y-4 sm:px-7 sm:pt-3 sm:pb-5 lg:px-9'
+      class='mx-auto w-full max-w-[1920px] space-y-3 px-2 pb-3 sm:space-y-4 sm:px-7 sm:pb-5 lg:px-9'
       data-testid='for-you'
     >
       <MediaCenterPlaybackSync

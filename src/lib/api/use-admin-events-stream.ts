@@ -41,6 +41,8 @@ export function handleAdminEvent(
   } else if (data.type === 'files-changed' || pathMutation) {
     handlers.invalidate(queryKeys.files())
     handlers.invalidate(queryKeys.adminContent())
+    handlers.invalidate(['video-info'])
+    handlers.invalidate(['video-subtitles'])
     if (pathMutation) {
       handlers.invalidate(queryKeys.settings())
       handlers.invalidate(queryKeys.stats())
@@ -48,6 +50,8 @@ export function handleAdminEvent(
   } else if (data.type === 'settings-changed') {
     handlers.invalidate(queryKeys.settings())
     handlers.invalidate(queryKeys.files(VIRTUAL_FOLDERS.FAVORITES))
+  } else if (data.type === 'playback-preferences-changed') {
+    handlers.invalidate(['playback-preferences'])
   } else if (data.type === 'workspaces-changed') {
     handlers.onWorkspacesChanged?.()
   } else if (data.type === 'stats-changed') {

@@ -67,11 +67,11 @@ export const floatingVideoPositionStore = {
     }),
 }
 
-export function validatePosition(position: Position): Position {
+export function validatePosition(position: Position, size = { width: 320, height: 230 }): Position {
   if (typeof window === 'undefined') return position
 
-  const constrainedX = Math.max(0, Math.min(position.x, window.innerWidth - 100))
-  const constrainedY = Math.max(0, Math.min(position.y, window.innerHeight - 100))
+  const constrainedX = Math.max(0, Math.min(position.x, window.innerWidth - size.width))
+  const constrainedY = Math.max(0, Math.min(position.y, window.innerHeight - size.height))
 
   return { x: constrainedX, y: constrainedY }
 }

@@ -9,13 +9,15 @@ import Headphones from 'lucide-solid/icons/headphones'
 import Maximize2 from 'lucide-solid/icons/maximize-2'
 import Minimize2 from 'lucide-solid/icons/minimize-2'
 import X from 'lucide-solid/icons/x'
-import { Show, createEffect, createMemo, createSignal, onSettled, untrack } from 'solid-js'
+import { Show, createEffect, createMemo, createSignal } from 'solid-js'
 import {
   usePlaybackMediaHost,
   usePlaybackSession,
   usePlaybackSnapshot,
 } from '@/features/playback/PlaybackProvider'
 import { closePlayer, setAudioOnly } from '@/lib/browser/url-state-actions'
+import { VideoControls } from '@/features/playback/VideoControls'
+import { useStoreSync } from '@/lib/state/solid-store-sync'
 
 export function VideoPlayer() {
   const session = usePlaybackSession()
@@ -28,17 +30,34 @@ export function VideoPlayer() {
   const fileName = createMemo(() => currentItem()?.name ?? '')
 
   const [isMinimized, setIsMinimized] = createSignal(false)
-  const [position, setPositionView] = createSignal(
-    untrack(() => floatingVideoPositionStore.getState().position),
-  )
-  const [videoEl, setVideoEl] = createSignal<HTMLVideoElement>()
-
-  onSettled(() => {
-    const unsubscribe = floatingVideoPositionStore.subscribe((state) => {
-      setPositionView(state.position)
-    })
-    return unsubscribe
+  const positionTick = useStoreSync(floatingVideoPositionStore)
+  const position = createMemo(() => {
+    void positionTick()
+    return { ...floatingVideoPositionStore.getState().position }
   })
+  const [videoEl, setVideoEl] = createSignal<HTMLVideoElement>()
+  const [containerEl, setContainerEl] = createSignal<HTMLDivElement>()
+
+  createEffect(
+    () => ({ element: containerEl(), minimized: isMinimized() }),
+    ({ element, minimized }) => {
+      if (!element || !minimized) return undefined
+      const constrain = () => {
+        const store = floatingVideoPositionStore.getState()
+        const current = store.position
+        const next = validatePosition(current, element.getBoundingClientRect())
+        if (next.x !== current.x || next.y !== current.y) store.setPosition(next)
+      }
+      const resize = new ResizeObserver(constrain)
+      resize.observe(element)
+      window.addEventListener('resize', constrain)
+      constrain()
+      return () => {
+        resize.disconnect()
+        window.removeEventListener('resize', constrain)
+      }
+    },
+  )
 
   createEffect(
     () => {
@@ -61,7 +80,7 @@ export function VideoPlayer() {
       type: 'mediaTime',
       generation: state.source.generation,
       position: element.currentTime,
-      ...(Number.isFinite(element.duration) ? { duration: element.duration } : {}),
+      ...(Number.isFinite(state.duration) ? { duration: state.duration } : {}),
     })
     session.dispatch({ type: 'checkpoint' })
   }
@@ -98,7 +117,8 @@ export function VideoPlayer() {
     setIsMinimized(false)
   }
 
-  const containerClass = () => (isMinimized() ? 'fixed z-40 w-80' : 'w-full bg-background')
+  const containerClass = () =>
+    isMinimized() ? 'fixed z-40 w-80 max-w-[calc(100vw-2rem)]' : 'w-full bg-background'
 
   const containerStyle = (): Record<string, string | undefined> => {
     if (!isMinimized()) return {}
@@ -133,6 +153,7 @@ export function VideoPlayer() {
   return (
     <Show when={isVideoFile() && currentItem()}>
       <div
+        ref={setContainerEl}
         class={containerClass()}
         style={containerStyle()}
         data-video-player-inline={isMinimized() ? undefined : 'true'}
@@ -195,9 +216,20 @@ export function VideoPlayer() {
                 </button>
               </div>
             </div>
-            <video ref={setVideoEl} controls class='w-full bg-black' style={videoAreaStyle()}>
-              Your browser does not support the video tag.
-            </video>
+            <div class='video-surface relative w-full bg-black' style={videoAreaStyle()}>
+              <video
+                data-playback-source={snapshot().source?.url}
+                ref={setVideoEl}
+                playsinline
+                tabindex='0'
+                class='h-full w-full bg-black object-contain'
+              />
+              <VideoControls
+                path={() => currentItem()?.locator ?? ''}
+                video={videoEl}
+                active={isVideoFile}
+              />
+            </div>
           </div>
         </div>
       </div>

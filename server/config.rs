@@ -48,6 +48,7 @@ struct RawConfig {
     #[serde(default, deserialize_with = "deserialize_file_search")]
     file_search: Option<RawFileSearchConfig>,
     image_optimization: Option<serde_json::Value>,
+    playback: Option<serde_json::Value>,
     hermes: Option<RawHermesConfig>,
     #[serde(default)]
     media_ai: MediaAiConfig,
@@ -106,6 +107,60 @@ pub struct ImageOptimizationConfig {
     pub max_cache_size: u64,
 }
 
+#[derive(Clone, Debug)]
+pub struct PlaybackConfig {
+    pub allow_video_transcoding: bool,
+    pub max_cache_size: u64,
+    pub threads: u32,
+}
+
+impl Default for PlaybackConfig {
+    fn default() -> Self {
+        Self {
+            allow_video_transcoding: false,
+            max_cache_size: 10 * 1024 * 1024 * 1024,
+            threads: 4,
+        }
+    }
+}
+
+fn playback_config(value: Option<serde_json::Value>) -> Result<PlaybackConfig, String> {
+    let mut config = PlaybackConfig::default();
+    let Some(value) = value else {
+        return Ok(config);
+    };
+    let object = value.as_object().ok_or("playback must be an object")?;
+    for (key, value) in object {
+        match key.as_str() {
+            "allowVideoTranscoding" => {
+                config.allow_video_transcoding = value
+                    .as_bool()
+                    .ok_or("playback.allowVideoTranscoding must be a boolean")?
+            }
+            "maxCacheSize" => {
+                config.max_cache_size = parse_cache_size(
+                    value
+                        .as_str()
+                        .ok_or("playback.maxCacheSize must be a size such as 10GiB")?,
+                )
+                .map_err(|error| error.replace("imageOptimization", "playback"))?
+            }
+            "threads" => {
+                let threads = value
+                    .as_u64()
+                    .filter(|value| (1..=64).contains(value))
+                    .ok_or("playback.threads must be an integer between 1 and 64")?;
+                config.threads = threads as u32;
+            }
+            _ => return Err(format!("Unknown playback option: {key}")),
+        }
+    }
+    if config.max_cache_size == 0 {
+        return Err("playback.maxCacheSize must be at least one byte".into());
+    }
+    Ok(config)
+}
+
 impl Default for ImageOptimizationConfig {
     fn default() -> Self {
         Self {
@@ -135,6 +190,7 @@ pub struct Config {
     pub data_path: PathBuf,
     pub file_search: FileSearchConfig,
     pub image_optimization: ImageOptimizationConfig,
+    pub playback: PlaybackConfig,
     pub hermes: Option<HermesConfig>,
     pub media_ai: MediaAiConfig,
 }
@@ -721,6 +777,7 @@ impl Config {
             })?;
         }
         let image_optimization = image_optimization(raw.image_optimization)?;
+        let playback = playback_config(raw.playback)?;
         let raw_search = raw.file_search.unwrap_or_default();
         let file_search = FileSearchConfig {
             enabled: raw_search
@@ -769,6 +826,7 @@ impl Config {
             data_path,
             file_search,
             image_optimization,
+            playback,
             hermes,
             media_ai,
         })
@@ -778,6 +836,30 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn playback_defaults_and_limits() {
+        let defaults = playback_config(None).unwrap();
+        assert!(!defaults.allow_video_transcoding);
+        assert_eq!(defaults.max_cache_size, 10 * 1024 * 1024 * 1024);
+        assert_eq!(defaults.threads, 4);
+        let configured = playback_config(Some(
+            serde_json::json!({"allowVideoTranscoding":true, "maxCacheSize":"1.5GiB", "threads":2}),
+        ))
+        .unwrap();
+        assert!(configured.allow_video_transcoding);
+        assert_eq!(configured.max_cache_size, 1_610_612_736);
+        assert_eq!(configured.threads, 2);
+        for value in [
+            serde_json::json!({"allowVideoTranscoding":"true"}),
+            serde_json::json!({"maxCacheSize":"0GiB"}),
+            serde_json::json!({"threads":0}),
+            serde_json::json!({"threads":65}),
+            serde_json::json!({"unknown":true}),
+        ] {
+            assert!(playback_config(Some(value)).is_err());
+        }
+    }
 
     #[test]
     fn media_ai_config_defaults_validation_and_secret_redaction() {

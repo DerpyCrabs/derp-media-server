@@ -1,4 +1,4 @@
-import { api } from '@/lib/api/client'
+import { api, type ApiRequestOptions } from '@/lib/api/client'
 import { queryKeys } from '@/lib/api/query-keys'
 import type { DirectoryListing } from '@/lib/files/virtual-directory'
 
@@ -8,9 +8,10 @@ export function fileBrowserListingQueryKey(path: string) {
   return [...queryKeys.files(path), 'file-browser'] as const
 }
 
-export function fetchFileBrowserListing(path: string, offset: number) {
+export function fetchFileBrowserListing(path: string, offset: number, options?: ApiRequestOptions) {
   return api<DirectoryListing>(
     `/api/files?virtual_browser=true&dir=${encodeURIComponent(path)}&offset=${offset}`,
+    options,
   )
 }
 

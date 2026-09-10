@@ -214,6 +214,7 @@ export function PlaybackMediaHost() {
       preload='auto'
       class='hidden'
       data-playback-media-host='audio'
+      data-playback-source={handlesAudio() ? snapshot().source?.url : undefined}
       data-playback-audio-host
       data-workspace-taskbar-media-audio
     />

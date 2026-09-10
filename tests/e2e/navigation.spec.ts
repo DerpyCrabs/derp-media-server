@@ -18,6 +18,46 @@ test.describe('Folder Navigation', () => {
     await expect(page.locator('table').getByText('sample.mp4')).toBeVisible()
   })
 
+  test('restricted folder hover stays silent while opening reports the error', async ({ page }) => {
+    await page.route('**/api/files?**', async (route) => {
+      if (new URL(route.request().url()).searchParams.get('dir') !== 'EmptyFolder') {
+        await route.continue()
+        return
+      }
+      await route.fulfill({
+        status: 403,
+        json: { error: 'Permission denied (os error 13)' },
+      })
+    })
+    await page.goto('/')
+    const folder = page.locator('table').getByText('EmptyFolder', { exact: true })
+    for (let hover = 0; hover < 2; hover++) {
+      const response = page.waitForResponse(
+        (response) =>
+          new URL(response.url()).searchParams.get('dir') === 'EmptyFolder' &&
+          response.status() === 403,
+      )
+      await folder.hover()
+      await (await response).finished()
+      await page.mouse.move(0, 0)
+      await expect(page.getByText('Not allowed', { exact: true })).toBeHidden()
+    }
+
+    await folder.click()
+    await page.waitForURL(/dir=EmptyFolder/)
+    await expect(page.getByText('Permission denied (os error 13)').first()).toBeVisible()
+  })
+
+  test('focusing the file browser does not draw a page-wide outline', async ({ page }) => {
+    await page.goto('/')
+    const browser = page.getByTestId('file-browser')
+    await browser.focus()
+    await expect(browser).toBeFocused()
+    await expect(browser).toHaveCSS('outline-style', 'none')
+    await page.keyboard.press('Tab')
+    await expect(browser).not.toBeFocused()
+  })
+
   test('navigates back via breadcrumbs', async ({ page }) => {
     await page.goto(`/?dir=${encodeURIComponent('Notes/subfolder')}`)
     await expect(page.locator('table').getByText('nested-note.md')).toBeVisible()

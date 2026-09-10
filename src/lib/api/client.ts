@@ -34,8 +34,10 @@ function mergeFetchHeaders(base: Record<string, string>, extra?: HeadersInit): H
   return out
 }
 
-export async function api<T>(url: string, options?: RequestInit): Promise<T> {
-  const { headers: optsHeaders, ...rest } = options ?? {}
+export type ApiRequestOptions = RequestInit & { notifyForbidden?: boolean }
+
+export async function api<T>(url: string, options?: ApiRequestOptions): Promise<T> {
+  const { headers: optsHeaders, notifyForbidden = true, ...rest } = options ?? {}
   const headers = mergeFetchHeaders({ 'Content-Type': 'application/json' }, optsHeaders)
   const res = await fetch(url, {
     ...rest,
@@ -44,7 +46,7 @@ export async function api<T>(url: string, options?: RequestInit): Promise<T> {
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string }
     const message = body.error || res.statusText
-    if (res.status === 403) {
+    if (res.status === 403 && notifyForbidden) {
       pushForbiddenNotice(message)
     }
     throw new ApiError(res.status, message)

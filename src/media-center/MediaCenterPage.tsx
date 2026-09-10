@@ -96,6 +96,7 @@ export function MediaCenterPage() {
       <MainMediaPlayers editableFolders={editableFolders()} knowledgeBases={knowledgeBases()} />
       <div
         class={cn(
+          'media-center-content lg:pt-1',
           audioPlayerVisible() &&
             'max-[649px]:pb-[calc(3.125rem+env(safe-area-inset-bottom,0px))] min-[650px]:pb-[calc(4.5625rem+env(safe-area-inset-bottom,0px))]',
         )}

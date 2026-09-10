@@ -21,7 +21,9 @@ function prefetchKbRecentForPath(queryClient: QueryClient, pathWithinKb: string)
   void queryClient.prefetchQuery({
     queryKey: queryKeys.kbRecent(pathWithinKb),
     queryFn: () =>
-      api<{ results: RecentResult[] }>(`/api/kb/recent?root=${encodeURIComponent(pathWithinKb)}`),
+      api<{ results: RecentResult[] }>(`/api/kb/recent?root=${encodeURIComponent(pathWithinKb)}`, {
+        notifyForbidden: false,
+      }),
   })
 }
 
@@ -30,7 +32,8 @@ function prefetchDirectoryListingAtPath(ctx: PrefetchFolderHoverContext, dirPath
   void ctx.queryClient.prefetchInfiniteQuery({
     queryKey: fileBrowserListingQueryKey(norm),
     initialPageParam: FILE_BROWSER_INITIAL_PAGE,
-    queryFn: ({ pageParam }) => fetchFileBrowserListing(norm, pageParam),
+    queryFn: ({ pageParam }) =>
+      fetchFileBrowserListing(norm, pageParam, { notifyForbidden: false }),
     getNextPageParam: nextFileBrowserListingPage,
   })
   const kbs = ctx.knowledgeBases
