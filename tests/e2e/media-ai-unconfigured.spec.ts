@@ -15,9 +15,15 @@ for (const viewport of [
       if (path.startsWith('/api/media-ai/') && path !== '/api/media-ai/status')
         aiRequests.push(path)
     })
-    const status = page.waitForResponse('**/api/media-ai/status')
     await page.goto('/')
-    expect(await (await status).json()).toMatchObject({ enabled: false })
+    expect(
+      await page.evaluate(
+        () =>
+          window.__DEHYDRATED_STATE__?.queries.find(
+            (query) => query.queryKey[0] === 'media-ai' && query.queryKey[1] === 'status',
+          )?.state.data,
+      ),
+    ).toMatchObject({ enabled: false })
     await expect(page.locator('table')).toBeVisible()
     await expect(page.getByTestId('media-navigation-header')).toHaveCount(0)
     await expect(page.getByRole('navigation', { name: 'Media center' })).toHaveCount(0)

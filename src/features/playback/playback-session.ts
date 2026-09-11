@@ -13,6 +13,7 @@ import type {
   PlaybackSource,
   PlaybackSourceResolution,
   PlaybackFallback,
+  QueueContext,
 } from './types'
 
 type Transport =
@@ -26,6 +27,7 @@ type Transport =
 type MutableState = {
   revision: number
   queue: PlaybackItem[]
+  queueContext: QueueContext | null
   currentIndex: number
   mode: PlaybackMode
   desiredPlaying: boolean
@@ -55,6 +57,7 @@ function normalizeItem(item: PlaybackItem): PlaybackItem {
     locator: normalizedLocator(item.locator),
     name: item.name,
     media: item.media,
+    ...(item.automatic ? { automatic: true } : {}),
   })
 }
 
@@ -68,6 +71,34 @@ function validItem(value: unknown): value is PlaybackItem {
     item.name.length > 0 &&
     (item.media === 'audio' || item.media === 'video')
   )
+}
+
+function normalizeContext(value: unknown): QueueContext | null {
+  if (!value || typeof value !== 'object') return null
+  const context = value as QueueContext
+  if (!['manual', 'playlist', 'radio'].includes(context.kind) || typeof context.title !== 'string')
+    return null
+  if (context.kind === 'radio') {
+    const radio = context.radio
+    if (
+      !radio ||
+      !Array.isArray(radio.seeds) ||
+      !radio.seeds.every((seed) => typeof seed === 'string') ||
+      typeof radio.genre !== 'string' ||
+      typeof radio.artist !== 'string' ||
+      !Number.isFinite(radio.discovery) ||
+      radio.discovery < 0 ||
+      radio.discovery > 1 ||
+      typeof radio.strictGenre !== 'boolean' ||
+      typeof radio.allowRepeats !== 'boolean'
+    )
+      return null
+    return Object.freeze({
+      ...context,
+      radio: Object.freeze({ ...radio, seeds: [...radio.seeds] }),
+    })
+  }
+  return Object.freeze({ ...context })
 }
 
 function validPersistedState(value: unknown): value is PersistedPlaybackState {
@@ -153,6 +184,7 @@ function safePersistedState(state: MutableState): PersistedPlaybackState {
   return {
     schemaVersion: 1,
     queue: state.queue.map(normalizeItem),
+    ...(state.queueContext ? { queueContext: state.queueContext } : {}),
     currentIndex: state.currentIndex,
     position:
       state.timeline.duration > 0 && position >= state.timeline.duration * 0.9 ? 0 : position,
@@ -188,6 +220,7 @@ export function createPlaybackSession(options: CreatePlaybackSessionOptions): Pl
   const state: MutableState = {
     revision: 0,
     queue,
+    queueContext: normalizeContext(restored?.queueContext),
     currentIndex,
     mode: restoredItem ? modeFor(restoredItem, restored?.mode) : 'audio',
     desiredPlaying: false,
@@ -219,6 +252,7 @@ export function createPlaybackSession(options: CreatePlaybackSessionOptions): Pl
       revision: state.revision,
       phase: playbackPhase(state),
       queue: Object.freeze([...state.queue]),
+      queueContext: state.queueContext,
       currentIndex: state.currentIndex,
       currentItem: currentItem(state),
       position: playbackPosition(state),
@@ -425,6 +459,9 @@ export function createPlaybackSession(options: CreatePlaybackSessionOptions): Pl
         if (index < 0) index = queue.push(item) - 1
         else queue[index] = item
         state.queue = queue
+        if (command.queueContext !== undefined)
+          state.queueContext = normalizeContext(command.queueContext)
+        else if (command.queue && !isSame) state.queueContext = null
         state.currentIndex = index
         state.mode = mode
         state.desiredPlaying = command.autoplay ?? true
@@ -441,7 +478,95 @@ export function createPlaybackSession(options: CreatePlaybackSessionOptions): Pl
         }
         return resolveSource('load', isSame && sameMode)
       }
+      case 'setQueueContext':
+        state.queueContext = normalizeContext(command.context)
+        notify()
+        return changed()
+      case 'selectQueueItem':
+        if (!Number.isInteger(command.index) || !state.queue[command.index])
+          return reject('invalid')
+        return selectIndex(command.index, true)
+      case 'enqueue': {
+        const current = currentItem(state)
+        const additions = dedupeQueue(command.items).filter(
+          (item) => !current || item.media === current.media,
+        )
+        if (!additions.length) return reject('invalid')
+        const keys = new Set(additions.map(playbackItemKey))
+        const queue = state.queue.filter(
+          (item) => sameItem(item, current) || !keys.has(playbackItemKey(item)),
+        )
+        const index = current ? queue.findIndex((item) => sameItem(item, current)) : -1
+        const incoming = additions.filter((item) => !sameItem(item, current))
+        const firstAutomatic =
+          state.queueContext?.kind === 'radio'
+            ? queue.findIndex((item, i) => i > index && item.automatic)
+            : -1
+        queue.splice(
+          command.position === 'next'
+            ? index + 1
+            : firstAutomatic >= 0
+              ? firstAutomatic
+              : queue.length,
+          0,
+          ...incoming,
+        )
+        return dispatch({
+          type: 'setQueue',
+          queue,
+          ...(current ? { current } : {}),
+          queueContext: state.queueContext ?? { kind: 'manual', title: 'Your queue' },
+        })
+      }
+      case 'moveQueueItem': {
+        if (
+          !Number.isInteger(command.from) ||
+          !Number.isInteger(command.to) ||
+          !state.queue[command.from] ||
+          !state.queue[command.to]
+        )
+          return reject('invalid')
+        const current = currentItem(state)
+        const queue = [...state.queue]
+        queue.splice(command.to, 0, { ...queue.splice(command.from, 1)[0]!, automatic: false })
+        return dispatch({
+          type: 'setQueue',
+          queue,
+          ...(current ? { current } : {}),
+          queueContext: state.queueContext ?? { kind: 'manual', title: 'Your queue' },
+        })
+      }
+      case 'removeQueueItem': {
+        if (!Number.isInteger(command.index) || !state.queue[command.index])
+          return reject('invalid')
+        const queue = state.queue.filter((_, index) => index !== command.index)
+        if (!queue.length) return dispatch({ type: 'stop' })
+        if (command.index === state.currentIndex) {
+          state.queueContext ??= { kind: 'manual', title: 'Your queue' }
+          state.queue = queue
+          return selectIndex(Math.min(command.index, queue.length - 1), state.desiredPlaying)
+        }
+        return dispatch({
+          type: 'setQueue',
+          queue,
+          queueContext: state.queueContext ?? { kind: 'manual', title: 'Your queue' },
+        })
+      }
+      case 'shuffleQueue': {
+        const queue = [...state.queue]
+        for (let i = queue.length - 1; i > state.currentIndex + 1; i -= 1) {
+          const j = state.currentIndex + 1 + Math.floor(Math.random() * (i - state.currentIndex))
+          ;[queue[i], queue[j]] = [queue[j]!, queue[i]!]
+        }
+        return dispatch({
+          type: 'setQueue',
+          queue,
+          queueContext: state.queueContext ?? { kind: 'manual', title: 'Your queue' },
+        })
+      }
       case 'setQueue': {
+        if (command.queueContext !== undefined)
+          state.queueContext = normalizeContext(command.queueContext)
         const previous = currentItem(state)
         const queue = dedupeQueue(command.queue)
         const target = command.current ?? previous
@@ -652,6 +777,7 @@ export function createPlaybackSession(options: CreatePlaybackSessionOptions): Pl
       case 'stop':
         stopResolution()
         state.queue = []
+        state.queueContext = null
         state.currentIndex = -1
         state.mode = 'audio'
         state.desiredPlaying = false

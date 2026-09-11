@@ -53,6 +53,7 @@ export const BATCHES = [
     id: '5',
     tests: [
       'audio-player',
+      'music-listening',
       'media-ai',
       'media-ai-video',
       'file-display-settings',

@@ -1,3 +1,4 @@
+import { QueuePanel } from '@/features/music/QueuePanel'
 import { createPlaybackScrubber } from '@/features/playback/create-playback-scrubber'
 import { selection } from '@/features/media-ai/selection'
 import { fetchDirectoryFiles } from '@/lib/files/files-client'
@@ -13,7 +14,6 @@ import StepForward from 'lucide-solid/icons/step-forward'
 import Volume2 from 'lucide-solid/icons/volume-2'
 import VolumeX from 'lucide-solid/icons/volume-x'
 import { Show, createEffect, createMemo } from 'solid-js'
-import { createUrlSearchParamsMemo, useBrowserHistory } from '@/lib/browser/browser-history'
 import {
   audioPlaybackQueueFromFiles,
   fetchAudioMetadata,
@@ -33,8 +33,6 @@ import { useExplorerSettings } from '@/features/explorer/use-explorer-settings'
 import { useViewStats } from '@/features/explorer/use-view-stats'
 
 export function AudioPlayer() {
-  const history = useBrowserHistory()
-  const urlSearchParams = createUrlSearchParamsMemo(history)
   const session = usePlaybackSession()
   const snapshot = usePlaybackSnapshot()
   const { settingsQuery } = useExplorerSettings()
@@ -44,13 +42,14 @@ export function AudioPlayer() {
   const playbackMode = createMemo(() => snapshot().mode)
   const shouldHandleAudio = createMemo(() => !!currentItem() && playbackMode() === 'audio')
   const playingPath = createMemo(() => currentItem()?.locator ?? '')
-  const currentDir = createMemo(() => urlSearchParams().get('dir') || parentPath(playingPath()))
+  const currentDir = createMemo(() => parentPath(playingPath()))
   const fileName = createMemo(() => currentItem()?.name ?? '')
   const isVideoFile = createMemo(() => currentItem()?.media === 'video')
 
   const filesQuery = useQuery(() => ({
     queryKey: queryKeys.files(currentDir()),
     queryFn: () => fetchDirectoryFiles(currentDir()),
+    enabled: shouldHandleAudio() && !!playingPath(),
   }))
   const allFiles = createMemo(() => {
     const files = filesQuery.data?.files ?? []
@@ -69,6 +68,7 @@ export function AudioPlayer() {
       if (
         !current ||
         playbackMode() !== 'audio' ||
+        filesQuery.isPending ||
         selection().some((f) => f.path === current.locator)
       )
         return null
@@ -77,7 +77,7 @@ export function AudioPlayer() {
     (next) => {
       if (!next) return
       const state = session.getSnapshot()
-      if (!playbackQueuesEqual(state.queue, next.queue)) {
+      if (!state.queueContext && !playbackQueuesEqual(state.queue, next.queue)) {
         session.dispatch({ type: 'setQueue', queue: next.queue, current: next.current })
       }
     },
@@ -284,6 +284,7 @@ export function AudioPlayer() {
               />
             </div>
 
+            <QueuePanel />
             <div class='hidden h-8 w-px shrink-0 bg-border md:block' />
 
             <div class='flex min-w-0 flex-1 items-center gap-2 min-[650px]:w-[200px] min-[650px]:flex-none min-[650px]:gap-3 lg:w-[280px]'>

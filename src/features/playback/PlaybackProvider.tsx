@@ -1,3 +1,5 @@
+import { RadioContinuation } from '@/features/music/RadioContinuation'
+import { MusicDialogs } from '@/features/music/MusicDialogs'
 import { restoreActivityQueue } from '@/features/media-ai/activity'
 import {
   createContext,
@@ -48,7 +50,13 @@ export function PlaybackProvider(props: PlaybackProviderProps) {
     }
   })
 
-  return <PlaybackContext value={value}>{props.children}</PlaybackContext>
+  return (
+    <PlaybackContext value={value}>
+      <RadioContinuation />
+      <MusicDialogs />
+      {props.children}
+    </PlaybackContext>
+  )
 }
 
 function requiredPlaybackContext(): PlaybackContextValue {

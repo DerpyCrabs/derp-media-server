@@ -2,6 +2,10 @@ export type AudioMetadata = {
   title?: string
   artist?: string
   album?: string
+  genre?: string[]
+  year?: number
+  trackNumber?: number
+  albumArtist?: string
   coverArt?: string | null
   duration?: number
 }

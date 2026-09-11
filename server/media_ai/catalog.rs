@@ -100,14 +100,14 @@ pub fn sync_page(state: &Shared, after: i64, epoch: i64) -> AppResult<(i64, bool
     };
     let fingerprints: HashMap<_, _> = rows
         .iter()
-        .filter_map(|(_, id, relative, _, _)| {
+        .filter_map(|(_, id, relative, _, kind)| {
             let root = state.config.roots.iter().find(|r| r.id == *id)?;
             let path = if state.config.roots.len() == 1 {
                 relative.clone()
             } else {
                 format!("{}/{}", root.name, relative)
             };
-            analyzed.contains(&path).then(|| {
+            (kind == "audio" || analyzed.contains(&path)).then(|| {
                 (
                     (id.clone(), relative.clone()),
                     file_fingerprint(&root.path.join(relative)),
@@ -156,7 +156,7 @@ pub fn sync_page(state: &Shared, after: i64, epoch: i64) -> AppResult<(i64, bool
     ))
 }
 fn hidden(c: &Connection, path: &str) -> AppResult<bool> {
-    c.query_row("SELECT EXISTS(SELECT 1 FROM media_feedback WHERE (?1=path OR substr(?1,1,length(path)+1)=path||'/') AND (kind='hide' OR (kind='later' AND until>?2)))",params![path,crate::app::timestamp_ms() as i64],|r|r.get(0)).map_err(sql_error)
+    c.query_row("SELECT EXISTS(SELECT 1 FROM media_feedback WHERE (?1=path OR substr(?1,1,length(path)+1)=path||'/') AND (kind='hide' OR until>?2))",params![path,crate::app::timestamp_ms() as i64],|r|r.get(0)).map_err(sql_error)
 }
 fn items(
     state: &Shared,
@@ -167,7 +167,7 @@ fn items(
 ) -> AppResult<Vec<Value>> {
     let c = state.database.connection()?;
     let query = format!(
-        "SELECT c.id,c.path,c.name,c.kind,c.description,c.duration,coalesce(t.plays,0),coalesce(t.learned_plays,0),coalesce(t.learned_seconds,0),c.fingerprint,coalesce(t.completions,0),coalesce(t.last_played,0) FROM media_catalog c LEFT JOIN media_totals t ON t.path=c.path WHERE c.kind IN ('audio','video') AND ({condition}) AND NOT EXISTS(SELECT 1 FROM media_feedback f WHERE (c.path=f.path OR substr(c.path,1,length(f.path)+1)=f.path||'/') AND (f.kind='hide' OR (f.kind='later' AND f.until>cast(strftime('%s','now') as integer)*1000))) ORDER BY {order} LIMIT {}",
+        "SELECT c.id,c.path,c.name,c.kind,c.description,c.duration,coalesce(t.plays,0),coalesce(t.learned_plays,0),coalesce(t.learned_seconds,0),c.fingerprint,coalesce(t.completions,0),coalesce(t.last_played,0) FROM media_catalog c LEFT JOIN media_totals t ON t.path=c.path WHERE c.kind IN ('audio','video') AND ({condition}) AND NOT EXISTS(SELECT 1 FROM media_feedback f WHERE (c.path=f.path OR substr(c.path,1,length(f.path)+1)=f.path||'/') AND (f.kind='hide' OR f.until>cast(strftime('%s','now') as integer)*1000)) ORDER BY {order} LIMIT {}",
         limit.min(200)
     );
     let mut st = c.prepare(&query).map_err(sql_error)?;
@@ -239,7 +239,7 @@ fn collection_inventory(state: &Shared, path: &str, history: &Value) -> AppResul
 fn library_collections(state: &Shared, history: &Value, excluded: &[i64]) -> AppResult<Vec<Value>> {
     let excluded: HashSet<_> = excluded.iter().copied().collect();
     let c = state.database.connection()?;
-    let mut st = c.prepare("SELECT c.id,c.path,c.kind,coalesce(t.learned_plays,0) FROM media_catalog c LEFT JOIN media_totals t ON c.path=t.path WHERE c.kind IN ('audio','video') AND NOT EXISTS(SELECT 1 FROM media_feedback f WHERE (c.path=f.path OR substr(c.path,1,length(f.path)+1)=f.path||'/') AND (f.kind='hide' OR f.kind='later' AND f.until>cast(strftime('%s','now') as integer)*1000)) ORDER BY c.path").map_err(sql_error)?;
+    let mut st = c.prepare("SELECT c.id,c.path,c.kind,coalesce(t.learned_plays,0) FROM media_catalog c LEFT JOIN media_totals t ON c.path=t.path WHERE c.kind IN ('audio','video') AND NOT EXISTS(SELECT 1 FROM media_feedback f WHERE (c.path=f.path OR substr(c.path,1,length(f.path)+1)=f.path||'/') AND (f.kind='hide' OR f.until>cast(strftime('%s','now') as integer)*1000)) ORDER BY c.path").map_err(sql_error)?;
     let favorites: Vec<String> =
         serde_json::from_str(&favorites_json(state)?).map_err(sql_error)?;
     let liked: Vec<String> = {
@@ -689,6 +689,18 @@ async fn prepare_item(
         state.database.connection()?.execute("INSERT INTO media_prepared(library_key,path,fingerprint,metadata_json) VALUES(?1,?2,?3,?4) ON CONFLICT(library_key,path) DO UPDATE SET fingerprint=excluded.fingerprint,metadata_json=excluded.metadata_json",
                 params![state.config.library_key,item["path"].as_str(),fingerprint,Value::Object(metadata).to_string()]).map_err(sql_error)?;
     }
+    if item["type"] == "audio" {
+        let mut metadata = item["metadata"].clone();
+        if !metadata.is_object() {
+            metadata = json!({});
+        }
+        crate::music::apply_metadata(state, &path, &mut metadata)?;
+        if let Some(title) = metadata["title"].as_str().filter(|s| !s.is_empty()) {
+            item["displayTitle"] = json!(title);
+        }
+        item["subtitle"] = metadata["artist"].clone();
+        item["metadata"] = metadata;
+    }
     Ok(Some((item, preview.thumbnail(240, 135).to_rgb8())))
 }
 async fn prepare(state: &Shared, list: Vec<Value>) -> AppResult<(Vec<Value>, Vec<String>)> {
@@ -753,7 +765,7 @@ fn bounded_context(
     }
 }
 
-fn profile(state: &Shared) -> AppResult<Value> {
+pub(crate) fn profile(state: &Shared) -> AppResult<Value> {
     let c = state.database.connection()?;
     let mut st=c.prepare("SELECT path,sum(seconds),sum(source='chosen'),hour FROM media_sessions WHERE excluded=0 AND (qualified=1 OR completed=1) GROUP BY path,hour ORDER BY sum(source='chosen') DESC,sum(seconds) DESC LIMIT 12").map_err(sql_error)?;
     let activity=st.query_map([],|r|Ok(json!({"path":short(&r.get::<_,String>(0)?,250),"seconds":r.get::<_,f64>(1)?,"chosen":r.get::<_,i64>(2)?,"hour":r.get::<_,i64>(3)?}))).map_err(sql_error)?.collect::<Result<Vec<_>,_>>().map_err(sql_error)?;
@@ -943,7 +955,7 @@ pub async fn ask(state: &Shared, query: &str, history: &[String], hour: i64) -> 
         let mut pool = items(
             state,
             &format!(
-                "(c.name LIKE ?1 ESCAPE '\\' OR c.path LIKE ?1 ESCAPE '\\' OR c.description LIKE ?1 ESCAPE '\\' OR c.tags LIKE ?1 ESCAPE '\\') AND {filters}"
+                "(c.name LIKE ?1 ESCAPE '\\' OR c.path LIKE ?1 ESCAPE '\\' OR c.description LIKE ?1 ESCAPE '\\' OR c.tags LIKE ?1 ESCAPE '\\' OR EXISTS(SELECT 1 FROM music_tracks m WHERE m.path=c.path AND json_patch(json_patch(m.metadata,m.enrichment),m.overrides) LIKE ?1 ESCAPE '\\')) AND {filters}"
             ),
             &[&pattern, &unseen, &kind, &min, &max],
             "coalesce(t.learned_plays,0) DESC,c.id",

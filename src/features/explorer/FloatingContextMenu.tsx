@@ -16,7 +16,7 @@ import { Match, Show, Switch, createEffect, createSignal } from 'solid-js'
 import { Portal } from '@solidjs/web'
 
 const MENU_ROOT_CLASS =
-  'fixed min-w-36 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md'
+  'fixed max-h-[calc(100dvh-16px)] min-w-36 overflow-y-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md'
 
 type Positioning =
   | { kind: 'pointer'; left: number; top: number }
@@ -83,7 +83,7 @@ function MenuSurface(props: MenuSurfaceProps) {
         el.style.left = `${next.left}px`
         el.style.top = `${next.top}px`
       }
-      requestAnimationFrame(apply)
+      apply()
       const ro = new ResizeObserver(() => requestAnimationFrame(apply))
       ro.observe(el)
       const bump = () => requestAnimationFrame(apply)

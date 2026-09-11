@@ -86,11 +86,13 @@ export function trackPlayback(
   session: PlaybackSession,
   emit: (event: ActivityEvent) => void = sendActivity,
   now: () => number = Date.now,
+  onEarlySkip: (event: { id: string; path: string }) => void = () => {},
 ): PlaybackSession {
   let event: ActivityEvent | undefined
   let lastTime = now()
   let lastPosition = 0
   let buffering = false
+  let heardSeconds = 0
   function flush(completed = false) {
     if (!event) return
     const end = now()
@@ -117,6 +119,7 @@ export function trackPlayback(
     }
     const at = now()
     buffering = false
+    heardSeconds = 0
     event = {
       id: createActivityId(),
       path: item.locator,
@@ -159,6 +162,7 @@ export function trackPlayback(
         advance <= wall * 4 + 0.25
       ) {
         event.seconds += wall
+        heardSeconds += wall
       }
       lastTime = at
       lastPosition = command.position
@@ -179,12 +183,26 @@ export function trackPlayback(
         'load',
         'next',
         'previous',
+        'selectQueueItem',
+        'removeQueueItem',
         'setMode',
         'seek',
       ].includes(command.type)
     )
       flush()
+    const skipped =
+      command.type === 'next' &&
+      event &&
+      !event.excluded &&
+      before.currentItem?.media === 'audio' &&
+      before.desiredPlaying &&
+      heardSeconds >= 2 &&
+      heardSeconds < Math.min(30, before.duration > 0 ? before.duration / 4 : 30)
+        ? { id: event.id, path: event.path }
+        : null
     const outcome = session.dispatch(command)
+    if (outcome.accepted && skipped && session.getSnapshot().currentItem?.locator !== skipped.path)
+      onEarlySkip(skipped)
     if (!outcome.accepted) return outcome
     const after = session.getSnapshot()
     if (

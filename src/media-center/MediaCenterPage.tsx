@@ -113,6 +113,7 @@ export function MediaCenterPage() {
           }
         >
           <ForYou
+            aiEnabled={!!ai.data?.enabled}
             actions={feedActions()}
             searchOpen={searchOpen()}
             onOpenFolder={() => {

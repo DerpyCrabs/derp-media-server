@@ -1,4 +1,7 @@
 import { createEffect, createMemo, createSignal, For, Show } from 'solid-js'
+import { MusicHome } from '@/features/music/MusicHome'
+import { updateMusicFeedback } from '@/features/music/cache'
+import { startRadio } from '@/features/music/actions'
 import { Portal } from '@solidjs/web'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
 import { api, post } from '@/lib/api/client'
@@ -19,6 +22,9 @@ import {
   FolderOpen,
   ListPlus,
   LoaderCircle,
+  Music2,
+  Radio,
+  StepForward,
   Play,
   RefreshCw,
   Search,
@@ -56,25 +62,15 @@ type Home = {
 }
 type PageParam = { cursor: number; feedId?: string }
 type HomePages = { pages: Home[]; pageParams: PageParam[] }
-async function readyPicks(items: Pick[]) {
-  const ready = await Promise.all(
-    items
-      .filter(
-        (i) =>
-          i.type === MediaType.AUDIO || i.type === MediaType.VIDEO || i.type === MediaType.FOLDER,
-      )
-      .map(async (item) => {
-        const image = new Image()
-        image.src = buildThumbnailUrl(item.previewPath || item.path, 2)
-        try {
-          await image.decode()
-          return image.naturalWidth > 1 && image.naturalHeight > 1 ? item : null
-        } catch {
-          return null
-        }
-      }),
+function readyPicks(items: Pick[]) {
+  return Promise.resolve(
+    items.filter(
+      (item) =>
+        item.type === MediaType.AUDIO ||
+        item.type === MediaType.VIDEO ||
+        item.type === MediaType.FOLDER,
+    ),
   )
-  return ready.filter((item): item is Pick => item !== null)
 }
 async function loadPage(param: PageParam, signal?: AbortSignal): Promise<Home> {
   const query = new URLSearchParams({
@@ -85,7 +81,9 @@ async function loadPage(param: PageParam, signal?: AbortSignal): Promise<Home> {
   const page = await api<Home>(`/api/media-ai/home?${query}`, { signal })
   return {
     ...page,
-    rows: [{ title: 'For you', items: await readyPicks(page.rows.flatMap((row) => row.items)) }],
+    rows: await Promise.all(
+      page.rows.map(async (row) => ({ ...row, items: await readyPicks(row.items) })),
+    ),
   }
 }
 function itemTitle(item: Pick) {
@@ -113,12 +111,14 @@ function asFile(item: Pick): FileItem {
 }
 export function ForYou(props: {
   actions?: HTMLDivElement
+  aiEnabled: boolean
   searchOpen: boolean
   onOpenFolder: () => void
 }) {
   const params = createUrlSearchParamsMemo(useBrowserHistory())
   const session = usePlaybackSession()
   const client = useQueryClient()
+  const [category, setCategory] = createSignal<'all' | 'music' | 'video'>('all')
   const [query, setQuery] = createSignal('')
   const [debounced, setDebounced] = createSignal('')
   const [history, setHistory] = createSignal<string[]>([])
@@ -143,13 +143,16 @@ export function ForYou(props: {
   )
   const home = useInfiniteQuery(() => ({
     queryKey: ['media-ai', 'home'],
+    enabled: props.aiEnabled,
     reconcile: 'path',
     meta: { refetchOnSseConnect: false },
     initialPageParam: { cursor: 0 } as PageParam,
     queryFn: ({ pageParam, signal }) => loadPage(pageParam, signal),
     getNextPageParam: (page) =>
       page.nextCursor == null ? undefined : { cursor: page.nextCursor, feedId: page.feedId },
-    staleTime: 60_000,
+    staleTime: Infinity,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
   }))
   const [sentinel, setSentinel] = createSignal<HTMLDivElement>()
   const refresh = useMutation(() => ({
@@ -159,12 +162,14 @@ export function ForYou(props: {
       if (!page.rows) return loadPage({ cursor: 0 })
       return {
         ...page,
-        rows: [
-          { title: 'For you', items: await readyPicks(page.rows.flatMap((row) => row.items)) },
-        ],
+        rows: await Promise.all(
+          page.rows.map(async (row) => ({ ...row, items: await readyPicks(row.items) })),
+        ),
       }
     },
     onSuccess: (page) => {
+      void client.invalidateQueries({ queryKey: ['music', 'home'] })
+      void client.invalidateQueries({ queryKey: ['music', 'playlists'] })
       client.setQueryData<HomePages>(['media-ai', 'home'], {
         pages: [page],
         pageParams: [{ cursor: 0, feedId: page.feedId }],
@@ -227,7 +232,12 @@ export function ForYou(props: {
   createEffect(
     () => ({
       element: sentinel(),
-      canLoad: home.hasNextPage && !home.isFetching && !home.isError && !answer(),
+      canLoad:
+        category() !== 'music' &&
+        home.hasNextPage &&
+        !home.isFetching &&
+        !home.isError &&
+        !answer(),
     }),
     ({ element, canLoad }) => {
       if (!element || !canLoad) return undefined
@@ -281,6 +291,7 @@ export function ForYou(props: {
         return value ? [value] : []
       }),
       autoplay: true,
+      queueContext: { kind: 'manual', title: 'For you' },
     })
     navigateSearchParams(
       { playing: item.path, view: 'for-you', dir: null, audioOnly: null },
@@ -303,6 +314,7 @@ export function ForYou(props: {
         return next ? [next] : []
       }),
       autoplay: true,
+      queueContext: { kind: 'manual', title: item.name },
     })
     navigateSearchParams(
       { view: 'library', dir: item.path, playing: first.path, audioOnly: null },
@@ -336,7 +348,7 @@ export function ForYou(props: {
         isDirectory: false,
       })),
     )
-    session.dispatch({ type: 'setQueue', queue: next, current: state.currentItem ?? additions[0] })
+    session.dispatch({ type: 'enqueue', items: additions, position: 'end' })
     setNotice(`Added ${additions.length} items to queue`)
   }
   const ask = useMutation(() => ({
@@ -368,12 +380,25 @@ export function ForYou(props: {
         input.kind === 'more' ? 'Liked' : input.kind === 'clear' ? 'Like removed' : 'Hidden',
       )
       void client.invalidateQueries({ queryKey: ['media-ai', 'home'] })
+      updateMusicFeedback(client, input)
     },
   }))
   const feed = createMemo(() => {
     const seen = new Set<string>()
     return (home.data?.pages.flatMap((page) => page.rows.flatMap((row) => row.items)) ?? []).filter(
       (item) => {
+        if (
+          category() === 'music' &&
+          item.type !== MediaType.AUDIO &&
+          !(item.type === MediaType.FOLDER && item.members?.some((m) => m.type === MediaType.AUDIO))
+        )
+          return false
+        if (
+          category() === 'video' &&
+          item.type !== MediaType.VIDEO &&
+          !(item.type === MediaType.FOLDER && item.members?.some((m) => m.type === MediaType.VIDEO))
+        )
+          return false
         if (seen.has(item.path)) return false
         seen.add(item.path)
         return true
@@ -397,10 +422,16 @@ export function ForYou(props: {
                 title={item.reason}
                 onClick={() => open(asFile(item), visible().map(asFile))}
               >
+                <span class='absolute inset-0 grid place-items-center text-muted-foreground'>
+                  <Music2 size={32} />
+                </span>
                 <img
+                  onError={(event) => {
+                    event.currentTarget.style.visibility = 'hidden'
+                  }}
                   src={buildThumbnailUrl(item.previewPath || item.path, 2)}
                   alt=''
-                  class='h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]'
+                  class='relative h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]'
                 />
                 <span class='absolute inset-0 flex items-center justify-center bg-black/0 transition-colors group-hover:bg-black/15'>
                   <span class='flex size-12 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100'>
@@ -491,7 +522,26 @@ export function ForYou(props: {
         files={selection}
         displayedFiles={selection}
       />
-      <Show when={props.actions}>
+      <div class='flex items-center gap-2 py-2' role='group' aria-label='For you categories'>
+        <For
+          each={[
+            { id: 'all' as const, title: 'All' },
+            { id: 'music' as const, title: 'Music' },
+            { id: 'video' as const, title: 'Videos' },
+          ]}
+        >
+          {(item) => (
+            <button
+              class={`min-h-11 rounded-full px-5 text-sm font-medium ${category() === item.id ? 'bg-primary text-primary-foreground' : 'bg-secondary/50 text-muted-foreground hover:bg-secondary'}`}
+              aria-pressed={category() === item.id ? 'true' : 'false'}
+              onClick={() => setCategory(item.id)}
+            >
+              {item.title}
+            </button>
+          )}
+        </For>
+      </div>
+      <Show when={props.aiEnabled && props.actions}>
         {(mount) => (
           <Portal mount={mount()}>
             <button
@@ -515,7 +565,7 @@ export function ForYou(props: {
                 class='flex h-9 pointer-coarse:h-11 min-w-0 flex-1 items-center gap-2 rounded-lg bg-card pl-3 ring-1 ring-inset ring-border'
                 onSubmit={(e) => {
                   e.preventDefault()
-                  if (query().trim()) ask.mutate(query().trim())
+                  if (props.aiEnabled && query().trim()) ask.mutate(query().trim())
                 }}
               >
                 <Search size={18} class='shrink-0 text-muted-foreground' />
@@ -531,7 +581,7 @@ export function ForYou(props: {
                 <button
                   class='inline-flex h-8 w-8 pointer-coarse:h-11 pointer-coarse:w-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-40'
                   aria-label='Search'
-                  disabled={ask.isPending || !query().trim()}
+                  disabled={!props.aiEnabled || ask.isPending || !query().trim()}
                   type='submit'
                 >
                   <Show when={ask.isPending} fallback={<ArrowRight size={18} />}>
@@ -596,8 +646,24 @@ export function ForYou(props: {
         )}
       </Show>
       <Show when={!answer()}>
-        <Cards items={feed()} />
-        <Show when={home.isPending || home.isFetchingNextPage || home.data?.pages.at(-1)?.warming}>
+        <Show when={category() !== 'video'}>
+          <MusicHome />
+        </Show>
+        <Show when={props.aiEnabled && category() !== 'music' && feed().length}>
+          <section class='space-y-4 pt-4' aria-label='Recommended media'>
+            <h2 class='text-lg font-semibold'>
+              {category() === 'video' ? 'Videos for you' : 'More for you'}
+            </h2>
+            <Cards items={feed()} />
+          </section>
+        </Show>
+        <Show
+          when={
+            props.aiEnabled &&
+            category() !== 'music' &&
+            (home.isPending || home.isFetchingNextPage || home.data?.pages.at(-1)?.warming)
+          }
+        >
           <div
             role='status'
             class='flex items-center justify-center gap-3 py-12 text-sm text-muted-foreground'
@@ -606,7 +672,7 @@ export function ForYou(props: {
             Loading…
           </div>
         </Show>
-        <Show when={home.error}>
+        <Show when={category() !== 'music' && home.error}>
           <div
             role='alert'
             class='flex flex-wrap items-center justify-center gap-3 py-6 text-sm text-muted-foreground'
@@ -629,14 +695,19 @@ export function ForYou(props: {
         <div ref={setSentinel} />
         <Show
           when={
-            !home.isPending && !home.error && !home.data?.pages.at(-1)?.warming && !feed().length
+            props.aiEnabled &&
+            category() === 'video' &&
+            !home.isPending &&
+            !home.error &&
+            !home.data?.pages.at(-1)?.warming &&
+            !feed().length
           }
         >
           <p class='py-12 text-center text-sm text-muted-foreground'>
             Nothing to play yet. Try searching your library.
           </p>
         </Show>
-        <Show when={home.hasNextPage && !home.isFetching && !home.error}>
+        <Show when={category() !== 'music' && home.hasNextPage && !home.isFetching && !home.error}>
           <div class='text-center'>
             <button class={button} onClick={() => void home.fetchNextPage()}>
               More to play
@@ -704,6 +775,35 @@ export function ForYou(props: {
                 Play collection
               </Show>
             </button>
+            <Show when={value.item.type === MediaType.AUDIO}>
+              <button
+                class={actionClass}
+                onClick={() => {
+                  const item = playbackItemFromFileItem(asFile(value.item))
+                  if (item) session.dispatch({ type: 'enqueue', items: [item], position: 'next' })
+                  setMenu(undefined)
+                }}
+              >
+                <StepForward size={17} />
+                Play next
+              </button>
+              <button
+                class={actionClass}
+                onClick={() => {
+                  startRadio(
+                    session,
+                    client,
+                    { seeds: [value.item.path] },
+                    `${itemTitle(value.item)} radio`,
+                  )
+                  setMenu(undefined)
+                }}
+              >
+                <Radio size={17} />
+                Start radio
+              </button>
+            </Show>
+
             <Show when={value.item.type === MediaType.FOLDER || value.item.path.includes('/')}>
               <button
                 class={actionClass}

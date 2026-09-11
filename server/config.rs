@@ -52,6 +52,24 @@ struct RawConfig {
     hermes: Option<RawHermesConfig>,
     #[serde(default)]
     media_ai: MediaAiConfig,
+    #[serde(default)]
+    music: MusicConfig,
+}
+
+#[derive(Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MusicConfig {
+    #[serde(default)]
+    pub last_fm_api_key: String,
+}
+
+impl std::fmt::Debug for MusicConfig {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("MusicConfig")
+            .field("last_fm_connected", &!self.last_fm_api_key.is_empty())
+            .finish()
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -193,6 +211,7 @@ pub struct Config {
     pub playback: PlaybackConfig,
     pub hermes: Option<HermesConfig>,
     pub media_ai: MediaAiConfig,
+    pub music: MusicConfig,
 }
 
 #[derive(Clone, Deserialize)]
@@ -829,6 +848,7 @@ impl Config {
             playback,
             hermes,
             media_ai,
+            music: raw.music,
         })
     }
 }

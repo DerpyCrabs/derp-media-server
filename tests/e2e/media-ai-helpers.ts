@@ -24,7 +24,22 @@ export const videoFolder = {
 export function homePage(items: object[], nextCursor: number | null = null) {
   return { generatedAt: 1, nextCursor, rows: [{ title: 'For you', items }] }
 }
+export async function mockAiHydration(page: Page) {
+  await page.addInitScript(() => {
+    type State = { queries?: { queryKey?: unknown[] }[] }
+    let cached: State | undefined
+    Object.defineProperty(window, '__DEHYDRATED_STATE__', {
+      configurable: true,
+      get: () => cached,
+      set: (value: State) => {
+        value.queries = value.queries?.filter((query) => query.queryKey?.[0] !== 'media-ai')
+        cached = value
+      },
+    })
+  })
+}
 export async function enableForYou(page: Page, items: object[] = [...videos, ...tracks]) {
+  await mockAiHydration(page)
   await page.route('**/api/media-ai/status', (route) => route.fulfill({ json: { enabled: true } }))
   await page.route('**/api/media-ai/home*', (route) => route.fulfill({ json: homePage(items) }))
 }

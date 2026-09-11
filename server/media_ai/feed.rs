@@ -169,7 +169,7 @@ pub fn needs_ranking(state: &Shared, profile: &str) -> AppResult<bool> {
          AND shown=0 AND profile_key=?3 AND ranked_at>?4
          AND NOT EXISTS(SELECT 1 FROM media_feedback f WHERE
            (r.path=f.path OR substr(r.path,1,length(f.path)+1)=f.path||'/') AND
-           (f.kind='hide' OR f.kind='later' AND f.until>?5))",
+           (f.kind='hide' OR f.until>?5))",
             params![state.config.library_key, MIN_SCORE, profile, now - DAY, now],
             |r| r.get(0),
         )
@@ -293,7 +293,7 @@ fn pool(state: &Shared, hour: i64) -> AppResult<Vec<Candidate>> {
         FROM media_rankings r LEFT JOIN media_totals t ON r.path=t.path
         WHERE r.library_key=?1 AND r.score>=?2 AND json_extract(r.item_json,'$.previewReady')=1
         AND NOT EXISTS(SELECT 1 FROM media_feedback f WHERE (r.path=f.path OR substr(r.path,1,length(f.path)+1)=f.path||'/')
-            AND (f.kind='hide' OR f.kind='later' AND f.until>?3))
+            AND (f.kind='hide' OR f.until>?3))
         ORDER BY r.last_shown,r.score DESC LIMIT ?4").map_err(sql_error)?;
     st.query_map(
         params![state.config.library_key, MIN_SCORE, now, MAX_FEED as i64],
@@ -628,6 +628,7 @@ mod tests {
                 image_optimization: ImageOptimizationConfig::default(),
                 playback: Default::default(),
                 hermes: None,
+                music: crate::config::MusicConfig::default(),
                 media_ai: crate::config::MediaAiConfig {
                     enabled: true,
                     paused: true,
@@ -750,7 +751,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_empty_pool_returns_immediately_and_requests_background_ranking() {
+    async fn an_empty_pool_returns_immediately_without_requesting_background_ranking() {
         let library = Library::new();
         let _busy = library.state.media_ai.gate.acquire().await.unwrap();
         let page = tokio::time::timeout(
@@ -771,7 +772,7 @@ mod tests {
         assert!(paths(&page).is_empty());
         assert_eq!(page["warming"], true);
         assert!(
-            library
+            !library
                 .state
                 .media_ai
                 .rank_requested

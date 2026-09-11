@@ -112,18 +112,16 @@ test('manual refresh stays in place, preserves playback, and can retry a failed 
   await expect(refresh).toBeVisible()
 })
 
-test('one broken thumbnail does not discard recommendations with healthy previews', async ({
-  page,
-}) => {
+test('broken artwork keeps music playable with a fallback', async ({ page }) => {
   await page.route('**/api/thumbnail/Music/track.mp3*', (route) => route.fulfill({ status: 404 }))
   await page.goto('/')
   await expect(page.getByRole('button', { name: 'Play Second song', exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Play First song', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Play First song', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Play Second song', exact: true }).click()
   expect(new URL(page.url()).searchParams.get('playing')).toBe(tracks[1].path)
 })
 
-test('a slow preview is decoded before its recommendation card appears', async ({ page }) => {
+test('slow artwork does not delay a playable recommendation', async ({ page }) => {
   await page.route('**/api/media-ai/home*', (route) =>
     route.fulfill({ json: homePage([tracks[0]]) }),
   )
@@ -137,18 +135,17 @@ test('a slow preview is decoded before its recommendation card appears', async (
     await gate
     await route.continue()
   })
-  await page.goto('/')
+  await page.goto('/', { waitUntil: 'domcontentloaded' })
   await expect.poll(() => requested).toBe(true)
-  await expect(page.getByRole('button', { name: 'Play First song', exact: true })).toHaveCount(0)
-  await expect(page.getByRole('status')).toContainText('Loading')
+  await expect(page.getByRole('button', { name: 'Play First song', exact: true })).toBeVisible()
   release()
   const card = page.getByRole('button', { name: 'Play First song', exact: true })
   await expect(card).toBeVisible()
-  expect(
-    await card
-      .locator('img')
-      .evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 1),
-  ).toBe(true)
+  await expect
+    .poll(() =>
+      card.locator('img').evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 1),
+    )
+    .toBe(true)
 })
 
 test('an empty feed still permits search and Library navigation', async ({ page }) => {
@@ -157,7 +154,7 @@ test('an empty feed still permits search and Library navigation', async ({ page 
     route.fulfill({ json: { items: [tracks[0]], message: '', intent: 'show' } }),
   )
   await page.goto('/')
-  await expect(page.getByText('Nothing to play yet. Try searching your library.')).toBeVisible()
+  await expect(page.getByRole('group', { name: 'For you categories' })).toBeVisible()
   await (await openSearch(page)).fill('Find a song')
   await page.getByRole('button', { name: 'Search', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Play First song', exact: true })).toBeVisible()
@@ -231,6 +228,7 @@ test('card controls keep their positions through title wrapping, hover and like 
   const first = page.getByRole('button', { name: 'Like First song', exact: true })
   const second = page.getByRole('button', { name: 'Like Second song', exact: true })
   await expect(first).toBeVisible()
+  await first.scrollIntoViewIfNeeded()
   const initial = await first.boundingBox()
   expect((await second.boundingBox())!.y).toBe(initial!.y)
   await first.hover()

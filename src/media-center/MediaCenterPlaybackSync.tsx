@@ -54,6 +54,9 @@ export function MediaCenterPlaybackSync(props: {
         onRoot: true as const,
         item,
         mode: item?.media === 'video' && props.audioOnly() ? 'audio' : item?.media,
+        includesPlaying: props
+          .displayedFiles()
+          .some((file) => playbackPathKey(file.path) === playbackPathKey(path)),
         queue: item ? mediaCenterPlaybackQueue(props.displayedFiles(), item) : [],
       }
     },
@@ -80,7 +83,12 @@ export function MediaCenterPlaybackSync(props: {
         return
       }
       if (state.mode !== next.mode) props.session.dispatch({ type: 'setMode', mode: next.mode })
-      if (next.item.media === 'audio' && !playbackQueuesEqual(state.queue, next.queue)) {
+      if (
+        !state.queueContext &&
+        next.includesPlaying &&
+        next.item.media === 'audio' &&
+        !playbackQueuesEqual(state.queue, next.queue)
+      ) {
         props.session.dispatch({
           type: 'setQueue',
           queue: next.queue,

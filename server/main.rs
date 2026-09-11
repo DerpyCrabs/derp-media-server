@@ -11,6 +11,7 @@ mod image_variants;
 mod logical_path;
 mod media;
 mod media_ai;
+mod music;
 mod path_metadata;
 mod playback_cache;
 mod reader_state;
@@ -21,8 +22,8 @@ mod state_db;
 mod stats_persistence;
 mod store;
 mod thumbnails;
-mod virtual_directory;
 mod video_playback;
+mod virtual_directory;
 mod workspace_persistence;
 
 #[tokio::main]

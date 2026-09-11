@@ -255,13 +255,86 @@ pub(crate) async fn audio_metadata_path(full: &FsPath) -> AppResult<JsonValue> {
 
 type JsonValue = axum::Json<Value>;
 
+pub(crate) async fn audio_artwork(
+    State(state): State<Shared>,
+    Path(path): Path<String>,
+) -> AppResult<Response> {
+    let work = state.clone();
+    let source = tokio::task::spawn_blocking(move || -> AppResult<_> {
+        let resolved = media::resolve(&work.config, &path)?;
+        if !resolved.full.is_file()
+            || media::media_type(&media::extension(&resolved.full)) != "audio"
+        {
+            return Err(AppError::not_found("No audio artwork"));
+        }
+        if Probe::open(&resolved.full)
+            .ok()
+            .and_then(|p| p.read().ok())
+            .is_some_and(|file| file.tags().iter().any(|tag| !tag.pictures().is_empty()))
+        {
+            return Ok(Some(resolved.full));
+        }
+        let parent = crate::app::parent_logical(&path);
+        let mut covers: Vec<_> = std::fs::read_dir(resolved.full.parent().unwrap())
+            .map_err(AppError::io)?
+            .filter_map(Result::ok)
+            .filter_map(|entry| {
+                let candidate = entry.path();
+                let name = candidate.file_stem()?.to_str()?.to_ascii_lowercase();
+                let priority = ["cover", "folder", "front", "album"]
+                    .iter()
+                    .position(|v| *v == name)?;
+                if !["jpg", "jpeg", "png", "webp"].contains(&media::extension(&candidate).as_str())
+                {
+                    return None;
+                }
+                Some((priority, entry.file_name().to_string_lossy().into_owned()))
+            })
+            .collect();
+        covers.sort();
+        for (_, name) in covers {
+            if let Ok(cover) = media::resolve(&work.config, &format!("{parent}/{name}"))
+                && cover.full.is_file()
+            {
+                return Ok(Some(cover.full));
+            }
+        }
+        Ok(None)
+    })
+    .await
+    .map_err(|e| AppError::internal(e.to_string()))??;
+    let Some(source) = source else {
+        return Ok((
+            StatusCode::NO_CONTENT,
+            [(header::CACHE_CONTROL, "public, max-age=300")],
+        )
+            .into_response());
+    };
+    let modified = fs::metadata(&source)
+        .await
+        .map_err(AppError::io)?
+        .modified()
+        .unwrap_or(UNIX_EPOCH);
+    let data = state.thumbnails.read(&source, modified).await?;
+    Ok((
+        [
+            (header::CONTENT_TYPE, "image/jpeg"),
+            (header::CACHE_CONTROL, "public, max-age=300"),
+        ],
+        data,
+    )
+        .into_response())
+}
+
 async fn audio_metadata(
     State(state): State<Shared>,
     Path(path): Path<String>,
 ) -> AppResult<JsonValue> {
     let result = async {
         let full = media::resolve(&state.config, &path)?.full;
-        audio_metadata_path(&full).await
+        let mut metadata = audio_metadata_path(&full).await?;
+        crate::music::apply_metadata(&state, &path, &mut metadata.0)?;
+        Ok::<_, AppError>(metadata)
     }
     .await;
     result.map_err(|_| AppError::internal("Failed to read audio metadata"))

@@ -28,10 +28,11 @@ export type Home = {
 }
 type Library = {
   url: string
+  mediaDirectory: string
   database: DatabaseSync
   providerRequests: ProviderRequest[]
   pauseProvider: () => () => void
-  seed: (count: number, folder?: string) => Pick[]
+  seed: (count: number, folder?: string) => Promise<Pick[]>
   cache: (items: Pick[]) => void
 }
 
@@ -43,7 +44,45 @@ function modelReply(request: ProviderRequest) {
     query?: string
     libraryBranches?: { path: string }[]
     collections?: { id: number }[]
+    stations?: { id: number; candidates: { id: number }[] }[]
+    candidates?: { id: number }[]
+    items?: {
+      id: number
+      duration: number
+      path: string
+      embeddedMetadata: { title?: string; artist?: string; album?: string; genre?: string[] }
+      userCorrections?: Record<string, unknown>
+    }[]
   }
+  if (properties.musicReviews) {
+    return {
+      musicReviews: (prompt.items ?? []).map((item) => {
+        const metadata = { ...item.embeddedMetadata, ...item.userCorrections }
+        const song = item.duration >= 20
+        return {
+          id: item.id,
+          kind: song ? 'song' : 'effect',
+          title: song ? metadata.title || 'Reviewed song' : '',
+          artist: song ? metadata.artist || 'Reviewed artist' : '',
+          album: song ? metadata.album || '' : '',
+          genres: song
+            ? (metadata.genre || [])
+                .filter((g) => ['jazz', 'metal', 'ambient'].includes(g.toLowerCase()))
+                .map((g) => g.toLowerCase())
+            : [],
+          score: song ? 85 : 0,
+          reason: song ? 'Matches fixture music' : 'Short sound effect',
+        }
+      }),
+    }
+  }
+  if (properties.radioStations)
+    return {
+      radioStations: (prompt.stations ?? []).map((station) => ({
+        id: station.id,
+        picks: station.candidates.map((candidate) => candidate.id),
+      })),
+    }
   if (properties.terms)
     return {
       terms: [prompt.query === 'song-101' ? 'song-101' : 'song'],
@@ -73,8 +112,9 @@ async function freePort() {
   return port
 }
 
-export const test = base.extend<{ library: Library; aiEnabled: boolean }>({
+export const test = base.extend<{ library: Library; aiEnabled: boolean; aiPaused: boolean }>({
   aiEnabled: [true, { option: true }],
+  aiPaused: [true, { option: true }],
   page: async ({ context, library }, use) => {
     void library
     const page = await context.newPage()
@@ -84,7 +124,7 @@ export const test = base.extend<{ library: Library; aiEnabled: boolean }>({
       await page.close()
     }
   },
-  library: async ({ aiEnabled }, use) => {
+  library: async ({ aiEnabled, aiPaused }, use) => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'derp-media-ai-regression-'))
     const media = path.join(directory, 'media')
     fs.mkdirSync(media)
@@ -123,7 +163,7 @@ export const test = base.extend<{ library: Library; aiEnabled: boolean }>({
         dataPath: path.join(directory, 'data'),
         mediaAi: {
           enabled: aiEnabled,
-          paused: true,
+          paused: aiPaused,
           provider: 'compatible',
           endpoint: `http://127.0.0.1:${providerPort}/v1`,
           thumbnails: false,
@@ -168,6 +208,7 @@ export const test = base.extend<{ library: Library; aiEnabled: boolean }>({
       )
       await use({
         url,
+        mediaDirectory: media,
         database: db,
         providerRequests,
         pauseProvider() {
@@ -180,7 +221,7 @@ export const test = base.extend<{ library: Library; aiEnabled: boolean }>({
             release()
           }
         },
-        seed(count, folder = 'Songs') {
+        async seed(count, folder = 'Songs') {
           const items: Pick[] = []
           for (let id = 1; id <= count; id++) {
             const name = `song-${String(id).padStart(3, '0')}.mp3`
@@ -188,13 +229,35 @@ export const test = base.extend<{ library: Library; aiEnabled: boolean }>({
             const full = path.join(media, logical)
             fs.mkdirSync(path.dirname(full), { recursive: true })
             fs.copyFileSync(path.join(fixtures, 'Music', 'track.mp3'), full)
-            db.prepare('INSERT INTO media_catalog(id,path,name,kind) VALUES(?,?,?,?)').run(
-              id,
-              logical,
-              name,
-              'audio',
-            )
             items.push({ id, path: logical, name, type: 'audio', previewReady: true })
+          }
+          await fetch(`${url}/api/files/search/reindex`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode: 'full' }),
+          })
+          await expect
+            .poll(async () => {
+              const response = await fetch(
+                `${url}/api/files/search?q=${encodeURIComponent(items.at(-1)!.name)}&limit=100`,
+              )
+              const result = (await response.json()) as { results?: { path: string }[] }
+              return result.results?.some((item) => item.path === items.at(-1)!.path)
+            })
+            .toBe(true)
+          db.exec('BEGIN IMMEDIATE')
+          try {
+            db.exec('DELETE FROM media_catalog')
+            for (const item of items) {
+              const stat = fs.statSync(path.join(media, item.path), { bigint: true })
+              db.prepare(
+                'INSERT INTO media_catalog(id,path,name,kind,fingerprint) VALUES(?,?,?,?,?)',
+              ).run(item.id, item.path, item.name, 'audio', `${stat.size}:${stat.mtimeNs}`)
+            }
+            db.exec('COMMIT')
+          } catch (error) {
+            db.exec('ROLLBACK')
+            throw error
           }
           return items
         },
@@ -206,7 +269,7 @@ export const test = base.extend<{ library: Library; aiEnabled: boolean }>({
             hasMore: true,
             consideredIds: items.map((item) => item.id),
           }
-          db.prepare('INSERT INTO state_documents VALUES(?,?,?,?)').run(
+          db.prepare('INSERT OR REPLACE INTO state_documents VALUES(?,?,?,?)').run(
             'media-ai-home',
             media,
             JSON.stringify(value),

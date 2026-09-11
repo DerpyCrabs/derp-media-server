@@ -206,6 +206,7 @@ pub(crate) fn initialize(config: &Config) -> Result<(), String> {
     }
     crate::activity::initialize(&connection).map_err(|e| e.1)?;
     crate::media_ai::initialize(&connection).map_err(|e| e.1)?;
+    crate::music::initialize(&connection).map_err(|e| e.1)?;
     if version < 6 {
         connection
             .execute(
@@ -494,6 +495,7 @@ mod tests {
             data_path,
             hermes: None,
             media_ai: Default::default(),
+            music: Default::default(),
         }
     }
 

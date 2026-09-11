@@ -43,6 +43,7 @@ export function applyPlaybackPathMutation(session: PlaybackSession, mutation: Pa
     type: 'load',
     item: movedCurrent,
     queue,
+    queueContext: snapshot.queueContext,
     autoplay: snapshot.desiredPlaying,
     position: snapshot.position,
     mode: snapshot.mode,

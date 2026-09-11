@@ -163,7 +163,8 @@ export function AudioViewerPane(props: Props) {
       return active() && items.length > 0 && state.currentItem ? { state, items } : null
     },
     (next) => {
-      if (!next || playbackQueuesEqual(next.state.queue, next.items)) return
+      if (!next || next.state.queueContext || playbackQueuesEqual(next.state.queue, next.items))
+        return
       playbackSession.dispatch({
         type: 'setQueue',
         queue: next.items,

@@ -1,4 +1,5 @@
 import { createPlaybackScrubber } from '@/features/playback/create-playback-scrubber'
+import { QueuePanel } from '@/features/music/QueuePanel'
 import { fetchDirectoryFiles } from '@/lib/files/files-client'
 import { MediaType } from '@/lib/files/types'
 import { queryKeys } from '@/lib/api/query-keys'
@@ -89,7 +90,7 @@ export function WorkspaceTaskbarAudio(props: Props) {
       return { queue, current, signature: queue.map((candidate) => candidate.locator).join('\x01') }
     },
     (next) => {
-      if (!next || next.signature === queuedSignature) return
+      if (!next || playback().queueContext || next.signature === queuedSignature) return
       queuedSignature = next.signature
       session.dispatch({ type: 'setQueue', queue: next.queue, current: next.current })
     },
@@ -299,6 +300,7 @@ export function WorkspaceTaskbarAudio(props: Props) {
                 </div>
 
                 <div class='flex min-w-0 items-center justify-end gap-2'>
+                  <QueuePanel />
                   <Show when={isVideoFile()}>
                     <button
                       type='button'

@@ -1,4 +1,5 @@
-import { trackPlayback } from '@/features/media-ai/activity'
+import { reportEarlySkip } from '@/features/music/RadioContinuation'
+import { trackPlayback, sendActivity } from '@/features/media-ai/activity'
 import { buildAudioExtractUrl, buildMediaUrl } from '@/lib/media/build-media-url'
 import { createPlaybackSession } from './playback-session'
 import { videoPlaybackProgress } from './video-progress-persistence'
@@ -39,8 +40,21 @@ const legacyVideoPlaybackPersistence: PlaybackPersistence = {
 export function createOwnerBrowserPlaybackSession(queryClient: QueryClient): PlaybackSession {
   const persistence: PlaybackPersistence = {
     ...legacyVideoPlaybackPersistence,
+    load() {
+      try {
+        return JSON.parse(sessionStorage.getItem('music-playback') || 'null') as unknown
+      } catch {
+        return null
+      }
+    },
+    clear() {
+      sessionStorage.removeItem('music-playback')
+    },
     save(state) {
       legacyVideoPlaybackPersistence.save(state)
+      if (state.queueContext && state.queue.every((item) => item.media === 'audio'))
+        sessionStorage.setItem('music-playback', JSON.stringify(state))
+      else sessionStorage.removeItem('music-playback')
     },
   }
   return trackPlayback(
@@ -53,5 +67,8 @@ export function createOwnerBrowserPlaybackSession(queryClient: QueryClient): Pla
       },
       persistence,
     }),
+    sendActivity,
+    Date.now,
+    reportEarlySkip,
   )
 }

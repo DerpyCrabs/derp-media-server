@@ -17,6 +17,23 @@ export type PlaybackItem = Readonly<{
   locator: string
   name: string
   media: PlaybackMedia
+  automatic?: boolean
+}>
+
+export type RadioOptions = Readonly<{
+  seeds: string[]
+  genre: string
+  artist: string
+  discovery: number
+  strictGenre: boolean
+  allowRepeats: boolean
+}>
+
+export type QueueContext = Readonly<{
+  kind: 'manual' | 'playlist' | 'radio'
+  title: string
+  id?: string
+  radio?: RadioOptions
 }>
 
 export type PlaybackSource = Readonly<{
@@ -36,6 +53,7 @@ export type PlaybackSnapshot = Readonly<{
   revision: number
   phase: PlaybackPhase
   queue: readonly PlaybackItem[]
+  queueContext: QueueContext | null
   currentIndex: number
   currentItem: PlaybackItem | null
   position: number
@@ -81,11 +99,22 @@ export type PlaybackCommand =
       type: 'load'
       item: PlaybackItem
       queue?: readonly PlaybackItem[]
+      queueContext?: QueueContext | null
       autoplay?: boolean
       position?: number
       mode?: PlaybackMode
     }>
-  | Readonly<{ type: 'setQueue'; queue: readonly PlaybackItem[]; current?: PlaybackItem }>
+  | Readonly<{
+      type: 'setQueue'
+      queue: readonly PlaybackItem[]
+      current?: PlaybackItem
+      queueContext?: QueueContext | null
+    }>
+  | Readonly<{ type: 'setQueueContext'; context: QueueContext | null }>
+  | Readonly<{ type: 'enqueue'; items: readonly PlaybackItem[]; position: 'next' | 'end' }>
+  | Readonly<{ type: 'moveQueueItem'; from: number; to: number }>
+  | Readonly<{ type: 'removeQueueItem' | 'selectQueueItem'; index: number }>
+  | Readonly<{ type: 'shuffleQueue' }>
   | Readonly<{ type: 'play' | 'pause' | 'toggle' | 'next' | 'previous' | 'retry' }>
   | Readonly<{ type: 'refreshSource'; fallback?: PlaybackFallback }>
   | Readonly<{ type: 'seek'; position: number }>
@@ -121,6 +150,7 @@ export type PlaybackOutcome = Readonly<{
 export type PersistedPlaybackState = Readonly<{
   schemaVersion: 1
   queue: readonly PlaybackItem[]
+  queueContext?: QueueContext | null
   currentIndex: number
   position: number
   duration: number

@@ -408,6 +408,7 @@ mod tests {
             image_optimization: ImageOptimizationConfig::default(),
             playback: Default::default(),
             hermes: None,
+            music: crate::config::MusicConfig::default(),
             media_ai: Default::default(),
         };
         state_db::initialize(&config).unwrap();

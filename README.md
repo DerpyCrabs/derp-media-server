@@ -60,12 +60,46 @@ File search is enabled by default and stores its rebuildable SQLite index under
 best-effort recursive watchers on local Windows/macOS roots. Linux and network roots use polling so
 large libraries do not consume per-directory watcher limits.
 
+For You and radio are available only with Media AI configured. The configured provider reviews
+music in the background using file metadata, previous analysis, and the listening profile. Only
+reviewed songs appear in recommendations, genre mixes, and albums. The initial HTML includes
+cached music recommendations.
+Results stay in place until **Refresh recommendations** is used. Page loads do not start AI work.
+Album cards use embedded or folder artwork when available. Mix cards show artist examples from
+the songs they will play. Genre mixes use prepared AI station selections, spread tracks across
+artists, and avoid repeating the same artists and songs across cards. Open an album to inspect its tracks before playing it.
+
+**Up next** in the main and workspace players supports reordering, removal, and shuffle. Explicit
+music queues and their paused playback position survive reloads in the same tab. Browsing folders
+preserves the playing queue.
+
+Start radio from a track, artist, album, or genre mix. The configured AI selects and orders reviewed
+songs in the background using the station context and listening history. Prepared station selections
+are included in the initial HTML. Starting radio and advancing or refilling its queue use only that
+local snapshot and never make recommendation or AI requests. **Continue with
+radio** enables continuation immediately and preserves the current track, position, and queue.
+Manually queued tracks play ahead of automatic suggestions. **Don’t recommend** excludes a track from recommendations.
+
+Optional Last.fm genre and similar-artist lookups are configured in `config.jsonc`:
+
+```jsonc
+{
+  "music": {
+    "lastFmApiKey": "your-api-key",
+  },
+}
+```
+
+Artist and track names are sent to Last.fm; listening history is not uploaded. The key stays on the
+server, results are cached for 30 days, and failed requests retry with backoff. Music recommendations
+and radio work without this connection.
+
 When Media AI is enabled, the model scores media in the background and stores those scores with
 prepared previews and metadata. Refresh and scrolling use a local mix of those scores, likes,
 playback history, and recent exposure. Time-of-day habits provide a small live adjustment without
 another model call. A new library needs an initial ranking pass; existing cards remain available
-while the background worker prepares more. With `mediaAi.paused`, opening or refreshing the feed
-can still request a bounded reserve of ranked media, while idle catalog analysis stays paused.
+while the background worker prepares more. With `mediaAi.paused`, an explicit refresh can still request a bounded reserve of ranked media,
+while page loads and idle catalog analysis stay paused.
 
 ```jsonc
 {

@@ -1,3 +1,4 @@
+import { mockAiHydration } from './media-ai-helpers'
 import { test, expect, type Page } from '@playwright/test'
 const picks = [
   {
@@ -16,6 +17,7 @@ const picks = [
   },
 ]
 async function enable(page: Page) {
+  await mockAiHydration(page)
   await page.route('**/api/media-ai/status', (route) =>
     route.fulfill({
       json: { enabled: true, total: 20000, analyzed: 84, job: { phase: 'paused' } },
@@ -143,7 +145,9 @@ test('feed appends pages without duplicates and excludes image recommendations',
   expect(cursors).toContain(1)
 })
 
-test('collection cards open their folder and use three icon menu actions', async ({ page }) => {
+test('collection cards open their folder and offer collection and feedback actions', async ({
+  page,
+}) => {
   await enable(page)
   await page.route('**/api/media-ai/home*', (route) =>
     route.fulfill({

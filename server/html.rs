@@ -102,16 +102,29 @@ fn kb_recent(state: &AppState, scope: &str) -> Value {
     })).collect::<Vec<_>>()})
 }
 
-async fn dehydrated(state: &AppState, uri: &axum::http::Uri) -> AppResult<Value> {
+async fn dehydrated(state: &Shared, uri: &axum::http::Uri) -> AppResult<Value> {
     let path = uri.path();
     let params = url::form_urlencoded::parse(uri.query().unwrap_or("").as_bytes())
         .into_owned()
         .collect::<HashMap<_, _>>();
     let mut queries = Vec::new();
     if path == "/" || path == "/workspace" {
+        queries.push(query(
+            json!(["media-ai", "status"]),
+            crate::media_ai::status(State(state.clone())).await?.0,
+        ));
+        if state.config.media_ai.enabled {
+            let (music, home) = tokio::try_join!(
+                crate::music::initial_data(state),
+                crate::media_ai::initial_home(state)
+            )?;
+            queries.push(query(json!(["music", "home", ""]), music));
+            let mut entry = infinite_query(json!(["media-ai", "home"]), home.clone());
+            entry["state"]["data"]["pageParams"] = json!([{"cursor":0,"feedId":home["feedId"]}]);
+            queries.push(entry);
+        }
         let dir = params.get("dir").cloned().unwrap_or_default();
-        if let Ok(listing) = crate::routes::files::list_for_browser(state, &dir, 0).await
-        {
+        if let Ok(listing) = crate::routes::files::list_for_browser(state, &dir, 0).await {
             queries.push(infinite_query(
                 json!(["files", dir, "file-browser"]),
                 listing,
@@ -165,8 +178,9 @@ async fn dehydrated(state: &AppState, uri: &axum::http::Uri) -> AppResult<Value>
             let kind = media::media_type(&extension);
             if kind == "audio"
                 && let Ok(resolved) = media::resolve(&state.config, playing)
-                && let Ok(metadata) = media_routes::audio_metadata_path(&resolved.full).await
+                && let Ok(mut metadata) = media_routes::audio_metadata_path(&resolved.full).await
             {
+                crate::music::apply_metadata(state, playing, &mut metadata.0)?;
                 queries.push(query(json!(["audio-metadata", "v2", playing]), metadata.0));
             }
             if matches!(kind, "audio" | "video") {
@@ -183,12 +197,15 @@ async fn dehydrated(state: &AppState, uri: &axum::http::Uri) -> AppResult<Value>
     Ok(json!({"mutations":[],"queries":queries}))
 }
 
-async fn inject(html: String, state: &AppState, uri: &axum::http::Uri) -> AppResult<String> {
+async fn inject(html: String, state: &Shared, uri: &axum::http::Uri) -> AppResult<String> {
     Ok(html.replace(
         "<!--DEHYDRATED-->",
         &format!(
             "<script>window.__DEHYDRATED_STATE__={}</script>",
-            dehydrated(state, uri).await?
+            dehydrated(state, uri)
+                .await?
+                .to_string()
+                .replace('<', "\\u003c")
         ),
     ))
 }

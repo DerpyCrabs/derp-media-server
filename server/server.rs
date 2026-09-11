@@ -76,6 +76,7 @@ fn router(state: Shared) -> Router {
     Router::new()
         .merge(crate::activity::router())
         .merge(crate::media_ai::router())
+        .merge(crate::music::router())
         .merge(routes::config::router())
         .merge(routes::files::router())
         .merge(routes::hermes_chat::router())
@@ -169,6 +170,7 @@ pub(crate) async fn run() {
         hermes_active_ids: Mutex::new(HashSet::new()),
     });
     crate::media_ai::start(&state);
+    crate::music::start(&state);
     routes::hermes_chat::start_event_bridge(&state, hermes_transport_events.subscribe());
     let address = format!("0.0.0.0:{}", config.port);
     let listener = tokio::net::TcpListener::bind(&address).await.unwrap();
