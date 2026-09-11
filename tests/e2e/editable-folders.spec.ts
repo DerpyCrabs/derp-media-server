@@ -128,3 +128,48 @@ test.describe('Editable Folders', () => {
     ).not.toBeVisible()
   })
 })
+
+test('copy destination query handles pending navigation and cached return', async ({ page }) => {
+  let release: () => void = () => {}
+  const pending = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  await page.route('**/api/files?dir=MediaContent%2Fsubfolder', async (route) => {
+    await pending
+    await route.fulfill({ json: { files: [] } })
+  })
+  try {
+    await page.goto('/?dir=MediaContent')
+    await page.locator('table tr').filter({ hasText: 'public-doc.txt' }).click({ button: 'right' })
+    await page.locator('[data-slot="context-menu-item"]').getByText('Copy to...').click()
+    const dialog = page.getByRole('dialog')
+    await dialog.getByRole('button', { name: 'subfolder', exact: true }).click()
+    await expect(dialog.getByRole('status', { name: 'Loading folders' })).toBeVisible()
+    await dialog.getByRole('button', { name: 'Notes', exact: true }).click()
+    await expect(dialog.getByRole('status')).not.toBeVisible()
+    release()
+    await dialog.getByRole('button', { name: 'MediaContent', exact: true }).click()
+    await expect(dialog.getByRole('button', { name: 'subfolder', exact: true })).toBeVisible()
+    await expect(dialog.getByRole('status')).not.toBeVisible()
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+  } finally {
+    release()
+    await page.unrouteAll({ behavior: 'wait' })
+  }
+})
+
+test('copy destination query shows request errors and recovers on navigation', async ({ page }) => {
+  await page.route('**/api/files?dir=MediaContent%2Fsubfolder', (route) =>
+    route.fulfill({ status: 500, json: { error: 'Destination unavailable' } }),
+  )
+  await page.goto('/?dir=MediaContent')
+  await page.locator('table tr').filter({ hasText: 'public-doc.txt' }).click({ button: 'right' })
+  await page.locator('[data-slot="context-menu-item"]').getByText('Copy to...').click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByRole('button', { name: 'subfolder', exact: true }).click()
+  await expect(dialog.getByText('Destination unavailable')).toBeVisible()
+  await dialog.getByRole('button', { name: 'MediaContent', exact: true }).click()
+  await expect(dialog.getByText('Destination unavailable')).not.toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'subfolder', exact: true })).toBeVisible()
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+})

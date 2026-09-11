@@ -4,6 +4,7 @@ export const queryKeys = {
     return ['files', path] as const
   },
   settings: () => ['settings'] as const,
+  imageConfig: () => ['image-config'] as const,
   serverConfig: () => ['server-config'] as const,
   stats: () => ['stats'] as const,
   kb: () => ['kb'] as const,

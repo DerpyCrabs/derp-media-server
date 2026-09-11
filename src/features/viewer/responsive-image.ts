@@ -1,5 +1,8 @@
+import { useQuery } from '@tanstack/solid-query'
+import { queryKeys } from '@/lib/api/query-keys'
+import { api } from '@/lib/api/client'
 import type { Accessor } from 'solid-js'
-import { createEffect, createMemo, createSignal, onSettled, untrack } from 'solid-js'
+import { createEffect, createMemo, createSignal, untrack } from 'solid-js'
 import {
   buildImageConfigUrl,
   buildImageUrl,
@@ -44,25 +47,15 @@ type Options = {
   onDisplayPath?: (path: string) => void
 }
 
-const configRequests = new Map<string, Promise<boolean>>()
-
-function imageOptimizationEnabled(): Promise<boolean> {
-  let request = configRequests.get('admin')
-  if (!request) {
-    request = fetch(buildImageConfigUrl(), { credentials: 'include' })
-      .then(async (response) => {
-        if (!response.ok) return true
-        return Boolean(((await response.json()) as { enabled?: boolean }).enabled)
-      })
-      .catch(() => true)
-    configRequests.set('admin', request)
-  }
-  return request
-}
-
 export function createResponsiveImage(options: Options) {
   const [dimensions, setDimensions] = createSignal<Dimensions>({ width: 0, height: 0 })
-  const [enabled, setEnabled] = createSignal(true)
+  const config = useQuery(() => ({
+    queryKey: queryKeys.imageConfig(),
+    queryFn: ({ signal }) => api<{ enabled?: boolean }>(buildImageConfigUrl(), { signal }),
+    retry: false,
+    throwOnError: false,
+  }))
+  const enabled = () => (config.data === undefined ? true : Boolean(config.data.enabled))
   const [request, setRequest] = createSignal<ResponsiveImageRequest | null>(null)
   const [forcedOriginal, setForcedOriginal] = createSignal(false)
   const [loadState, setLoadState] = createSignal<ImageLoadState>({
@@ -116,17 +109,6 @@ export function createResponsiveImage(options: Options) {
       }
     },
   )
-
-  onSettled(() => {
-    let cancelled = false
-    setEnabled(true)
-    void imageOptimizationEnabled().then((value) => {
-      if (!cancelled) setEnabled(value)
-    })
-    return () => {
-      cancelled = true
-    }
-  })
 
   createEffect(
     () => {

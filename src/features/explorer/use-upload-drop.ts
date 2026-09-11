@@ -1,4 +1,4 @@
-import { useQueryClient } from '@tanstack/solid-query'
+import { useMutation, useQueryClient } from '@tanstack/solid-query'
 import { createMemo, createSignal, onCleanup, type Accessor } from 'solid-js'
 import { queryKeys } from '@/lib/api/query-keys'
 import { collectDroppedUploadFiles } from '@/lib/files/collect-dropped-upload-files'
@@ -33,21 +33,28 @@ export function useUploadDrop(options: {
 
   onCleanup(clearToastTimer)
 
-  async function upload(files: File[], targetDir = options.currentPath()) {
-    if (files.length === 0 || !options.editable()) return
-    clearToastTimer()
-    setToast({ kind: 'uploading', fileCount: files.length })
-    try {
+  const uploadMutation = useMutation(() => ({
+    mutationFn: async ({ files, targetDir }: { files: File[]; targetDir: string }) => {
       const formData = new FormData()
       formData.append('targetDir', targetDir)
       for (const file of files) formData.append('files', file, file.name)
       const response = await fetch('/api/files/upload', { method: 'POST', body: formData })
       if (!response.ok) {
         const data = (await response.json().catch(() => null)) as { error?: string } | null
-        setError(data?.error || `Upload failed (${response.status})`)
-        return
+        throw new Error(data?.error || `Upload failed (${response.status})`)
       }
+    },
+    onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.files() })
+    },
+  }))
+
+  async function upload(files: File[], targetDir = options.currentPath()) {
+    if (files.length === 0 || !options.editable()) return
+    clearToastTimer()
+    setToast({ kind: 'uploading', fileCount: files.length })
+    try {
+      await uploadMutation.mutateAsync({ files, targetDir })
       setToast({ kind: 'success' })
       toastTimer = window.setTimeout(hideToast, 2000)
     } catch (error) {

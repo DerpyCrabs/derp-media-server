@@ -1,3 +1,5 @@
+import { useQuery } from '@tanstack/solid-query'
+import { queryKeys } from '@/lib/api/query-keys'
 import { fetchDirectoryFiles } from '@/lib/files/files-client'
 import type { FileItem } from '@/lib/files/types'
 import type { ModalOverlayScope } from './modal-overlay-scope'
@@ -5,7 +7,7 @@ import { modalDialogBackdropClass } from './modal-overlay-scope'
 import ArrowUp from 'lucide-solid/icons/arrow-up'
 import Folder from 'lucide-solid/icons/folder'
 import LoaderCircle from 'lucide-solid/icons/loader-circle'
-import { Errored, For, Loading, Show } from '@solidjs/web'
+import { For, Show } from '@solidjs/web'
 import { createMemo, createSignal, untrack } from 'solid-js'
 
 type MoveOrCopyMode = 'move' | 'copy'
@@ -50,11 +52,11 @@ export function MoveToDialog(props: MoveToDialogProps) {
     untrack(() => computeInitialBrowse(props.filePath, props.editableFolders)),
   )
 
-  const dirFiles = createMemo<FileItem[]>(async () => {
-    const src = browsePath()
-    const { files } = await fetchDirectoryFiles(src)
-    return files
-  })
+  const dirFiles = useQuery(() => ({
+    queryKey: queryKeys.files(browsePath()),
+    queryFn: ({ signal }) => fetchDirectoryFiles(browsePath(), signal),
+    retry: false,
+  }))
 
   const sourceDir = createMemo(() => {
     const fp = props.filePath.replace(/\\/g, '/')
@@ -66,7 +68,7 @@ export function MoveToDialog(props: MoveToDialogProps) {
   const normalizedRoot = createMemo(() => selectedRoot().replace(/\\/g, '/'))
 
   const folders = createMemo(() => {
-    const rawFiles: FileItem[] = dirFiles() ?? []
+    const rawFiles: FileItem[] = dirFiles.data?.files ?? []
     const normalizedFilePath = props.filePath.replace(/\\/g, '/')
     return rawFiles
       .filter((f) => f.isDirectory)
@@ -151,14 +153,22 @@ export function MoveToDialog(props: MoveToDialogProps) {
         </div>
 
         <div class='border border-border rounded-md max-h-64 overflow-y-auto mt-2'>
-          <Errored
-            fallback={(error) => (
-              <div class='px-3 py-6 text-center text-sm text-destructive'>{String(error())}</div>
-            )}
+          <Show
+            when={!dirFiles.isError}
+            fallback={
+              <div class='px-3 py-6 text-center text-sm text-destructive'>
+                {dirFiles.error?.message}
+              </div>
+            }
           >
-            <Loading
+            <Show
+              when={!dirFiles.isPending}
               fallback={
-                <div class='flex items-center justify-center py-8'>
+                <div
+                  role='status'
+                  aria-label='Loading folders'
+                  class='flex items-center justify-center py-8'
+                >
                   <LoaderCircle
                     class='h-5 w-5 animate-spin text-muted-foreground'
                     stroke-width={2}
@@ -195,8 +205,8 @@ export function MoveToDialog(props: MoveToDialogProps) {
                   )}
                 </For>
               </div>
-            </Loading>
-          </Errored>
+            </Show>
+          </Show>
         </div>
 
         <Show when={props.error}>

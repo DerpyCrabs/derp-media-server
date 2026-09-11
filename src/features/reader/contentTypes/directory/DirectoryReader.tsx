@@ -1,7 +1,10 @@
+import { useQueryClient } from '@tanstack/solid-query'
+import { queryKeys } from '@/lib/api/query-keys'
+import { fetchDirectoryFiles } from '@/lib/files/files-client'
 import { createFileSortMetadata, sortFilesForPath } from '@/features/explorer/file-display-settings'
 import { useExplorerSettings } from '@/features/explorer/use-explorer-settings'
 import { useViewStats } from '@/features/explorer/use-view-stats'
-import { MediaType, type FileItem } from '@/lib/files/types'
+import { MediaType } from '@/lib/files/types'
 import { buildMediaUrl } from '@/lib/media/build-media-url'
 import { ImageContent } from '../ImageContent'
 import { PagedReader, type PagedDocument } from '../paged/PagedReader'
@@ -35,11 +38,15 @@ const loadImageSize = (source: string, signal: AbortSignal) =>
   })
 
 export default function DirectoryReader(props: ReaderContentProps) {
+  const queryClient = useQueryClient()
   const { settingsQuery } = useExplorerSettings()
   const viewStats = useViewStats()
   const load = async (path: string, signal: AbortSignal): Promise<PagedDocument> => {
-    const [response, settings, views] = await Promise.all([
-      fetch(`/api/files?dir=${encodeURIComponent(path)}`, { signal }),
+    const [payload, settings, views] = await Promise.all([
+      queryClient.fetchQuery({
+        queryKey: queryKeys.files(path),
+        queryFn: ({ signal }) => fetchDirectoryFiles(path, signal),
+      }),
       (settingsQuery.data
         ? Promise.resolve(settingsQuery.data)
         : settingsQuery.refetch().then((result) => result.data)
@@ -49,10 +56,9 @@ export default function DirectoryReader(props: ReaderContentProps) {
         : viewStats.query.refetch().then((result) => result.data?.views ?? {})
       ).catch(() => ({})),
     ])
-    const payload = await response.json()
-    if (!response.ok) throw new Error(payload?.error ?? 'Could not open image folder')
+    signal.throwIfAborted()
     const files = sortFilesForPath(
-      payload.files as FileItem[],
+      payload.files,
       path,
       settings?.sortOrders,
       false,
