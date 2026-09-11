@@ -1,4 +1,4 @@
-import { Switch, Match, Show, createMemo, lazy } from 'solid-js'
+import { Switch, Match, Show, Loading, createMemo, lazy } from 'solid-js'
 import { useBrowserHistory } from '@/lib/browser/browser-history'
 import { SolidThemeSync } from './SolidThemeSync'
 import { MediaCenterPage } from './media-center/MediaCenterPage'
@@ -34,7 +34,11 @@ export function App() {
         </Match>
       </Switch>
       <Show when={new URLSearchParams(loc().search).get('reader')} keyed>
-        {(sourcePath) => <ReaderDialog sourcePath={sourcePath} />}
+        {(sourcePath) => (
+          <Loading>
+            <ReaderDialog sourcePath={sourcePath} />
+          </Loading>
+        )}
       </Show>
     </>
   )

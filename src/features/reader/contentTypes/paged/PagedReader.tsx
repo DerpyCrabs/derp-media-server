@@ -173,8 +173,7 @@ export function PagedReader<TDocument extends PagedDocument>(props: PagedReaderP
     fitMode: state.fitMode,
     outlineExpanded: [...state.outlineExpanded],
   })
-  const applyPosition = (position: PagedReaderPosition) => {
-    const count = pages().length
+  const applyPosition = (position: PagedReaderPosition, count = pages().length) => {
     setState((draft) => {
       draft.currentPage = Math.max(0, Math.min(Math.max(0, count - 1), position.pageIndex))
       draft.scrollTop = position.scrollTop
@@ -218,17 +217,22 @@ export function PagedReader<TDocument extends PagedDocument>(props: PagedReaderP
   }
 
   createEffect(
-    () => ({ ready: positionSync.ready(), position: positionSync.loaded(), count: pages().length }),
-    ({ ready, position, count }) => {
+    () => ({
+      ready: positionSync.ready(),
+      position: positionSync.loaded(),
+      count: pages().length,
+      outline: document.value()?.outline,
+    }),
+    ({ ready, position, count, outline }) => {
       if (!ready || !count || restored) return
       const initial =
         position ??
         normalizePagedReaderPosition({
-          outlineExpanded: document.value()?.outline.flatMap(function collect(item): string[] {
+          outlineExpanded: outline?.flatMap(function collect(item): string[] {
             return [item.id, ...item.children.flatMap(collect)]
           }),
         })
-      applyPosition(initial)
+      applyPosition(initial, count)
       restored = true
     },
   )

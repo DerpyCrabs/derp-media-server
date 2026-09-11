@@ -1,6 +1,6 @@
 import { Show } from 'solid-js'
 import { Portal } from '@solidjs/web'
-import { X } from 'lucide-solid'
+import X from 'lucide-solid/icons/x'
 import { useModalFocus } from '@/lib/ui/modal-focus'
 import { musicDialog, musicNotice, playMusic, setMusicDialog, type MusicDialog } from './actions'
 import { TrackList } from './TrackList'

@@ -1,6 +1,6 @@
 import { For, Show } from 'solid-js'
 import { useQuery, useQueryClient } from '@tanstack/solid-query'
-import { Play } from 'lucide-solid'
+import Play from 'lucide-solid/icons/play'
 import { api } from '@/lib/api/client'
 import { usePlaybackSession } from '@/features/playback/PlaybackProvider'
 import { MusicArtwork } from './MusicArtwork'

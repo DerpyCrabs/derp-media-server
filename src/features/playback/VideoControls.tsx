@@ -177,11 +177,10 @@ export function VideoControls(props: Props) {
     })(),
   )
 
-  function reveal() {
+  function reveal(autoHide = playing() && !settingsOpen() && !focused() && !scrubber.active()) {
     setVisible(true)
     clearTimeout(hideTimer)
-    if (playing() && !settingsOpen() && !focused() && !scrubber.active())
-      hideTimer = setTimeout(() => setVisible(false), 2500)
+    if (autoHide) hideTimer = setTimeout(() => setVisible(false), 2500)
   }
 
   createEffect(
@@ -191,7 +190,7 @@ export function VideoControls(props: Props) {
       focused: focused(),
       scrubbing: scrubber.active(),
     }),
-    () => reveal(),
+    ({ playing, menu, focused, scrubbing }) => reveal(playing && !menu && !focused && !scrubbing),
   )
   createEffect(
     () => ({ element: props.video(), visible: visible(), menu: settingsOpen() }),

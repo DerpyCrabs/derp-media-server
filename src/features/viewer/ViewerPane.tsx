@@ -11,7 +11,7 @@ import { useViewStats } from '@/features/explorer/use-view-stats'
 import FileQuestion from 'lucide-solid/icons/file-question-mark'
 import FileText from 'lucide-solid/icons/file-text'
 import type { Accessor } from 'solid-js'
-import { Show, createEffect, createMemo, lazy } from 'solid-js'
+import { Show, Loading, createEffect, createMemo, lazy } from 'solid-js'
 import { ImageViewerPane } from './ImageViewerPane'
 import { TextEditorPane } from './TextEditorPane'
 import { AudioViewerPane } from './AudioViewerPane'
@@ -129,13 +129,15 @@ export function ViewerPane(props: Props) {
       <Show when={readerKind() && viewingPath()} keyed>
         {(sourcePath) => (
           <div class='relative h-full min-h-0 overflow-hidden bg-neutral-900'>
-            <Reader
-              sourcePath={sourcePath}
-              kind={contentReaderKind()!}
-              embedded={props.presentation !== 'modal'}
-              showClose={props.presentation === 'modal'}
-              onClose={props.onClose}
-            />
+            <Loading fallback={<div class='absolute inset-0 bg-neutral-900' />}>
+              <Reader
+                sourcePath={sourcePath}
+                kind={contentReaderKind()!}
+                embedded={props.presentation !== 'modal'}
+                showClose={props.presentation === 'modal'}
+                onClose={props.onClose}
+              />
+            </Loading>
           </div>
         )}
       </Show>
@@ -160,13 +162,15 @@ export function ViewerPane(props: Props) {
       <Show when={!readerKind() && mediaType() === MediaType.PDF && viewingPath()} keyed>
         {(sourcePath) => (
           <div class='relative h-full min-h-0 overflow-hidden bg-neutral-900'>
-            <Reader
-              sourcePath={sourcePath}
-              kind='pdf'
-              embedded={props.presentation !== 'modal'}
-              showClose={props.presentation === 'modal'}
-              onClose={props.onClose}
-            />
+            <Loading fallback={<div class='absolute inset-0 bg-neutral-900' />}>
+              <Reader
+                sourcePath={sourcePath}
+                kind='pdf'
+                embedded={props.presentation !== 'modal'}
+                showClose={props.presentation === 'modal'}
+                onClose={props.onClose}
+              />
+            </Loading>
           </div>
         )}
       </Show>
@@ -174,13 +178,15 @@ export function ViewerPane(props: Props) {
       <Show when={!readerKind() && mediaType() === MediaType.BOOK && viewingPath()} keyed>
         {(sourcePath) => (
           <div class='relative h-full min-h-0 overflow-hidden bg-neutral-900'>
-            <Reader
-              sourcePath={sourcePath}
-              kind='book'
-              embedded={props.presentation !== 'modal'}
-              showClose={props.presentation === 'modal'}
-              onClose={props.onClose}
-            />
+            <Loading fallback={<div class='absolute inset-0 bg-neutral-900' />}>
+              <Reader
+                sourcePath={sourcePath}
+                kind='book'
+                embedded={props.presentation !== 'modal'}
+                showClose={props.presentation === 'modal'}
+                onClose={props.onClose}
+              />
+            </Loading>
           </div>
         )}
       </Show>

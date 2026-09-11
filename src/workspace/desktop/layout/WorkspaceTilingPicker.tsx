@@ -32,19 +32,21 @@ export function WorkspaceTilingPicker(props: WorkspaceTilingPickerProps) {
     h: number
   } | null>(null)
 
-  onSettled(() => {
-    const cont = props.container
-    if (!cont) return undefined
-    const bump = () => setLayoutVersion((v) => v + 1)
-    const ro = new ResizeObserver(bump)
-    ro.observe(cont)
-    const onWinResize = () => bump()
-    window.addEventListener('resize', onWinResize)
-    return () => {
-      ro.disconnect()
-      window.removeEventListener('resize', onWinResize)
-    }
-  })
+  createEffect(
+    () => props.container,
+    (container) => {
+      if (!container) return undefined
+      const bump = () => setLayoutVersion((v) => v + 1)
+      const ro = new ResizeObserver(bump)
+      ro.observe(container)
+      const onWinResize = () => bump()
+      window.addEventListener('resize', onWinResize)
+      return () => {
+        ro.disconnect()
+        window.removeEventListener('resize', onWinResize)
+      }
+    },
+  )
 
   createEffect(
     () => pickerRoot(),

@@ -3,7 +3,7 @@ import { cn } from '@/lib/ui/cn'
 import { createVirtualizer, createWindowVirtualizer, type VirtualItem } from '@/lib/virtualizer'
 import type { Accessor } from 'solid-js'
 import type { JSX } from '@solidjs/web'
-import { createEffect, createMemo, createSignal, For, onSettled, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, For, onSettled, Show, untrack } from 'solid-js'
 import { registerVirtualFileScroller } from './virtual-directory-scroll'
 
 type ScrollTarget =
@@ -54,8 +54,9 @@ function makeVirtualizer(
     scrollMargin: Accessor<number>
   },
 ) {
-  if (props.scrollTarget.kind === 'element') {
-    const getScrollElement = props.scrollTarget.getScrollElement
+  const initialScrollTarget = untrack(() => props.scrollTarget)
+  if (initialScrollTarget.kind === 'element') {
+    const getScrollElement = initialScrollTarget.getScrollElement
     return createVirtualizer<HTMLElement, HTMLDivElement>({
       get count() {
         return accessors.rowCount()
@@ -110,6 +111,7 @@ export function VirtualDirectoryGrid(props: VirtualDirectoryGridProps) {
   let resizeObserver: ResizeObserver | undefined
   const [containerWidth, setContainerWidth] = createSignal(0)
   const [scrollMargin, setScrollMargin] = createSignal(0)
+  const windowScroll = createMemo(() => props.scrollTarget.kind === 'window')
   const totalItems = () => props.files().length + (props.includeParent() ? 1 : 0)
   const columns = createMemo(() => calculateColumns(containerWidth()))
   const rowCount = createMemo(() => Math.ceil(totalItems() / columns()))
@@ -127,7 +129,7 @@ export function VirtualDirectoryGrid(props: VirtualDirectoryGridProps) {
       setContainerWidth(containerEl.getBoundingClientRect().width)
     }
 
-    if (props.scrollTarget.kind === 'window' && containerEl) {
+    if (windowScroll() && containerEl) {
       setScrollMargin(containerEl.getBoundingClientRect().top + window.scrollY)
     } else {
       setScrollMargin(0)
@@ -177,7 +179,7 @@ export function VirtualDirectoryGrid(props: VirtualDirectoryGridProps) {
       resizeObserver.observe(containerEl)
     }
     window.addEventListener('resize', updateMeasurements)
-    if (props.scrollTarget.kind === 'window') {
+    if (windowScroll()) {
       window.addEventListener('scroll', updateMeasurements, { passive: true })
     }
     // eslint-disable-next-line solid/reactivity
@@ -211,39 +213,47 @@ export function VirtualDirectoryGrid(props: VirtualDirectoryGridProps) {
         }}
       >
         <For each={virtualizer.getVirtualItems()}>
-          {(row) => (
-            <div
-              ref={(el) => virtualizer.measureElement(el)}
-              data-index={row.index}
-              style={{
-                position: 'absolute',
-                left: '0',
-                top: '0',
-                width: '100%',
-                transform: `translateY(${rowOffset(row)}px)`,
-                display: 'grid',
-                'grid-template-columns': `repeat(${columns()}, minmax(0, 1fr))`,
-                gap: `${GRID_GAP_PX}px`,
-              }}
-            >
-              <For
-                each={Array.from(
-                  { length: columns() },
-                  (_, index) => row.index * columns() + index,
-                )}
+          {(row) => {
+            let element: HTMLDivElement | undefined
+            onSettled(() => {
+              if (element) virtualizer.measureElement(element)
+            })
+            return (
+              <div
+                ref={(el) => {
+                  element = el
+                }}
+                data-index={row.index}
+                style={{
+                  position: 'absolute',
+                  left: '0',
+                  top: '0',
+                  width: '100%',
+                  transform: `translateY(${rowOffset(row)}px)`,
+                  display: 'grid',
+                  'grid-template-columns': `repeat(${columns()}, minmax(0, 1fr))`,
+                  gap: `${GRID_GAP_PX}px`,
+                }}
               >
-                {(absoluteIndex) => (
-                  <VirtualDirectoryGridItem
-                    absoluteIndex={absoluteIndex}
-                    files={props.files}
-                    parentCount={() => (props.includeParent() ? 1 : 0)}
-                    renderParentCard={props.renderParentCard}
-                    renderFileCard={props.renderFileCard}
-                  />
-                )}
-              </For>
-            </div>
-          )}
+                <For
+                  each={Array.from(
+                    { length: columns() },
+                    (_, index) => row.index * columns() + index,
+                  )}
+                >
+                  {(absoluteIndex) => (
+                    <VirtualDirectoryGridItem
+                      absoluteIndex={absoluteIndex}
+                      files={props.files}
+                      parentCount={() => (props.includeParent() ? 1 : 0)}
+                      renderParentCard={props.renderParentCard}
+                      renderFileCard={props.renderFileCard}
+                    />
+                  )}
+                </For>
+              </div>
+            )
+          }}
         </For>
       </div>
     </Show>

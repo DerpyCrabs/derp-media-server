@@ -12,7 +12,9 @@ import { MainMediaPlayers } from './MainMediaPlayers'
 import { useServerConfigQuery } from '@/lib/api/use-app-data'
 import { useExplorerSettings } from '@/features/explorer/use-explorer-settings'
 import { usePlaybackSnapshot } from '@/features/playback/PlaybackProvider'
-import { House, FolderClosed, Search } from 'lucide-solid'
+import House from 'lucide-solid/icons/house'
+import FolderClosed from 'lucide-solid/icons/folder-closed'
+import Search from 'lucide-solid/icons/search'
 import { cn } from '@/lib/ui/cn'
 
 export function MediaCenterPage() {

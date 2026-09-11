@@ -2,7 +2,7 @@ import type { FileItem } from '@/lib/files/types'
 import { createVirtualizer, createWindowVirtualizer, type VirtualItem } from '@/lib/virtualizer'
 import type { Accessor } from 'solid-js'
 import type { JSX } from '@solidjs/web'
-import { createEffect, createSignal, For, onSettled, Show, untrack } from 'solid-js'
+import { createEffect, createMemo, createSignal, For, onSettled, Show, untrack } from 'solid-js'
 import { registerVirtualFileScroller } from './virtual-directory-scroll'
 
 const VIRTUALIZE_THRESHOLD = 100
@@ -58,8 +58,9 @@ function makeVirtualizer(
     })
   }
 
-  if (props.scrollTarget.kind === 'element') {
-    const getScrollElement = props.scrollTarget.getScrollElement
+  const initialScrollTarget = untrack(() => props.scrollTarget)
+  if (initialScrollTarget.kind === 'element') {
+    const getScrollElement = initialScrollTarget.getScrollElement
     return createVirtualizer<HTMLElement, HTMLTableRowElement>({
       get count() {
         return accessors.count()
@@ -111,6 +112,7 @@ function VirtualDirectoryListItem(props: {
 export function VirtualDirectoryList(props: VirtualDirectoryListProps) {
   let containerEl: HTMLDivElement | undefined
   const [scrollMargin, setScrollMargin] = createSignal(0)
+  const windowScroll = createMemo(() => props.scrollTarget.kind === 'window')
   const count = () => props.files().length + (props.includeParent() ? 1 : 0)
   const colSpan = () => (typeof props.colSpan === 'function' ? props.colSpan() : props.colSpan)
   const tableClass = () =>
@@ -146,7 +148,7 @@ export function VirtualDirectoryList(props: VirtualDirectoryListProps) {
   )
 
   function updateScrollMargin() {
-    if (props.scrollTarget.kind !== 'window' || !containerEl) {
+    if (!windowScroll() || !containerEl) {
       setScrollMargin(0)
       return
     }
@@ -193,7 +195,7 @@ export function VirtualDirectoryList(props: VirtualDirectoryListProps) {
 
   onSettled(() => {
     updateScrollMargin()
-    if (props.scrollTarget.kind !== 'window') return undefined
+    if (!windowScroll()) return undefined
 
     window.addEventListener('resize', updateScrollMargin)
     window.addEventListener('scroll', updateScrollMargin, { passive: true })

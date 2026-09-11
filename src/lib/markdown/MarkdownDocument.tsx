@@ -1,4 +1,4 @@
-import { Show, createEffect, createSignal, onSettled } from 'solid-js'
+import { Show, createEffect, createMemo, createSignal, onSettled } from 'solid-js'
 import type { JSX } from '@solidjs/web'
 
 import { createMarkdownEditor, type MarkdownEditorController } from './create-editor'
@@ -10,6 +10,22 @@ export default function MarkdownDocument(props: MarkdownDocumentProps): JSX.Elem
   let imageReturnFocus: HTMLElement | null = null
   const [controller, setController] = createSignal<MarkdownEditorController | null>(null)
   const [expandedImage, setExpandedImage] = createSignal<{ src: string; alt: string } | null>(null)
+  // Conditional JSX prop getters can create memos; resolve them before imperative setup.
+  const content = createMemo(() => props.content)
+  const presentation = createMemo(() => {
+    const mode = props.mode
+    return {
+      mode,
+      label: props.ariaLabel ?? (mode === 'read' ? 'Markdown document' : 'Markdown editor'),
+    }
+  })
+  const callbacks = createMemo(() => ({
+    resolveImageUrl: props.resolveImageUrl,
+    onChange: props.onChange,
+    onBlur: props.onBlur,
+    onSave: props.onSave,
+    onPasteImage: props.onPasteImage,
+  }))
 
   const closeExpandedImage = () => {
     setExpandedImage(null)
@@ -17,7 +33,7 @@ export default function MarkdownDocument(props: MarkdownDocumentProps): JSX.Elem
   }
 
   const runtime: MarkdownEditorRuntime = {
-    resolveImageUrl: (src) => props.resolveImageUrl(src),
+    resolveImageUrl: (src) => callbacks().resolveImageUrl(src),
     openImage: (src, alt) => {
       if (props.onOpenImage) {
         props.onOpenImage(src, alt)
@@ -27,56 +43,41 @@ export default function MarkdownDocument(props: MarkdownDocumentProps): JSX.Elem
         document.activeElement instanceof HTMLElement ? document.activeElement : null
       setExpandedImage({ src, alt: alt ?? '' })
     },
-    onChange: (content) => props.onChange?.(content),
-    onBlur: () => props.onBlur?.(),
-    onSave: () => props.onSave?.(),
+    onChange: (content) => callbacks().onChange?.(content),
+    onBlur: () => callbacks().onBlur?.(),
+    onSave: () => callbacks().onSave?.(),
     onPasteImage: (event, selection, complete) =>
-      props.onPasteImage?.(event, selection, complete) ?? false,
+      callbacks().onPasteImage?.(event, selection, complete) ?? false,
   }
 
   onSettled(() => {
     if (!mountElement) return
     const next = createMarkdownEditor({
       parent: mountElement,
-      doc: props.content,
-      mode: props.mode,
-      ariaLabel:
-        props.ariaLabel ?? (props.mode === 'read' ? 'Markdown document' : 'Markdown editor'),
+      doc: content(),
+      mode: presentation().mode,
+      ariaLabel: presentation().label,
       runtime,
     })
     setController(next)
   })
 
   createEffect(
-    () => {
-      const mode = props.mode
-      return {
-        controller: controller(),
-        mode,
-        label: props.ariaLabel ?? (mode === 'read' ? 'Markdown document' : 'Markdown editor'),
-      }
-    },
+    () => ({ controller: controller(), ...presentation() }),
     ({ controller: next, mode, label }) => {
       next?.setMode(mode, label)
     },
   )
 
   createEffect(
-    () => ({ controller: controller(), content: props.content }),
+    () => ({ controller: controller(), content: content() }),
     ({ controller: next, content }) => {
       next?.setContent(content)
     },
   )
 
   createEffect(
-    () => ({
-      controller: controller(),
-      resolveImageUrl: props.resolveImageUrl,
-      onChange: props.onChange,
-      onBlur: props.onBlur,
-      onSave: props.onSave,
-      onPasteImage: props.onPasteImage,
-    }),
+    () => ({ controller: controller(), ...callbacks() }),
     ({ controller: next, resolveImageUrl, onChange, onBlur, onSave, onPasteImage }) => {
       runtime.resolveImageUrl = resolveImageUrl
       runtime.onChange = onChange

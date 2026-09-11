@@ -27,7 +27,7 @@ const EPUB_FIXTURE = Buffer.from(
       '<?xml version="1.0"?><container xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="EPUB/package.opf" media-type="application/oebps-package+xml"/></rootfiles></container>',
     ),
     'EPUB/package.opf': strToU8(
-      '<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Reader EPUB Fixture</dc:title><dc:creator>Test Author</dc:creator><dc:language>en</dc:language></metadata><manifest><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/><item id="front" href="front.xhtml" media-type="application/xhtml+xml"/><item id="one" href="one.xhtml" media-type="application/xhtml+xml"/><item id="two" href="two.xhtml" media-type="application/xhtml+xml"/><item id="style" href="styles/book.css" media-type="text/css"/><item id="font" href="fonts/fixture.woff" media-type="font/woff"/></manifest><spine><itemref idref="front"/><itemref idref="one"/><itemref idref="two"/></spine></package>',
+      '<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Reader EPUB Fixture</dc:title><dc:creator>Test Author</dc:creator><dc:language>en</dc:language></metadata><manifest><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/><item id="front" href="front.xhtml" media-type="application/xhtml+xml"/><item id="one" href="one.xhtml" media-type="application/xhtml+xml"/><item id="two" href="two.xhtml" media-type="application/xhtml+xml"/><item id="style" href="styles/book.css" media-type="text/css"/><item id="font" href="fonts/fixture.woff2" media-type="font/woff2"/></manifest><spine><itemref idref="front"/><itemref idref="one"/><itemref idref="two"/></spine></package>',
     ),
     'EPUB/nav.xhtml': strToU8(
       '<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><body><nav epub:type="toc"><ol><li><a href="one.xhtml">Opening</a></li><li><a href="two.xhtml">Second chapter</a></li></ol></nav></body></html>',
@@ -46,9 +46,14 @@ const EPUB_FIXTURE = Buffer.from(
       '<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><body><section id="destination"><h1>Second chapter</h1><p>EPUB destination text.</p></section></body></html>',
     ),
     'EPUB/styles/book.css': strToU8(
-      '@font-face { font-family: "Fixture Font"; src: url("../fonts/fixture.woff") format("woff"); font-weight: 400; } body { font-family: "Fixture Font"; font-size: 13px; background-color: rgb(255, 0, 0) !important; color: rgb(0, 255, 0) !important; }',
+      '@font-face { font-family: "Fixture Font"; src: url("../fonts/fixture.woff2") format("woff2"); font-weight: 400; } body { font-family: "Fixture Font"; font-size: 13px; background-color: rgb(255, 0, 0) !important; color: rgb(0, 255, 0) !important; }',
     ),
-    'EPUB/fonts/fixture.woff': new Uint8Array([0x77, 0x4f, 0x46, 0x46]),
+    'EPUB/fonts/fixture.woff2': fs.readFileSync(
+      path.resolve(
+        __dirname,
+        '../../node_modules/@fontsource-variable/geist/files/geist-latin-wght-normal.woff2',
+      ),
+    ),
   }),
 )
 

@@ -1,5 +1,6 @@
 import { createSignal } from 'solid-js'
-import { Ellipsis, Radio } from 'lucide-solid'
+import Ellipsis from 'lucide-solid/icons/ellipsis'
+import Radio from 'lucide-solid/icons/radio'
 import { FloatingContextMenu } from '@/features/explorer/FloatingContextMenu'
 
 export function CollectionActions(props: {

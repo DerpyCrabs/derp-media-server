@@ -15,22 +15,20 @@ import {
 } from '@/lib/browser/browser-history'
 import { playbackItemFromFileItem } from '@/features/playback'
 import { usePlaybackSession } from '@/features/playback/PlaybackProvider'
-import {
-  ArrowRight,
-  EllipsisVertical,
-  FolderMinus,
-  FolderOpen,
-  ListPlus,
-  LoaderCircle,
-  Music2,
-  Radio,
-  StepForward,
-  Play,
-  RefreshCw,
-  Search,
-  ThumbsDown,
-  ThumbsUp,
-} from 'lucide-solid'
+import ArrowRight from 'lucide-solid/icons/arrow-right'
+import EllipsisVertical from 'lucide-solid/icons/ellipsis-vertical'
+import FolderMinus from 'lucide-solid/icons/folder-minus'
+import FolderOpen from 'lucide-solid/icons/folder-open'
+import ListPlus from 'lucide-solid/icons/list-plus'
+import LoaderCircle from 'lucide-solid/icons/loader-circle'
+import Music2 from 'lucide-solid/icons/music-2'
+import Radio from 'lucide-solid/icons/radio'
+import StepForward from 'lucide-solid/icons/step-forward'
+import Play from 'lucide-solid/icons/play'
+import RefreshCw from 'lucide-solid/icons/refresh-cw'
+import Search from 'lucide-solid/icons/search'
+import ThumbsDown from 'lucide-solid/icons/thumbs-down'
+import ThumbsUp from 'lucide-solid/icons/thumbs-up'
 import { FloatingContextMenu } from '@/features/explorer/FloatingContextMenu'
 import { selection, setMediaSelection } from './selection'
 import { MediaCenterPlaybackSync } from '@/media-center/MediaCenterPlaybackSync'

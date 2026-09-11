@@ -1,15 +1,13 @@
 import { expect, test, type ConsoleMessage, type Page } from '@playwright/test'
 
-const STRICT_READ = '[STRICT_READ_UNTRACKED]'
-
-function captureStrictReads(page: Page) {
+function captureDiagnostics(page: Page) {
   const messages: string[] = []
-  const capture = (message: ConsoleMessage) => {
-    if (message.type() === 'warning' && message.text().includes(STRICT_READ)) {
+  page.on('pageerror', (error) => messages.push(error.message))
+  page.on('console', (message: ConsoleMessage) => {
+    if (message.type() === 'warning' || message.type() === 'error') {
       messages.push(message.text())
     }
-  }
-  page.on('console', capture)
+  })
   return {
     expectNone() {
       expect(messages, messages.join('\n')).toEqual([])
@@ -17,8 +15,8 @@ function captureStrictReads(page: Page) {
   }
 }
 
-test('common application flows have no untracked Solid reads', async ({ page }) => {
-  const diagnostics = captureStrictReads(page)
+test('common application flows have no development warnings or errors', async ({ page }) => {
+  const diagnostics = captureDiagnostics(page)
 
   await page.goto('/?dir=Documents')
   await page.getByRole('button', { name: 'Display options' }).click()
@@ -47,3 +45,21 @@ test('common application flows have no untracked Solid reads', async ({ page }) 
 
   diagnostics.expectNone()
 })
+
+for (const entry of [
+  { name: 'PDF viewer', query: 'viewing=Documents%2Freader.pdf', content: 'pdf-text-layer' },
+  {
+    name: 'reader dialog',
+    query: 'reader=Documents%2Freader.epub&readerKind=book',
+    content: 'reader-book',
+  },
+]) {
+  test(`${entry.name} loads without development warnings or errors`, async ({ page }) => {
+    const diagnostics = captureDiagnostics(page)
+    await page.goto(`/?dir=Documents&${entry.query}`)
+    await expect(page.getByTestId(entry.content).first()).toBeVisible()
+    await page.getByLabel('Close reader').click()
+    await expect(page.getByTestId(entry.content)).toHaveCount(0)
+    diagnostics.expectNone()
+  })
+}
