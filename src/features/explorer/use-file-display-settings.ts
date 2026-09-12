@@ -1,3 +1,4 @@
+import { queryData } from '@/lib/api/query-data'
 import { useMutation, useQueryClient } from '@tanstack/solid-query'
 import type { Accessor } from 'solid-js'
 import { createMemo } from 'solid-js'
@@ -21,9 +22,11 @@ export function useFileDisplaySettings(
 ) {
   const queryClient = useQueryClient()
 
-  const sortOrder = createMemo(() => settingsQuery.data?.sortOrders?.[path()] ?? DEFAULT_FILE_SORT)
+  const sortOrder = createMemo(
+    () => queryData(settingsQuery)?.sortOrders?.[path()] ?? DEFAULT_FILE_SORT,
+  )
   const fileColumns = createMemo(
-    () => settingsQuery.data?.fileColumns?.[scope] ?? DEFAULT_FILE_COLUMNS[scope],
+    () => queryData(settingsQuery)?.fileColumns?.[scope] ?? DEFAULT_FILE_COLUMNS[scope],
   )
 
   const sortOrderMutation = useMutation(() => ({
@@ -48,14 +51,14 @@ export function useFileDisplaySettings(
         ? { ...current, sortOrders: { ...(current.sortOrders ?? {}), [folderPath]: next } }
         : current,
     )
-    sortOrderMutation.mutate({ path: folderPath, sortOrder: next })
+    void sortOrderMutation.mutate({ path: folderPath, sortOrder: next })
   }
 
   function setFileColumns(next: FileColumnVisibility) {
     queryClient.setQueryData(queryKeys.settings(), (current: GlobalSettings | undefined) =>
       current ? { ...current, fileColumns: { ...current.fileColumns, [scope]: next } } : current,
     )
-    fileColumnsMutation.mutate(next)
+    void fileColumnsMutation.mutate(next)
   }
 
   return { sortOrder, fileColumns, setSortOrder, setFileColumns }

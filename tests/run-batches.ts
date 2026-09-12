@@ -18,6 +18,7 @@ export const BATCHES = [
       'breadcrumbs-adaptive',
       'upload',
       'file-browser-misc',
+      'file-browser-directory-ux',
       'file-search-palette',
       'infinite-canvas',
     ],
@@ -33,6 +34,7 @@ export const BATCHES = [
       'workspace-layout-sessions',
       'workspace-registry',
       'workspace-file-open-target',
+      'workspace-split-view',
       'hermes-chat',
     ],
   },
@@ -40,6 +42,7 @@ export const BATCHES = [
     id: '4',
     tests: [
       'editable-folders',
+      'solid-reactivity',
       'url-state',
       'multiple-media-dirs',
       'stage2-playback-continuity',
@@ -66,6 +69,7 @@ export const BATCHES = [
     id: '6',
     tests: [
       'video-player',
+      'video-audio-mode-switch',
       'video-controls',
       'playback-regressions',
       'image-viewer',

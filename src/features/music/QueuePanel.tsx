@@ -1,4 +1,4 @@
-import { createMemo, createSignal, For, Show } from 'solid-js'
+import { createMemo, createSignal, For, Loading, Show } from 'solid-js'
 import { Portal } from '@solidjs/web'
 import ArrowDown from 'lucide-solid/icons/arrow-down'
 import ArrowUp from 'lucide-solid/icons/arrow-up'
@@ -9,6 +9,7 @@ import Shuffle from 'lucide-solid/icons/shuffle'
 import Trash2 from 'lucide-solid/icons/trash-2'
 import X from 'lucide-solid/icons/x'
 import { usePlaybackSession, usePlaybackSnapshot } from '@/features/playback/PlaybackProvider'
+import { buildThumbnailUrl } from '@/lib/media/build-media-url'
 import { useModalFocus } from '@/lib/ui/modal-focus'
 import { MusicArtwork } from './MusicArtwork'
 import { continueRadio } from './actions'
@@ -16,7 +17,6 @@ import { radioStatus } from './RadioContinuation'
 import { useMusicAI } from './enabled'
 
 export function QueuePanel() {
-  const aiEnabled = useMusicAI()
   const session = usePlaybackSession()
   const snapshot = usePlaybackSnapshot()
   const [open, setOpen] = createSignal(false)
@@ -29,7 +29,6 @@ export function QueuePanel() {
     onEscape: () => setOpen(false),
   })
   const context = () => snapshot().queueContext
-  const radio = () => context()?.radio
   const queueStart = createMemo(() => (showHistory() ? 0 : Math.max(0, snapshot().currentIndex)))
   const icon =
     'grid size-11 shrink-0 place-items-center rounded-lg text-muted-foreground hover:bg-secondary disabled:opacity-30'
@@ -83,47 +82,9 @@ export function QueuePanel() {
                   Shuffle upcoming
                 </button>
               </div>
-              <Show
-                when={
-                  aiEnabled() &&
-                  context()?.kind !== 'radio' &&
-                  snapshot().currentItem?.media === 'audio'
-                }
-              >
-                <button
-                  class='m-4 flex min-h-11 items-center justify-center gap-2 rounded-lg border border-border text-sm hover:bg-secondary'
-                  onClick={() => continueRadio(session)}
-                >
-                  <Radio size={17} />
-                  Continue with radio
-                </button>
-              </Show>
-              <Show when={aiEnabled() && radio()}>
-                <div class='space-y-3 border-b border-border bg-secondary/25 p-4'>
-                  <div class='flex items-center justify-between'>
-                    <span class='flex items-center gap-2 text-sm font-medium'>
-                      <Radio size={16} />
-                      Radio is on
-                    </span>
-                    <button
-                      class='min-h-10 px-2 text-xs underline'
-                      onClick={() =>
-                        session.dispatch({
-                          type: 'setQueueContext',
-                          context: { kind: 'manual', title: context()?.title || 'Your queue' },
-                        })
-                      }
-                    >
-                      Stop radio
-                    </button>
-                  </div>
-                  <Show when={radioStatus().id === context()?.id && radioStatus().exhausted}>
-                    <p role='status' class='text-xs text-muted-foreground'>
-                      No more prepared songs for this station.
-                    </p>
-                  </Show>
-                </div>
-              </Show>
+              <Loading>
+                <QueueRadioControls />
+              </Loading>
               <div class='min-h-0 flex-1 overflow-y-auto p-3'>
                 <Show when={snapshot().currentIndex > 0}>
                   <button
@@ -150,7 +111,16 @@ export function QueuePanel() {
                               session.dispatch({ type: 'selectQueueItem', index: index() })
                             }
                           >
-                            <MusicArtwork path={item.locator} class='size-10' />
+                            <Show
+                              when={item.media === 'video'}
+                              fallback={<MusicArtwork path={item.locator} class='size-10' />}
+                            >
+                              <img
+                                src={buildThumbnailUrl(item.locator)}
+                                alt=''
+                                class='size-10 rounded-lg object-cover'
+                              />
+                            </Show>
                             <span class='absolute inset-0 grid place-items-center rounded-lg bg-black/30 text-white opacity-0 hover:opacity-100'>
                               <Play size={16} />
                             </span>
@@ -222,6 +192,57 @@ export function QueuePanel() {
             </div>
           </div>
         </Portal>
+      </Show>
+    </>
+  )
+}
+
+function QueueRadioControls() {
+  const aiEnabled = useMusicAI()
+  const session = usePlaybackSession()
+  const snapshot = usePlaybackSnapshot()
+  const context = () => snapshot().queueContext
+  const radio = () => context()?.radio
+  return (
+    <>
+      <Show
+        when={
+          aiEnabled() && context()?.kind !== 'radio' && snapshot().currentItem?.media === 'audio'
+        }
+      >
+        <button
+          class='m-4 flex min-h-11 items-center justify-center gap-2 rounded-lg border border-border text-sm hover:bg-secondary'
+          onClick={() => continueRadio(session)}
+        >
+          <Radio size={17} />
+          Continue with radio
+        </button>
+      </Show>
+      <Show when={aiEnabled() && radio()}>
+        <div class='space-y-3 border-b border-border bg-secondary/25 p-4'>
+          <div class='flex items-center justify-between'>
+            <span class='flex items-center gap-2 text-sm font-medium'>
+              <Radio size={16} />
+              Radio is on
+            </span>
+            <button
+              class='min-h-10 px-2 text-xs underline'
+              onClick={() =>
+                session.dispatch({
+                  type: 'setQueueContext',
+                  context: { kind: 'manual', title: context()?.title || 'Your queue' },
+                })
+              }
+            >
+              Stop radio
+            </button>
+          </div>
+          <Show when={radioStatus().id === context()?.id && radioStatus().exhausted}>
+            <p role='status' class='text-xs text-muted-foreground'>
+              No more prepared songs for this station.
+            </p>
+          </Show>
+        </div>
       </Show>
     </>
   )

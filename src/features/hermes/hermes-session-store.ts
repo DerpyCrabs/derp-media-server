@@ -1,4 +1,4 @@
-import { createMemo, createStore, reconcile, type Accessor } from 'solid-js'
+import { createEffect, createMemo, createStore, reconcile, untrack, type Accessor } from 'solid-js'
 import { showAppConfirm } from '@/lib/ui/app-dialog'
 import type { FileDragData } from '@/lib/files/file-drag-data'
 import {
@@ -355,7 +355,7 @@ function ensureHermesChat(target: {
 }): string {
   const key = hermesChatKey(target)
   if (!sessions[key]) {
-    replaceHermesState(key, {
+    const initial: HermesChatState = {
       ...target,
       lineageRootId: target.sessionId,
       messages: [],
@@ -372,8 +372,9 @@ function ensureHermesChat(target: {
       status: target.sessionId ? 'loading' : 'idle',
       awaitingResponse: false,
       readOnly: !!target.readOnly,
-    })
-    if (target.sessionId) void refreshHermesChat(key)
+    }
+    replaceHermesState(key, initial)
+    if (target.sessionId) void refreshHermesChat(key, initial)
     void refreshHermesModelOptions(key)
     void refreshHermesCapabilities(key)
   }
@@ -436,8 +437,7 @@ async function speakHermesText(text: string) {
   await replyAudio.play()
 }
 
-async function refreshHermesChat(key: string) {
-  const state = sessions[key]
+async function refreshHermesChat(key: string, state = sessions[key]) {
   if (!state?.sessionId) return
   try {
     const encoded = encodeURIComponent(state.sessionId)
@@ -457,31 +457,27 @@ async function refreshHermesChat(key: string) {
       firstRefreshedIndex > 0 ? firstRefreshedIndex : 0,
     )
     const messages = retainedCount ? [...current.slice(0, retainedCount), ...refreshed] : refreshed
-    if (!sameHermesMessages(current, messages))
-      updateHermesState(key, (state) => {
-        reconcile(messages, 'id')(state.messages)
+    updateHermesState(key, (draft) => {
+      if (!sameHermesMessages(draft.messages, messages)) reconcile(messages, 'id')(draft.messages)
+      Object.assign(draft, {
+        hasOlderMessages: retainedCount
+          ? draft.hasOlderMessages
+          : (Array.isArray(payload.messages)
+              ? payload.messages.length
+              : Array.isArray(payload.data)
+                ? payload.data.length
+                : 0) >= historyLimit,
+        archived,
+        readOnly: archived || (externallyActive && !draft.takeoverPending),
+        externallyActive: externallyActive && !draft.takeoverPending,
+        externalSource: typeof detail.source === 'string' ? detail.source : undefined,
+        unavailable: false,
+        connection: 'connected',
+        title: typeof detail.title === 'string' ? detail.title : draft.title,
+        model: typeof detail.model === 'string' ? detail.model : draft.model,
       })
-    patchHermesState(key, {
-      hasOlderMessages: retainedCount
-        ? state.hasOlderMessages
-        : (Array.isArray(payload.messages)
-            ? payload.messages.length
-            : Array.isArray(payload.data)
-              ? payload.data.length
-              : 0) >= historyLimit,
-      archived,
-      readOnly: archived || externallyActive,
-      externallyActive,
-      externalSource: typeof detail.source === 'string' ? detail.source : undefined,
-      unavailable: false,
-      connection: 'connected',
-      title: typeof detail.title === 'string' ? detail.title : state.title,
-      model: typeof detail.model === 'string' ? detail.model : state.model,
+      if (draft.status === 'loading') draft.status = 'idle'
     })
-    if (sessions[key]?.status === 'loading')
-      updateHermesState(key, (state) => {
-        state.status = 'idle'
-      })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     const unavailable = error instanceof HermesRequestError && error.status === 404
@@ -1340,7 +1336,20 @@ export type HermesSessionTarget = {
  * this module instead of becoming an ordering constraint at every caller.
  */
 export function createHermesSession(target: Accessor<HermesSessionTarget>) {
-  const key = createMemo(() => ensureHermesChat(target()))
+  let fallbackDraftId: string | undefined
+  const resolvedTarget = createMemo(() => {
+    const current = target()
+    if (current.sessionId || current.draftId) return current
+    return { ...current, draftId: (fallbackDraftId ??= crypto.randomUUID()) }
+  })
+  const key = createMemo(() => hermesChatKey(resolvedTarget()))
+  createEffect(resolvedTarget, (current) => {
+    untrack(() => ensureHermesChat(current))
+  })
+  return createHermesSessionCommands(key)
+}
+
+function createHermesSessionCommands(key: Accessor<string>) {
   const state = () => sessions[key()]
 
   return {
@@ -1353,14 +1362,11 @@ export function createHermesSession(target: Accessor<HermesSessionTarget>) {
       claim: (owner: string, options?: HermesEditorClaimOptions) =>
         claimHermesEditor(key(), owner, options),
       release: (owner: string) => releaseHermesEditor(key(), owner),
-      acquire: (owner: string, options?: HermesEditorClaimOptions) => {
-        const capturedKey = key()
-        return {
-          owned: () => !sessions[capturedKey]?.editorOwner,
-          claim: () => claimHermesEditor(capturedKey, owner, options),
-          release: () => releaseHermesEditor(capturedKey, owner),
-        }
-      },
+      acquire: (sessionKey: string, owner: string, options?: HermesEditorClaimOptions) => ({
+        owned: () => !sessions[sessionKey]?.editorOwner,
+        claim: () => claimHermesEditor(sessionKey, owner, options),
+        release: () => releaseHermesEditor(sessionKey, owner),
+      }),
     },
     composer: {
       set: (value: string) => setHermesComposer(key(), value),
@@ -1409,6 +1415,10 @@ export function createHermesSession(target: Accessor<HermesSessionTarget>) {
 }
 
 export const HermesSessions = Object.freeze({
+  open: (target: HermesSessionTarget) => {
+    const key = ensureHermesChat(target)
+    return createHermesSessionCommands(() => key)
+  },
   forId: hermesSessionForId,
   canClose: canCloseHermesWindow,
   discardDraft: discardHermesDraft,

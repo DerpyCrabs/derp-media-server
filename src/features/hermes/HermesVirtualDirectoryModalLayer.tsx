@@ -19,9 +19,10 @@ function HermesCreateProjectDialog(props: {
   })
   const gatewayDirectoryQuery = useQuery(() => ({
     queryKey: ['virtual-directory', 'gateway-fs', draft().gatewayPath],
-    queryFn: () =>
+    queryFn: ({ queryKey, signal }) =>
       api<{ entries: { name: string; path: string; isDirectory: boolean }[]; error?: string }>(
-        `/api/virtual-directory/fs?path=${encodeURIComponent(draft().gatewayPath)}`,
+        `/api/virtual-directory/fs?path=${encodeURIComponent(queryKey[2]!)}`,
+        { signal },
       ),
   }))
   const canSubmit = () =>

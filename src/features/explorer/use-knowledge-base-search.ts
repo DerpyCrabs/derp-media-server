@@ -1,3 +1,4 @@
+import { queryData } from '@/lib/api/query-data'
 import { useQuery } from '@tanstack/solid-query'
 import { createEffect, createMemo, createSignal, type Accessor } from 'solid-js'
 import { api } from '@/lib/api/client'
@@ -43,12 +44,22 @@ export function useKnowledgeBaseSearch(options: {
 
   const resultsQuery = useQuery(() => ({
     queryKey: queryKeys.kbSearch(rootPath()!, debouncedQuery()),
-    queryFn: () =>
+    queryFn: ({ queryKey, signal }) =>
       api<{ results: { path: string; name: string; snippet: string }[] }>(
-        `/api/kb/search?root=${encodeURIComponent(rootPath()!)}&q=${encodeURIComponent(debouncedQuery())}`,
+        `/api/kb/search?root=${encodeURIComponent(queryKey[3])}&q=${encodeURIComponent(queryKey[4])}`,
+        { signal },
       ),
     enabled: !!rootPath() && open() && debouncedQuery().trim().length > 0,
   }))
+
+  createEffect(
+    () => (open() ? inputElement() : undefined),
+    (input) => {
+      if (!input) return undefined
+      const frame = requestAnimationFrame(() => input.focus())
+      return () => cancelAnimationFrame(frame)
+    },
+  )
 
   registerKbSearchHotkeys({
     active: () => active() && (options.active?.() ?? true),
@@ -57,8 +68,8 @@ export function useKnowledgeBaseSearch(options: {
     focusInput: () => inputElement()?.focus(),
   })
 
-  const results = createMemo(() => resultsQuery.data?.results ?? [])
-  const loading = createMemo(() => resultsQuery.isLoading)
+  const results = createMemo(() => queryData(resultsQuery)?.results ?? [])
+  const loading = createMemo(() => resultsQuery.fetchStatus === 'fetching')
   const showingResults = createMemo(() => active() && open() && query().trim().length > 0)
 
   return {
@@ -71,6 +82,7 @@ export function useKnowledgeBaseSearch(options: {
     setInputElement,
     clear,
     results,
+    error: () => resultsQuery.error?.message,
     loading,
     showingResults,
   }

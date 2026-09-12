@@ -28,17 +28,22 @@ function Chapter(props: {
       { root: props.viewport, rootMargin: '1200px 0px', threshold: 0.01 },
     )
     observer.observe(chapterHost)
+    let frame = 0
     const resize = new ResizeObserver(() => {
-      if (near() && chapterHost.offsetHeight > 80) {
-        const nextHeight = chapterHost.offsetHeight
-        setHeight(nextHeight)
-        props.onMeasure(props.index, nextHeight)
-      }
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        if (near() && chapterHost.offsetHeight > 80) {
+          const nextHeight = chapterHost.offsetHeight
+          setHeight(nextHeight)
+          props.onMeasure(props.index, nextHeight)
+        }
+      })
     })
     resize.observe(host)
     return () => {
       observer.disconnect()
       resize.disconnect()
+      cancelAnimationFrame(frame)
     }
   })
 

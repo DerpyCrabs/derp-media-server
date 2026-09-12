@@ -18,7 +18,7 @@ export function UploadToastStack(props: UploadToastStackProps) {
     <Switch>
       <Match when={props.state().kind === 'uploading' ? props.state() : false}>
         {(get) => {
-          const s = get() as Extract<UploadToastState, { kind: 'uploading' }>
+          const s = () => get() as Extract<UploadToastState, { kind: 'uploading' }>
           return (
             <div class={panelClass()}>
               <div class='flex items-center gap-3'>
@@ -28,7 +28,7 @@ export function UploadToastStack(props: UploadToastStackProps) {
                   stroke-width={2}
                 />
                 <span class='text-sm font-medium'>
-                  Uploading {s.fileCount} {s.fileCount === 1 ? 'file' : 'files'}
+                  Uploading {s().fileCount} {s().fileCount === 1 ? 'file' : 'files'}
                   ...
                 </span>
               </div>
@@ -46,7 +46,7 @@ export function UploadToastStack(props: UploadToastStackProps) {
       </Match>
       <Match when={props.state().kind === 'error' ? props.state() : false}>
         {(get) => {
-          const s = get() as Extract<UploadToastState, { kind: 'error' }>
+          const s = () => get() as Extract<UploadToastState, { kind: 'error' }>
           return (
             <div class={panelClass()}>
               <div class='flex items-start gap-3'>
@@ -57,7 +57,7 @@ export function UploadToastStack(props: UploadToastStackProps) {
                 />
                 <div class='flex-1 min-w-0'>
                   <p class='text-sm font-medium text-destructive'>Upload failed</p>
-                  <p class='text-xs text-muted-foreground mt-0.5 wrap-break-word'>{s.message}</p>
+                  <p class='text-xs text-muted-foreground mt-0.5 wrap-break-word'>{s().message}</p>
                 </div>
                 <button
                   type='button'

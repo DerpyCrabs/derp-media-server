@@ -47,20 +47,58 @@ test.describe('activity over plain HTTP', () => {
     expect(library.providerRequests).toEqual([])
   })
 
+  test('concurrent activity reports persist every session without database lock errors', async ({
+    request,
+    library,
+  }) => {
+    const [song] = await library.seed(1)
+    const end = Date.now()
+    const ids = Array.from({ length: 32 }, () => crypto.randomUUID())
+    const responses = await Promise.all(
+      ids.map((id) =>
+        request.post(`${library.url}/api/activity`, {
+          data: {
+            id,
+            path: song!.path,
+            kind: 'audio',
+            source: 'chosen',
+            seq: 0,
+            start: end - 1000,
+            end,
+            seconds: 1,
+            duration: 60,
+            hour: 12,
+            completed: false,
+            excluded: false,
+          },
+        }),
+      ),
+    )
+    expect(responses.map((response) => response.status())).toEqual(ids.map(() => 200))
+    const rows = library.database.prepare('SELECT id FROM media_sessions').all()
+    expect(new Set(rows.map((row) => row.id))).toEqual(new Set(ids))
+  })
+
   test('opening audio works without secure-context crypto.randomUUID', async ({
     page,
     library,
   }) => {
     const [song] = await library.seed(1)
     const origin = 'http://media-ai-regression.test'
+    // This fixture mocks its HTTP origin; mock the Vite HMR connection too.
+    await page.routeWebSocket(
+      (url) => url.searchParams.has('token'),
+      (socket) => {
+        socket.send(JSON.stringify({ type: 'connected' }))
+      },
+    )
     await page.route(`${origin}/**`, async (route) => {
       const url = new URL(route.request().url())
       if (url.pathname === '/api/events/stream') {
         await route.abort()
         return
       }
-      const response = await route.fetch({ url: `${library.url}${url.pathname}${url.search}` })
-      await route.fulfill({ response })
+      await route.continue({ url: `${library.url}${url.pathname}${url.search}` })
     })
     const errors: string[] = []
     page.on('pageerror', (error) => errors.push(error.message))
@@ -71,6 +109,7 @@ test.describe('activity over plain HTTP', () => {
     await expect.soft(page).toHaveURL(new RegExp(`playing=${encodeURIComponent(song.path)}`))
     expect(errors).toEqual([])
     await expect(page.getByTestId('audio-player-chrome')).toBeVisible()
+    await page.unrouteAll({ behavior: 'wait' })
   })
 })
 

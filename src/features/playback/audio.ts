@@ -10,8 +10,11 @@ export type AudioMetadata = {
   duration?: number
 }
 
-export async function fetchAudioMetadata(url: string): Promise<AudioMetadata> {
-  const response = await fetch(url)
+export async function fetchAudioMetadata(
+  url: string,
+  signal?: AbortSignal,
+): Promise<AudioMetadata> {
+  const response = await fetch(url, { signal })
   if (!response.ok) throw new Error('Failed to fetch audio metadata')
   return response.json() as Promise<AudioMetadata>
 }

@@ -10,7 +10,7 @@ import Check from 'lucide-solid/icons/check'
 import LayoutGrid from 'lucide-solid/icons/layout-grid'
 import List from 'lucide-solid/icons/list'
 import SlidersHorizontal from 'lucide-solid/icons/sliders-horizontal'
-import { createSignal, For, Show } from 'solid-js'
+import { createSignal, flush, For, Show } from 'solid-js'
 import { defaultDirection } from './file-display-settings'
 import { FloatingContextMenu } from './FloatingContextMenu'
 import { FLOATING_Z_EXPLORER_DISPLAY_OPTIONS } from '@/lib/ui/floating-z-index'
@@ -49,8 +49,9 @@ export function ExplorerDisplayOptions(props: ExplorerDisplayOptionsProps) {
   }
 
   function selectView(viewMode: 'list' | 'grid') {
-    props.onViewModeChange(viewMode)
     setOpen(false)
+    flush()
+    props.onViewModeChange(viewMode)
   }
 
   return (

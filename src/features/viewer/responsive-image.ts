@@ -1,3 +1,4 @@
+import { queryData } from '@/lib/api/query-data'
 import { useQuery } from '@tanstack/solid-query'
 import { queryKeys } from '@/lib/api/query-keys'
 import { api } from '@/lib/api/client'
@@ -55,7 +56,10 @@ export function createResponsiveImage(options: Options) {
     retry: false,
     throwOnError: false,
   }))
-  const enabled = () => (config.data === undefined ? true : Boolean(config.data.enabled))
+  const enabled = () => {
+    const value = queryData(config)
+    return value === undefined ? true : Boolean(value.enabled)
+  }
   const [request, setRequest] = createSignal<ResponsiveImageRequest | null>(null)
   const [forcedOriginal, setForcedOriginal] = createSignal(false)
   const [loadState, setLoadState] = createSignal<ImageLoadState>({
@@ -186,7 +190,7 @@ export function createResponsiveImage(options: Options) {
             untrack(() => {
               if (cancelled) return
               const path = options.path()
-              if (loadedPath() !== path) options.onDisplayPath?.(path)
+              if (loadedPath() && loadedPath() !== path) options.onDisplayPath?.(path)
               setLoadState((state) =>
                 reduceImageLoadState(state, { kind: 'display', src: value, path }),
               )

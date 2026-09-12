@@ -71,6 +71,7 @@ export function HermesChatPane(props: {
   let findInputEl: HTMLInputElement | undefined
   let findReturnFocus: HTMLElement | null = null
   let followLatest = true
+  let awaitingScrollAway = false
   let scrollFrame: number | undefined
   let disposed = false
   let paneActive = false
@@ -96,6 +97,15 @@ export function HermesChatPane(props: {
       if (findReturnFocus?.isConnected) findReturnFocus.focus()
       findReturnFocus = null
     })
+  }
+
+  function pauseTranscriptFollow() {
+    if (followLatest) awaitingScrollAway = true
+    followLatest = false
+    if (scrollFrame !== undefined) {
+      cancelAnimationFrame(scrollFrame)
+      scrollFrame = undefined
+    }
   }
 
   function scrollTranscriptToBottom() {
@@ -187,7 +197,7 @@ export function HermesChatPane(props: {
     () => ({ currentKey: key(), currentOwner: owner() }),
     ({ currentKey, currentOwner }) => {
       let alive = true
-      const editor = session.editor.acquire(currentOwner, {
+      const editor = session.editor.acquire(currentKey, currentOwner, {
         isAlive: () => alive && !disposed && key() === currentKey && owner() === currentOwner,
       })
       untrack(() => {
@@ -195,14 +205,14 @@ export function HermesChatPane(props: {
       })
       return () => {
         alive = false
-        editor.release()
+        queueMicrotask(editor.release)
       }
     },
   )
   createEffect(
     () => ({ visible: props.contentVisible?.() ?? true, currentKey: key() }),
     ({ visible }) => {
-      if (visible) session.lifecycle.markRead()
+      if (visible) untrack(() => session.lifecycle.markRead())
     },
   )
   createEffect(
@@ -211,13 +221,14 @@ export function HermesChatPane(props: {
       windowSessionId: props.target()?.sessionId,
     }),
     ({ sessionId, windowSessionId }) => {
-      if (sessionId && sessionId !== windowSessionId) props.onSessionCreated?.(sessionId)
+      if (sessionId && sessionId !== windowSessionId)
+        untrack(() => props.onSessionCreated?.(sessionId))
     },
   )
   createEffect(
     () => ({ title: state()?.title?.trim(), windowTitle: props.title?.() }),
     ({ title, windowTitle }) => {
-      if (title && title !== windowTitle) props.onTitleChanged?.(title)
+      if (title && title !== windowTitle) untrack(() => props.onTitleChanged?.(title))
     },
   )
 
@@ -251,7 +262,7 @@ export function HermesChatPane(props: {
     if (command.startsWith('/title ')) {
       const title = command.slice(7).trim()
       await session.lifecycle.rename(title)
-      props.onTitleChanged?.(title)
+      untrack(() => props.onTitleChanged?.(title))
       session.composer.set('')
       return
     }
@@ -346,25 +357,26 @@ export function HermesChatPane(props: {
         data-testid='hermes-transcript'
         class='min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-2 pr-4 select-text [overflow-anchor:none]'
         onWheel={(event) => {
-          if (event.deltaY < 0) followLatest = false
+          if (event.deltaY < 0) pauseTranscriptFollow()
           else if (
             transcriptEl &&
             transcriptEl.scrollHeight - transcriptEl.scrollTop - transcriptEl.clientHeight <= 1
-          )
+          ) {
+            awaitingScrollAway = false
             followLatest = true
+          }
         }}
         onPointerDown={(event) => {
-          if (event.target === event.currentTarget) followLatest = false
+          if (event.target === event.currentTarget) pauseTranscriptFollow()
         }}
-        onTouchStart={() => {
-          followLatest = false
-        }}
+        onTouchStart={pauseTranscriptFollow}
         onScroll={() => {
           if (!transcriptEl) return
           const atBottom =
             transcriptEl.scrollHeight - transcriptEl.scrollTop - transcriptEl.clientHeight <= 1
           ui.transcript.markAtBottom(atBottom)
-          if (atBottom) followLatest = true
+          if (!atBottom) awaitingScrollAway = false
+          if (atBottom && !awaitingScrollAway) followLatest = true
         }}
       >
         <div

@@ -5,13 +5,16 @@ const loopbackNoProxy = 'localhost,127.0.0.1,::1'
 process.env.NO_PROXY = (process.env.NO_PROXY ? process.env.NO_PROXY + ',' : '') + loopbackNoProxy
 process.env.no_proxy = (process.env.no_proxy ? process.env.no_proxy + ',' : '') + loopbackNoProxy
 
+const development = process.env.E2E_DEV === '1'
 const batchId = process.env.BATCH_ID
 const port = batchId ? 9200 + parseInt(batchId) : 5973
 const configFile = batchId
   ? `tests/fixtures/test-config-${batchId}.jsonc`
   : 'tests/fixtures/test-config.jsonc'
-const outputDir = batchId ? `test-results/batch-${batchId}` : 'test-results'
-const htmlReportDir = batchId ? `playwright-report/batch-${batchId}` : 'playwright-report'
+const mode = development ? 'development' : 'production'
+const run = batchId ? `batch-${batchId}` : 'local'
+const outputDir = `test-results/${mode}/${run}`
+const htmlReportDir = `playwright-report/${mode}/${run}`
 const serverTargetDir = process.env.TEST_SERVER_TARGET_DIR ?? 'target'
 const serverBinary = path.resolve(
   __dirname,
@@ -19,11 +22,12 @@ const serverBinary = path.resolve(
   'release',
   process.platform === 'win32' ? 'derp-media-server.exe' : 'derp-media-server',
 )
-const releaseServer = `"${serverBinary}" --production`
+const releaseServer = `"${serverBinary}"${development ? '' : ' --production'}`
 const seededReleaseServer = `bun tests/fixtures/seed-state.ts && ${releaseServer}`
 
 export default defineConfig({
   testDir: './tests/e2e',
+  tsconfig: './tests/fixtures/tsconfig.browser.json',
   outputDir,
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
@@ -35,7 +39,7 @@ export default defineConfig({
   expect: { timeout: 10_000 },
   use: {
     baseURL: `http://localhost:${port}`,
-    trace: 'on-first-retry',
+    trace: development ? 'retain-on-failure' : 'on-first-retry',
     screenshot: 'only-on-failure',
   },
   projects: [
@@ -52,7 +56,7 @@ export default defineConfig({
     reuseExistingServer: false,
     timeout: 120_000,
     env: {
-      NODE_ENV: 'production',
+      NODE_ENV: development ? 'development' : 'production',
       PORT: String(port),
       CONFIG_PATH: configFile,
       NO_PROXY: loopbackNoProxy,

@@ -120,12 +120,15 @@ async function replaceTaskbarPins(request: APIRequestContext, items: unknown[]) 
 }
 
 async function addFileBrowser(page: Page) {
-  if ((await page.getByTestId('canvas-window').count()) === 0) {
+  const cards = page.getByTestId('canvas-window')
+  const count = await cards.count()
+  if (count === 0) {
     await page.getByRole('button', { name: 'Browse files' }).click()
-    return
+  } else {
+    await page.getByTestId('infinite-canvas').click({ button: 'right', position: { x: 8, y: 8 } })
+    await page.getByRole('button', { name: 'Open file browser' }).click()
   }
-  await page.getByTestId('infinite-canvas').click({ button: 'right', position: { x: 8, y: 8 } })
-  await page.getByRole('button', { name: 'Open file browser' }).click()
+  await expect(cards).toHaveCount(count + 1)
 }
 
 test.beforeEach(async ({ page, request }, testInfo) => {

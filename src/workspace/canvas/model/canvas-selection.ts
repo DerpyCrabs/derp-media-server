@@ -1,4 +1,4 @@
-import { createMemo, createSignal, type Accessor } from 'solid-js'
+import { createMemo, createSignal, untrack, type Accessor } from 'solid-js'
 import type { PersistedWindowState } from '@/lib/models/window-model'
 
 export type CanvasSelectionState = {
@@ -31,7 +31,7 @@ export function resolveCanvasSelection(
 export function createCanvasSelection(options: {
   workspace: Accessor<PersistedWindowState | null>
 }) {
-  const initial = options.workspace()
+  const initial = untrack(options.workspace)
   const initialActiveWindowId =
     initial?.activeWindowId &&
     initial.windows.some((window) => window.id === initial.activeWindowId)

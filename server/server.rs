@@ -17,15 +17,14 @@ use tokio::{
 use tower_http::compression::CompressionLayer;
 
 fn start_vite(port: u16, client_port: u16) -> Child {
-    let mut command = if cfg!(windows) {
-        let mut command = Command::new("cmd");
-        command.args(["/c", "bun"]);
-        command
-    } else {
-        Command::new("bun")
-    };
+    let mut command = Command::new("bun");
     command
-        .args(["x", "vite", "--host", "0.0.0.0", "--port"])
+        .args([
+            "node_modules/vite/bin/vite.js",
+            "--host",
+            "0.0.0.0",
+            "--port",
+        ])
         .arg(port.to_string())
         .arg("--strictPort")
         .env("VITE_HMR_PORT", port.to_string())
@@ -181,6 +180,17 @@ pub(crate) async fn run() {
     );
     axum::serve(listener, router(state))
         .with_graceful_shutdown(async {
+            #[cfg(unix)]
+            {
+                let mut terminate =
+                    tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                        .expect("Failed to listen for SIGTERM");
+                tokio::select! {
+                    _ = tokio::signal::ctrl_c() => {},
+                    _ = terminate.recv() => {},
+                }
+            }
+            #[cfg(not(unix))]
             let _ = tokio::signal::ctrl_c().await;
         })
         .await

@@ -198,19 +198,25 @@ export function createWorkspaceSnapDragModel(options: {
       const span = tilingPickerHoverSpan() ?? (snapAssistShown() ? assistHoverPick()?.span : null)
       void workspaceCanvasSize()
       const dragId = dragSnapWindowId()
+      const zone = dragId ? dragSnapZone() : null
+      const zoneBounds =
+        zone && zone !== 'snap-assist'
+          ? getZoneBoundsForDrag(zone === 'edge-grid' ? 'left' : zone)
+          : null
       return {
         span,
         canvas: workspaceAreaEl,
         preview: snapPreviewEl,
-        zone: dragId ? dragSnapZone() : null,
+        zone,
+        zoneBounds,
         gap: tiledWindowGap(),
         windows: workspace()?.windows ?? [],
       }
     },
-    ({ span, canvas, preview, zone, gap, windows }) => {
+    ({ span, canvas, preview, zone, zoneBounds, gap, windows }) => {
       if (!canvas || !preview) return
       if (!span) {
-        applySnapPreviewLayout(preview, zone, canvas, getZoneBoundsForDrag, gap)
+        applySnapPreviewLayout(preview, zone, canvas, () => zoneBounds!, gap)
         return
       }
       const rect = canvas.getBoundingClientRect()

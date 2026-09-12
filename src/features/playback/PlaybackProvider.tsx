@@ -39,6 +39,7 @@ export function PlaybackProvider(props: PlaybackProviderProps) {
   onSettled(() => {
     const stopActivityQueue = restoreActivityQueue()
     const unsubscribe = session.subscribe(() => setSnapshot(session.getSnapshot()))
+    setSnapshot(session.getSnapshot())
     const checkpoint = () => session.dispatch({ type: 'checkpoint' })
     window.addEventListener('pagehide', checkpoint)
     return () => {

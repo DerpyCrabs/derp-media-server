@@ -99,7 +99,7 @@ export function TrackList(props: {
                 disabled={feedback.isPending}
                 class={`grid size-11 shrink-0 place-items-center rounded-full hover:bg-secondary ${track.liked ? 'text-primary' : 'text-muted-foreground'}`}
                 onClick={() =>
-                  feedback.mutate({ path: track.path, kind: track.liked ? 'clear' : 'more' })
+                  void feedback.mutate({ path: track.path, kind: track.liked ? 'clear' : 'more' })
                 }
               >
                 <Heart size={16} class={track.liked ? 'fill-current' : ''} />
@@ -195,7 +195,7 @@ export function TrackList(props: {
             <button
               class={action}
               onClick={() => {
-                feedback.mutate({ path: value.item.path, kind: 'hide' })
+                void feedback.mutate({ path: value.item.path, kind: 'hide' })
                 setMenu(undefined)
               }}
             >

@@ -1,4 +1,4 @@
-import { createEffect, createSignal, onCleanup, type Accessor } from 'solid-js'
+import { createEffect, createSignal, onCleanup, untrack, type Accessor } from 'solid-js'
 
 export type AsyncValue<T> = {
   value: Accessor<T | undefined>
@@ -40,7 +40,7 @@ export function createAsyncValue<T>(
     }
     setLoading(true)
     const current = controller
-    void load(activeSource, current.signal)
+    void untrack(() => load(activeSource, current.signal))
       .then((loaded) => {
         if (current.signal.aborted) disposeValue(loaded)
         else replaceValue(loaded)
@@ -55,7 +55,9 @@ export function createAsyncValue<T>(
 
   onCleanup(() => {
     controller?.abort()
-    replaceValue(undefined)
+    const previous = currentValue
+    currentValue = undefined
+    if (previous !== undefined) disposeValue(previous)
   })
   return { value, loading, error }
 }

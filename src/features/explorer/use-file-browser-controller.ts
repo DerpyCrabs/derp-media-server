@@ -65,7 +65,7 @@ export function useFileBrowserController(options: FileBrowserControllerOptions) 
   function moveFile(sourcePath: string, destinationDir: string) {
     const fileName = sourcePath.split(/[/\\]/).pop()!
     const newPath = destinationDir ? `${destinationDir}/${fileName}` : fileName
-    moveMutation.mutate({ oldPath: sourcePath, newPath })
+    void moveMutation.mutate({ oldPath: sourcePath, newPath })
   }
 
   const allowMoveFile = createMemo(() => (options.editable() ? moveFile : undefined))

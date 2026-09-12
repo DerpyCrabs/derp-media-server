@@ -119,7 +119,6 @@ export function createStreamingMediaSource(
         const { value, done } = await reader.read()
         if (done) break
         await updateBuffer(buffer, signal, () => buffer.appendBuffer(value))
-        if (source.duration && media.duration !== source.duration) media.duration = source.duration
         onBuffer()
       }
       if (!signal.aborted && media.readyState === 'open') {

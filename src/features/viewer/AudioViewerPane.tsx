@@ -1,4 +1,5 @@
 import { createPlaybackScrubber } from '@/features/playback/create-playback-scrubber'
+import { queryData } from '@/lib/api/query-data'
 import { useQueries, useQuery } from '@tanstack/solid-query'
 import Download from 'lucide-solid/icons/download'
 import LoaderCircle from 'lucide-solid/icons/loader-circle'
@@ -7,7 +8,7 @@ import Pause from 'lucide-solid/icons/pause'
 import Play from 'lucide-solid/icons/play'
 import Volume2 from 'lucide-solid/icons/volume-2'
 import VolumeX from 'lucide-solid/icons/volume-x'
-import { For, Match, Show, Switch, createEffect, createMemo, createSignal } from 'solid-js'
+import { For, Match, Show, Switch, createEffect, createMemo, createSignal, untrack } from 'solid-js'
 import type { Accessor } from 'solid-js'
 import { MediaType, type FileItem } from '@/lib/files/types'
 import { fileDownloadHref } from '@/lib/files/download-urls'
@@ -144,15 +145,16 @@ export function AudioViewerPane(props: Props) {
       const path = props.viewingPath()
       return {
         path,
+        autoLoadPaused: props.autoLoadPaused,
         currentItem: playback().currentItem,
         visible: props.contentVisible(),
         key: path ? playbackPathKey(path) : '',
       }
     },
-    ({ path, currentItem, visible, key }) => {
-      if (!props.autoLoadPaused || !path || !visible || offeredPath === key) return
+    ({ path, currentItem, visible, key, autoLoadPaused }) => {
+      if (!autoLoadPaused || !path || !visible || offeredPath === key) return
       offeredPath = key
-      if (!currentItem) load(path, false)
+      if (!currentItem) untrack(() => load(path, false))
     },
   )
 
@@ -176,7 +178,8 @@ export function AudioViewerPane(props: Props) {
   const metadataUrl = createMemo(() => buildAudioMetadataUrl(props.viewingPath()))
   const metadataQuery = useQuery(() => ({
     queryKey: queryKeys.audioMetadata(props.viewingPath()),
-    queryFn: () => fetchAudioMetadata(metadataUrl()),
+    queryFn: ({ queryKey, signal }) =>
+      fetchAudioMetadata(buildAudioMetadataUrl(queryKey[2]), signal),
     enabled: !!metadataUrl(),
     refetchOnWindowFocus: false,
   }))
@@ -196,8 +199,8 @@ export function AudioViewerPane(props: Props) {
     })
     return cover ? buildAdminMediaUrl(cover.path) : null
   })
-  const artworkUrl = createMemo(() => metadataQuery.data?.coverArt || folderCoverUrl())
-  const displayDuration = createMemo(() => duration() || metadataQuery.data?.duration || 0)
+  const artworkUrl = createMemo(() => queryData(metadataQuery)?.coverArt || folderCoverUrl())
+  const displayDuration = createMemo(() => duration() || queryData(metadataQuery)?.duration || 0)
 
   const scrubber = createPlaybackScrubber({
     key: () => props.viewingPath(),
@@ -231,16 +234,16 @@ export function AudioViewerPane(props: Props) {
       <div class='min-w-0'>
         <h2
           class={`truncate font-semibold leading-tight text-foreground ${local.compact ? 'text-sm' : 'text-lg'}`}
-          title={metadataQuery.data?.title || fileName()}
+          title={queryData(metadataQuery)?.title || fileName()}
         >
-          {metadataQuery.data?.title || fileName()}
+          {queryData(metadataQuery)?.title || fileName()}
         </h2>
         <p class='mt-0.5 truncate text-xs text-muted-foreground'>
-          {metadataQuery.data?.artist || 'Unknown artist'}
+          {queryData(metadataQuery)?.artist || 'Unknown artist'}
         </p>
         <Show when={!local.compact}>
           <p class='truncate text-[11px] text-muted-foreground/75'>
-            {metadataQuery.data?.album || props.directory() || 'Unknown album'}
+            {queryData(metadataQuery)?.album || props.directory() || 'Unknown album'}
           </p>
           <div class='mt-1.5 flex gap-1.5 text-[10px] text-muted-foreground'>
             <span class='rounded bg-muted px-1.5 py-0.5 font-medium'>
@@ -366,7 +369,9 @@ export function AudioViewerPane(props: Props) {
           <For each={audioFiles()}>
             {(file, index) => {
               const label = () => {
-                const metadata = playlistMetadataQueries[index()]?.data as AudioMetadata | undefined
+                const metadata = queryData(playlistMetadataQueries[index()]) as
+                  | AudioMetadata
+                  | undefined
                 const title = metadata?.title?.trim() || file.name
                 return metadata?.artist?.trim() ? `${metadata.artist} — ${title}` : title
               }

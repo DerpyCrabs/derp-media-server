@@ -8,6 +8,7 @@ type Props = {
   results: SearchResult[]
   query: string
   isLoading: boolean
+  error?: string
   currentPath: string
   onResultClick: (path: string) => void
 }
@@ -70,7 +71,7 @@ export function KbSearchResults(props: Props) {
       }
     >
       <Show
-        when={props.results.length > 0}
+        when={props.results.length > 0 || !!props.error}
         fallback={
           <div class='flex flex-col items-center justify-center py-16 text-muted-foreground'>
             <Search class='mb-4 h-10 w-10 opacity-50' stroke-width={2} />
@@ -78,7 +79,17 @@ export function KbSearchResults(props: Props) {
           </div>
         }
       >
-        <div class='divide-y divide-border overflow-auto' onKeyDown={onKeyDown}>
+        <div
+          role='region'
+          aria-label='Note search results'
+          class='divide-y divide-border overflow-auto'
+          onKeyDown={onKeyDown}
+        >
+          <Show when={props.error}>
+            <p role='alert' class='p-4 text-sm text-destructive'>
+              {props.error}
+            </p>
+          </Show>
           <For each={props.results}>
             {(result, index) => {
               const dirPath = () =>

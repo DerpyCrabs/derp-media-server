@@ -48,14 +48,12 @@ export function useInlineCreate(options: {
     if (!stem || fileExists() || !visible()) return
     const base = options.currentPath() ? `${options.currentPath()}/${stem}` : stem
     const path = normalizeNewFilePath(base, options.inKnowledgeBase())
-    options.createFileMutation.mutate(
-      { path, content: '' },
-      {
-        onSuccess: () => {
-          reset()
-          options.onFileCreated?.(path)
-        },
+    void options.createFileMutation.mutate({ path, content: '' }).then(
+      () => {
+        reset()
+        options.onFileCreated?.(path)
       },
+      () => {},
     )
   }
 
@@ -63,14 +61,12 @@ export function useInlineCreate(options: {
     const folderName = name().trim()
     if (!folderName || folderExists() || !visible()) return
     const path = options.currentPath() ? `${options.currentPath()}/${folderName}` : folderName
-    options.createFolderMutation.mutate(
-      { path },
-      {
-        onSuccess: () => {
-          reset()
-          options.onFolderCreated?.(path)
-        },
+    void options.createFolderMutation.mutate({ path }).then(
+      () => {
+        reset()
+        options.onFolderCreated?.(path)
       },
+      () => {},
     )
   }
 

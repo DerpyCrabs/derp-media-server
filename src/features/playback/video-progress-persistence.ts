@@ -1,4 +1,4 @@
-import { createStore } from 'solid-js'
+import { createStore, untrack } from 'solid-js'
 import {
   createStoreListeners,
   readPersistedState,
@@ -30,11 +30,11 @@ function persist(playbackTimes: VideoPlaybackTimes) {
 }
 
 function getSavedTime(filePath: string): number | null {
-  return store.playbackTimes[filePath] ?? null
+  return untrack(() => store.playbackTimes[filePath] ?? null)
 }
 
 function saveTime(filePath: string, time: number, duration: number) {
-  const next = { ...store.playbackTimes }
+  const next = untrack(() => ({ ...store.playbackTimes }))
   if (duration > 0 && time >= duration * 0.9) {
     delete next[filePath]
     setStore((state) => {
@@ -51,7 +51,7 @@ function saveTime(filePath: string, time: number, duration: number) {
 }
 
 function clearTime(filePath: string) {
-  const next = { ...store.playbackTimes }
+  const next = untrack(() => ({ ...store.playbackTimes }))
   delete next[filePath]
   setStore((state) => {
     state.playbackTimes = next

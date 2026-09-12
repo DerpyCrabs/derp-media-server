@@ -3,7 +3,7 @@ use crate::{
     error::{AppError, AppResult},
 };
 use axum::{Json, Router, extract::State, routing::post};
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -74,7 +74,9 @@ pub fn record(c: &mut Connection, a: &Activity) -> AppResult<()> {
     {
         return Err(AppError::bad("Invalid playback activity"));
     }
-    let tx = c.transaction().map_err(sql_error)?;
+    let tx = c
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(sql_error)?;
     let prior: Option<(String, i64, f64, bool, bool, bool)> = tx
         .query_row(
             "SELECT path,seq,seconds,qualified,completed,excluded FROM media_sessions WHERE id=?1",

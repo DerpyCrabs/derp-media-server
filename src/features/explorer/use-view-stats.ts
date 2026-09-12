@@ -1,3 +1,4 @@
+import { queryData } from '@/lib/api/query-data'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
 import { api, post } from '@/lib/api/client'
 import { queryKeys } from '@/lib/api/query-keys'
@@ -25,17 +26,17 @@ export function useViewStats(_sourceContext?: Accessor<unknown>, options?: Optio
   }))
 
   function incrementView(filePath: string) {
-    incrementMutation.mutate({ filePath })
+    void incrementMutation.mutate({ filePath })
   }
 
   function getViewCount(filePath: string) {
-    return statsQuery.data?.views?.[filePath] ?? 0
+    return queryData(statsQuery)?.views?.[filePath] ?? 0
   }
 
   return {
     incrementView,
     getViewCount,
-    viewCounts: () => statsQuery.data?.views ?? {},
+    viewCounts: () => queryData(statsQuery)?.views ?? {},
     query: statsQuery,
   }
 }

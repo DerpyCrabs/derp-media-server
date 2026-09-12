@@ -159,17 +159,18 @@ export function useFileBrowserActions(options: FileBrowserActionsOptions) {
     if (!name || fileExists(name)) return
     const base = options.currentPath() ? `${options.currentPath()}/${name}` : name
     const path = normalizeNewFilePath(base, options.inKnowledgeBase())
-    controller.mutations.createFileMutation.mutate(
-      { path, content: '' },
-      { onSuccess: closeCreateFile },
-    )
+    void controller.mutations.createFileMutation
+      .mutate({ path, content: '' })
+      .then(closeCreateFile, () => {})
   }
 
   function submitCreateFolder(value: string) {
     const name = value.trim()
     if (!name || folderExists(name)) return
     const path = options.currentPath() ? `${options.currentPath()}/${name}` : name
-    controller.mutations.createFolderMutation.mutate({ path }, { onSuccess: closeCreateFolder })
+    void controller.mutations.createFolderMutation
+      .mutate({ path })
+      .then(closeCreateFolder, () => {})
   }
 
   function submitRename(value: string) {
@@ -180,10 +181,9 @@ export function useFileBrowserActions(options: FileBrowserActionsOptions) {
     const normalizedPath = target.path.replace(/\\/g, '/')
     const parent = normalizedPath.split('/').slice(0, -1).join('/')
     const newPath = parent ? `${parent}/${name}` : name
-    controller.mutations.renameMutation.mutate(
-      { oldPath: normalizedPath, newPath },
-      { onSuccess: closeRename },
-    )
+    void controller.mutations.renameMutation
+      .mutate({ oldPath: normalizedPath, newPath })
+      .then(closeRename, () => {})
   }
 
   function confirmMove(destination: string) {
@@ -192,19 +192,17 @@ export function useFileBrowserActions(options: FileBrowserActionsOptions) {
     const name = target.path.split(/[/\\]/).pop()!
     const normalizedDestination = destination.replace(/\\/g, '/').replace(/\/+$/, '')
     const newPath = normalizedDestination ? `${normalizedDestination}/${name}` : name
-    controller.mutations.moveMutation.mutate(
-      { oldPath: target.path.replace(/\\/g, '/'), newPath },
-      { onSuccess: closeMove },
-    )
+    void controller.mutations.moveMutation
+      .mutate({ oldPath: target.path.replace(/\\/g, '/'), newPath })
+      .then(closeMove, () => {})
   }
 
   function confirmCopy(destination: string) {
     const target = copyTarget()
     if (!target) return
-    controller.mutations.copyMutation.mutate(
-      { sourcePath: target.path, destinationDir: destination },
-      { onSuccess: closeCopy },
-    )
+    void controller.mutations.copyMutation
+      .mutate({ sourcePath: target.path, destinationDir: destination })
+      .then(closeCopy, () => {})
   }
 
   function confirmDelete() {
@@ -212,7 +210,7 @@ export function useFileBrowserActions(options: FileBrowserActionsOptions) {
     if (!target) return
     const close = () => updateDeleteTarget(null)
     if (overrides?.remove?.(target, close) === true) return
-    void controller.mutations.deleteMutation.mutateAsync(target.path).then(close)
+    void controller.mutations.deleteMutation.mutate(target.path).then(close, () => {})
   }
 
   const rename: ExplorerRenameDialog = {

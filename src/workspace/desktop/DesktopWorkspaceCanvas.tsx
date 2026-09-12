@@ -153,7 +153,7 @@ export function DesktopWorkspaceCanvas(props: DesktopWorkspaceCanvasProps) {
             <Show when={leader()}>
               <WorkspaceWindowChrome
                 window={{
-                  leaderId: leader()!.id,
+                  leaderId: leader()?.id ?? '',
                   groupId: gid,
                   tabs: tabList,
                   visibleTabId,
@@ -199,8 +199,10 @@ export function DesktopWorkspaceCanvas(props: DesktopWorkspaceCanvasProps) {
                     props.document.set((p) =>
                       p ? WorkspaceDocumentCommands.setSplitLeft(p, tabId) : p,
                     ),
-                  dropFile: (data, insertIndex) =>
-                    props.tabs.dropFile(leader()!.id, data, insertIndex),
+                  dropFile: (data, insertIndex) => {
+                    const currentLeader = leader()
+                    if (currentLeader) props.tabs.dropFile(currentLeader.id, data, insertIndex)
+                  },
                 }}
               >
                 <Show
@@ -272,9 +274,8 @@ export function DesktopWorkspaceCanvas(props: DesktopWorkspaceCanvasProps) {
           )
         }}
       </For>
-      <Show when={props.picker.state()}>
-        {(get) => {
-          const p = get()
+      <Show when={props.picker.state()} keyed>
+        {(p) => {
           const c = snap().getWorkspaceAreaElement()
           if (!c) return null
           return (

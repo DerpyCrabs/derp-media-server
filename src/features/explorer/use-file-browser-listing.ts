@@ -1,4 +1,5 @@
-import { createInfiniteQuery } from '@tanstack/solid-query'
+import { queryData } from '@/lib/api/query-data'
+import { useInfiniteQuery } from '@tanstack/solid-query'
 import { createMemo, type Accessor } from 'solid-js'
 import type { FileItem } from '@/lib/files/types'
 import type { DirectoryListing, VirtualEntry } from '@/lib/files/virtual-directory'
@@ -15,7 +16,7 @@ export type FileBrowserListingOptions = Readonly<{
 }>
 
 export function useFileBrowserListing(options: FileBrowserListingOptions) {
-  const query = createInfiniteQuery<
+  const query = useInfiniteQuery<
     DirectoryListing,
     Error,
     DirectoryListing[],
@@ -31,7 +32,7 @@ export function useFileBrowserListing(options: FileBrowserListingOptions) {
       state.state.data?.pages.some((page) => !!page.virtualDirectory) ? 5_000 : false,
   }))
 
-  const pages = createMemo(() => query.data ?? [])
+  const pages = createMemo(() => queryData(query) ?? [])
   const firstPage = createMemo(() => pages()[0])
   const files = createMemo(() => {
     const seen = new Set<string>()
@@ -48,7 +49,7 @@ export function useFileBrowserListing(options: FileBrowserListingOptions) {
   )
   const virtualEntry = (file: FileItem) => virtualEntries()[file.path]
   const virtualDirectory = createMemo(() => firstPage()?.virtualDirectory)
-  const loading = createMemo(() => query.isPending && query.data === undefined)
+  const loading = createMemo(() => query.isPending)
   const deferredLoading = useDeferredLoading(() => loading())
 
   function loadNextPage() {

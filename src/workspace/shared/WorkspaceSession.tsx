@@ -32,7 +32,9 @@ export function WorkspaceSessionProvider(props: {
     })
     return () => {
       disposed = true
-      setSavingBlockers((current) => current.filter((item) => item !== blocked))
+      queueMicrotask(() => {
+        setSavingBlockers((current) => current.filter((item) => item !== blocked))
+      })
     }
   }
 

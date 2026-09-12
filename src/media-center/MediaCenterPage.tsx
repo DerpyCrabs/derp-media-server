@@ -1,3 +1,4 @@
+import { queryData } from '@/lib/api/query-data'
 import { createMemo, createSignal, Show } from 'solid-js'
 import { useQuery } from '@tanstack/solid-query'
 import { api } from '@/lib/api/client'
@@ -28,7 +29,7 @@ export function MediaCenterPage() {
   }))
   const home = createMemo(
     () =>
-      ai.data?.enabled &&
+      queryData(ai)?.enabled &&
       (params().get('view') === 'for-you' ||
         (!params().has('view') &&
           !params().has('dir') &&
@@ -38,13 +39,13 @@ export function MediaCenterPage() {
   const config = useServerConfigQuery()
   const { knowledgeBases } = useExplorerSettings()
   const playback = usePlaybackSnapshot()
-  const editableFolders = () => config.data?.editableFolders ?? []
+  const editableFolders = () => queryData(config)?.editableFolders ?? []
   const audioPlayerVisible = () => !!playback().currentItem && playback().mode === 'audio'
 
   function Navigation() {
     return (
       <nav class='flex shrink-0 items-center gap-4 max-[600px]:gap-1' aria-label='Media center'>
-        <Show when={ai.data?.enabled}>
+        <Show when={queryData(ai)?.enabled}>
           <button
             class={`flex items-center justify-center gap-2 h-8 text-sm font-medium transition-colors min-w-8 pointer-coarse:h-11 pointer-coarse:min-w-11 ${home() ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
             aria-current={home() ? 'page' : undefined}
@@ -73,11 +74,11 @@ export function MediaCenterPage() {
   }
   return (
     <div class='min-h-screen bg-background'>
-      <Show when={ai.data?.enabled}>
+      <Show when={queryData(ai)?.enabled}>
         <header class='relative h-14 px-4' data-testid='media-navigation-header'>
           <div class='absolute top-1/2 left-[50vw] flex -translate-x-1/2 -translate-y-1/2 items-center'>
             <Navigation />
-            <Show when={ai.data?.enabled}>
+            <Show when={queryData(ai)?.enabled}>
               <div class='absolute left-full ml-4 flex items-center gap-1'>
                 <button
                   class='flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground pointer-coarse:h-11 pointer-coarse:w-11'
@@ -108,14 +109,14 @@ export function MediaCenterPage() {
           when={home()}
           fallback={
             <MediaCenterFileBrowser
-              hideSearch={ai.data?.enabled}
+              hideSearch={queryData(ai)?.enabled}
               searchOpen={searchOpen}
               onSearchOpenChange={setSearchOpen}
             />
           }
         >
           <ForYou
-            aiEnabled={!!ai.data?.enabled}
+            aiEnabled={!!queryData(ai)?.enabled}
             actions={feedActions()}
             searchOpen={searchOpen()}
             onOpenFolder={() => {

@@ -35,8 +35,24 @@ test.describe('Knowledge Base', () => {
     await page.getByRole('button', { name: 'Search note contents' }).click()
     const searchInput = page.getByPlaceholder('Search notes...')
     await searchInput.fill('welcome')
-    // Wait for search results to appear
-    await expect(page.getByText('welcome.md')).toBeVisible()
+    await expect(
+      page
+        .getByRole('region', { name: 'Note search results' })
+        .getByRole('button', { name: /welcome\.md/ }),
+    ).toBeVisible()
+  })
+
+  test('reports note-search failures instead of claiming there are no results', async ({
+    page,
+  }) => {
+    await page.route('**/api/kb/search?*', (route) =>
+      route.fulfill({ status: 503, json: { error: 'Note search is unavailable' } }),
+    )
+    await page.goto('/?dir=Notes')
+    await page.getByRole('button', { name: 'Search note contents' }).click()
+    await page.getByPlaceholder('Search notes...').fill('welcome')
+    await expect(page.getByRole('alert')).toContainText('Note search is unavailable')
+    await expect(page.getByText('No results for "welcome"')).toBeHidden()
   })
 
   test('shows recent notes', async ({ page }) => {

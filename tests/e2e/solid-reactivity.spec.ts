@@ -63,3 +63,21 @@ for (const entry of [
     diagnostics.expectNone()
   })
 }
+
+for (const workspaceType of ['desktop', 'canvas']) {
+  test(`creates a new workspace from ${workspaceType} in development`, async ({ page }) => {
+    const diagnostics = captureDiagnostics(page)
+    const id = `dev-new-${workspaceType}-${Date.now()}`
+    await page.goto(`/workspace?ws=${id}&new=${workspaceType}`)
+    await expect(page.locator('[data-workspace-opened]')).toBeAttached()
+    await page.getByRole('button', { name: 'Open workspaces' }).click()
+    await page.getByRole('button', { name: 'New workspace', exact: true }).click()
+    try {
+      await expect(page).not.toHaveURL(new RegExp(`ws=${id}(?:&|$)`))
+      await expect(page.locator('[data-workspace-opened]')).toBeAttached()
+      await expect(page.getByText('Read only — workspace is open elsewhere')).toBeHidden()
+    } finally {
+      diagnostics.expectNone()
+    }
+  })
+}

@@ -1,5 +1,6 @@
 import { QueuePanel } from '@/features/music/QueuePanel'
 import { createPlaybackScrubber } from '@/features/playback/create-playback-scrubber'
+import { queryData } from '@/lib/api/query-data'
 import { selection } from '@/features/media-ai/selection'
 import { fetchDirectoryFiles } from '@/lib/files/files-client'
 import { queryKeys } from '@/lib/api/query-keys'
@@ -52,13 +53,13 @@ export function AudioPlayer() {
     enabled: shouldHandleAudio() && !!playingPath(),
   }))
   const allFiles = createMemo(() => {
-    const files = filesQuery.data?.files ?? []
+    const files = queryData(filesQuery)?.files ?? []
     return sortFilesForPath(
       files,
       currentDir(),
-      settingsQuery.data?.sortOrders,
+      queryData(settingsQuery)?.sortOrders,
       false,
-      createFileSortMetadata(settingsQuery.data?.favorites, viewStats.viewCounts()),
+      createFileSortMetadata(queryData(settingsQuery)?.favorites, viewStats.viewCounts()),
     )
   })
 
@@ -101,7 +102,7 @@ export function AudioPlayer() {
     enabled: shouldHandleAudio() && !!metadataUrl(),
     refetchOnWindowFocus: false,
   }))
-  const audioMetadata = createMemo(() => metadataQuery.data)
+  const audioMetadata = createMemo(() => queryData(metadataQuery))
 
   const displayImageUrl = createMemo(() => {
     const path = playingPath()

@@ -9,7 +9,7 @@ import Headphones from 'lucide-solid/icons/headphones'
 import Maximize2 from 'lucide-solid/icons/maximize-2'
 import Minimize2 from 'lucide-solid/icons/minimize-2'
 import X from 'lucide-solid/icons/x'
-import { Show, createEffect, createMemo, createSignal } from 'solid-js'
+import { Show, createEffect, createMemo, createSignal, untrack } from 'solid-js'
 import {
   usePlaybackMediaHost,
   usePlaybackSession,
@@ -42,12 +42,13 @@ export function VideoPlayer() {
     () => ({ element: containerEl(), minimized: isMinimized() }),
     ({ element, minimized }) => {
       if (!element || !minimized) return undefined
-      const constrain = () => {
-        const store = floatingVideoPositionStore.getState()
-        const current = store.position
-        const next = validatePosition(current, element.getBoundingClientRect())
-        if (next.x !== current.x || next.y !== current.y) store.setPosition(next)
-      }
+      const constrain = () =>
+        untrack(() => {
+          const store = floatingVideoPositionStore.getState()
+          const current = store.position
+          const next = validatePosition(current, element.getBoundingClientRect())
+          if (next.x !== current.x || next.y !== current.y) store.setPosition(next)
+        })
       const resize = new ResizeObserver(constrain)
       resize.observe(element)
       window.addEventListener('resize', constrain)

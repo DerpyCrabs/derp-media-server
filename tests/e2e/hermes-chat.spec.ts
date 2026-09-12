@@ -41,7 +41,40 @@ async function seedWorkspace(id: string, windows: unknown[]) {
   expect(response.ok()).toBe(true)
 }
 
+async function mockHermesEvents() {
+  await page.addInitScript(() => {
+    const NativeEventSource = window.EventSource
+    class ControlledEventSource {
+      onopen: (() => void) | null = null
+      onmessage: ((event: { data: string }) => void) | null = null
+      onerror: (() => void) | null = null
+      constructor() {
+        ;(window as any).__emitHermesEvent = (value: unknown) =>
+          this.onmessage?.({ data: JSON.stringify(value) })
+        ;(window as any).__reopenHermesEvents = () => this.onopen?.()
+        queueMicrotask(() => {
+          if (this.closed) return
+          this.onopen?.()
+        })
+      }
+      closed = false
+      close() {
+        this.closed = true
+      }
+    }
+    Object.defineProperty(window, 'EventSource', {
+      configurable: true,
+      value: function (url: string, options?: EventSourceInit) {
+        return url.includes('/api/hermes/events')
+          ? new ControlledEventSource()
+          : new NativeEventSource(url, options)
+      },
+    })
+  })
+}
+
 test('renders parity controls and native export, then archives read-only', async () => {
+  await mockHermesEvents()
   let archived = false
   let archiveRequests = 0
   await page.route('**/api/hermes/**', async (route) => {
@@ -131,16 +164,6 @@ test('renders parity controls and native export, then archives read-only', async
     }
     if (url.pathname === '/api/hermes/decision') {
       await route.fulfill({ json: { accepted: true } })
-      return
-    }
-    if (url.pathname === '/api/hermes/events') {
-      await route.fulfill({
-        contentType: 'text/event-stream',
-        body: [
-          'data: {"type":"connected"}\n\n',
-          'data: {"params":{"durable_session_id":"session-1","type":"approval.request","payload":{"description":"Allow safe action?","choices":["once","deny"]}}}\n\n',
-        ].join(''),
-      })
       return
     }
     await route.fulfill({ status: 404, json: { error: `Unhandled Hermes mock: ${url.pathname}` } })
@@ -251,6 +274,15 @@ test('renders parity controls and native export, then archives read-only', async
     buffer: Buffer.from('Hermes attachment'),
   })
   await expect(chat.getByLabel('Attachments').getByText('notes.txt')).toBeVisible()
+  await page.evaluate(() => {
+    ;(window as any).__emitHermesEvent({
+      params: {
+        durable_session_id: 'session-1',
+        type: 'approval.request',
+        payload: { description: 'Allow safe action?', choices: ['once', 'deny'] },
+      },
+    })
+  })
   await expect(chat.getByText('Allow safe action?')).toBeVisible()
   await chat.getByRole('button', { name: 'once' }).click()
   await expect(chat.getByText('Allow safe action?')).toHaveCount(0)
@@ -320,24 +352,7 @@ test('matches Hermes Desktop optimistic, streaming, and stick-to-bottom behavior
       layout: { bounds: { x: 20, y: 20, width: 680, height: 520 }, zIndex: 1 },
     },
   ])
-  await page.addInitScript(() => {
-    class ControlledEventSource {
-      onopen: (() => void) | null = null
-      onmessage: ((event: { data: string }) => void) | null = null
-      onerror: (() => void) | null = null
-      constructor() {
-        ;(window as any).__emitHermesEvent = (value: unknown) =>
-          this.onmessage?.({ data: JSON.stringify(value) })
-        ;(window as any).__reopenHermesEvents = () => this.onopen?.()
-        queueMicrotask(() => this.onopen?.())
-      }
-      close() {}
-    }
-    Object.defineProperty(window, 'EventSource', {
-      configurable: true,
-      value: ControlledEventSource,
-    })
-  })
+  await mockHermesEvents()
   await page.goto(`/workspace?ws=${workspaceId}`)
   const chat = page.getByTestId('hermes-chat-pane')
   const transcript = chat.getByTestId('hermes-transcript')
@@ -453,6 +468,7 @@ test('matches Hermes Desktop optimistic, streaming, and stick-to-bottom behavior
 })
 
 test('pages older history and opens externally active sessions in observer mode', async () => {
+  await mockHermesEvents()
   const offsets: string[] = []
   await page.route('**/api/hermes/**', async (route) => {
     const url = new URL(route.request().url())
@@ -522,9 +538,15 @@ test('pages older history and opens externally active sessions in observer mode'
   await expect(chat.getByText('Oldest paged message')).toHaveCount(1)
   expect(offsets).toContain('100')
   await expect(chat.getByRole('button', { name: 'Load older messages' })).toHaveCount(0)
-  await page.waitForTimeout(3_500)
+  const historyRefresh = page.waitForResponse('**/api/hermes/sessions/session-paged/messages?*')
+  await page.evaluate(() => (window as any).__reopenHermesEvents())
+  await historyRefresh
   await expect(chat.getByText('Oldest paged message')).toHaveCount(1)
   await chat.getByRole('button', { name: 'Take over' }).click()
+  await expect(chat.getByPlaceholder('Message Hermes…')).toBeEnabled()
+  const refreshed = page.waitForResponse('**/api/hermes/sessions/session-paged')
+  await page.evaluate(() => (window as any).__reopenHermesEvents())
+  await refreshed
   await expect(chat.getByPlaceholder('Message Hermes…')).toBeEnabled()
 })
 

@@ -1,3 +1,4 @@
+import { queryData } from '@/lib/api/query-data'
 import { clearImageSelection, setMediaSelection } from '@/features/media-ai/selection'
 import { createMemo, createSignal, Show } from 'solid-js'
 import {
@@ -164,8 +165,8 @@ export function MediaCenterFileBrowser(props: {
   const host: FileBrowserHost = {
     layout: 'media',
     currentPath,
-    editableFolders: () => config.data?.editableFolders ?? [],
-    mediaRoots: () => config.data?.mediaRoots ?? [],
+    editableFolders: () => queryData(config)?.editableFolders ?? [],
+    mediaRoots: () => queryData(config)?.mediaRoots ?? [],
     iconContext,
     navigate: (path) => navigateToFolder(path || null),
     present,

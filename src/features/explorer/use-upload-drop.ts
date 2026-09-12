@@ -54,7 +54,7 @@ export function useUploadDrop(options: {
     clearToastTimer()
     setToast({ kind: 'uploading', fileCount: files.length })
     try {
-      await uploadMutation.mutateAsync({ files, targetDir })
+      await uploadMutation.mutate({ files, targetDir })
       setToast({ kind: 'success' })
       toastTimer = window.setTimeout(hideToast, 2000)
     } catch (error) {

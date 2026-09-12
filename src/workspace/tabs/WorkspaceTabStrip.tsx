@@ -380,9 +380,8 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
           )
         }}
       </FloatingContextMenu>
-      <Show when={leftTab()}>
-        {(lt) => {
-          const tab = lt()
+      <Show when={leftTab()} keyed>
+        {(tab) => {
           return (
             <div
               data-no-window-drag

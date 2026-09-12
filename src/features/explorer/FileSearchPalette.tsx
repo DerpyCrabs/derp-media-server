@@ -1,3 +1,4 @@
+import { queryData } from '@/lib/api/query-data'
 import { api } from '@/lib/api/client'
 import {
   FILE_SEARCH_DEFAULT_LIMIT,
@@ -114,15 +115,15 @@ function FileSearchPalette(props: {
 
   const searchQuery = useQuery(() => ({
     queryKey: queryKeys.fileSearch(normalizedQuery()),
-    queryFn: ({ signal }: { signal: AbortSignal }) =>
+    queryFn: ({ queryKey, signal }) =>
       api<FileSearchResponse>(
-        `/api/files/search?q=${encodeURIComponent(debouncedQuery())}&limit=${FILE_SEARCH_DEFAULT_LIMIT}`,
+        `/api/files/search?q=${encodeURIComponent(queryKey[1] ?? '')}&limit=${FILE_SEARCH_DEFAULT_LIMIT}`,
         { signal },
       ),
     enabled: queryLongEnough(),
     staleTime: 0,
     gcTime: 30_000,
-    placeholderData: (previousData) => previousData,
+    refetchInterval: 2_000,
   }))
 
   const reindexMutation = useMutation(() => ({
@@ -137,8 +138,8 @@ function FileSearchPalette(props: {
     },
   }))
 
-  const results = () => (queryLongEnough() ? (searchQuery.data?.results ?? []) : [])
-  const status = () => searchQuery.data?.status ?? statusQuery.data
+  const results = () => (queryLongEnough() ? (queryData(searchQuery)?.results ?? []) : [])
+  const status = () => queryData(searchQuery)?.status ?? queryData(statusQuery)
   const selectionKey = () =>
     `${normalizedQuery()}\0${results()
       .map((result) => result.path)
@@ -331,7 +332,7 @@ function FileSearchPalette(props: {
             <Database class='size-4 shrink-0' aria-hidden='true' />
             <span class='min-w-0 flex-1' aria-live='polite'>
               {stateLabel(status())}
-              <Show when={searchQuery.data?.truncated}>
+              <Show when={queryData(searchQuery)?.truncated}>
                 {' '}
                 · First {FILE_SEARCH_DEFAULT_LIMIT} results
               </Show>
@@ -340,7 +341,7 @@ function FileSearchPalette(props: {
               type='button'
               class='inline-flex h-9 items-center gap-1.5 rounded-md px-2 hover:bg-muted hover:text-foreground disabled:opacity-50'
               disabled={reindexMutation.isPending}
-              onClick={() => reindexMutation.mutate('reconcile')}
+              onClick={() => void reindexMutation.mutate('reconcile')}
             >
               <RefreshCw class={`size-3.5 ${reindexMutation.isPending ? 'animate-spin' : ''}`} />
               Refresh
@@ -354,7 +355,7 @@ function FileSearchPalette(props: {
                   title: 'Rebuild file search index?',
                   message: 'A complete rebuild may take a while.',
                   confirmLabel: 'Rebuild',
-                }).then((confirmed) => confirmed && reindexMutation.mutate('full'))
+                }).then((confirmed) => confirmed && void reindexMutation.mutate('full'))
               }
             >
               Rebuild

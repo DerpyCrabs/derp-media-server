@@ -60,12 +60,13 @@ export function usePasteSession(options: {
     } else {
       variables.content = data.content
     }
-    options.mutation.mutate(variables, {
-      onSuccess: () => {
+    void options.mutation.mutate(variables).then(
+      () => {
         close()
         options.onSaved?.(path)
       },
-    })
+      () => {},
+    )
   }
 
   onCleanup(requests.cancel)

@@ -11,7 +11,7 @@ export function HermesChatDialog(props: {
   target: HermesOpenTarget
   onClose: () => void
 }) {
-  const initialTarget = untrack(() => props.target)
+  const initialTarget = untrack(() => ({ ...props.target }))
   const draftId = initialTarget.type === 'hermesDraft' ? crypto.randomUUID() : undefined
   const ownerId = `media-hermes-${initialTarget.sessionId ?? draftId}`
   const [sessionId, setSessionId] = createSignal(

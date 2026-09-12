@@ -52,8 +52,8 @@ export function TextEditorPane(props: TextEditorPaneProps): JSX.Element {
   const autoSaveMutation = useMutation(() => ({
     mutationFn: (vars: { filePath: string; enabled: boolean; readOnly?: boolean }) =>
       post('/api/settings/autoSave', vars),
-    onMutate: async (vars) => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.settings() })
+    onMutate: (vars) => {
+      void queryClient.cancelQueries({ queryKey: queryKeys.settings() })
       queryClient.setQueryData<GlobalSettings>(queryKeys.settings(), (old) => {
         if (!old)
           return {
@@ -100,9 +100,9 @@ export function TextEditorPane(props: TextEditorPaneProps): JSX.Element {
 
   const textQuery = useQuery(() => ({
     queryKey: queryKey(),
-    queryFn: async () => {
-      const url = `/api/files/text?path=${encodeURIComponent(currentTextTarget().viewingPath)}`
-      const res = await fetch(url)
+    queryFn: async ({ queryKey, signal }) => {
+      const url = `/api/files/text?path=${encodeURIComponent(queryKey[3])}`
+      const res = await fetch(url, { signal })
       if (!res.ok) throw new Error('Failed to load file')
       return (await res.json()) as TextDocumentRemote
     },
@@ -174,18 +174,43 @@ export function TextEditorPane(props: TextEditorPaneProps): JSX.Element {
     },
   }))
 
-  async function saveInternal(quiet: boolean) {
-    if (quiet && editContent() === editorBaseContent()) return
+  let pendingSave:
+    | { target: string; content: string; promise: Promise<TextDocumentRemote | undefined> }
+    | undefined
+
+  async function saveInternal(quiet: boolean): Promise<TextDocumentRemote | undefined> {
+    const target = currentTextTargetKey()
+    const content = editContent()
+    if (pendingSave) {
+      const pending = pendingSave
+      const saved = await pending.promise
+      if (pending.target === target && pending.content === content) return saved
+      if (currentTextTargetKey() !== target) return undefined
+      return saveInternal(quiet)
+    }
+    const promise = performSave(quiet)
+    pendingSave = { target, content, promise }
+    try {
+      return await promise
+    } finally {
+      pendingSave = undefined
+    }
+  }
+
+  async function performSave(quiet: boolean) {
+    if (quiet && editContent() === editorBaseContent()) return undefined
     if (!quiet) setAutoSaveError(null)
     const variables = textSaveVariables()
     try {
-      await saveMutation.mutateAsync(variables)
+      const saved = await saveMutation.mutate(variables)
       if (quiet && isCurrentSaveTarget(variables)) setAutoSaveError(null)
+      return saved
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Failed to save file'
       if (isCurrentSaveTarget(variables)) setAutoSaveError(message)
       if (!quiet && isCurrentSaveTarget(variables))
         void showAppAlert(message, 'Could not save file')
+      return undefined
     }
   }
 
@@ -198,7 +223,10 @@ export function TextEditorPane(props: TextEditorPaneProps): JSX.Element {
         target,
         documentKey,
         readOnly: persistedReadOnly(),
-        data: textQuery.data,
+        data:
+          textQuery.isPending || textQuery.isError
+            ? undefined
+            : { content: textQuery.data.content, version: textQuery.data.version },
       }
     },
     (state) => {
@@ -216,7 +244,10 @@ export function TextEditorPane(props: TextEditorPaneProps): JSX.Element {
       }
 
       if (data === undefined) return
-      if (documentKey !== hydratedDocumentKey || editContent() === editorBaseContent()) {
+      if (
+        documentKey !== hydratedDocumentKey ||
+        untrack(() => editContent() === editorBaseContent())
+      ) {
         setEditContent(data.content)
         setEditorBaseContent(data.content)
         setBaseVersion(data.version)
@@ -276,26 +307,22 @@ export function TextEditorPane(props: TextEditorPaneProps): JSX.Element {
       clearTimeout(autosaveTimer)
       autosaveTimer = null
     }
-    if (
-      fileEditable() &&
-      autoSaveEnabled() &&
-      !conflict() &&
-      editContent() !== editorBaseContent()
-    ) {
-      await saveInternal(true)
+    if (autoSaveEnabled() && dirty()) {
+      if (!fileEditable() || conflict()) return
+      const saved = await saveInternal(true)
+      if (!saved || editContent() !== saved.content) return
     }
-    if (autoSaveEnabled() && dirty()) return
     if (props.onClose) props.onClose()
     else closeViewer()
   }
 
   function toggleAutoSave() {
-    autoSaveMutation.mutate({ filePath: props.viewingPath, enabled: !autoSaveEnabled() })
+    void autoSaveMutation.mutate({ filePath: props.viewingPath, enabled: !autoSaveEnabled() })
   }
 
   function toggleReadOnlyFromEditor() {
     setReadOnlyView(true)
-    autoSaveMutation.mutate({
+    void autoSaveMutation.mutate({
       filePath: props.viewingPath,
       enabled: autoSaveEnabled(),
       readOnly: true,
@@ -304,7 +331,7 @@ export function TextEditorPane(props: TextEditorPaneProps): JSX.Element {
 
   function enterEditMode() {
     setReadOnlyView(false)
-    autoSaveMutation.mutate({
+    void autoSaveMutation.mutate({
       filePath: props.viewingPath,
       enabled: autoSaveEnabled(),
       readOnly: false,
@@ -331,6 +358,7 @@ export function TextEditorPane(props: TextEditorPaneProps): JSX.Element {
   const fileName = createMemo(() => props.viewingPath.split(/[/\\]/).pop() || '')
   const showEditor = createMemo(() => fileEditable() && !readOnlyView())
   const remoteContent = () => textQuery.data?.content ?? ''
+  const markdownContent = createMemo(() => (fileEditable() ? editContent() : remoteContent()))
   const lineCount = createMemo(() => remoteContent().split('\n').length)
   const downloadHref = createMemo(() => fileDownloadHref(props.viewingPath))
 
@@ -621,13 +649,13 @@ export function TextEditorPane(props: TextEditorPaneProps): JSX.Element {
             <Show keyed when={currentTextTargetKey()}>
               {(_documentKey) => (
                 <LazyMarkdownDocument
-                  content={fileEditable() ? editContent() : remoteContent()}
+                  content={markdownContent()}
                   mode={showEditor() ? 'edit' : 'read'}
                   onChange={setEditContent}
                   onBlur={() => {
                     if (fileEditable() && autoSaveEnabled() && !conflict()) void saveInternal(true)
                   }}
-                  onSave={() => saveInternal(false)}
+                  onSave={() => saveInternal(false).then(() => {})}
                   resolveImageUrl={resolveImageUrl()}
                   onPasteImage={(event, _selection, complete) => {
                     const pasteTargetKey = currentTextTargetKey()

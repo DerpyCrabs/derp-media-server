@@ -45,6 +45,38 @@ test.describe('File search palette', () => {
     await expect(page.locator(WORKSPACE_VISIBLE_WINDOW_GROUP)).toHaveCount(countBefore + 1)
   })
 
+  test('updates an open search when index contents change without changing the entry count', async ({
+    page,
+  }) => {
+    let indexed = false
+    const status = () => ({
+      state: 'ready',
+      indexedEntries: 1,
+      roots: [],
+      watcherCount: 0,
+      stale: false,
+    })
+    await page.route('**/api/files/search/status', (route) => route.fulfill({ json: status() }))
+    await page.route('**/api/files/search?*', (route) =>
+      route.fulfill({
+        json: {
+          status: status(),
+          results: indexed
+            ? [{ path: 'Notes', name: 'Notes', type: 'folder', isDirectory: true, parentPath: '' }]
+            : [],
+        },
+      }),
+    )
+    await page.goto('/')
+    await page.getByTestId('classic-file-search-trigger').click()
+    const palette = page.getByTestId('file-search-palette')
+    await palette.getByRole('combobox').fill('Notes')
+    await expect(palette.getByText('No matching files or folders.')).toBeVisible()
+    indexed = true
+    await expect(palette.getByRole('option').filter({ hasText: 'Notes' })).toBeVisible()
+    await expect(palette.getByRole('combobox')).toHaveValue('Notes')
+  })
+
   test('is touch accessible', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto('/')
@@ -53,5 +85,28 @@ test.describe('File search palette', () => {
     await expect(palette).toBeVisible()
     await expect(palette.getByRole('combobox')).toBeFocused()
     await palette.getByRole('button', { name: 'Close search' }).click()
+  })
+
+  test('keeps typed search while the initial index status is pending', async ({ page }) => {
+    let releaseStatus!: () => void
+    const statusReady = new Promise<void>((resolve) => {
+      releaseStatus = resolve
+    })
+    await page.route('**/api/files/search/status', async (route) => {
+      await statusReady
+      await route.continue()
+    })
+    await page.goto(`/workspace?ws=e2e-${crypto.randomUUID()}`)
+    await page.getByTestId('workspace-global-file-search-trigger').click()
+    const palette = page.getByTestId('file-search-palette')
+    const input = palette.getByRole('combobox')
+    try {
+      await input.fill('Notes')
+      await expect(input).toHaveValue('Notes')
+    } finally {
+      releaseStatus()
+    }
+    await expect(palette.getByRole('option').filter({ hasText: 'Notes' }).first()).toBeVisible()
+    await expect(input).toHaveValue('Notes')
   })
 })

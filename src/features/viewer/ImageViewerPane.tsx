@@ -11,6 +11,7 @@ import {
   Show,
   untrack,
   createEffect,
+  createRoot,
   createMemo,
   createSignal,
   onSettled,
@@ -115,12 +116,16 @@ export function ImageViewerPane(props: ImageViewerPaneProps): JSX.Element {
         active = visible
       }
       report()
-      createEffect(isActive, () => report())
+      const disposeActivity = createRoot((dispose) => {
+        createEffect(isActive, () => report())
+        return dispose
+      })
       const timer = window.setInterval(report, 5000)
       document.addEventListener('visibilitychange', report)
       window.addEventListener('pagehide', report)
       return () => {
         report()
+        disposeActivity()
         clearInterval(timer)
         document.removeEventListener('visibilitychange', report)
         window.removeEventListener('pagehide', report)

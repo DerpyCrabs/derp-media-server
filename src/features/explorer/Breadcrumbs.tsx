@@ -207,11 +207,18 @@ export function Breadcrumbs(props: BreadcrumbsProps) {
       }
 
       calculate()
-      const ro = new ResizeObserver(calculate)
+      let frame = 0
+      const ro = new ResizeObserver(() => {
+        cancelAnimationFrame(frame)
+        frame = requestAnimationFrame(calculate)
+      })
       const observeEl = layoutObserverTarget() ?? container
       ro.observe(observeEl)
       // eslint-disable-next-line solid/reactivity
-      return () => ro.disconnect()
+      return () => {
+        ro.disconnect()
+        cancelAnimationFrame(frame)
+      }
     },
   )
 

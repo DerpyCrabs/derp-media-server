@@ -1,11 +1,12 @@
-import { Show, createEffect, createMemo, createSignal, onSettled } from 'solid-js'
+import { Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js'
 import type { JSX } from '@solidjs/web'
 
 import { createMarkdownEditor, type MarkdownEditorController } from './create-editor'
 import type { MarkdownDocumentProps, MarkdownEditorRuntime } from './types'
 
 export default function MarkdownDocument(props: MarkdownDocumentProps): JSX.Element {
-  let mountElement: HTMLDivElement | undefined
+  const [mountElement, setMountElement] = createSignal<HTMLDivElement>()
+  let editor: MarkdownEditorController | undefined
   let expandedDialog: HTMLDivElement | undefined
   let imageReturnFocus: HTMLElement | null = null
   const [controller, setController] = createSignal<MarkdownEditorController | null>(null)
@@ -50,17 +51,26 @@ export default function MarkdownDocument(props: MarkdownDocumentProps): JSX.Elem
       callbacks().onPasteImage?.(event, selection, complete) ?? false,
   }
 
-  onSettled(() => {
-    if (!mountElement) return
-    const next = createMarkdownEditor({
-      parent: mountElement,
-      doc: content(),
-      mode: presentation().mode,
-      ariaLabel: presentation().label,
-      runtime,
-    })
-    setController(next)
-  })
+  createEffect(
+    () => ({
+      parent: mountElement(),
+      content: content(),
+      presentation: presentation(),
+      callbacks: callbacks(),
+    }),
+    ({ parent, content, presentation, callbacks }) => {
+      if (!parent || editor) return
+      Object.assign(runtime, callbacks)
+      editor = createMarkdownEditor({
+        parent,
+        doc: content,
+        mode: presentation.mode,
+        ariaLabel: presentation.label,
+        runtime,
+      })
+      setController(editor)
+    },
+  )
 
   createEffect(
     () => ({ controller: controller(), ...presentation() }),
@@ -102,8 +112,7 @@ export default function MarkdownDocument(props: MarkdownDocumentProps): JSX.Elem
     },
   )
 
-  // eslint-disable-next-line solid/reactivity
-  onSettled(() => () => controller()?.destroy())
+  onCleanup(() => editor?.destroy())
 
   return (
     <div
@@ -116,7 +125,7 @@ export default function MarkdownDocument(props: MarkdownDocumentProps): JSX.Elem
     >
       <div
         ref={(element) => {
-          mountElement = element
+          setMountElement(element)
         }}
         class='h-full min-h-full'
       />

@@ -67,6 +67,26 @@ describe('PlaybackSession', () => {
     expect(session.getSnapshot()).toMatchObject({ currentIndex: 0, position: 0 })
   })
 
+  test('preserves a playback error through late pause and end events until a retry', () => {
+    const { sourceResolver, requests } = resolverHarness()
+    const session = createPlaybackSession({ sourceResolver })
+    session.dispatch({ type: 'load', item: item('broken', 'video') })
+    const generation = session.getSnapshot().source!.generation
+    session.dispatch({ type: 'mediaError', generation, message: 'Playback cache limit reached' })
+    for (const type of ['mediaPause', 'mediaEnded'] as const) {
+      session.dispatch({ type, generation })
+      expect(session.getSnapshot()).toMatchObject({
+        phase: 'error',
+        error: 'Playback cache limit reached',
+        desiredPlaying: false,
+      })
+    }
+    session.dispatch({ type: 'play' })
+    expect(requests).toHaveLength(2)
+    expect(session.getSnapshot().error).toBeNull()
+    expect(session.getSnapshot().desiredPlaying).toBe(true)
+  })
+
   test('rejects stale asynchronous source resolutions and media events', async () => {
     let resolveFirst!: (value: PlaybackSourceResolution) => void
     let resolveSecond!: (value: PlaybackSourceResolution) => void
@@ -216,6 +236,36 @@ describe('PlaybackSession', () => {
     finish({ kind: 'resolved', url: '/ready', playbackRate: 1 })
     await flush()
     expect(session.getSnapshot()).toMatchObject({ desiredPlaying: true, playbackRate: 2 })
+  })
+
+  test('replays an ended video while its audio source is resolving', async () => {
+    let finish!: (value: PlaybackSourceResolution) => void
+    const { sourceResolver, requests } = resolverHarness((request) =>
+      request.mode === 'audio'
+        ? new Promise((resolve) => {
+            finish = resolve
+          })
+        : { kind: 'resolved', url: '/video' },
+    )
+    const session = createPlaybackSession({ sourceResolver })
+    session.dispatch({ type: 'load', item: item('ended', 'video') })
+    session.dispatch({ type: 'mediaDuration', generation: 1, duration: 2 })
+    session.dispatch({ type: 'mediaEnded', generation: 1 })
+    session.dispatch({ type: 'setMode', mode: 'audio' })
+    session.dispatch({ type: 'play' })
+    expect(session.getSnapshot()).toMatchObject({
+      phase: 'resolving',
+      position: 0,
+      desiredPlaying: true,
+    })
+    expect(requests).toHaveLength(2)
+    finish({ kind: 'resolved', url: '/audio' })
+    await flush()
+    expect(session.getSnapshot()).toMatchObject({
+      mode: 'audio',
+      position: 0,
+      desiredPlaying: true,
+    })
   })
 
   test('loading the already active file preserves its source and pending seek', () => {

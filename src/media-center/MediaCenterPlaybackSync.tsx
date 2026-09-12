@@ -14,7 +14,9 @@ import type { FileItem } from '@/lib/files/types'
 
 function playbackItemForPath(files: FileItem[], path: string): PlaybackItem | null {
   const normalizedPath = playbackPathKey(path)
-  const listed = files.find((file) => playbackPathKey(file.path) === normalizedPath)
+  const listed = [...selection(), ...files].find(
+    (file) => playbackPathKey(file.path) === normalizedPath,
+  )
   return listed ? playbackItemFromFileItem(listed) : playbackItemFromPath(path)
 }
 

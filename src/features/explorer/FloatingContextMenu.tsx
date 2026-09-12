@@ -12,7 +12,7 @@ import { clampFixedMenuPosition } from '@/lib/ui/clamp-fixed-menu'
 import { cn } from '@/lib/ui/cn'
 import type { Accessor } from 'solid-js'
 import type { JSX } from '@solidjs/web'
-import { Match, Show, Switch, createEffect, createSignal } from 'solid-js'
+import { Match, Show, Switch, createEffect, createMemo, createSignal } from 'solid-js'
 import { Portal } from '@solidjs/web'
 
 const MENU_ROOT_CLASS =
@@ -237,11 +237,11 @@ function FloatingContextMenuPointerBranch<T>(props: FloatingContextMenuPointerPr
   return (
     <Show when={props.state()} keyed>
       {(value) => {
-        const a = props.anchor(value)
+        const a = createMemo(() => props.anchor(value))
         return (
           <MenuSurface
             mount={props.mount}
-            positioning={{ kind: 'pointer', left: a.x, top: a.y }}
+            positioning={{ kind: 'pointer', left: a().x, top: a().y }}
             trackScroll={false}
             zIndex={
               props.zIndex ??

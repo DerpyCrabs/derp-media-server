@@ -1,3 +1,4 @@
+import { queryData } from '@/lib/api/query-data'
 import { setFileDragData } from '@/lib/files/file-drag-data'
 import {
   finePointerDragEnabled,
@@ -52,7 +53,7 @@ export function KbDashboard(props: Props) {
     enabled: !!props.scopePath,
   }))
 
-  const recent = createMemo(() => (directQuery.data?.results ?? []) as RecentFile[])
+  const recent = createMemo(() => (queryData(directQuery)?.results ?? []) as RecentFile[])
 
   const isLoading = createMemo(() => directQuery.isLoading)
 

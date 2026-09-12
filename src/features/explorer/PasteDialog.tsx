@@ -87,15 +87,15 @@ export function PasteDialog(props: Props) {
     () => {
       const item = existingItem()
       return {
-        item,
+        path: item && !item.isDirectory ? item.path : undefined,
         isTextContent: props.pasteData?.isTextContent === true,
       }
     },
-    ({ item, isTextContent }) => {
+    ({ path, isTextContent }) => {
       setExistingText(null)
-      if (!item || item.isDirectory || !isTextContent) return undefined
+      if (!path || !isTextContent) return undefined
       let cancelled = false
-      void fetch(buildAdminMediaUrl(item.path))
+      void fetch(buildAdminMediaUrl(path))
         .then((response) => (response.ok ? response.text() : Promise.reject()))
         .then((text) => {
           if (!cancelled) setExistingText(text)

@@ -1,3 +1,4 @@
+import { queryData } from '@/lib/api/query-data'
 import { For, Show } from 'solid-js'
 import { useQuery, useQueryClient } from '@tanstack/solid-query'
 import Play from 'lucide-solid/icons/play'
@@ -20,7 +21,7 @@ export function MusicHome() {
     refetchOnWindowFocus: false,
     refetchOnMount: false,
   }))
-  const content = () => home.data
+  const content = () => queryData(home)
   return (
     <div data-testid='music-home' class='w-full space-y-8 py-2'>
       <div class='flex flex-wrap items-center justify-between gap-3'>

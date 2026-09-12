@@ -128,14 +128,16 @@ function ToolCard(props: {
     const items = value?.results ?? value?.matches
     return Array.isArray(items) ? items.slice(0, 20) : []
   })
+  const stringValue = (...keys: string[]) => {
+    const value = parsed()
+    if (!value) return ''
+    for (const key of keys) if (typeof value[key] === 'string') return String(value[key])
+    return ''
+  }
   const structuredText = createMemo(() => {
     const value = parsed()
     if (!value) return ''
     const kind = classifyHermesTool(name())
-    const stringValue = (...keys: string[]) => {
-      for (const key of keys) if (typeof value[key] === 'string') return String(value[key])
-      return ''
-    }
     if (kind === 'command') {
       const command = stringValue('command', 'cmd')
       const stdout = stringValue('stdout', 'output', 'result', 'content')

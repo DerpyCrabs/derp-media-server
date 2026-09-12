@@ -1,3 +1,4 @@
+import { queryData } from '@/lib/api/query-data'
 import type { JSX } from '@solidjs/web'
 import { useMutation, useQueryClient } from '@tanstack/solid-query'
 import { createMemo, createSignal, For, untrack, type Accessor } from 'solid-js'
@@ -171,7 +172,7 @@ function FileBrowserInstance(props: { host: FileBrowserHost; currentPath: Access
   })
   const viewStats = useViewStats()
   const sortMetadata = createMemo(() =>
-    createFileSortMetadata(browser.settingsQuery.data?.favorites, viewStats.viewCounts()),
+    createFileSortMetadata(queryData(browser.settingsQuery)?.favorites, viewStats.viewCounts()),
   )
   const isFavorite = (file: FileItem) => sortMetadata().isFavorite(file)
   const favoriteMutation = useMutation(() => ({
@@ -183,7 +184,7 @@ function FileBrowserInstance(props: { host: FileBrowserHost; currentPath: Access
       })
     },
   }))
-  const toggleFavorite = (file: FileItem) => favoriteMutation.mutate({ filePath: file.path })
+  const toggleFavorite = (file: FileItem) => void favoriteMutation.mutate({ filePath: file.path })
   const viewModeTick = useStoreSync(useBrowserViewModeStore)
   const viewMode = createMemo(() => {
     void viewModeTick()
@@ -191,7 +192,7 @@ function FileBrowserInstance(props: { host: FileBrowserHost; currentPath: Access
       .getState()
       .getViewMode(
         `file-browser-viewmode-${currentPath()}`,
-        browser.settingsQuery.data?.viewModes?.[currentPath()] ?? 'list',
+        queryData(browser.settingsQuery)?.viewModes?.[currentPath()] ?? 'list',
       )
   })
   const sortingDisabled = createMemo(() => isVirtualFolder() || !!listing.virtualDirectory())
@@ -199,7 +200,7 @@ function FileBrowserInstance(props: { host: FileBrowserHost; currentPath: Access
     sortFilesForPath(
       files(),
       currentPath(),
-      browser.settingsQuery.data?.sortOrders,
+      queryData(browser.settingsQuery)?.sortOrders,
       sortingDisabled(),
       sortMetadata(),
     ),
@@ -207,7 +208,7 @@ function FileBrowserInstance(props: { host: FileBrowserHost; currentPath: Access
   const empty = createMemo(
     () =>
       !listing.query.isError &&
-      listing.query.data !== undefined &&
+      !listing.query.isPending &&
       files().length === 0 &&
       !browser.search.showingResults(),
   )
@@ -216,7 +217,7 @@ function FileBrowserInstance(props: { host: FileBrowserHost; currentPath: Access
 
   function setViewMode(mode: 'list' | 'grid') {
     useBrowserViewModeStore.getState().setViewMode(`file-browser-viewmode-${currentPath()}`, mode)
-    browser.mutations.viewModeMutation.mutate({ path: currentPath(), viewMode: mode })
+    void browser.mutations.viewModeMutation.mutate({ path: currentPath(), viewMode: mode })
   }
 
   function download(file: FileItem) {
@@ -292,7 +293,7 @@ function FileBrowserInstance(props: { host: FileBrowserHost; currentPath: Access
           toggleFavorite,
           isFavorite,
           toggleKnowledgeBase: (file) =>
-            browser.mutations.knowledgeBaseMutation.mutate(file.path.replace(/\\/g, '/')),
+            void browser.mutations.knowledgeBaseMutation.mutate(file.path.replace(/\\/g, '/')),
           isKnowledgeBase,
         },
         virtual: {

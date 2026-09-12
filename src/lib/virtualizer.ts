@@ -58,12 +58,15 @@ function createVirtualizerBase<
 
   createEffect(
     () => {
+      const onChange = options.onChange
+      const scrollElement = options.getScrollElement()
       const nextOptions = merge(resolvedOptions, options, {
+        getScrollElement: () => scrollElement,
         onChange: (changed: Virtualizer<TScrollElement, TItemElement>, sync: boolean) => {
           changed._willUpdate()
           setVirtualItems(reconcile(changed.getVirtualItems(), 'index'))
           setTotalSize(changed.getTotalSize())
-          options.onChange?.(changed, sync)
+          onChange?.(changed, sync)
         },
       })
       return { ...trackVirtualizerOptions(nextOptions) }

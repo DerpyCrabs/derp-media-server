@@ -136,6 +136,17 @@ test('follow-up search sends only six previous queries and a new search clears h
   expect(requests[8].history).toEqual([])
 })
 
+test('reports library-match failures while keeping search usable', async ({ page }) => {
+  await page.route('**/api/files/search?*', (route) =>
+    route.fulfill({ status: 503, json: { error: 'Library search is unavailable' } }),
+  )
+  await page.goto('/')
+  const input = await openSearch(page)
+  await input.fill('Videos')
+  await expect(page.getByRole('alert')).toContainText('Library search is unavailable')
+  await expect(input).toBeEnabled()
+})
+
 test('For you library matches use the real file search endpoint and open the matched folder', async ({
   page,
   request,

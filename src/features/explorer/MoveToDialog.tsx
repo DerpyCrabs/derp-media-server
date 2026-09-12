@@ -54,7 +54,7 @@ export function MoveToDialog(props: MoveToDialogProps) {
 
   const dirFiles = useQuery(() => ({
     queryKey: queryKeys.files(browsePath()),
-    queryFn: ({ signal }) => fetchDirectoryFiles(browsePath(), signal),
+    queryFn: ({ signal, queryKey }) => fetchDirectoryFiles(queryKey[1]!, signal),
     retry: false,
   }))
 

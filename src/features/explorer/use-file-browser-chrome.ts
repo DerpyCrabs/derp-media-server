@@ -83,8 +83,8 @@ export function useFileBrowserChrome(options: FileBrowserChromeOptions) {
     const target = iconTarget()
     if (!target) return
     const path = target.path.replace(/\\/g, '/')
-    if (iconName) void controller.mutations.setCustomIconMutation.mutateAsync({ path, iconName })
-    else void controller.mutations.removeCustomIconMutation.mutateAsync(path)
+    if (iconName) void controller.mutations.setCustomIconMutation.mutate({ path, iconName })
+    else void controller.mutations.removeCustomIconMutation.mutate(path)
   }
 
   const icon: ExplorerIconDialog = {

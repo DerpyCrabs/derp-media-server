@@ -110,8 +110,66 @@ test.describe('Folder virtualization', () => {
       .toBe(true)
   })
 
+  test('scrolls the grid while thumbnail requests are queued', async ({ page }) => {
+    const queuedFolderName = `VirtualQueued-${crypto.randomUUID()}`
+    fs.cpSync(
+      path.resolve(mediaDirName, mediaFolderName),
+      path.resolve(mediaDirName, queuedFolderName),
+      { recursive: true },
+    )
+    let started = 0
+    let releaseThumbnails!: () => void
+    const thumbnailsReady = new Promise<void>((resolve) => {
+      releaseThumbnails = resolve
+    })
+    await page.route('**/api/thumbnail/**', async (route) => {
+      started += 1
+      await thumbnailsReady
+      await route.continue()
+    })
+    await page.goto(`/?dir=${encodeURIComponent(queuedFolderName)}`, {
+      waitUntil: 'domcontentloaded',
+    })
+    const trigger = page.getByRole('button', { name: 'Display options' })
+    await trigger.click()
+    await page.getByRole('menuitem', { name: 'Grid view' }).click()
+    try {
+      await expect.poll(() => started).toBe(4)
+      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
+      await expect(page.getByText('image-0499.png')).toBeVisible()
+    } finally {
+      releaseThumbnails()
+    }
+  })
+
   test.describe('on mobile', () => {
     test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
+
+    test('can reopen display options while a view preference is saving', async ({ page }) => {
+      let releaseSave!: () => void
+      const saveReady = new Promise<void>((resolve) => {
+        releaseSave = resolve
+      })
+      await page.route('**/api/settings/viewMode', async (route) => {
+        await saveReady
+        await route.continue()
+      })
+      await page.goto(`/?dir=${encodeURIComponent(mediaFolderName)}`)
+      const trigger = page.getByRole('button', { name: 'Display options' })
+      await trigger.click()
+      try {
+        await page.getByRole('menuitem', { name: 'List view' }).click()
+        await expect(trigger).toHaveAttribute('aria-expanded', 'false')
+        await trigger.click()
+        const grid = page.getByRole('menuitem', { name: 'Grid view' })
+        await expect(grid).toBeVisible()
+        await grid.click()
+        await expect(trigger).toHaveAttribute('aria-expanded', 'false')
+      } finally {
+        releaseSave()
+      }
+      await expect(page.locator('[data-testid=file-browser] .file-browser-grid')).toBeVisible()
+    })
 
     test('shows a large image folder after switching from list to grid view', async ({ page }) => {
       await page.goto(`/?dir=${encodeURIComponent(mediaFolderName)}`)

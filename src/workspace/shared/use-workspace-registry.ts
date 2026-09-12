@@ -252,7 +252,7 @@ export function useWorkspaceRegistry(options: WorkspaceRegistryOptions) {
   async function persistOne(pending: PendingSave) {
     if (tombstones.has(pending.id)) return {}
     const snapshot = toPersistentWorkspaceState(pending.state.document)
-    const revisionAtQueue = currentRevision(pending.id, pending.revision)
+    const revisionAtQueue = untrack(() => currentRevision(pending.id, pending.revision))
     activeSaveCount += 1
     setSaving(true)
     try {

@@ -210,6 +210,11 @@ export function createCrossWorkspaceTransferController(
     else if (start) cancel()
   }
 
+  const dispose = () => {
+    clearHoverTimer()
+    start = null
+  }
+
   return {
     active,
     ready,
@@ -221,6 +226,6 @@ export function createCrossWorkspaceTransferController(
     settleBeforeNavigation,
     cancel,
     finishLocal,
-    dispose: finishLocal,
+    dispose,
   }
 }

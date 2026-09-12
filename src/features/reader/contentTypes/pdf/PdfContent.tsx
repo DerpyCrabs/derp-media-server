@@ -22,6 +22,7 @@ export function PdfContent(props: {
   let host!: HTMLDivElement
   let canvas!: HTMLCanvasElement
   const [near, setNear] = createSignal(false)
+  const [renderError, setRenderError] = createSignal<string>()
 
   onSettled(() => {
     if (!host) return undefined
@@ -45,40 +46,48 @@ export function PdfContent(props: {
     }),
     ({ document, pageNumber, scale, renderText, near: isNear }) => {
       if (!isNear || !host || !canvas) return undefined
+      setRenderError(undefined)
       let cancelled = false
       let renderTask: pdfjs.RenderTask | undefined
       let textLayer: InstanceType<typeof TextLayerBuilder> | undefined
       host.querySelectorAll(':scope > .textLayer').forEach((node) => node.remove())
-      void document.getPage(pageNumber).then(async (page) => {
-        if (cancelled) return
-        const viewport = page.getViewport({ scale })
-        const ratio = window.devicePixelRatio || 1
-        const context = canvas.getContext('2d')
-        if (!context) return
-        canvas.width = Math.floor(viewport.width * ratio)
-        canvas.height = Math.floor(viewport.height * ratio)
-        canvas.style.width = `${viewport.width}px`
-        canvas.style.height = `${viewport.height}px`
-        context.setTransform(ratio, 0, 0, ratio, 0, 0)
-        renderTask = page.render({ canvas, canvasContext: context, viewport })
-        try {
-          await renderTask.promise
-        } catch (error) {
-          if (cancelled || (error as { name?: string }).name === 'RenderingCancelledException')
-            return
-          throw error
-        }
-        if (cancelled || !renderText) return
-        textLayer = new TextLayerBuilder({
-          pdfPage: page,
-          onAppend: (layer: HTMLDivElement) => {
-            if (cancelled) return
-            layer.dataset.testid = 'pdf-text-layer'
-            host.append(layer)
-          },
+      void document
+        .getPage(pageNumber)
+        .then(async (page) => {
+          if (cancelled) return
+          const viewport = page.getViewport({ scale })
+          const ratio = window.devicePixelRatio || 1
+          const context = canvas.getContext('2d')
+          if (!context) return
+          canvas.width = Math.floor(viewport.width * ratio)
+          canvas.height = Math.floor(viewport.height * ratio)
+          canvas.style.width = `${viewport.width}px`
+          canvas.style.height = `${viewport.height}px`
+          context.setTransform(ratio, 0, 0, ratio, 0, 0)
+          renderTask = page.render({ canvas, canvasContext: context, viewport })
+          try {
+            await renderTask.promise
+          } catch (error) {
+            if (cancelled || (error as { name?: string }).name === 'RenderingCancelledException')
+              return
+            throw error
+          }
+          if (cancelled || !renderText) return
+          textLayer = new TextLayerBuilder({
+            pdfPage: page,
+            onAppend: (layer: HTMLDivElement) => {
+              if (cancelled) return
+              layer.dataset.testid = 'pdf-text-layer'
+              host.append(layer)
+            },
+          })
+          await textLayer.render({ viewport, images: null! })
         })
-        await textLayer.render({ viewport, images: null! })
-      })
+        .catch((error: unknown) => {
+          if (!cancelled) {
+            setRenderError(error instanceof Error ? error.message : String(error))
+          }
+        })
       // eslint-disable-next-line solid/reactivity
       return () => {
         cancelled = true
@@ -114,6 +123,14 @@ export function PdfContent(props: {
           height: `${props.page.height * props.zoom}px`,
         }}
       />
+      <Show when={renderError()}>
+        <div
+          role='alert'
+          class='absolute inset-0 flex items-center justify-center bg-background p-4 text-destructive'
+        >
+          Could not render this page: {renderError()}
+        </div>
+      </Show>
       <Show when={props.selectionMode === 'image'}>
         <RegionLayer host={() => host} source={() => canvas} onRegion={props.onRegion} />
       </Show>

@@ -59,7 +59,7 @@ function serverCommand(): { executable: string; args: string[] } {
     'release',
     process.platform === 'win32' ? 'derp-media-server.exe' : 'derp-media-server',
   )
-  return { executable, args: ['--production'] }
+  return { executable, args: process.env.E2E_DEV === '1' ? [] : ['--production'] }
 }
 
 test.describe.serial('Multiple media directories', () => {

@@ -1,3 +1,4 @@
+import { queryData } from '@/lib/api/query-data'
 import { useQuery } from '@tanstack/solid-query'
 import { fetchDirectoryFiles } from '@/lib/files/files-client'
 import { createEffect, createMemo, createSignal, onSettled } from 'solid-js'
@@ -39,10 +40,10 @@ export function PlaybackMediaHost() {
 
   const filesQuery = useQuery(() => ({
     queryKey: queryKeys.files(currentDir()),
-    queryFn: () => fetchDirectoryFiles(currentDir()),
+    queryFn: ({ queryKey, signal }) => fetchDirectoryFiles(queryKey[1]!, signal),
     enabled: handlesAudio() && !!playingPath(),
   }))
-  const allFiles = createMemo(() => filesQuery.data?.files ?? [])
+  const allFiles = createMemo(() => queryData(filesQuery)?.files ?? [])
   const folderCoverUrl = createMemo(() => {
     const cover = allFiles().find(
       (file) =>
@@ -57,11 +58,12 @@ export function PlaybackMediaHost() {
   })
   const metadataQuery = useQuery(() => ({
     queryKey: queryKeys.audioMetadata(playingPath()),
-    queryFn: () => fetchAudioMetadata(metadataUrl()),
+    queryFn: ({ queryKey, signal }) =>
+      fetchAudioMetadata(buildAudioMetadataUrl(queryKey[2]), signal),
     enabled: handlesAudio() && !!metadataUrl(),
     refetchOnWindowFocus: false,
   }))
-  const audioMetadata = createMemo(() => metadataQuery.data)
+  const audioMetadata = createMemo(() => queryData(metadataQuery))
   const artworkUrl = createMemo(() => {
     const item = snapshot().currentItem
     const path = item?.locator
@@ -129,32 +131,26 @@ export function PlaybackMediaHost() {
     () => {
       if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return null
       const state = snapshot()
+      const item = state.currentItem
       return {
-        state,
-        album: currentDir(),
-        metadata: handlesAudio() ? audioMetadata() : undefined,
-        artworkUrl: artworkUrl(),
-      }
+        playbackState: state.phase === 'playing' ? 'playing' : item ? 'paused' : 'none',
+        metadata: item
+          ? buildPlaybackMediaSessionMetadata({
+              item,
+              mode: state.mode,
+              album: currentDir(),
+              metadata: handlesAudio() ? audioMetadata() : undefined,
+              artworkUrl: artworkUrl(),
+              artworkBaseUrl: typeof window === 'undefined' ? undefined : window.location.origin,
+            })
+          : null,
+      } as const
     },
     (next) => {
       if (!next) return
-      const { state } = next
-      navigator.mediaSession.playbackState =
-        state.phase === 'playing' ? 'playing' : state.currentItem ? 'paused' : 'none'
-      const item = state.currentItem
+      navigator.mediaSession.playbackState = next.playbackState
       if (typeof MediaMetadata !== 'undefined') {
-        navigator.mediaSession.metadata = item
-          ? new MediaMetadata(
-              buildPlaybackMediaSessionMetadata({
-                item,
-                mode: state.mode,
-                album: next.album,
-                metadata: next.metadata,
-                artworkUrl: next.artworkUrl,
-                artworkBaseUrl: typeof window === 'undefined' ? undefined : window.location.origin,
-              }),
-            )
-          : null
+        navigator.mediaSession.metadata = next.metadata ? new MediaMetadata(next.metadata) : null
       }
     },
   )

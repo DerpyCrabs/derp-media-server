@@ -13,13 +13,13 @@ export function buildResolveMarkdownImageUrl(
   viewingPath: string,
   knowledgeBases: string[],
 ): (src: string) => string | null {
+  const kbRoot = getKnowledgeBaseRoot(viewingPath.replace(/\\/g, '/'), knowledgeBases)
   return (rawSrc: string) => {
     if (/^https?:\/\//i.test(rawSrc)) return rawSrc
     let src = decodeUrlPath(rawSrc)
     if (src === null || /^https?:\/\//i.test(src)) return null
 
     if (!src.startsWith('/') && !src.includes('/')) {
-      const kbRoot = getKnowledgeBaseRoot(viewingPath.replace(/\\/g, '/'), knowledgeBases)
       if (kbRoot) src = `${kbRoot}/images/${src}`
     }
 

@@ -1,4 +1,5 @@
-import { For, Show, createEffect, createMemo, createSignal, onSettled } from 'solid-js'
+import { queryData } from '@/lib/api/query-data'
+import { For, Loading, Show, createEffect, createMemo, createSignal, onSettled } from 'solid-js'
 import type { Accessor } from 'solid-js'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
 import Play from 'lucide-solid/icons/play'
@@ -67,52 +68,32 @@ export function VideoControls(props: Props) {
   }))
   const audio = createMemo(() =>
     preferredTrack(
-      info.data?.audio ?? [],
-      preferences.data?.video.audioTrack,
-      preferences.data?.global.audioLanguage,
+      queryData(info)?.audio ?? [],
+      queryData(preferences)?.video.audioTrack,
+      queryData(preferences)?.global.audioLanguage,
       true,
     ),
   )
   const primary = createMemo(() =>
     preferredTrack(
-      info.data?.subtitles ?? [],
-      preferences.data?.video.subtitleTrack,
-      preferences.data?.global.subtitleLanguage,
+      queryData(info)?.subtitles ?? [],
+      queryData(preferences)?.video.subtitleTrack,
+      queryData(preferences)?.global.subtitleLanguage,
     ),
   )
   const secondary = createMemo(() => {
     const track = preferredTrack(
-      info.data?.subtitles ?? [],
-      preferences.data?.video.secondarySubtitleTrack,
-      preferences.data?.global.secondarySubtitleLanguage,
+      queryData(info)?.subtitles ?? [],
+      queryData(preferences)?.video.secondarySubtitleTrack,
+      queryData(preferences)?.global.secondarySubtitleLanguage,
     )
     return track?.id === primary()?.id ? undefined : track
   })
 
-  function subtitleQuery(track: VideoTrack | undefined) {
-    const path = props.path()
-    const id = track?.id ?? ''
-    return {
-      queryKey: ['video-subtitles', path, info.data?.fingerprint, id],
-      enabled: !!path && !!id,
-      staleTime: Infinity,
-      queryFn: async ({ signal }: { signal: AbortSignal }) => {
-        const response = await fetch(
-          `/api/playback/subtitle?${new URLSearchParams({ path, track: id })}`,
-          { signal },
-        )
-        if (!response.ok) {
-          const error = (await response.json()) as { error?: string }
-          throw new Error(error.error ?? 'Subtitles could not be loaded')
-        }
-        return parseSubtitles(await response.text())
-      },
-    }
-  }
-  const primaryCues = useQuery(() => subtitleQuery(primary()))
-  const secondaryCues = useQuery(() => subtitleQuery(secondary()))
   const duration = createMemo(() =>
-    props.active() ? snapshot().duration || info.data?.duration || 0 : info.data?.duration || 0,
+    props.active()
+      ? snapshot().duration || queryData(info)?.duration || 0
+      : queryData(info)?.duration || 0,
   )
   const scrubber = createPlaybackScrubber({
     key: () => props.path(),
@@ -122,8 +103,6 @@ export function VideoControls(props: Props) {
     onActivity: reveal,
   })
   const position = scrubber.position
-  const primaryText = createMemo(() => subtitleText(primaryCues.data ?? [], position()))
-  const secondaryText = createMemo(() => subtitleText(secondaryCues.data ?? [], position()))
   const playing = createMemo(() => props.active() && snapshot().desiredPlaying)
   const error = createMemo(() => (props.active() ? snapshot().error : null))
   const loading = createMemo(
@@ -147,8 +126,8 @@ export function VideoControls(props: Props) {
       path: props.path(),
       active: props.active(),
       audio: audio()?.id,
-      speed: preferences.data?.video.speed,
-      ready: !!preferences.data && !!info.data,
+      speed: queryData(preferences)?.video.speed,
+      ready: !!queryData(preferences) && !!queryData(info),
     }),
     (() => {
       let previousPath = ''
@@ -357,7 +336,7 @@ export function VideoControls(props: Props) {
     kind: 'audioTrack' | 'subtitleTrack' | 'secondarySubtitleTrack',
     value: string,
   ) {
-    const tracks = kind === 'audioTrack' ? info.data?.audio : info.data?.subtitles
+    const tracks = kind === 'audioTrack' ? queryData(info)?.audio : queryData(info)?.subtitles
     const selected = tracks?.find((track) => track.id === value)
     const languageKey =
       kind === 'audioTrack'
@@ -365,7 +344,7 @@ export function VideoControls(props: Props) {
         : kind === 'subtitleTrack'
           ? 'subtitleLanguage'
           : 'secondarySubtitleLanguage'
-    save.mutate({
+    void save.mutate({
       path: props.path(),
       video: { [kind]: value || null },
       global: { [languageKey]: selected?.language === 'und' ? '' : (selected?.language ?? '') },
@@ -386,22 +365,31 @@ export function VideoControls(props: Props) {
         }}
         data-testid='video-subtitles'
       >
-        <Show when={secondaryText()}>
-          <div
-            class='max-w-[92%] whitespace-pre-line rounded bg-black/60 px-2 py-0.5 text-[0.85em]'
-            data-testid='video-subtitle-secondary'
-          >
-            {secondaryText()}
-          </div>
-        </Show>
-        <Show when={primaryText()}>
-          <div
-            class='max-w-[92%] whitespace-pre-line rounded bg-black/60 px-2 py-0.5'
-            data-testid='video-subtitle-primary'
-          >
-            {primaryText()}
-          </div>
-        </Show>
+        <Loading>
+          <Show when={secondary()}>
+            {(track) => (
+              <VideoSubtitleLine
+                path={props.path()}
+                track={track()}
+                fingerprint={queryData(info)?.fingerprint}
+                position={position()}
+                secondary
+              />
+            )}
+          </Show>
+        </Loading>
+        <Loading>
+          <Show when={primary()}>
+            {(track) => (
+              <VideoSubtitleLine
+                path={props.path()}
+                track={track()}
+                fingerprint={queryData(info)?.fingerprint}
+                position={position()}
+              />
+            )}
+          </Show>
+        </Loading>
       </div>
       <Show when={loading() && !error()}>
         <div class='pointer-events-none absolute inset-0 z-10 flex items-center justify-center'>
@@ -465,7 +453,9 @@ export function VideoControls(props: Props) {
                 <PlaybackSetting
                   label='Playback speed'
                   value={String(
-                    props.active() ? snapshot().playbackRate : (preferences.data?.video.speed ?? 1),
+                    props.active()
+                      ? snapshot().playbackRate
+                      : (queryData(preferences)?.video.speed ?? 1),
                   )}
                   mount={fullscreen() ? (props.video()?.parentElement ?? undefined) : undefined}
                   options={Array.from({ length: 12 }, (_, index) => {
@@ -478,7 +468,7 @@ export function VideoControls(props: Props) {
                   onChange={(value) => {
                     const speed = Number(value)
                     if (props.active()) session.dispatch({ type: 'setPlaybackRate', rate: speed })
-                    save.mutate({ path: props.path(), video: { speed } })
+                    void save.mutate({ path: props.path(), video: { speed } })
                   }}
                 />
               </label>
@@ -489,14 +479,14 @@ export function VideoControls(props: Props) {
                   value={audio()?.id ?? ''}
                   mount={fullscreen() ? (props.video()?.parentElement ?? undefined) : undefined}
                   options={
-                    info.data?.audio.length
-                      ? info.data.audio.map((track) => ({
+                    queryData(info)?.audio.length
+                      ? queryData(info)!.audio.map((track) => ({
                           value: track.id,
                           label: trackLabel(track),
                         }))
                       : [{ value: '', label: 'No audio tracks' }]
                   }
-                  disabled={!info.data?.audio.length || save.isPending}
+                  disabled={!queryData(info)?.audio.length || save.isPending}
                   onChange={(value) => chooseTrack('audioTrack', value)}
                 />
               </label>
@@ -510,7 +500,7 @@ export function VideoControls(props: Props) {
                       mount={fullscreen() ? (props.video()?.parentElement ?? undefined) : undefined}
                       options={[
                         { value: '', label: 'Off' },
-                        ...(info.data?.subtitles ?? []).map((track) => ({
+                        ...(queryData(info)?.subtitles ?? []).map((track) => ({
                           value: track.id,
                           label: trackLabel(track),
                           disabled: !track.supported,
@@ -527,12 +517,9 @@ export function VideoControls(props: Props) {
                   Track information is unavailable. FFmpeg and ffprobe are required on the server.
                 </p>
               </Show>
-              <Show when={save.error || primaryCues.error || secondaryCues.error || uiError()}>
+              <Show when={save.error || uiError()}>
                 <p class='text-destructive text-xs' role='alert'>
-                  {save.error?.message ??
-                    primaryCues.error?.message ??
-                    secondaryCues.error?.message ??
-                    uiError()}
+                  {save.error?.message ?? uiError()}
                 </p>
               </Show>
             </div>
@@ -631,6 +618,51 @@ export function VideoControls(props: Props) {
           </div>
         </div>
       </div>
+    </>
+  )
+}
+
+function VideoSubtitleLine(props: {
+  path: string
+  track: VideoTrack
+  fingerprint?: string
+  position: number
+  secondary?: boolean
+}) {
+  const cues = useQuery(() => ({
+    queryKey: ['video-subtitles', props.path, props.fingerprint, props.track.id] as const,
+    staleTime: Infinity,
+    queryFn: async ({ queryKey, signal }) => {
+      const response = await fetch(
+        `/api/playback/subtitle?${new URLSearchParams({ path: queryKey[1], track: queryKey[3] })}`,
+        { signal },
+      )
+      if (!response.ok) {
+        const error = (await response.json()) as { error?: string }
+        throw new Error(error.error ?? 'Subtitles could not be loaded')
+      }
+      return parseSubtitles(await response.text())
+    },
+  }))
+  const text = createMemo(() => subtitleText(queryData(cues) ?? [], props.position))
+  return (
+    <>
+      <Show when={text()}>
+        <div
+          class={cn(
+            'max-w-[92%] whitespace-pre-line rounded bg-black/60 px-2 py-0.5',
+            props.secondary && 'text-[0.85em]',
+          )}
+          data-testid={props.secondary ? 'video-subtitle-secondary' : 'video-subtitle-primary'}
+        >
+          {text()}
+        </div>
+      </Show>
+      <Show when={cues.error}>
+        <p class='rounded bg-black/80 px-2 text-sm text-white' role='alert'>
+          {cues.error?.message}
+        </p>
+      </Show>
     </>
   )
 }

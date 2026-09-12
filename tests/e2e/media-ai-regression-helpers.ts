@@ -175,7 +175,7 @@ export const test = base.extend<{ library: Library; aiEnabled: boolean; aiPaused
       'release',
       process.platform === 'win32' ? 'derp-media-server.exe' : 'derp-media-server',
     )
-    const server = spawn(binary, ['--production'], {
+    const server = spawn(binary, process.env.E2E_DEV === '1' ? [] : ['--production'], {
       env: { ...process.env, PORT: String(port), CONFIG_PATH: config, MEDIA_DIR: media },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
@@ -202,6 +202,7 @@ export const test = base.extend<{ library: Library; aiEnabled: boolean; aiPaused
         )
         .toBe(200)
       database = new DatabaseSync(path.join(directory, 'data', 'app.sqlite3'))
+      database.exec('PRAGMA busy_timeout = 10000')
       const db = database
       const fixtures = path.resolve(
         process.env.BATCH_ID ? `test-media-${process.env.BATCH_ID}` : 'test-media',

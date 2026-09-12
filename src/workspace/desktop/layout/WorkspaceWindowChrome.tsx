@@ -206,10 +206,10 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
     const container = props.environment.container()
     if (!container) return
 
-    const lid = liveLeaderId()
+    const initialLeaderId = liveLeaderId()
     const initialWorkspace = props.window.workspace()
     if (!initialWorkspace) return
-    const wb = initialWorkspace.windows.find((w) => w.id === lid)?.layout?.bounds
+    const wb = initialWorkspace.windows.find((w) => w.id === initialLeaderId)?.layout?.bounds
     if (!wb) return
     const pointerGesture = props.commands.beginPointerGesture()
 
@@ -222,7 +222,8 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
     let grabBase = wb
     let grabDx = e.clientX - cRect.left - grabBase.x
     let grabDy = e.clientY - cRect.top - grabBase.y
-    let dragStarted = isFloating()
+    const initialFloating = isFloating()
+    let dragStarted = initialFloating
     const pointerDownX = e.clientX
     const pointerDownY = e.clientY
     let liveBounds: WorkspaceBounds = { ...grabBase }
@@ -235,7 +236,7 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
         ) {
           return
         }
-        const after = props.commands.restoreDrag(lid, pointerDownX, pointerDownY)
+        const after = props.commands.restoreDrag(initialLeaderId, pointerDownX, pointerDownY)
         if (after) {
           grabBase = after
           liveBounds = { ...after }
@@ -302,7 +303,7 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
 
     const cRect = container.getBoundingClientRect()
 
-    const startBounds = { ...b() }
+    const initialBounds = { ...b() }
     const startX = e.clientX
     const startY = e.clientY
 
@@ -330,17 +331,17 @@ export function WorkspaceWindowChrome(props: WorkspaceWindowChromeProps) {
     const onMove = (ev: PointerEvent) => {
       const dx = ev.clientX - startX
       const dy = ev.clientY - startY
-      let nb: WorkspaceBounds = { ...startBounds }
+      let nb: WorkspaceBounds = { ...initialBounds }
 
-      if (direction.includes('right')) nb.width = startBounds.width + dx
+      if (direction.includes('right')) nb.width = initialBounds.width + dx
       if (direction.includes('left')) {
-        nb.x = startBounds.x + dx
-        nb.width = startBounds.width - dx
+        nb.x = initialBounds.x + dx
+        nb.width = initialBounds.width - dx
       }
-      if (direction.includes('bottom')) nb.height = startBounds.height + dy
+      if (direction.includes('bottom')) nb.height = initialBounds.height + dy
       if (direction.includes('top')) {
-        nb.y = startBounds.y + dy
-        nb.height = startBounds.height - dy
+        nb.y = initialBounds.y + dy
+        nb.height = initialBounds.height - dy
       }
 
       const id = liveLeaderId()

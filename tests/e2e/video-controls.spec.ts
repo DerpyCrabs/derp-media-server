@@ -33,7 +33,7 @@ async function startServer(playback: Record<string, unknown>): Promise<string> {
     'release',
     'derp-media-server',
   )
-  const server = spawn(executable, ['--production'], {
+  const server = spawn(executable, process.env.E2E_DEV === '1' ? [] : ['--production'], {
     env: {
       ...process.env,
       CONFIG_PATH: config,
@@ -588,6 +588,13 @@ test('remuxes transport streams with AAC without enabling video conversion', asy
 
 test('compatibility playback works over ordinary HTTP on a local network', async ({ page }) => {
   const origin = 'http://video-controls.test'
+  // This fixture mocks its HTTP origin; mock the Vite HMR connection too.
+  await page.routeWebSocket(
+    (url) => url.searchParams.has('token'),
+    (socket) => {
+      socket.send(JSON.stringify({ type: 'connected' }))
+    },
+  )
   await page.route(`${origin}/**`, async (route) => {
     const url = new URL(route.request().url())
     if (url.pathname === '/api/events/stream') return route.abort()

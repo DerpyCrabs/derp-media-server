@@ -1,3 +1,4 @@
+import { queryData } from '@/lib/api/query-data'
 import { useQuery } from '@tanstack/solid-query'
 import { queryKeys } from '@/lib/api/query-keys'
 import { fileDownloadHref } from '@/lib/files/download-urls'
@@ -87,7 +88,7 @@ export function ViewerPane(props: Props) {
   const filesQuery = useQuery(() => {
     return {
       queryKey: queryKeys.files(listDirForFiles()),
-      queryFn: () => fetchDirectoryFiles(listDirForFiles()),
+      queryFn: ({ queryKey, signal }) => fetchDirectoryFiles(queryKey[1]!, signal),
       enabled:
         (mediaType() === MediaType.IMAGE ||
           mediaType() === MediaType.AUDIO ||
@@ -97,7 +98,7 @@ export function ViewerPane(props: Props) {
   })
 
   const orderedFolderFiles = createMemo(() => {
-    const files = filesQuery.data?.files ?? []
+    const files = queryData(filesQuery)?.files ?? []
     const directory = listDirForFiles()
     return sortFilesForPath(
       files,
@@ -110,7 +111,7 @@ export function ViewerPane(props: Props) {
 
   const unsupportedFile = createMemo(
     () =>
-      filesQuery.data?.files.find(
+      queryData(filesQuery)?.files.find(
         (file) => file.path === viewingPath() && file.type === MediaType.OTHER,
       ) ?? null,
   )
@@ -220,14 +221,16 @@ export function ViewerPane(props: Props) {
 
       <Show when={!readerKind() && mediaType() === MediaType.TEXT && viewingPath()} keyed>
         {(sourcePath) => (
-          <TextEditorPane
-            viewingPath={sourcePath}
-            editableFolders={props.editableFolders}
-            knowledgeBases={props.knowledgeBases}
-            embedded={props.presentation !== 'modal'}
-            showClose={props.presentation === 'modal'}
-            onClose={props.onClose}
-          />
+          <Loading>
+            <TextEditorPane
+              viewingPath={sourcePath}
+              editableFolders={props.editableFolders}
+              knowledgeBases={props.knowledgeBases}
+              embedded={props.presentation !== 'modal'}
+              showClose={props.presentation === 'modal'}
+              onClose={props.onClose}
+            />
+          </Loading>
         )}
       </Show>
 

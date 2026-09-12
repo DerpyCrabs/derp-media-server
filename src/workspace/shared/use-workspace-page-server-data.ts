@@ -5,7 +5,7 @@ import type { WorkspaceTransition } from '@/lib/models/settings-types'
 import type { TaskbarPin as PinnedTaskbarItem } from '@/lib/models/taskbar-pins'
 import { queryKeys } from '@/lib/api/query-keys'
 import { useMutation, useQueryClient } from '@tanstack/solid-query'
-import { createMemo, snapshot } from 'solid-js'
+import { createMemo, deep, snapshot } from 'solid-js'
 import { createKeyedAsyncTaskQueue } from '@/lib/async-task-queue'
 
 function fromQueryData<T>(value: T): T {
@@ -87,18 +87,18 @@ export function useWorkspacePageServerData() {
 
   const editableFolders = createMemo((): string[] => {
     const folders = serverConfigQuery.data?.editableFolders
-    return folders ? fromQueryData(folders) : []
+    return folders ? fromQueryData(deep(folders)) : []
   })
 
   const serverPinsList = createMemo((): PinnedTaskbarItem[] => {
     const settings = settingsQuery.data
-    return settings ? fromQueryData(settings.workspaceTaskbarPins) : []
+    return settings ? fromQueryData(deep(settings.workspaceTaskbarPins)) : []
   })
 
   const pinCommandMutation = useMutation(() => ({
     mutationFn: postTaskbarPinCommand,
-    onMutate: async (command: TaskbarPinCommand) => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.settings() })
+    onMutate: (command: TaskbarPinCommand) => {
+      void queryClient.cancelQueries({ queryKey: queryKeys.settings() })
       queryClient.setQueryData<WorkspaceSettings>(queryKeys.settings(), (current) =>
         current
           ? {
@@ -126,8 +126,8 @@ export function useWorkspacePageServerData() {
           value: transition,
         }),
       ),
-    onMutate: async (transition: WorkspaceTransition) => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.settings() })
+    onMutate: (transition: WorkspaceTransition) => {
+      void queryClient.cancelQueries({ queryKey: queryKeys.settings() })
       queryClient.setQueryData<WorkspaceSettings>(queryKeys.settings(), (current) =>
         current ? applyWorkspaceTransition(current, transition) : current,
       )
@@ -145,11 +145,11 @@ export function useWorkspacePageServerData() {
     settingsQuery,
     editableFolders,
     serverPinsList,
-    addPin: (pin: PinnedTaskbarItem) => pinCommandMutation.mutateAsync({ kind: 'add', pin }),
-    removePin: (id: string) => pinCommandMutation.mutateAsync({ kind: 'remove', id }),
-    reorderPins: (ids: string[]) => pinCommandMutation.mutateAsync({ kind: 'reorder', ids }),
+    addPin: (pin: PinnedTaskbarItem) => pinCommandMutation.mutate({ kind: 'add', pin }),
+    removePin: (id: string) => pinCommandMutation.mutate({ kind: 'remove', id }),
+    reorderPins: (ids: string[]) => pinCommandMutation.mutate({ kind: 'reorder', ids }),
     setWorkspaceTransition: (transition: WorkspaceTransition) =>
-      workspaceTransitionMutation.mutateAsync(transition),
+      workspaceTransitionMutation.mutate(transition),
     pinCommandMutation,
     workspaceTransitionMutation,
   }

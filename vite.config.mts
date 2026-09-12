@@ -29,9 +29,10 @@ const solid1DependencyCompat = {
 }
 
 export default defineConfig({
-  cacheDir:
-    process.env.NODE_ENV === 'test'
-      ? `node_modules/.vite-test${process.env.BATCH_ID ? `-${process.env.BATCH_ID}` : ''}`
+  cacheDir: process.env.BATCH_ID
+    ? `node_modules/.vite-test-${process.env.BATCH_ID}-${process.env.PORT ?? 'build'}`
+    : process.env.E2E_DEV === '1' || process.env.NODE_ENV === 'test'
+      ? `node_modules/.vite-test-local-${process.env.PORT ?? 'build'}`
       : undefined,
   plugins: [solid1DependencyCompat, solid(), tailwindcss()],
   server: {

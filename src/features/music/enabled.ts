@@ -1,3 +1,4 @@
+import { queryData } from '@/lib/api/query-data'
 import { useQuery } from '@tanstack/solid-query'
 import { api } from '@/lib/api/client'
 
@@ -7,5 +8,5 @@ export function useMusicAI() {
     queryFn: () => api<{ enabled: boolean }>('/api/media-ai/status'),
     staleTime: 60_000,
   }))
-  return () => status.data?.enabled === true
+  return () => queryData(status)?.enabled === true
 }

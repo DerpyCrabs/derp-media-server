@@ -17,9 +17,8 @@ type DeleteFileDialogProps = {
 
 export function DeleteFileDialog(props: DeleteFileDialogProps) {
   return (
-    <Show when={props.item()}>
-      {(getItem) => {
-        const item = getItem()
+    <Show when={props.item()} keyed>
+      {(item) => {
         return (
           <div
             data-no-window-drag

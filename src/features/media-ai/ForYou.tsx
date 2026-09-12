@@ -1,4 +1,5 @@
-import { createEffect, createMemo, createSignal, For, Show } from 'solid-js'
+import { queryData } from '@/lib/api/query-data'
+import { createEffect, createMemo, createSignal, For, Loading, Show } from 'solid-js'
 import { MusicHome } from '@/features/music/MusicHome'
 import { updateMusicFeedback } from '@/features/music/cache'
 import { startRadio } from '@/features/music/actions'
@@ -179,8 +180,14 @@ export function ForYou(props: {
   }))
   createEffect(
     () => {
-      const last = home.data?.pages.at(-1)
-      return last?.warming && last.nextCursor == null ? last : undefined
+      const last = queryData(home)?.pages.at(-1)
+      return last?.warming && last.nextCursor == null
+        ? {
+            feedId: last.feedId,
+            resumeCursor: last.resumeCursor,
+            replaceEmpty: !last.rows.some((row) => row.items.length > 0),
+          }
+        : undefined
     },
     (last) => {
       if (!last?.feedId || last.resumeCursor === undefined) return undefined
@@ -203,7 +210,7 @@ export function ForYou(props: {
                     i === data.pages.length - 1 ? { ...item, warming: false } : item,
                   ),
                 }
-              const replaceEmpty = !last.rows.some((row) => row.items.length > 0)
+              const replaceEmpty = last.replaceEmpty
               return {
                 pages: [...(replaceEmpty ? data.pages.slice(0, -1) : data.pages), page],
                 pageParams: [
@@ -252,18 +259,12 @@ export function ForYou(props: {
   )
   let profileResetAt: number | undefined
   createEffect(
-    () => home.data?.pages[0]?.profileResetAt,
+    () => queryData(home)?.pages[0]?.profileResetAt,
     (next) => {
       if (next !== profileResetAt) setHidden([])
       profileResetAt = next
     },
   )
-  const exact = useQuery(() => ({
-    queryKey: ['media-ai', 'matches', debounced()],
-    queryFn: () =>
-      api<FileSearchResponse>(`/api/files/search?q=${encodeURIComponent(debounced())}&limit=12`),
-    enabled: debounced().length >= 3 && debounced().length <= 200,
-  }))
   function open(item: FileItem, files: FileItem[]) {
     if (item.isDirectory) {
       props.onOpenFolder()
@@ -383,25 +384,25 @@ export function ForYou(props: {
   }))
   const feed = createMemo(() => {
     const seen = new Set<string>()
-    return (home.data?.pages.flatMap((page) => page.rows.flatMap((row) => row.items)) ?? []).filter(
-      (item) => {
-        if (
-          category() === 'music' &&
-          item.type !== MediaType.AUDIO &&
-          !(item.type === MediaType.FOLDER && item.members?.some((m) => m.type === MediaType.AUDIO))
-        )
-          return false
-        if (
-          category() === 'video' &&
-          item.type !== MediaType.VIDEO &&
-          !(item.type === MediaType.FOLDER && item.members?.some((m) => m.type === MediaType.VIDEO))
-        )
-          return false
-        if (seen.has(item.path)) return false
-        seen.add(item.path)
-        return true
-      },
-    )
+    return (
+      queryData(home)?.pages.flatMap((page) => page.rows.flatMap((row) => row.items)) ?? []
+    ).filter((item) => {
+      if (
+        category() === 'music' &&
+        item.type !== MediaType.AUDIO &&
+        !(item.type === MediaType.FOLDER && item.members?.some((m) => m.type === MediaType.AUDIO))
+      )
+        return false
+      if (
+        category() === 'video' &&
+        item.type !== MediaType.VIDEO &&
+        !(item.type === MediaType.FOLDER && item.members?.some((m) => m.type === MediaType.VIDEO))
+      )
+        return false
+      if (seen.has(item.path)) return false
+      seen.add(item.path)
+      return true
+    })
   })
   const [menu, setMenu] = createSignal<{ item: Pick; x: number; y: number }>()
   const actionClass =
@@ -472,7 +473,7 @@ export function ForYou(props: {
                     class={`hidden items-center justify-center rounded-full p-2 transition-colors min-h-11 min-w-11 hover:bg-secondary sm:inline-flex ${(likes()[item.path] ?? item.liked) ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
                     disabled={feedback.isPending}
                     onClick={() =>
-                      feedback.mutate({
+                      void feedback.mutate({
                         path: item.path,
                         kind: (likes()[item.path] ?? item.liked) ? 'clear' : 'more',
                       })
@@ -485,7 +486,7 @@ export function ForYou(props: {
                     title='Not interested'
                     class='hidden items-center justify-center rounded-full p-2 text-muted-foreground transition-colors min-h-11 min-w-11 hover:bg-secondary hover:text-foreground sm:inline-flex'
                     disabled={feedback.isPending}
-                    onClick={() => feedback.mutate({ path: item.path, kind: 'hide' })}
+                    onClick={() => void feedback.mutate({ path: item.path, kind: 'hide' })}
                   >
                     <ThumbsDown size={17} />
                   </button>
@@ -548,7 +549,7 @@ export function ForYou(props: {
               title='Refresh recommendations'
               aria-busy={refresh.isPending ? 'true' : 'false'}
               disabled={refresh.isPending || home.isFetching}
-              onClick={() => refresh.mutate()}
+              onClick={() => void refresh.mutate()}
             >
               <RefreshCw size={18} class={refresh.isPending ? 'animate-spin' : ''} />
             </button>
@@ -563,7 +564,7 @@ export function ForYou(props: {
                 class='flex h-9 pointer-coarse:h-11 min-w-0 flex-1 items-center gap-2 rounded-lg bg-card pl-3 ring-1 ring-inset ring-border'
                 onSubmit={(e) => {
                   e.preventDefault()
-                  if (props.aiEnabled && query().trim()) ask.mutate(query().trim())
+                  if (props.aiEnabled && query().trim()) void ask.mutate(query().trim())
                 }}
               >
                 <Search size={18} class='shrink-0 text-muted-foreground' />
@@ -601,31 +602,11 @@ export function ForYou(props: {
               Start a new search
             </button>
           </Show>
-          <Show when={debounced().length >= 3 && exact.data?.results.length}>
-            <div class='rounded-xl border border-border bg-card p-3'>
-              <p class='mb-2 text-xs text-muted-foreground'>Library matches</p>
-              <div class='grid gap-1 sm:grid-cols-2'>
-                <For each={exact.data?.results}>
-                  {(result) => (
-                    <button
-                      class='truncate rounded-lg px-3 py-2 text-left text-sm hover:bg-secondary'
-                      title={result.path}
-                      onClick={() =>
-                        open(
-                          fileSearchResultToFileItem(result),
-                          (exact.data?.results ?? []).map(fileSearchResultToFileItem),
-                        )
-                      }
-                    >
-                      {result.isDirectory ? '▸ ' : ''}
-                      {result.name}
-                      <span class='ml-2 text-xs text-muted-foreground'>{result.parentPath}</span>
-                    </button>
-                  )}
-                </For>
-              </div>
-            </div>
-          </Show>
+          <Loading>
+            <Show when={debounced().length >= 3 && debounced().length <= 200}>
+              <LibraryMatches query={debounced()} open={open} />
+            </Show>
+          </Loading>
           <Show when={ask.error}>
             <p role='alert' class='text-sm text-red-500'>
               Search is unavailable right now. Please try again.
@@ -659,7 +640,7 @@ export function ForYou(props: {
           when={
             props.aiEnabled &&
             category() !== 'music' &&
-            (home.isPending || home.isFetchingNextPage || home.data?.pages.at(-1)?.warming)
+            (home.isPending || home.isFetchingNextPage || queryData(home)?.pages.at(-1)?.warming)
           }
         >
           <div
@@ -697,7 +678,7 @@ export function ForYou(props: {
             category() === 'video' &&
             !home.isPending &&
             !home.error &&
-            !home.data?.pages.at(-1)?.warming &&
+            !queryData(home)?.pages.at(-1)?.warming &&
             !feed().length
           }
         >
@@ -730,7 +711,7 @@ export function ForYou(props: {
               }
               disabled={feedback.isPending}
               onClick={() => {
-                feedback.mutate({
+                void feedback.mutate({
                   path: value.item.path,
                   kind: (likes()[value.item.path] ?? value.item.liked) ? 'clear' : 'more',
                 })
@@ -745,7 +726,7 @@ export function ForYou(props: {
               aria-label={`Dislike ${value.item.name}`}
               disabled={feedback.isPending}
               onClick={() => {
-                feedback.mutate({ path: value.item.path, kind: 'hide' })
+                void feedback.mutate({ path: value.item.path, kind: 'hide' })
                 setMenu(undefined)
               }}
             >
@@ -806,7 +787,7 @@ export function ForYou(props: {
               <button
                 class={actionClass}
                 onClick={() => {
-                  feedback.mutate({
+                  void feedback.mutate({
                     path:
                       value.item.type === MediaType.FOLDER
                         ? value.item.path
@@ -854,5 +835,50 @@ export function ForYou(props: {
         </div>
       </Show>
     </main>
+  )
+}
+
+function LibraryMatches(props: {
+  query: string
+  open: (item: FileItem, files: FileItem[]) => void
+}) {
+  const exact = useQuery(() => ({
+    queryKey: ['media-ai', 'matches', props.query] as const,
+    queryFn: ({ queryKey, signal }) =>
+      api<FileSearchResponse>(`/api/files/search?q=${encodeURIComponent(queryKey[2])}&limit=12`, {
+        signal,
+      }),
+  }))
+  return (
+    <Show when={queryData(exact)?.results.length || exact.error}>
+      <div class='rounded-xl border border-border bg-card p-3'>
+        <p class='mb-2 text-xs text-muted-foreground'>Library matches</p>
+        <Show when={exact.error}>
+          <p role='alert' class='text-sm text-destructive'>
+            {exact.error?.message}
+          </p>
+        </Show>
+        <div class='grid gap-1 sm:grid-cols-2'>
+          <For each={queryData(exact)?.results}>
+            {(result) => (
+              <button
+                class='truncate rounded-lg px-3 py-2 text-left text-sm hover:bg-secondary'
+                title={result.path}
+                onClick={() =>
+                  props.open(
+                    fileSearchResultToFileItem(result),
+                    (queryData(exact)?.results ?? []).map(fileSearchResultToFileItem),
+                  )
+                }
+              >
+                {result.isDirectory ? '▸ ' : ''}
+                {result.name}
+                <span class='ml-2 text-xs text-muted-foreground'>{result.parentPath}</span>
+              </button>
+            )}
+          </For>
+        </div>
+      </div>
+    </Show>
   )
 }

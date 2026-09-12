@@ -431,6 +431,7 @@ export function FileBrowserView(props: FileBrowserViewProps) {
         results={props.controller.search.results()}
         query={props.controller.search.debouncedQuery()}
         isLoading={props.controller.search.loading()}
+        error={props.controller.search.error()}
         currentPath={props.controller.currentPath()}
         onResultClick={(path) =>
           props.host.openKnowledgeBaseResult(

@@ -1,4 +1,5 @@
-import { createInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
+import { queryData } from '@/lib/api/query-data'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
 import { createMemo, createSignal, type Accessor } from 'solid-js'
 import { api, post } from '@/lib/api/client'
 import { queryKeys } from '@/lib/api/query-keys'
@@ -87,27 +88,30 @@ export function useHermesVirtualDirectory(options: HermesVirtualDirectoryOptions
   const projectRoot = createMemo(
     () => options.currentPath().split(/[/\\]/).filter(Boolean)[0] ?? '',
   )
-  const projectChoicesQuery = createInfiniteQuery(() => ({
+  const projectChoicesQuery = useInfiniteQuery(() => ({
     queryKey: fileBrowserListingQueryKey(projectRoot()),
     initialPageParam: FILE_BROWSER_INITIAL_PAGE,
-    queryFn: ({ pageParam }) => fetchFileBrowserListing(projectRoot(), pageParam),
+    queryFn: ({ queryKey, pageParam, signal }) =>
+      fetchFileBrowserListing(queryKey[1], pageParam, { signal }),
     getNextPageParam: nextFileBrowserListingPage,
     enabled: actionDialog()?.action === 'moveToProject',
   }))
-  const projectChoices = createMemo(() =>
-    (projectChoicesQuery.data?.pages ?? [])
+  const projectChoices = createMemo(() => {
+    if (actionDialog()?.action !== 'moveToProject') return []
+    return (queryData(projectChoicesQuery)?.pages ?? [])
       .flatMap((page) =>
         page.files.map((file) => ({ file, entry: page.virtualEntries?.[file.path] })),
       )
       .filter(({ entry }) => entry?.kind === 'project')
-      .map(({ file }) => ({ name: file.name, path: file.path })),
-  )
+      .map(({ file }) => ({ name: file.name, path: file.path }))
+  })
 
   const detailQuery = useQuery(() => ({
     queryKey: ['virtual-directory', 'open', detail()?.file.path],
-    queryFn: () =>
+    queryFn: ({ queryKey, signal }) =>
       api<{ session: Record<string, unknown>; messages: unknown }>(
-        `/api/virtual-directory/open?path=${encodeURIComponent(detail()!.file.path)}`,
+        `/api/virtual-directory/open?path=${encodeURIComponent(queryKey[2]!)}`,
+        { signal },
       ),
     enabled: detail()?.entry.kind === 'session',
   }))
@@ -191,26 +195,20 @@ export function useHermesVirtualDirectory(options: HermesVirtualDirectoryOptions
 
   function openCreateFile() {
     if (!hasVirtualCapability(options.directory(), 'createFile')) return false
-    mutation.mutate(
-      { action: 'createFile', path: options.currentPath() },
-      {
-        onSuccess: (result) => {
-          openActionTarget(
-            {
-              name: 'Untitled session',
-              path: `virtual-draft-${Date.now()}`,
-              type: MediaType.OTHER,
-              size: 0,
-              extension: '',
-              isDirectory: false,
-              isVirtual: true,
-            },
-            result.openTarget,
-          )
+    void mutation.mutate({ action: 'createFile', path: options.currentPath() }).then((result) => {
+      openActionTarget(
+        {
+          name: 'Untitled session',
+          path: `virtual-draft-${Date.now()}`,
+          type: MediaType.OTHER,
+          size: 0,
+          extension: '',
+          isDirectory: false,
+          isVirtual: true,
         },
-        onError: reportActionError,
-      },
-    )
+        result.openTarget,
+      )
+    }, reportActionError)
     return true
   }
 
@@ -237,15 +235,17 @@ export function useHermesVirtualDirectory(options: HermesVirtualDirectoryOptions
       primaryPath,
       ...draft.additionalPaths.map((value) => value.trim()).filter(Boolean),
     ]
-    mutation.mutate(
-      {
+    void mutation
+      .mutate({
         action: 'createFolder',
         path: options.currentPath(),
         name: projectName,
         metadata: { primaryPath, folders },
-      },
-      { onSuccess: () => setProjectCreateOpen(false) },
-    )
+      })
+      .then(
+        () => setProjectCreateOpen(false),
+        () => {},
+      )
     return true
   }
 
@@ -265,7 +265,7 @@ export function useHermesVirtualDirectory(options: HermesVirtualDirectoryOptions
   function rename(target: FileItem, name: string, close: () => void) {
     const virtualEntry = options.entry(target)
     if (!virtualEntry || !hasVirtualCapability(virtualEntry, 'rename')) return false
-    mutation.mutate({ action: 'rename', path: target.path, name }, { onSuccess: close })
+    void mutation.mutate({ action: 'rename', path: target.path, name }).then(close, () => {})
     return true
   }
 
@@ -287,7 +287,7 @@ export function useHermesVirtualDirectory(options: HermesVirtualDirectoryOptions
   function remove(target: FileItem, close: () => void) {
     const action = deleteAction()
     if (!action) return false
-    mutation.mutate({ action, path: target.path }, { onSuccess: close })
+    void mutation.mutate({ action, path: target.path }).then(close, () => {})
     return true
   }
 
@@ -377,17 +377,16 @@ export function useHermesVirtualDirectory(options: HermesVirtualDirectoryOptions
       return
     }
     if (action === 'branch') {
-      mutation.mutate(
-        { action, path: file.path },
-        {
-          onSuccess: (result) =>
+      void mutation
+        .mutate({ action, path: file.path })
+        .then(
+          (result) =>
             openActionTarget(
               { ...file, name: `${file.name} branch`, path: `virtual-branch-${Date.now()}` },
               result.openTarget,
             ),
-          onError: reportActionError,
-        },
-      )
+          reportActionError,
+        )
       return
     }
     if (action === 'deletePermanently' || action === 'deleteProject') {
@@ -395,7 +394,7 @@ export function useHermesVirtualDirectory(options: HermesVirtualDirectoryOptions
       actions.remove(file)
       return
     }
-    mutation.mutate({ action, path: file.path }, { onError: reportActionError })
+    void mutation.mutate({ action, path: file.path }).then(undefined, reportActionError)
   }
 
   function submitActionDialog() {
@@ -415,7 +414,10 @@ export function useHermesVirtualDirectory(options: HermesVirtualDirectoryOptions
             metadata: { icon: appearanceIcon(), color: appearanceColor() },
           }
         : { action: dialog.action, path: dialog.file.path, name: value }
-    mutation.mutate(body, { onSuccess: () => setActionDialog(null) })
+    void mutation.mutate(body).then(
+      () => setActionDialog(null),
+      () => {},
+    )
   }
 
   return {

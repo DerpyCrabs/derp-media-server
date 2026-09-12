@@ -1,5 +1,6 @@
 import { createPlaybackScrubber } from '@/features/playback/create-playback-scrubber'
 import { QueuePanel } from '@/features/music/QueuePanel'
+import { queryData } from '@/lib/api/query-data'
 import { fetchDirectoryFiles } from '@/lib/files/files-client'
 import { MediaType } from '@/lib/files/types'
 import { queryKeys } from '@/lib/api/query-keys'
@@ -68,17 +69,17 @@ export function WorkspaceTaskbarAudio(props: Props) {
 
   const filesQuery = useQuery(() => ({
     queryKey: queryKeys.files(currentDir()),
-    queryFn: () => fetchDirectoryFiles(currentDir()),
+    queryFn: ({ queryKey, signal }) => fetchDirectoryFiles(queryKey[1]!, signal),
     enabled: shouldHandleAudio() && !!playingPath(),
   }))
   const allFiles = createMemo(() => {
-    const files = filesQuery.data?.files ?? []
+    const files = queryData(filesQuery)?.files ?? []
     return sortFilesForPath(
       files,
       currentDir(),
-      settingsQuery.data?.sortOrders,
+      queryData(settingsQuery)?.sortOrders,
       false,
-      createFileSortMetadata(settingsQuery.data?.favorites, viewStats.viewCounts()),
+      createFileSortMetadata(queryData(settingsQuery)?.favorites, viewStats.viewCounts()),
     )
   })
   let queuedSignature = ''
@@ -86,11 +87,12 @@ export function WorkspaceTaskbarAudio(props: Props) {
     () => {
       const current = item()
       if (!current || !shouldHandleAudio() || filesQuery.isPending) return null
+      if (playback().queueContext) return null
       const queue = audioPlaybackQueueFromFiles(allFiles(), current)
       return { queue, current, signature: queue.map((candidate) => candidate.locator).join('\x01') }
     },
     (next) => {
-      if (!next || playback().queueContext || next.signature === queuedSignature) return
+      if (!next || next.signature === queuedSignature) return
       queuedSignature = next.signature
       session.dispatch({ type: 'setQueue', queue: next.queue, current: next.current })
     },
@@ -109,11 +111,12 @@ export function WorkspaceTaskbarAudio(props: Props) {
   })
   const metadataQuery = useQuery(() => ({
     queryKey: queryKeys.audioMetadata(playingPath() ?? ''),
-    queryFn: () => fetchAudioMetadata(metadataUrl()),
+    queryFn: ({ queryKey, signal }) =>
+      fetchAudioMetadata(buildAudioMetadataUrl(queryKey[2]), signal),
     enabled: shouldHandleAudio() && !!metadataUrl(),
     refetchOnWindowFocus: false,
   }))
-  const audioMetadata = createMemo(() => metadataQuery.data)
+  const audioMetadata = createMemo(() => queryData(metadataQuery))
   const displayImageUrl = createMemo(() => {
     const path = playingPath()
     if (isVideoFile() && path) return buildThumbnailUrl(path)

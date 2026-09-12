@@ -76,6 +76,38 @@ test.describe('Image Viewer', () => {
     await expect(page.getByText('Fit').or(page.getByText('100%'))).toBeVisible()
   })
 
+  test('keeps zoom and rotation chosen while image settings and pixels are loading', async ({
+    page,
+  }) => {
+    let release!: () => void
+    const pending = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    await page.route('**/api/image-config', async (route) => {
+      await pending
+      await route.continue()
+    })
+    await page.route('**/api/image/**', async (route) => {
+      await pending
+      await route.continue()
+    })
+    try {
+      await page.goto('/?dir=Images&viewing=Images%2Fphoto.jpg', { waitUntil: 'domcontentloaded' })
+      await expect(page.getByText('Fit', { exact: true })).toBeVisible({ timeout: 2000 })
+      await page.locator('button:has(.lucide-zoom-in)').click()
+      await page.locator('button:has(.lucide-rotate-cw)').click()
+      await expect(page.getByText('125%', { exact: true })).toBeVisible()
+      release()
+      const image = page.locator('img[alt="photo.jpg"]')
+      await expect(image).toBeVisible()
+      await expect(image).toHaveAttribute('style', /rotate\(90deg\)/)
+      await expect(page.getByText('125%', { exact: true })).toBeVisible()
+    } finally {
+      release()
+      await page.unrouteAll({ behavior: 'wait' })
+    }
+  })
+
   test('rotates image via rotate button', async ({ page }) => {
     let releaseNextImage!: () => void
     const nextImageGate = new Promise<void>((resolve) => {

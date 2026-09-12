@@ -590,15 +590,15 @@ export function createPlaybackSession(options: CreatePlaybackSessionOptions): Pl
         if (!currentItem(state)) return reject('emptyQueue')
         if (state.desiredPlaying && state.transport.kind !== 'error') return unchanged()
         state.desiredPlaying = true
-        if (state.transport.kind === 'resolving') {
-          notify()
-          return changed()
-        }
         if (
           state.transport.kind === 'ended' ||
           (state.timeline.duration > 0 && playbackPosition(state) >= state.timeline.duration)
         )
           requestSeek(0)
+        if (state.transport.kind === 'resolving') {
+          notify()
+          return changed()
+        }
         if (state.transport.kind !== 'attached') return resolveSource('retry')
         state.transport.playing = false
         notify()
@@ -668,6 +668,7 @@ export function createPlaybackSession(options: CreatePlaybackSessionOptions): Pl
       }
       case 'mediaPause': {
         if (!currentGeneration(command.generation)) return reject('staleSource')
+        if (state.transport.kind === 'error') return unchanged()
         if (state.timeline.pending || state.transport.kind === 'ended') return unchanged()
         const source = playbackSource(state.transport)!
         state.transport = { kind: 'attached', source, playing: false }
@@ -678,6 +679,7 @@ export function createPlaybackSession(options: CreatePlaybackSessionOptions): Pl
       }
       case 'mediaEnded': {
         if (!currentGeneration(command.generation)) return reject('staleSource')
+        if (state.transport.kind === 'error') return unchanged()
         if (state.timeline.pending) return unchanged()
         if (state.repeat) {
           requestSeek(0)
