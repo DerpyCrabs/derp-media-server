@@ -11,9 +11,12 @@ mod image_variants;
 mod logical_path;
 mod media;
 mod media_ai;
+mod media_warmup;
 mod music;
 mod path_metadata;
 mod playback_cache;
+#[cfg(test)]
+mod queue_test_support;
 mod reader_state;
 mod routes;
 mod server;

@@ -73,6 +73,7 @@ export const BATCHES = [
       'video-controls',
       'playback-regressions',
       'image-viewer',
+      'media-warmup',
       'pdf-viewer',
       'reader',
       'download',

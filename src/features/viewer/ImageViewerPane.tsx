@@ -79,7 +79,7 @@ export function ImageViewerPane(props: ImageViewerPaneProps): JSX.Element {
     return index < 0
       ? []
       : imageFiles()
-          .slice(index + 1, index + 3)
+          .slice(index + 1, index + 31)
           .map((file) => file.path)
   })
   const responsiveImage = createResponsiveImage({

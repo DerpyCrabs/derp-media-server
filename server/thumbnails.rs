@@ -15,7 +15,7 @@ use std::{
 use tokio::{
     fs,
     process::Command,
-    sync::{mpsc, oneshot},
+    sync::{OwnedSemaphorePermit, mpsc, oneshot},
 };
 use tokio_util::sync::CancellationToken;
 
@@ -27,6 +27,7 @@ enum CommandMessage {
         file: PathBuf,
         cache: PathBuf,
         waiter: Waiter,
+        background: Option<OwnedSemaphorePermit>,
     },
     Cancel {
         id: u64,
@@ -41,6 +42,8 @@ struct Job {
     waiters: HashMap<u64, Waiter>,
     cancellation: CancellationToken,
     started: bool,
+    _background: Option<OwnedSemaphorePermit>,
+    foreground: bool,
 }
 
 struct Completion {
@@ -148,6 +151,22 @@ impl Thumbnailer {
     }
 
     pub async fn read(&self, file: &Path, modified: std::time::SystemTime) -> AppResult<Vec<u8>> {
+        let _foreground = crate::media_warmup::foreground();
+        self.read_inner(file, modified, None).await
+    }
+
+    pub async fn warm(&self, file: &Path, modified: std::time::SystemTime) {
+        let permit = crate::media_warmup::acquire().await;
+        let _ = self.read_inner(file, modified, Some(permit)).await;
+    }
+
+    async fn read_inner(
+        &self,
+        file: &Path,
+        modified: std::time::SystemTime,
+        background: Option<OwnedSemaphorePermit>,
+    ) -> AppResult<Vec<u8>> {
+        let warming = background.is_some();
         fs::create_dir_all(&self.cache_dir)
             .await
             .map_err(AppError::io)?;
@@ -157,6 +176,9 @@ impl Thumbnailer {
             let _ = fs::rename(&legacy, &cache).await;
         }
         if cache.exists() {
+            if warming {
+                return Ok(Vec::new());
+            }
             match fs::read(&cache).await {
                 Ok(data)
                     if image::guess_format(&data)
@@ -178,6 +200,7 @@ impl Thumbnailer {
                 file: file.to_owned(),
                 cache: cache.clone(),
                 waiter,
+                background,
             })
             .map_err(|_| AppError::internal("Thumbnail queue unavailable"))?;
         let mut guard = RequestGuard {
@@ -191,7 +214,11 @@ impl Thumbnailer {
             .map_err(|_| AppError::internal("Thumbnail queue unavailable"))?
             .map_err(AppError::internal)?;
         guard.complete = true;
-        fs::read(cache).await.map_err(AppError::io)
+        if warming {
+            Ok(Vec::new())
+        } else {
+            fs::read(cache).await.map_err(AppError::io)
+        }
     }
 }
 
@@ -221,20 +248,21 @@ async fn run_queue(mut receiver: mpsc::UnboundedReceiver<CommandMessage>, concur
     loop {
         tokio::select! {
             message = receiver.recv() => match message {
-                Some(CommandMessage::Request{id,file,cache,waiter}) => {
+                Some(CommandMessage::Request{id,file,cache,waiter,background}) => {
                     if cache.exists() { let _=waiter.send(Ok(())); continue; }
+                    let foreground = background.is_none();
                     let job=jobs.entry(cache.clone()).or_insert_with(||{
                         pending.push_back(cache.clone());
-                        Job{file,cache:cache.clone(),temp:cache.with_extension(format!("{}.tmp.jpg",uuid::Uuid::new_v4())),waiters:HashMap::new(),cancellation:CancellationToken::new(),started:false}
+                        Job{file,cache:cache.clone(),temp:cache.with_extension(format!("{}.tmp.jpg",uuid::Uuid::new_v4())),waiters:HashMap::new(),cancellation:CancellationToken::new(),started:false,_background:background,foreground}
                     });
+                    job.foreground |= foreground;
                     job.waiters.insert(id,waiter);
                 }
                 Some(CommandMessage::Cancel{id,cache}) => {
                     if let Some(job)=jobs.get_mut(&cache) {
                         job.waiters.remove(&id);
                         if job.waiters.is_empty() {
-                            if job.started { job.cancellation.cancel(); }
-                            else { pending.retain(|candidate|candidate!=&cache); jobs.remove(&cache); }
+                            if !job.started { pending.retain(|candidate|candidate!=&cache); jobs.remove(&cache); }
                         }
                     }
                 }
@@ -249,7 +277,11 @@ async fn run_queue(mut receiver: mpsc::UnboundedReceiver<CommandMessage>, concur
             }
         }
         while active < concurrency {
-            while let Some(cache) = pending.pop_front() {
+            let index = pending
+                .iter()
+                .position(|cache| jobs.get(cache).is_some_and(|job| job.foreground))
+                .unwrap_or(0);
+            if let Some(cache) = pending.remove(index) {
                 let Some(job) = jobs.get_mut(&cache) else {
                     continue;
                 };
@@ -270,7 +302,6 @@ async fn run_queue(mut receiver: mpsc::UnboundedReceiver<CommandMessage>, concur
                         .map_err(|error| error.1);
                     let _ = sender.send(Completion { cache, result });
                 });
-                break;
             }
             if pending.is_empty() {
                 break;
@@ -285,6 +316,8 @@ async fn generate_and_commit(
     cache: &Path,
     cancellation: &CancellationToken,
 ) -> AppResult<()> {
+    #[cfg(test)]
+    crate::queue_test_support::before_generation(cache).await;
     #[cfg(test)]
     {
         TEST_GENERATIONS.fetch_add(1, Ordering::SeqCst);
@@ -639,6 +672,294 @@ mod tests {
     use super::*;
     use std::sync::Arc;
 
+    use crate::image_variants::Priority;
+    use crate::queue_test_support::{Gate, until};
+
+    struct QueueFixture {
+        base: PathBuf,
+        sender: mpsc::UnboundedSender<CommandMessage>,
+        task: tokio::task::JoinHandle<()>,
+    }
+
+    impl QueueFixture {
+        fn new() -> Self {
+            let base = std::env::temp_dir()
+                .join(format!("derp-thumbnails-queue-{}", uuid::Uuid::new_v4()));
+            std::fs::create_dir_all(&base).unwrap();
+            image::RgbImage::from_pixel(32, 32, image::Rgb([10, 20, 30]))
+                .save(base.join("source.png"))
+                .unwrap();
+            let (sender, receiver) = mpsc::unbounded_channel();
+            let task = tokio::spawn(run_queue(receiver, 1));
+            let fixture = Self { base, sender, task };
+            std::fs::write(fixture.cache("barrier"), []).unwrap();
+            fixture
+        }
+
+        fn cache(&self, name: &str) -> PathBuf {
+            self.base.join(format!("{name}.jpg"))
+        }
+        fn gate(&self, name: &str) -> Gate {
+            Gate::new(self.cache(name))
+        }
+
+        fn request(
+            &self,
+            id: u64,
+            name: &str,
+            priority: Priority,
+        ) -> oneshot::Receiver<Result<(), String>> {
+            let (waiter, receiver) = oneshot::channel();
+            let background = (priority == Priority::Prefetch).then(|| {
+                Arc::new(tokio::sync::Semaphore::new(1))
+                    .try_acquire_owned()
+                    .unwrap()
+            });
+            self.sender
+                .send(CommandMessage::Request {
+                    id,
+                    file: self.base.join("source.png"),
+                    cache: self.cache(name),
+
+                    waiter,
+                    background,
+                })
+                .unwrap();
+            receiver
+        }
+
+        fn cancel(&self, id: u64, name: &str) {
+            self.sender
+                .send(CommandMessage::Cancel {
+                    id,
+                    cache: self.cache(name),
+                })
+                .unwrap();
+        }
+
+        async fn sync(&self) {
+            until(self.request(u64::MAX, "barrier", Priority::Active))
+                .await
+                .unwrap()
+                .unwrap();
+        }
+    }
+
+    impl Drop for QueueFixture {
+        fn drop(&mut self) {
+            self.task.abort();
+            let _ = std::fs::remove_dir_all(&self.base);
+        }
+    }
+
+    #[tokio::test]
+    async fn cancelling_one_running_subscriber_does_not_fail_the_other() {
+        let _lock = TEST_LOCK.lock().await;
+        let q = QueueFixture::new();
+        let gate = q.gate("shared");
+        let first = q.request(1, "shared", Priority::Prefetch);
+        gate.started().await;
+        let second = q.request(2, "shared", Priority::Active);
+        q.cancel(1, "shared");
+        q.sync().await;
+        assert!(until(first).await.is_err());
+        gate.release();
+        until(second).await.unwrap().unwrap();
+        q.sync().await;
+        assert_eq!(gate.starts(), 1);
+        assert!(q.cache("shared").exists());
+    }
+
+    #[tokio::test]
+    async fn abandoned_running_job_retains_its_background_permit_until_completion() {
+        let _lock = TEST_LOCK.lock().await;
+        let q = QueueFixture::new();
+        let gate = q.gate("shared");
+        let capacity = Arc::new(tokio::sync::Semaphore::new(1));
+        let (waiter, receiver) = oneshot::channel();
+        q.sender
+            .send(CommandMessage::Request {
+                id: 1,
+                file: q.base.join("source.png"),
+                cache: q.cache("shared"),
+
+                waiter,
+                background: Some(capacity.clone().try_acquire_owned().unwrap()),
+            })
+            .unwrap();
+        gate.started().await;
+        q.cancel(1, "shared");
+        q.sync().await;
+        assert!(until(receiver).await.is_err());
+        assert_eq!(capacity.available_permits(), 0);
+        let rejoined = q.request(2, "shared", Priority::Active);
+        q.sync().await;
+        gate.release();
+        until(rejoined).await.unwrap().unwrap();
+        q.sync().await;
+        assert_eq!(capacity.available_permits(), 1);
+        assert_eq!(gate.starts(), 1);
+    }
+
+    #[tokio::test]
+    async fn cancelling_one_pending_subscriber_keeps_the_shared_job() {
+        let _lock = TEST_LOCK.lock().await;
+        let q = QueueFixture::new();
+
+        let blocker = q.gate("blocker");
+        let shared = q.gate("shared");
+        let first = q.request(1, "blocker", Priority::Active);
+        blocker.started().await;
+        let cancelled = q.request(2, "shared", Priority::Prefetch);
+        let remaining = q.request(3, "shared", Priority::Active);
+        q.cancel(2, "shared");
+        q.sync().await;
+        assert!(until(cancelled).await.is_err());
+        assert_eq!(shared.starts(), 0);
+        blocker.release();
+        until(first).await.unwrap().unwrap();
+        shared.started().await;
+        shared.release();
+        until(remaining).await.unwrap().unwrap();
+        q.sync().await;
+        assert_eq!(shared.starts(), 1);
+        assert!(q.cache("shared").exists());
+    }
+
+    #[tokio::test]
+    async fn cancelling_running_subscribers_keeps_result_and_worker_slot() {
+        let _lock = TEST_LOCK.lock().await;
+        let q = QueueFixture::new();
+
+        let shared = q.gate("shared");
+        let first = q.request(1, "shared", Priority::Prefetch);
+        shared.started().await;
+        let second = q.request(2, "shared", Priority::Active);
+        q.cancel(1, "shared");
+        q.sync().await;
+        assert!(until(first).await.is_err());
+        q.cancel(2, "shared");
+        q.sync().await;
+        assert!(until(second).await.is_err());
+        let following = q.gate("following");
+        let next = q.request(3, "following", Priority::Active);
+        q.sync().await;
+        assert_eq!(following.starts(), 0);
+        let rejoined = q.request(4, "shared", Priority::Active);
+        q.sync().await;
+        shared.release();
+        until(rejoined).await.unwrap().unwrap();
+        following.started().await;
+        assert!(q.cache("shared").exists());
+        assert_eq!(shared.starts(), 1);
+        following.release();
+        until(next).await.unwrap().unwrap();
+        q.sync().await;
+    }
+
+    #[tokio::test]
+    async fn cancelling_all_pending_subscribers_removes_the_job() {
+        let _lock = TEST_LOCK.lock().await;
+        let q = QueueFixture::new();
+
+        let blocker = q.gate("blocker");
+        let obsolete = q.gate("obsolete");
+        let following = q.gate("following");
+        let first = q.request(1, "blocker", Priority::Active);
+        blocker.started().await;
+        let a = q.request(2, "obsolete", Priority::Prefetch);
+        let b = q.request(3, "obsolete", Priority::Active);
+        q.cancel(2, "obsolete");
+        q.cancel(3, "obsolete");
+        let next = q.request(4, "following", Priority::Prefetch);
+        q.sync().await;
+        assert!(until(a).await.is_err());
+        assert!(until(b).await.is_err());
+        blocker.release();
+        until(first).await.unwrap().unwrap();
+        following.started().await;
+        assert_eq!(obsolete.starts(), 0);
+        assert!(!q.cache("obsolete").exists());
+        following.release();
+        until(next).await.unwrap().unwrap();
+        q.sync().await;
+    }
+
+    #[tokio::test]
+    async fn generation_failure_notifies_subscribers_releases_slot_and_allows_retry() {
+        let _lock = TEST_LOCK.lock().await;
+        let q = QueueFixture::new();
+
+        let broken = q.gate("broken");
+        let following = q.gate("following");
+        let first = q.request(1, "broken", Priority::Active);
+        broken.started().await;
+        let duplicate = q.request(2, "broken", Priority::Active);
+        let next = q.request(3, "following", Priority::Active);
+        q.sync().await;
+        std::fs::write(q.base.join("source.png"), b"corrupt image").unwrap();
+        broken.release();
+        let error = until(first).await.unwrap().unwrap_err();
+        assert_eq!(until(duplicate).await.unwrap().unwrap_err(), error);
+        following.started().await;
+        assert!(!q.cache("broken").exists());
+        image::RgbImage::from_pixel(32, 32, image::Rgb([10, 20, 30]))
+            .save(q.base.join("source.png"))
+            .unwrap();
+        following.release();
+        until(next).await.unwrap().unwrap();
+        broken.release();
+        until(q.request(4, "broken", Priority::Active))
+            .await
+            .unwrap()
+            .unwrap();
+        q.sync().await;
+        assert_eq!(broken.starts(), 2);
+        assert!(q.cache("broken").exists());
+        assert!(std::fs::read_dir(&q.base).unwrap().all(|entry| {
+            !entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .contains(".tmp.")
+        }));
+    }
+
+    #[tokio::test]
+    async fn visible_jobs_overtake_background_and_promote_existing_jobs() {
+        let _lock = TEST_LOCK.lock().await;
+        let q = QueueFixture::new();
+
+        let blocker = q.gate("blocker");
+        let background = q.gate("background");
+        let promoted = q.gate("promoted");
+        let next_gate = q.gate("next");
+        let first = q.request(1, "blocker", Priority::Active);
+        blocker.started().await;
+        let bg = q.request(2, "background", Priority::Prefetch);
+        let original = q.request(3, "promoted", Priority::Prefetch);
+        let next = q.request(4, "next", Priority::Next);
+        let visible = q.request(5, "promoted", Priority::Active);
+        q.sync().await;
+        blocker.release();
+        until(first).await.unwrap().unwrap();
+        promoted.started().await;
+        assert_eq!(background.starts(), 0);
+        assert_eq!(next_gate.starts(), 0);
+        promoted.release();
+        until(original).await.unwrap().unwrap();
+        until(visible).await.unwrap().unwrap();
+        next_gate.started().await;
+        assert_eq!(background.starts(), 0);
+        next_gate.release();
+        until(next).await.unwrap().unwrap();
+        background.started().await;
+        background.release();
+        until(bg).await.unwrap().unwrap();
+        q.sync().await;
+        assert_eq!(promoted.starts(), 1);
+    }
+
     #[test]
     fn waveform_preserves_dynamics_and_normalizes_quiet_audio() {
         let quiet: Vec<f32> = (0..1120)
@@ -670,6 +991,63 @@ mod tests {
             )
             .unwrap();
         database
+    }
+
+    #[tokio::test]
+    async fn cancelled_pending_thumbnail_is_removed_while_started_work_is_kept() {
+        let _lock = TEST_LOCK.lock().await;
+        let base =
+            std::env::temp_dir().join(format!("derp-thumbs-cancel-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&base).unwrap();
+        let source = base.join("source.png");
+        image::RgbImage::from_pixel(32, 32, image::Rgb([10, 20, 30]))
+            .save(&source)
+            .unwrap();
+        let thumbnails = Arc::new(Thumbnailer::with_concurrency(
+            base.join("cache"),
+            test_database(&base),
+            1,
+        ));
+        let modified = std::time::SystemTime::now();
+        TEST_GENERATIONS.store(0, Ordering::SeqCst);
+        TEST_DELAY_MS.store(150, Ordering::SeqCst);
+        let first = {
+            let thumbnails = thumbnails.clone();
+            let source = source.clone();
+            tokio::spawn(async move { thumbnails.read(&source, modified).await })
+        };
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while TEST_GENERATIONS.load(Ordering::SeqCst) == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        let pending = {
+            let thumbnails = thumbnails.clone();
+            let source = source.clone();
+            tokio::spawn(async move {
+                thumbnails
+                    .read(&source, modified + Duration::from_secs(1))
+                    .await
+            })
+        };
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        pending.abort();
+        let _ = pending.await;
+        first.abort();
+        let _ = first.await;
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while !thumbnails.cached(&source, modified) {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(TEST_GENERATIONS.load(Ordering::SeqCst), 1);
+        assert!(!thumbnails.cached(&source, modified + Duration::from_secs(1)));
+        TEST_DELAY_MS.store(0, Ordering::SeqCst);
+        std::fs::remove_dir_all(base).unwrap();
     }
 
     #[tokio::test]
@@ -756,7 +1134,7 @@ mod tests {
         cancelled.abort();
         active.await.unwrap().unwrap();
         tokio::time::sleep(Duration::from_millis(30)).await;
-        assert!(!thumbnails.cached(&second_path, modified));
+        assert!(thumbnails.cached(&second_path, modified));
         assert_eq!(TEST_GENERATIONS.load(Ordering::SeqCst), 2);
 
         TEST_GENERATIONS.store(0, Ordering::SeqCst);

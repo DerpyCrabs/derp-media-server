@@ -1,3 +1,4 @@
+import { useThumbnailWarmup } from './use-thumbnail-warmup'
 import type { FileItem } from '@/lib/files/types'
 import { createVirtualizer, createWindowVirtualizer, type VirtualItem } from '@/lib/virtualizer'
 import type { Accessor } from 'solid-js'
@@ -110,6 +111,8 @@ function VirtualDirectoryListItem(props: {
 }
 
 export function VirtualDirectoryList(props: VirtualDirectoryListProps) {
+  const [warmupElement, setWarmupElement] = createSignal<HTMLDivElement>()
+  useThumbnailWarmup(() => props.files(), warmupElement)
   let containerEl: HTMLDivElement | undefined
   const [scrollMargin, setScrollMargin] = createSignal(0)
   const windowScroll = createMemo(() => props.scrollTarget.kind === 'window')
@@ -210,6 +213,7 @@ export function VirtualDirectoryList(props: VirtualDirectoryListProps) {
     <div
       ref={(el) => {
         containerEl = el
+        setWarmupElement(el)
         updateScrollMargin()
       }}
       class={props.class}

@@ -10,7 +10,7 @@ use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
-    routing::get,
+    routing::{get, post},
 };
 use base64::Engine;
 use lofty::{
@@ -75,6 +75,50 @@ pub(crate) async fn thumbnail_path(state: &AppState, logical: &str) -> Response 
 
 async fn thumbnail(State(state): State<Shared>, Path(path): Path<String>) -> Response {
     thumbnail_path(&state, &path).await
+}
+
+async fn warm_thumbnail(
+    State(state): State<Shared>,
+    Path(path): Path<String>,
+) -> AppResult<Response> {
+    let resolved = media::resolve(&state.config, &path)?;
+    let metadata = fs::metadata(&resolved.full).await.map_err(AppError::io)?;
+    if !metadata.is_file() {
+        return Err(AppError::bad("Not a file"));
+    }
+    let stream = async_stream::stream! {
+        state.thumbnails.warm(&resolved.full, metadata.modified().unwrap_or(UNIX_EPOCH)).await;
+        yield Ok::<_, std::convert::Infallible>("done");
+    };
+    Ok((
+        [(header::CACHE_CONTROL, "no-store")],
+        Body::from_stream(stream),
+    )
+        .into_response())
+}
+
+async fn warm_image(
+    State(state): State<Shared>,
+    Path(path): Path<String>,
+    Query(query): Query<ImageQuery>,
+) -> AppResult<Response> {
+    let resolved = media::resolve(&state.config, &path)?;
+    let metadata = fs::metadata(&resolved.full).await.map_err(AppError::io)?;
+    if !metadata.is_file() {
+        return Err(AppError::bad("Not a file"));
+    }
+    let mut demand = query.demand()?;
+    demand.scale = 1.0;
+    demand.priority = Priority::Prefetch;
+    let stream = async_stream::stream! {
+        state.image_variants.warm(&resolved.full, demand).await;
+        yield Ok::<_, std::convert::Infallible>("done");
+    };
+    Ok((
+        [(header::CACHE_CONTROL, "no-store")],
+        Body::from_stream(stream),
+    )
+        .into_response())
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -562,6 +606,8 @@ pub fn router() -> Router<Shared> {
         .route("/api/image-config", get(image_config))
         .route("/api/image/{*path}", get(image_file))
         .route("/api/thumbnail/{*path}", get(thumbnail))
+        .route("/api/warm/thumbnail/{*path}", post(warm_thumbnail))
+        .route("/api/warm/image/{*path}", post(warm_image))
         .route("/api/audio/metadata/{*path}", get(audio_metadata))
         .route("/api/audio/extract/{*path}", get(extract_audio))
 }

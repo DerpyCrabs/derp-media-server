@@ -1,3 +1,4 @@
+import { createMediaVisibility, createMediaWarmup } from '@/lib/media/media-warmup'
 import { queryData } from '@/lib/api/query-data'
 import { useQuery } from '@tanstack/solid-query'
 import { queryKeys } from '@/lib/api/query-keys'
@@ -49,6 +50,7 @@ type Options = {
 }
 
 export function createResponsiveImage(options: Options) {
+  const visible = createMediaVisibility(options.viewport)
   const [dimensions, setDimensions] = createSignal<Dimensions>({ width: 0, height: 0 })
   const config = useQuery(() => ({
     queryKey: queryKeys.imageConfig(),
@@ -227,7 +229,8 @@ export function createResponsiveImage(options: Options) {
       const path = options.path()
       const activeRequest = request()
       const paths = options.prefetchPaths().slice(0, 2)
-      return loadedPath() === path &&
+      return visible() &&
+        loadedPath() === path &&
         activeRequest &&
         enabled() &&
         !forcedOriginal() &&
@@ -239,7 +242,7 @@ export function createResponsiveImage(options: Options) {
       if (!prefetch) return undefined
       const controllers = prefetch.paths.map(() => new AbortController())
       prefetch.paths.forEach((prefetchPath, index) => {
-        const priority = index === 0 ? 'next' : 'prefetch'
+        const priority = 'next'
         const url = buildImageUrl(prefetchPath, { ...prefetch.activeRequest, priority })
         void fetch(url, {
           credentials: 'include',
@@ -250,6 +253,31 @@ export function createResponsiveImage(options: Options) {
       return () => controllers.forEach((controller) => controller.abort())
     },
   )
+
+  createMediaWarmup(() => {
+    const { width, height } = dimensions()
+    if (
+      !visible() ||
+      loadedPath() !== options.path() ||
+      !enabled() ||
+      forcedOriginal() ||
+      width <= 0 ||
+      height <= 0
+    )
+      return []
+    return options
+      .prefetchPaths()
+      .slice(2, 30)
+      .map((path) =>
+        buildImageUrl(path, {
+          width,
+          height,
+          dpr: Math.min(window.devicePixelRatio || 1, 2),
+          scale: 1,
+          priority: 'prefetch',
+        }).replace('/api/image/', '/api/warm/image/'),
+      )
+  })
 
   return { src: displayedSrc, loading, showSpinner, error, retry, dimensions }
 }

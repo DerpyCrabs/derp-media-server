@@ -1,3 +1,4 @@
+import { useThumbnailWarmup } from './use-thumbnail-warmup'
 import type { FileItem } from '@/lib/files/types'
 import { cn } from '@/lib/ui/cn'
 import { createVirtualizer, createWindowVirtualizer, type VirtualItem } from '@/lib/virtualizer'
@@ -107,6 +108,8 @@ function VirtualDirectoryGridItem(props: {
 }
 
 export function VirtualDirectoryGrid(props: VirtualDirectoryGridProps) {
+  const [warmupElement, setWarmupElement] = createSignal<HTMLDivElement>()
+  useThumbnailWarmup(() => props.files(), warmupElement)
   let containerEl: HTMLDivElement | undefined
   let resizeObserver: ResizeObserver | undefined
   const [containerWidth, setContainerWidth] = createSignal(0)
@@ -194,7 +197,7 @@ export function VirtualDirectoryGrid(props: VirtualDirectoryGridProps) {
     <Show
       when={totalItems() > VIRTUALIZE_THRESHOLD}
       fallback={
-        <div class={cn('file-browser-grid', props.class)}>
+        <div ref={setWarmupElement} class={cn('file-browser-grid', props.class)}>
           <Show when={props.includeParent()}>{props.renderParentCard()}</Show>
           <For each={props.files()}>{(file) => props.renderFileCard(file)}</For>
         </div>
@@ -203,6 +206,7 @@ export function VirtualDirectoryGrid(props: VirtualDirectoryGridProps) {
       <div
         ref={(el) => {
           containerEl = el
+          setWarmupElement(el)
           updateMeasurements()
         }}
         class={cn('file-browser-grid', props.class)}
