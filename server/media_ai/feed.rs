@@ -22,6 +22,12 @@ pub fn initialize(c: &Connection) -> AppResult<()> {
            score REAL NOT NULL, profile_key TEXT NOT NULL, ranked_at INTEGER NOT NULL,
            shown INTEGER NOT NULL DEFAULT 0, last_shown INTEGER NOT NULL DEFAULT 0,
            PRIMARY KEY(library_key,path));
+         CREATE TABLE IF NOT EXISTS media_series_groups (
+           library_key TEXT NOT NULL, path TEXT NOT NULL, item_json TEXT NOT NULL,
+           PRIMARY KEY(library_key,path));
+         INSERT OR IGNORE INTO media_series_groups(library_key,path,item_json)
+           SELECT library_key,path,item_json FROM media_rankings
+           WHERE json_extract(item_json,'$.type')='folder' AND json_extract(item_json,'$.serialCollection')=1;
          CREATE TABLE IF NOT EXISTS media_prepared (
            library_key TEXT NOT NULL, path TEXT NOT NULL, fingerprint TEXT NOT NULL, metadata_json TEXT NOT NULL,
            PRIMARY KEY(library_key,path));
@@ -36,6 +42,7 @@ pub fn initialize(c: &Connection) -> AppResult<()> {
 }
 
 pub fn invalidate_paths(c: &Connection, path: &str) -> AppResult<()> {
+    c.execute("DELETE FROM media_series_groups WHERE path=?1 OR substr(path,1,length(?1)+1)=?1||'/' OR substr(?1,1,length(path)+1)=path||'/'", [path]).map_err(sql_error)?;
     c.execute("DELETE FROM media_rankings WHERE path=?1 OR substr(path,1,length(?1)+1)=?1||'/' OR (json_extract(item_json,'$.type')='folder' AND substr(?1,1,length(path)+1)=path||'/')", [path]).map_err(sql_error)?;
     c.execute(
         "DELETE FROM media_prepared WHERE path=?1 OR substr(path,1,length(?1)+1)=?1||'/'",
@@ -65,7 +72,15 @@ pub fn profile_key(state: &Shared) -> AppResult<String> {
         state
             .database
             .document("media-ai-profile", &state.config.library_key, json!({}))?;
+    let mut st = c.prepare("SELECT path,updated_at/86400000 FROM reader_state WHERE scope='admin' ORDER BY updated_at DESC LIMIT 64").map_err(sql_error)?;
+    let reading = st
+        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
+        .map_err(sql_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(sql_error)?;
     let evidence = json!([
+        "series-collections-v1",
+        reading,
         state.settings.favorites()?,
         feedback,
         plays,
@@ -84,6 +99,13 @@ pub fn store_rankings(state: &Shared, items: &[Value], profile: &str) -> AppResu
     state.database.transaction(|tx| {
         for item in items {
             let Some(path) = item["path"].as_str() else { continue };
+            if item["type"] == "folder" && item["serialCollection"] == true {
+                tx.execute("INSERT INTO media_series_groups(library_key,path,item_json) VALUES(?1,?2,?3) ON CONFLICT(library_key,path) DO UPDATE SET item_json=excluded.item_json",
+                    params![state.config.library_key,path,item.to_string()]).map_err(sql_error)?;
+            }
+            if item["type"] != "folder" && item["previewReady"] == true {
+                super::progress::reviewed(tx, path)?;
+            }
             let score = item["aiScore"].as_f64().unwrap_or(0.0).clamp(0.0, 100.0);
             tx.execute(
                 "INSERT INTO media_rankings(library_key,path,item_json,score,profile_key,ranked_at)
@@ -174,7 +196,12 @@ pub fn needs_ranking(state: &Shared, profile: &str) -> AppResult<bool> {
             |r| r.get(0),
         )
         .map_err(sql_error)?;
-    Ok(ready < RESERVE as i64)
+    let books_pending: bool = c.query_row("SELECT EXISTS(SELECT 1 FROM media_catalog c
+        WHERE c.kind IN ('book','pdf')
+        AND NOT EXISTS(SELECT 1 FROM media_rankings r WHERE r.library_key=?1 AND r.path=c.path AND r.profile_key=?2 AND r.ranked_at>?3)
+        AND NOT EXISTS(SELECT 1 FROM media_feedback f WHERE (c.path=f.path OR substr(c.path,1,length(f.path)+1)=f.path||'/') AND (f.kind='hide' OR f.until>?4)))",
+        params![state.config.library_key, profile, now-DAY, now], |r|r.get(0)).map_err(sql_error)?;
+    Ok(books_pending || ready < RESERVE as i64)
 }
 
 pub fn ranking_finished(state: &Shared, profile: &str, worked: bool, error: bool) -> AppResult<()> {
@@ -275,7 +302,7 @@ fn mix(items: &[Candidate], seed: &str, now: i64) -> Vec<String> {
     selected.iter().map(|v| v.path.clone()).collect()
 }
 
-fn pool(state: &Shared, hour: i64) -> AppResult<Vec<Candidate>> {
+fn pool(state: &Shared, hour: i64, category: &str) -> AppResult<Vec<Candidate>> {
     let c = state.database.connection()?;
     let mut st = c.prepare("SELECT path FROM media_sessions WHERE excluded=0 AND qualified=1
         AND min(abs(hour-?1),24-abs(hour-?1))<=1 GROUP BY path HAVING count(DISTINCT started/86400000)>=2").map_err(sql_error)?;
@@ -292,11 +319,21 @@ fn pool(state: &Shared, hour: i64) -> AppResult<Vec<Candidate>> {
         json_extract(r.item_json,'$.type')='folder',coalesce(json_extract(r.item_json,'$.historicalOpens'),0)
         FROM media_rankings r LEFT JOIN media_totals t ON r.path=t.path
         WHERE r.library_key=?1 AND r.score>=?2 AND json_extract(r.item_json,'$.previewReady')=1
+        AND NOT EXISTS(SELECT 1 FROM media_series_groups season WHERE season.library_key=r.library_key
+          AND substr(r.path,1,length(season.path)+1)=season.path||'/')
+        AND ((?5='all' AND json_extract(r.item_json,'$.type') IN ('audio','video','folder')) OR (?5='books' AND json_extract(r.item_json,'$.type') IN ('book','pdf'))
+          OR (?5='video' AND (json_extract(r.item_json,'$.type')='video' OR (json_extract(r.item_json,'$.type')='folder' AND EXISTS(SELECT 1 FROM json_each(r.item_json,'$.members') m WHERE json_extract(m.value,'$.type')='video')))))
         AND NOT EXISTS(SELECT 1 FROM media_feedback f WHERE (r.path=f.path OR substr(r.path,1,length(f.path)+1)=f.path||'/')
             AND (f.kind='hide' OR f.until>?3))
         ORDER BY r.last_shown,r.score DESC LIMIT ?4").map_err(sql_error)?;
     st.query_map(
-        params![state.config.library_key, MIN_SCORE, now, MAX_FEED as i64],
+        params![
+            state.config.library_key,
+            MIN_SCORE,
+            now,
+            MAX_FEED as i64,
+            category
+        ],
         |r| {
             let path: String = r.get(0)?;
             let plays: i64 = r.get(4)?;
@@ -340,13 +377,19 @@ fn snapshot(
     feed_id: Option<&str>,
     refresh: bool,
     hour: i64,
+    category: &str,
 ) -> AppResult<Snapshot> {
     let c = state.database.connection()?;
+    let snapshot_key = if category == "all" {
+        format!("{}:category:media-v2", state.config.library_key)
+    } else {
+        format!("{}:category:{category}", state.config.library_key)
+    };
     if !refresh {
         let saved = c.query_row(
             "SELECT id,paths_json,created_at,hour,seen_cursor FROM media_feeds WHERE library_key=?1
              AND ((?2 IS NOT NULL AND id=?2) OR (?2 IS NULL AND hour=?3)) ORDER BY created_at DESC LIMIT 1",
-            params![state.config.library_key,feed_id,hour],
+            params![snapshot_key,feed_id,hour],
             |r| Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,i64>(2)?,r.get::<_,i64>(3)?,r.get::<_,i64>(4)? as usize)),
         ).optional().map_err(sql_error)?;
         if let Some((id, paths, created_at, hour, seen_cursor)) = saved {
@@ -366,21 +409,15 @@ fn snapshot(
     }
     let id = uuid::Uuid::new_v4().to_string();
     let now = timestamp_ms() as i64;
-    let paths = mix(&pool(state, hour)?, &id, now);
+    let paths = mix(&pool(state, hour, category)?, &id, now);
     c.execute(
         "INSERT INTO media_feeds(id,library_key,paths_json,created_at,hour) VALUES(?1,?2,?3,?4,?5)",
-        params![
-            id,
-            state.config.library_key,
-            json!(paths).to_string(),
-            now,
-            hour
-        ],
+        params![id, snapshot_key, json!(paths).to_string(), now, hour],
     )
     .map_err(sql_error)?;
     c.execute(
         "DELETE FROM media_feeds WHERE library_key=?1 AND created_at<?2",
-        params![state.config.library_key, now - DAY],
+        params![snapshot_key, now - DAY],
     )
     .map_err(sql_error)?;
     Ok(Snapshot {
@@ -392,6 +429,7 @@ fn snapshot(
     })
 }
 
+#[cfg(test)]
 pub fn page(
     state: &Shared,
     cursor: usize,
@@ -399,16 +437,30 @@ pub fn page(
     refresh: bool,
     hour: i64,
 ) -> AppResult<Value> {
+    category_page(state, cursor, feed_id, refresh, hour, "all")
+}
+
+pub fn category_page(
+    state: &Shared,
+    cursor: usize,
+    feed_id: Option<&str>,
+    refresh: bool,
+    hour: i64,
+    category: &str,
+) -> AppResult<Value> {
+    if !["all", "books", "video"].contains(&category) {
+        return Err(AppError::bad("Unknown recommendation category"));
+    }
     let _guard = state.media_ai.feed_lock.lock().map_err(sql_error)?;
     import_previous_feed(state)?;
-    let mut snapshot = snapshot(state, feed_id, refresh, hour)?;
+    let mut snapshot = snapshot(state, feed_id, refresh, hour, category)?;
     if cursor.saturating_add(PAGE_SIZE * 2) >= snapshot.paths.len()
         && snapshot.paths.len() < MAX_FEED
     {
         let old: HashSet<_> = snapshot.paths.iter().cloned().collect();
         snapshot.paths.extend(
             mix(
-                &pool(state, snapshot.hour)?,
+                &pool(state, snapshot.hour, category)?,
                 &snapshot.id,
                 timestamp_ms() as i64,
             )
@@ -698,6 +750,43 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn general_feed_excludes_books_before_pagination() {
+        let library = Library::new();
+        library.add(0, 30);
+        let profile = profile_key(&library.state).unwrap();
+        let books: Vec<_> = (0..40).map(|id| json!({"id":1000+id,"path":format!("book{id}.pdf"),"type":"pdf","previewReady":true,"aiScore":99})).collect();
+        store_rankings(&library.state, &books, &profile).unwrap();
+        let media = pool(&library.state, 12, "all").unwrap();
+        assert_eq!(media.len(), 30);
+        assert!(media.iter().all(|item| item.path.ends_with(".mp4")));
+        assert_eq!(pool(&library.state, 12, "books").unwrap().len(), 40);
+    }
+
+    #[tokio::test]
+    async fn saved_season_replaces_episodes_in_new_and_existing_feeds() {
+        let library = Library::new();
+        library.add(0, 96);
+        let profile = profile_key(&library.state).unwrap();
+        let mut old = json!({"rows":[{"items":[{"path":"Collection0/item0.mp4","type":"video","previewReady":true}]}]});
+        let season = json!({"id":-1,"path":"Collection0","type":"folder","isDirectory":true,"serialCollection":true,"previewReady":true,"aiScore":85,"members":[{"type":"video"}]});
+        store_rankings(&library.state, &[season], &profile).unwrap();
+        library.add(0, 96);
+        library.state.database.connection().unwrap().execute(
+            "UPDATE media_rankings SET item_json=json_remove(item_json,'$.serialCollection') WHERE path='Collection0'", []
+        ).unwrap();
+        initialize(&library.state.database.connection().unwrap()).unwrap();
+        let candidates = pool(&library.state, 12, "video").unwrap();
+        assert!(candidates.iter().any(|item| item.path == "Collection0"));
+        assert!(
+            !candidates
+                .iter()
+                .any(|item| item.path.starts_with("Collection0/"))
+        );
+        super::super::catalog::filter_response(&library.state, &mut old).unwrap();
+        assert!(paths(&old).is_empty());
+    }
+
+    #[tokio::test]
     async fn home_and_refresh_return_prepared_cards_while_the_model_gate_is_held() {
         let library = Library::new();
         library.add(0, 96);
@@ -707,6 +796,7 @@ mod tests {
             super::super::home(
                 State(library.state.clone()),
                 Query(super::super::HomeContext {
+                    category: None,
                     cursor: None,
                     hour: Some(9),
                     feed_id: None,
@@ -737,6 +827,7 @@ mod tests {
             super::super::home(
                 State(library.state.clone()),
                 Query(super::super::HomeContext {
+                    category: None,
                     cursor: Some(24),
                     hour: Some(9),
                     feed_id: first["feedId"].as_str().map(str::to_string),
@@ -759,6 +850,7 @@ mod tests {
             super::super::home(
                 State(library.state.clone()),
                 Query(super::super::HomeContext {
+                    category: None,
                     cursor: None,
                     hour: None,
                     feed_id: None,

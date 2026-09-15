@@ -16,7 +16,16 @@ import { usePlaybackSnapshot } from '@/features/playback/PlaybackProvider'
 import House from 'lucide-solid/icons/house'
 import FolderClosed from 'lucide-solid/icons/folder-closed'
 import Search from 'lucide-solid/icons/search'
+import LoaderCircle from 'lucide-solid/icons/loader-circle'
 import { cn } from '@/lib/ui/cn'
+
+type IndexingStatus = {
+  enabled: boolean
+  paused?: boolean
+  progress?:
+    | { phase: 'discovering'; found: number; completed: number; warning?: string }
+    | { phase: 'processing' | 'complete'; completed: number; total: number; warning?: string }
+}
 
 export function MediaCenterPage() {
   const params = createUrlSearchParamsMemo(useBrowserHistory())
@@ -24,9 +33,20 @@ export function MediaCenterPage() {
   const [feedActions, setFeedActions] = createSignal<HTMLDivElement>()
   const ai = useQuery(() => ({
     queryKey: ['media-ai', 'status'],
-    queryFn: () => api<{ enabled: boolean }>('/api/media-ai/status'),
-    staleTime: 60_000,
+    queryFn: ({ signal }) => api<IndexingStatus>('/api/media-ai/status', { signal }),
+    staleTime: 10_000,
+    refetchInterval: (query) => (query.state.data?.enabled ? 10_000 : false),
   }))
+  const indexing = createMemo(() => {
+    const status = queryData(ai)
+    if (!status?.enabled) return undefined
+    const progress = status.progress
+    if (status.paused || !progress || progress.phase === 'complete') return undefined
+    if (progress.phase === 'discovering')
+      return `AI analysis · ${progress.completed.toLocaleString()} processed · finding files (${progress.found.toLocaleString()} found)`
+    const percent = progress.total > 0 ? (progress.completed / progress.total) * 100 : 100
+    return `AI analysis · ${progress.completed.toLocaleString()} / ${progress.total.toLocaleString()} · ${Number(percent.toFixed(2))}%`
+  })
   const home = createMemo(
     () =>
       queryData(ai)?.enabled &&
@@ -51,7 +71,7 @@ export function MediaCenterPage() {
             aria-current={home() ? 'page' : undefined}
             onClick={() => {
               setSearchOpen(false)
-              navigateSearchParams({ view: 'for-you', dir: null }, 'push')
+              navigateSearchParams({ view: 'for-you' }, 'push')
             }}
           >
             <House size={18} />
@@ -94,6 +114,19 @@ export function MediaCenterPage() {
               </div>
             </Show>
           </div>
+          <Show when={indexing()}>
+            <div
+              class='absolute top-1/2 right-2 flex -translate-y-1/2 items-center gap-1.5 text-[11px] text-muted-foreground/60 sm:right-4'
+              data-testid='indexing-progress'
+              title={
+                queryData(ai)?.progress?.warning ||
+                'Initial AI review of the current file queue. The queue size stays fixed until it finishes.'
+              }
+            >
+              <LoaderCircle size={12} class='motion-safe:animate-spin' />
+              <span class='tabular-nums'>{indexing()}</span>
+            </div>
+          </Show>
         </header>
       </Show>
       <MainMediaPlayers editableFolders={editableFolders()} knowledgeBases={knowledgeBases()} />

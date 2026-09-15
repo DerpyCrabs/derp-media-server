@@ -38,7 +38,7 @@ fn database(state: &crate::app::AppState) -> AppDatabase {
     state.database.clone()
 }
 
-fn fingerprint(state: &crate::app::AppState, logical: &str) -> AppResult<String> {
+pub(crate) fn fingerprint(state: &crate::app::AppState, logical: &str) -> AppResult<String> {
     let resolved = media::resolve(&state.config, logical)?;
     let metadata = std::fs::metadata(resolved.full).map_err(AppError::io)?;
     let modified = metadata
@@ -91,6 +91,7 @@ fn save(
         body.base_revision,
         timestamp_ms(),
     )?;
+    crate::app::emit_admin(state, "reader-state-changed");
     Ok(Json(
         json!({"success":true,"revision":revision,"fingerprint":current_fingerprint}),
     ))

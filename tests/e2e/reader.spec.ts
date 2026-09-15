@@ -463,10 +463,21 @@ test.describe('Reader', () => {
       '/api/reader-state?path=Documents%2Freader-position.epub',
     )
     const stored = (await storedResponse.json()) as {
-      state?: { chapterId?: string; chapterProgress?: number; scrollTop?: number }
+      state?: {
+        chapterId?: string
+        chapterProgress?: number
+        scrollTop?: number
+        progress?: number
+      }
     }
     expect(stored.state?.chapterId).toBe('chapter-1')
     expect(stored.state?.chapterProgress).toBeGreaterThan(0.1)
+    expect(stored.state?.progress).toBeGreaterThan(0)
+    const reading = await (await page.request.get('/api/media-ai/reading')).json()
+    expect(
+      reading.items.find((item: { path: string }) => item.path === 'Documents/reader-position.epub')
+        ?.readingProgress,
+    ).toBe(stored.state?.progress)
 
     await page.locator('tr', { hasText: 'reader-position.epub' }).click()
     await expect(page.getByTestId('reader-book-progress')).toContainText('Opening')

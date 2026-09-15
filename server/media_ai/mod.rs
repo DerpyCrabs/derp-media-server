@@ -1,6 +1,8 @@
 mod catalog;
 mod feed;
+pub(crate) mod progress;
 pub(crate) mod provider;
+mod reading;
 use crate::{
     activity::sql_error,
     app::Shared,
@@ -56,6 +58,7 @@ impl Runtime {
 
 pub fn initialize(c: &Connection) -> AppResult<()> {
     feed::initialize(c)?;
+    progress::initialize(c)?;
     c.execute_batch("CREATE TABLE IF NOT EXISTS media_catalog (
       id INTEGER PRIMARY KEY, path TEXT NOT NULL UNIQUE, name TEXT NOT NULL, kind TEXT NOT NULL,
       description TEXT NOT NULL DEFAULT '', tags TEXT NOT NULL DEFAULT '', duration REAL NOT NULL DEFAULT 0, retry_after INTEGER NOT NULL DEFAULT 0,
@@ -79,7 +82,7 @@ pub fn initialize(c: &Connection) -> AppResult<()> {
         .map_err(sql_error)?;
     }
     c.execute(
-        "DELETE FROM media_catalog WHERE kind NOT IN ('audio','video')",
+        "DELETE FROM media_catalog WHERE kind NOT IN ('audio','video','book','pdf')",
         [],
     )
     .map_err(sql_error)?;
@@ -98,6 +101,18 @@ pub(crate) async fn status(State(state): State<Shared>) -> AppResult<Json<Value>
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .map_err(sql_error)?;
+    let job = state.media_ai.status.lock().await.clone();
+    let mut progress = progress::status(&c, &state.config.library_key)?;
+    if let Ok(search) = state.file_search.status().await {
+        if search["roots"].as_array().is_some_and(|roots| {
+            roots
+                .iter()
+                .any(|root| root["state"] == "partial" || root["state"] == "error")
+        }) {
+            progress["warning"] =
+                json!("Some folders could not be scanned. Progress covers the discovered files.");
+        }
+    }
     let deferred: i64 = c
         .query_row(
             "SELECT count(*) FROM media_catalog WHERE analyzed=0 AND retry_after>?1",
@@ -107,7 +122,7 @@ pub(crate) async fn status(State(state): State<Shared>) -> AppResult<Json<Value>
         .map_err(sql_error)?;
     let timing: Value = c.query_row("SELECT coalesce(sum(audio_seconds),0),coalesce(sum(video_seconds),0),coalesce(sum(image_seconds),0) FROM media_totals", [], |r|Ok(json!({"audioSeconds":r.get::<_,f64>(0)?,"videoSeconds":r.get::<_,f64>(1)?,"imageSeconds":r.get::<_,f64>(2)?}))).map_err(sql_error)?;
     Ok(Json(
-        json!({"deferred":deferred,"catalogError":state.media_ai.catalog_error.lock().await.clone(),"timing":timing,"enabled":s.enabled,"total":total,"analyzed":analyzed,"job":state.media_ai.status.lock().await.clone(),"context":{"maxTextBytes":provider::MAX_TEXT_BYTES,"maxCandidates":48,"analysisBatch":4,"maxImages":4}}),
+        json!({"deferred":deferred,"catalogError":state.media_ai.catalog_error.lock().await.clone(),"timing":timing,"enabled":s.enabled,"total":total,"analyzed":analyzed,"job":job,"paused":s.paused,"progress":progress,"context":{"maxTextBytes":provider::MAX_TEXT_BYTES,"maxCandidates":48,"analysisBatch":4,"maxImages":4}}),
     ))
 }
 struct Interactive<'a>(&'a AtomicUsize);
@@ -124,6 +139,7 @@ async fn test(State(state): State<Shared>) -> AppResult<Json<Value>> {
 }
 #[derive(Deserialize)]
 struct HomeContext {
+    category: Option<String>,
     hour: Option<i64>,
     cursor: Option<usize>,
     #[serde(rename = "feedId")]
@@ -140,12 +156,13 @@ async fn home(
     }
     let work = state.clone();
     let value = tokio::task::spawn_blocking(move || {
-        feed::page(
+        feed::category_page(
             &work,
             context.cursor.unwrap_or(0).min(10_000),
             context.feed_id.as_deref(),
             false,
             context.hour.unwrap_or(12).clamp(0, 23),
+            context.category.as_deref().unwrap_or("all"),
         )
     })
     .await
@@ -157,6 +174,7 @@ pub(crate) async fn initial_home(state: &Shared) -> AppResult<Value> {
     home(
         State(state.clone()),
         Query(HomeContext {
+            category: None,
             hour: None,
             cursor: None,
             feed_id: None,
@@ -171,14 +189,21 @@ async fn refresh(State(state): State<Shared>, body: Option<Json<Value>>) -> AppR
     }
     state.media_ai.request_catalog_scan();
     state.media_ai.request_music_review();
+    let category = body
+        .as_ref()
+        .and_then(|v| v["category"].as_str())
+        .unwrap_or("all")
+        .to_string();
     let hour = body
         .and_then(|v| v["hour"].as_i64())
         .unwrap_or(12)
         .clamp(0, 23);
     let work = state.clone();
-    let value = tokio::task::spawn_blocking(move || feed::page(&work, 0, None, true, hour))
-        .await
-        .map_err(sql_error)??;
+    let value = tokio::task::spawn_blocking(move || {
+        feed::category_page(&work, 0, None, true, hour, &category)
+    })
+    .await
+    .map_err(sql_error)??;
     if value["warming"] == true {
         state.media_ai.rank_requested.store(true, Ordering::SeqCst);
     }
@@ -274,6 +299,8 @@ pub fn router() -> Router<Shared> {
         .route("/api/media-ai/status", get(status))
         .route("/api/media-ai/test", post(test))
         .route("/api/media-ai/home", get(home))
+        .route("/api/media-ai/reading", get(reading::home))
+        .route("/api/media-ai/books", get(reading::recommendations))
         .route("/api/media-ai/refresh", post(refresh))
         .route("/api/media-ai/ask", post(ask))
         .route("/api/media-ai/feedback", post(feedback))

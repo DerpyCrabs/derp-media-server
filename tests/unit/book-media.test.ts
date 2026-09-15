@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { bookProgress } from '../../src/features/reader/contentTypes/book/book-progress'
 import {
   getMediaExtensionFromPath,
   getMediaType,
@@ -34,4 +35,14 @@ describe('book media', () => {
       anchor: 'note',
     })
   })
+})
+
+test('whole-book progress includes previous chapters and accounts for their lengths', () => {
+  const chapters = [
+    { id: 'front', textLength: 100 },
+    { id: 'main', textLength: 900 },
+  ]
+  expect(bookProgress(chapters, 'main', 0.6)).toBeCloseTo(0.64)
+  expect(bookProgress(chapters, 'main', 1)).toBe(1)
+  expect(bookProgress(chapters, 'missing', 0.6)).toBeUndefined()
 })

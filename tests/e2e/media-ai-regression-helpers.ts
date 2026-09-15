@@ -85,9 +85,9 @@ function modelReply(request: ProviderRequest) {
     }
   if (properties.terms)
     return {
-      terms: [prompt.query === 'song-101' ? 'song-101' : 'song'],
+      terms: [prompt.query === 'book' ? 'book' : prompt.query === 'song-101' ? 'song-101' : 'song'],
       unplayed: true,
-      mediaType: 'audio',
+      mediaType: prompt.query === 'book' ? 'book' : 'audio',
       minSeconds: 0,
       maxSeconds: 0,
       intent: 'show',

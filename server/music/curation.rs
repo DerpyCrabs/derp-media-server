@@ -241,7 +241,7 @@ pub async fn review_batch(state: &Shared, profile: &str) -> AppResult<bool> {
     state.database.transaction(|tx| {
         for review in reviews {
             let item=list.iter().find(|item|item.id==review.id).unwrap();
-            tx.execute(
+            let saved = tx.execute(
                 "INSERT INTO music_reviews(path,fingerprint,metadata,enrichment,overrides,decision,score,profile_key,version,reviewed_at)
                  SELECT ?1,?2,?3,?4,?5,?6,?7,?8,?9,?10 WHERE EXISTS(
                    SELECT 1 FROM music_tracks m JOIN media_catalog c ON c.path=m.path
@@ -252,6 +252,9 @@ pub async fn review_batch(state: &Shared, profile: &str) -> AppResult<bool> {
                 params![item.path,item.fingerprint,item.metadata,item.enrichment,item.overrides,
                     json!(review).to_string(),review.score,profile,VERSION,timestamp_ms() as i64],
             ).map_err(sql_error)?;
+            if saved > 0 {
+                crate::media_ai::progress::reviewed(tx, &item.path)?;
+            }
         }
         Ok(())
     })?;

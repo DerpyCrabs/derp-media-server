@@ -50,6 +50,12 @@ export function handleAdminEvent(
   } else if (data.type === 'settings-changed') {
     handlers.invalidate(queryKeys.settings())
     handlers.invalidate(queryKeys.files(VIRTUAL_FOLDERS.FAVORITES))
+  } else if (data.type === 'book-recommendations-changed') {
+    handlers.invalidate(['media-ai', 'books'])
+    handlers.invalidate(['media-ai', 'home', 'books'])
+  } else if (data.type === 'reader-state-changed') {
+    handlers.invalidate(['media-ai', 'reading'])
+    handlers.invalidate(['media-ai', 'books'])
   } else if (data.type === 'playback-preferences-changed') {
     handlers.invalidate(['playback-preferences'])
   } else if (data.type === 'workspaces-changed') {

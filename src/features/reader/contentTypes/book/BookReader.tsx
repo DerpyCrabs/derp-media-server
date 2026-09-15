@@ -13,6 +13,7 @@ import type { ReaderSyncedState } from '../../reader-state-client'
 import { basename, type ReaderContentProps } from '../../reader-types'
 import { BookContent } from './BookContent'
 import { parseBook } from './book-parser'
+import { bookProgress } from './book-progress'
 import { renderBook, type RenderedBook } from './book-sanitize'
 import { createAsyncValue } from '../../create-async-value'
 
@@ -88,6 +89,11 @@ export default function BookReader(props: ReaderContentProps) {
         chapterId: position.chapterId,
         anchor: position.anchor,
         chapterProgress: position.chapterProgress,
+        progress: bookProgress(
+          book.value()?.document.chapters ?? [],
+          position.chapterId,
+          position.chapterProgress,
+        ),
         outlineExpanded: position.outlineExpanded,
       }) satisfies ReaderSyncedState,
   )

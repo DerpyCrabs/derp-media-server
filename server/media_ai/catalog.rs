@@ -48,6 +48,7 @@ fn reconcile_item(
     )
     .map_err(sql_error)?;
     if changed {
+        super::progress::invalidate(tx, path)?;
         tx.execute("DELETE FROM media_rankings WHERE path=?1 OR (json_extract(item_json,'$.type')='folder' AND substr(?1,1,length(path)+1)=path||'/')", [path]).map_err(sql_error)?;
     }
     Ok(changed)
@@ -65,7 +66,7 @@ pub fn sync_page(state: &Shared, after: i64, epoch: i64) -> AppResult<(i64, bool
         OpenFlags::SQLITE_OPEN_READ_ONLY,
     )
     .map_err(|_| AppError::bad("Waiting for library search index"))?;
-    let mut st=index.prepare("SELECT id,root_id,relative_path,name,media_type FROM entries WHERE id>?1 AND is_directory=0 AND media_type IN ('audio','video') ORDER BY id LIMIT 1000").map_err(sql_error)?;
+    let mut st=index.prepare("SELECT id,root_id,relative_path,name,media_type FROM entries WHERE id>?1 AND is_directory=0 AND media_type IN ('audio','video','book','pdf') ORDER BY id LIMIT 1000").map_err(sql_error)?;
     let rows = st
         .query_map([after], |r| {
             Ok((
@@ -142,6 +143,14 @@ pub fn sync_page(state: &Shared, after: i64, epoch: i64) -> AppResult<(i64, bool
                     .execute("DELETE FROM media_catalog WHERE seen<?1", [epoch])
                     .map_err(sql_error)?
                     > 0;
+
+            }
+            let crawling: bool = index.query_row(
+                "SELECT EXISTS(SELECT 1 FROM roots WHERE state='building') OR EXISTS(SELECT 1 FROM crawl_queue)",
+                [], |row| row.get(0),
+            ).map_err(sql_error)?;
+            if !crawling {
+                super::progress::snapshot(tx, &state.config.library_key)?;
             }
         }
         Ok(())
@@ -155,7 +164,7 @@ pub fn sync_page(state: &Shared, after: i64, epoch: i64) -> AppResult<(i64, bool
         changed,
     ))
 }
-fn hidden(c: &Connection, path: &str) -> AppResult<bool> {
+pub(super) fn hidden(c: &Connection, path: &str) -> AppResult<bool> {
     c.query_row("SELECT EXISTS(SELECT 1 FROM media_feedback WHERE (?1=path OR substr(?1,1,length(path)+1)=path||'/') AND (kind='hide' OR until>?2))",params![path,crate::app::timestamp_ms() as i64],|r|r.get(0)).map_err(sql_error)
 }
 fn items(
@@ -167,11 +176,11 @@ fn items(
 ) -> AppResult<Vec<Value>> {
     let c = state.database.connection()?;
     let query = format!(
-        "SELECT c.id,c.path,c.name,c.kind,c.description,c.duration,coalesce(t.plays,0),coalesce(t.learned_plays,0),coalesce(t.learned_seconds,0),c.fingerprint,coalesce(t.completions,0),coalesce(t.last_played,0) FROM media_catalog c LEFT JOIN media_totals t ON t.path=c.path WHERE c.kind IN ('audio','video') AND ({condition}) AND NOT EXISTS(SELECT 1 FROM media_feedback f WHERE (c.path=f.path OR substr(c.path,1,length(f.path)+1)=f.path||'/') AND (f.kind='hide' OR f.until>cast(strftime('%s','now') as integer)*1000)) ORDER BY {order} LIMIT {}",
+        "SELECT c.id,c.path,c.name,c.kind,c.description,c.duration,coalesce(t.plays,0),coalesce(t.learned_plays,0),coalesce(t.learned_seconds,0),c.fingerprint,coalesce(t.completions,0),coalesce(t.last_played,0),coalesce(json_extract(rs.state_json,'$.progress'),0),coalesce(rs.updated_at,0) FROM media_catalog c LEFT JOIN media_totals t ON t.path=c.path LEFT JOIN reader_state rs ON rs.path=c.path AND rs.scope='admin' WHERE c.kind IN ('audio','video','book','pdf') AND ({condition}) AND NOT EXISTS(SELECT 1 FROM media_feedback f WHERE (c.path=f.path OR substr(c.path,1,length(f.path)+1)=f.path||'/') AND (f.kind='hide' OR f.until>cast(strftime('%s','now') as integer)*1000)) ORDER BY {order} LIMIT {}",
         limit.min(200)
     );
     let mut st = c.prepare(&query).map_err(sql_error)?;
-    let found=st.query_map(args,|r|Ok(json!({"id":r.get::<_,i64>(0)?,"path":r.get::<_,String>(1)?,"name":r.get::<_,String>(2)?,"type":r.get::<_,String>(3)?,"description":r.get::<_,String>(4)?,"duration":r.get::<_,f64>(5)?,"plays":r.get::<_,i64>(6)?,"learnedPlays":r.get::<_,i64>(7)?,"seconds":r.get::<_,f64>(8)?,"fingerprint":r.get::<_,String>(9)?,"completions":r.get::<_,i64>(10)?,"lastPlayed":r.get::<_,i64>(11)?}))).map_err(sql_error)?.collect::<Result<Vec<_>,_>>().map_err(sql_error)?;
+    let found=st.query_map(args,|r|Ok(json!({"id":r.get::<_,i64>(0)?,"path":r.get::<_,String>(1)?,"name":r.get::<_,String>(2)?,"type":r.get::<_,String>(3)?,"description":r.get::<_,String>(4)?,"duration":r.get::<_,f64>(5)?,"plays":r.get::<_,i64>(6)?,"learnedPlays":r.get::<_,i64>(7)?,"seconds":r.get::<_,f64>(8)?,"fingerprint":r.get::<_,String>(9)?,"completions":r.get::<_,i64>(10)?,"lastPlayed":r.get::<_,i64>(11)?,"readingProgress":r.get::<_,f64>(12)?,"lastRead":r.get::<_,i64>(13)?}))).map_err(sql_error)?.collect::<Result<Vec<_>,_>>().map_err(sql_error)?;
     found
         .into_iter()
         .filter_map(|v| match hidden(&c, v["path"].as_str().unwrap_or("")) {
@@ -215,7 +224,7 @@ fn annotate_history(list: &mut [Value], history: &Value) {
 }
 
 fn inventory_item(item: &Value) -> Value {
-    json!({"id":item["id"],"name":short(item["name"].as_str().unwrap_or(""),240),"type":item["type"],"duration":item["duration"],"historicalOpens":item["historicalOpens"],"qualifiedPlays":item["plays"],"preferencePlays":item["learnedPlays"],"seconds":item["seconds"],"completed":item["completions"],"lastPlayed":item["lastPlayed"]})
+    json!({"id":item["id"],"name":short(item["name"].as_str().unwrap_or(""),240),"type":item["type"],"duration":item["duration"],"historicalOpens":item["historicalOpens"],"qualifiedPlays":item["plays"],"preferencePlays":item["learnedPlays"],"seconds":item["seconds"],"completed":item["completions"],"lastPlayed":item["lastPlayed"],"readingProgress":item["readingProgress"],"lastRead":item["lastRead"]})
 }
 
 fn collection_inventory(state: &Shared, path: &str, history: &Value) -> AppResult<Vec<Value>> {
@@ -239,7 +248,7 @@ fn collection_inventory(state: &Shared, path: &str, history: &Value) -> AppResul
 fn library_collections(state: &Shared, history: &Value, excluded: &[i64]) -> AppResult<Vec<Value>> {
     let excluded: HashSet<_> = excluded.iter().copied().collect();
     let c = state.database.connection()?;
-    let mut st = c.prepare("SELECT c.id,c.path,c.kind,coalesce(t.learned_plays,0) FROM media_catalog c LEFT JOIN media_totals t ON c.path=t.path WHERE c.kind IN ('audio','video') AND NOT EXISTS(SELECT 1 FROM media_feedback f WHERE (c.path=f.path OR substr(c.path,1,length(f.path)+1)=f.path||'/') AND (f.kind='hide' OR f.until>cast(strftime('%s','now') as integer)*1000)) ORDER BY c.path").map_err(sql_error)?;
+    let mut st = c.prepare("SELECT c.id,c.path,c.kind,coalesce(t.learned_plays,0) FROM media_catalog c LEFT JOIN media_totals t ON c.path=t.path WHERE c.kind IN ('audio','video','book','pdf') AND NOT EXISTS(SELECT 1 FROM media_feedback f WHERE (c.path=f.path OR substr(c.path,1,length(f.path)+1)=f.path||'/') AND (f.kind='hide' OR f.until>cast(strftime('%s','now') as integer)*1000)) ORDER BY c.path").map_err(sql_error)?;
     let favorites: Vec<String> =
         serde_json::from_str(&favorites_json(state)?).map_err(sql_error)?;
     let liked: Vec<String> = {
@@ -351,22 +360,28 @@ async fn candidates(state: &Shared, excluded: &[i64], score_all: bool) -> AppRes
     let favorites = favorites_json(state)?;
     let mut familiar = items(
         state,
-        "(coalesce(t.learned_plays,0)>0 OR c.path IN (SELECT value FROM json_each(?1)) OR c.path IN (SELECT value FROM json_each(?2)) OR c.path IN (SELECT path FROM media_feedback WHERE kind='more')) AND c.id NOT IN (SELECT value FROM json_each(?3))",
+        "(c.path IN (SELECT path FROM reader_state WHERE scope='admin') OR coalesce(t.learned_plays,0)>0 OR c.path IN (SELECT value FROM json_each(?1)) OR c.path IN (SELECT value FROM json_each(?2)) OR c.path IN (SELECT path FROM media_feedback WHERE kind='more')) AND c.id NOT IN (SELECT value FROM json_each(?3))",
         &[&known_paths, &favorites, &json!(excluded).to_string()],
-        "coalesce(t.last_played,0) DESC,c.id",
+        "coalesce((SELECT updated_at FROM reader_state WHERE scope='admin' AND path=c.path),0) DESC,coalesce(t.last_played,0) DESC,c.id",
         100,
     )?;
     annotate_history(&mut familiar, &history);
     familiar.sort_by(|a, b| {
-        b["learnedPlays"]
-            .as_u64()
+        b["lastRead"]
+            .as_i64()
             .unwrap_or(0)
-            .cmp(&a["learnedPlays"].as_u64().unwrap_or(0))
+            .cmp(&a["lastRead"].as_i64().unwrap_or(0))
             .then_with(|| {
-                b["historicalOpens"]
+                b["learnedPlays"]
                     .as_u64()
                     .unwrap_or(0)
-                    .cmp(&a["historicalOpens"].as_u64().unwrap_or(0))
+                    .cmp(&a["learnedPlays"].as_u64().unwrap_or(0))
+                    .then_with(|| {
+                        b["historicalOpens"]
+                            .as_u64()
+                            .unwrap_or(0)
+                            .cmp(&a["historicalOpens"].as_u64().unwrap_or(0))
+                    })
             })
     });
     // Summarize the hierarchy first so the model can request actual collection inventories.
@@ -483,7 +498,10 @@ async fn candidates(state: &Shared, excluded: &[i64], score_all: bool) -> AppRes
             )
         });
         annotate_history(&mut unranked, &history);
-        let count = folder["audio"].as_u64().unwrap_or(0) + folder["video"].as_u64().unwrap_or(0);
+        let count = folder["audio"].as_u64().unwrap_or(0)
+            + folder["video"].as_u64().unwrap_or(0)
+            + folder["book"].as_u64().unwrap_or(0)
+            + folder["pdf"].as_u64().unwrap_or(0);
         let mut inventory = json!({"collection":folder,"totalFiles":count,"complete":unranked.len() as u64==count,"recordedHistory":members.iter().filter(|v|v["historicalOpens"].as_u64().unwrap_or(0)>0 || v["plays"].as_u64().unwrap_or(0)>0).take(12).map(inventory_item).collect::<Vec<_>>(),"files":unranked.iter().map(inventory_item).collect::<Vec<_>>()});
         while inventory.to_string().len() > 8_000 {
             if inventory["files"].as_array_mut().unwrap().pop().is_none() {
@@ -510,7 +528,9 @@ async fn candidates(state: &Shared, excluded: &[i64], score_all: bool) -> AppRes
             .filter(|v| ids.contains(&v["id"].as_i64().unwrap()))
         {
             member["collectionContext"] = inventory.clone();
-            if !pool.iter().any(|v| v["id"] == member["id"]) {
+            if let Some(existing) = pool.iter_mut().find(|v| v["id"] == member["id"]) {
+                existing["collectionContext"] = inventory.clone();
+            } else {
                 pool.push(member);
             }
         }
@@ -598,6 +618,16 @@ async fn prepare_item(
     let Ok(meta) = std::fs::metadata(&resolved.full) else {
         return Ok(None);
     };
+    if item["type"] == "book" || item["type"] == "pdf" {
+        item["size"] = json!(meta.len());
+        item["previewReady"] = json!(true);
+        item["previewKind"] = json!("text");
+        item["metadata"] = json!({"evidence":"Filename, folder and saved reading activity only; book contents have not been inspected."});
+        return Ok(Some((
+            item,
+            image::RgbImage::from_pixel(240, 135, image::Rgb([22, 22, 24])),
+        )));
+    }
     let Ok(modified) = meta.modified() else {
         return Ok(None);
     };
@@ -714,8 +744,10 @@ async fn prepare(state: &Shared, list: Vec<Value>) -> AppResult<(Vec<Value>, Vec
         let Some((mut item, preview)) = result? else {
             continue;
         };
-        item["previewSheet"] = json!(prepared.len() / 12 + 1);
-        item["previewCell"] = json!(prepared.len() % 12 + 1);
+        if item["previewKind"] != "text" {
+            item["previewSheet"] = json!(prepared.len() / 12 + 1);
+            item["previewCell"] = json!(prepared.len() % 12 + 1);
+        }
         previews.push(preview);
         prepared.push(item);
     }
@@ -744,7 +776,7 @@ async fn prepare(state: &Shared, list: Vec<Value>) -> AppResult<(Vec<Value>, Vec
     Ok((prepared, images))
 }
 fn prompt_items(items: &[Value]) -> Vec<Value> {
-    items.iter().take(48).map(|v|json!({"id":v["id"],"name":short(v["name"].as_str().unwrap_or(""),240),"folder":short(&crate::app::parent_logical(v["path"].as_str().unwrap_or("")),500),"type":v["type"],"description":short(v["description"].as_str().unwrap_or(""),350),"duration":v["duration"],"metadata":v["metadata"],"folderSamples":v["folderSamples"],"size":v["size"],"previewKind":v["previewKind"],"previewSheet":v["previewSheet"],"previewCell":v["previewCell"],"qualifiedPlays":v["plays"],"preferencePlays":v["learnedPlays"],"historicalOpens":v["historicalOpens"],"completed":v["completions"],"lastPlayed":v["lastPlayed"],"itemCount":v["itemCount"],"retrievalReason":v["reason"]})).collect()
+    items.iter().take(48).map(|v|json!({"id":v["id"],"name":short(v["name"].as_str().unwrap_or(""),240),"folder":short(&crate::app::parent_logical(v["path"].as_str().unwrap_or("")),500),"type":v["type"],"description":short(v["description"].as_str().unwrap_or(""),350),"duration":v["duration"],"metadata":v["metadata"],"folderSamples":v["folderSamples"],"size":v["size"],"previewKind":v["previewKind"],"previewSheet":v["previewSheet"],"previewCell":v["previewCell"],"qualifiedPlays":v["plays"],"preferencePlays":v["learnedPlays"],"historicalOpens":v["historicalOpens"],"completed":v["completions"],"lastPlayed":v["lastPlayed"],"readingProgress":v["readingProgress"],"lastRead":v["lastRead"],"itemCount":v["itemCount"],"retrievalReason":v["reason"]})).collect()
 }
 fn bounded_context(
     mut context: Value,
@@ -802,7 +834,7 @@ pub(crate) fn profile(state: &Shared) -> AppResult<Value> {
             .cmp(&a["historicalOpens"].as_u64())
     });
     Ok(
-        json!({"favorites":state.settings.favorites()?.iter().take(16).map(|s|short(s,200)).collect::<Vec<_>>(),"activity":activity,"historicalMedia":familiar.iter().take(24).map(|v|json!({"path":v["path"],"opens":v["historicalOpens"]})).collect::<Vec<_>>(),"moreLike":more.iter().map(|s|short(s,200)).collect::<Vec<_>>(),"note":"Historical opens are weaker than deliberate playback but are evidence of familiarity, not zero history. Ownership is not evidence of interest. Zero qualified plays means no recorded meaningful playback, not proof of never having watched. Prefer deliberate choices and favorites; damp repeated/background playback."}),
+        json!({"favorites":state.settings.favorites()?.iter().take(16).map(|s|short(s,200)).collect::<Vec<_>>(),"activity":activity,"reading":super::reading::items(state)?.into_iter().take(12).collect::<Vec<_>>(),"historicalMedia":familiar.iter().take(24).map(|v|json!({"path":v["path"],"opens":v["historicalOpens"]})).collect::<Vec<_>>(),"moreLike":more.iter().map(|s|short(s,200)).collect::<Vec<_>>(),"note":"Historical opens are weaker than deliberate playback but are evidence of familiarity, not zero history. Ownership is not evidence of interest. Zero qualified plays means no recorded meaningful playback, not proof of never having watched. Prefer deliberate choices and favorites; damp repeated/background playback."}),
     )
 }
 fn pick_schema(candidates: &[Value]) -> Value {
@@ -836,6 +868,14 @@ fn selection(picks: &Value, candidates: &[Value]) -> AppResult<Vec<Value>> {
 }
 pub fn filter_response(state: &Shared, value: &mut Value) -> AppResult<()> {
     let c = state.database.connection()?;
+    let mut statement = c
+        .prepare("SELECT path FROM media_series_groups WHERE library_key=?1")
+        .map_err(sql_error)?;
+    let seasons = statement
+        .query_map([&state.config.library_key], |row| row.get::<_, String>(0))
+        .map_err(sql_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(sql_error)?;
     if let Some(rows) = value["rows"].as_array_mut() {
         for row in rows {
             if let Some(items) = row["items"].as_array_mut() {
@@ -844,7 +884,14 @@ pub fn filter_response(state: &Shared, value: &mut Value) -> AppResult<()> {
                 }
                 items.retain(|item| {
                     let path = item["path"].as_str().unwrap_or("");
-                    (item["type"] == "audio" || item["type"] == "video" || item["type"] == "folder")
+                    !seasons.iter().any(|season| {
+                        path.strip_prefix(season)
+                            .is_some_and(|tail| tail.starts_with('/'))
+                    }) && (item["type"] == "audio"
+                        || item["type"] == "video"
+                        || item["type"] == "book"
+                        || item["type"] == "pdf"
+                        || item["type"] == "folder")
                         && item["previewReady"] == true
                         && !hidden(&c, path).unwrap_or(true)
                         && crate::media::resolve(&state.config, path).is_ok_and(|r| {
@@ -862,9 +909,48 @@ pub fn filter_response(state: &Shared, value: &mut Value) -> AppResult<()> {
 }
 pub async fn rank_batch(state: &Shared, profile_key: &str) -> AppResult<bool> {
     let excluded = super::feed::excluded_ids(state, profile_key)?;
-    let raw = candidates(state, &excluded, true).await?;
+    let books = items(
+        state,
+        "c.kind IN ('book','pdf') AND c.id NOT IN (SELECT value FROM json_each(?1))",
+        &[&json!(excluded).to_string()],
+        "coalesce(rs.updated_at,0) DESC,(c.kind='book') DESC,c.id",
+        48,
+    )?;
+    let raw = if books.is_empty() {
+        candidates(state, &excluded, true).await?
+    } else {
+        books
+    };
     if raw.is_empty() {
         return Ok(false);
+    }
+    let mut collections: Vec<_> = raw
+        .iter()
+        .filter(|item| item["type"] == "folder")
+        .cloned()
+        .collect();
+    for item in &raw {
+        let context = &item["collectionContext"];
+        let Some(path) = context["collection"]["path"].as_str() else {
+            continue;
+        };
+        if collections
+            .iter()
+            .any(|collection| collection["path"] == path)
+        {
+            continue;
+        }
+        let members = collection_inventory(state, path, &json!({}))?;
+        if members.is_empty() {
+            continue;
+        }
+        collections.push(json!({
+            "id":context["collection"]["id"],"path":path,
+            "name":path.rsplit('/').next().unwrap_or(path),
+            "type":"folder","isDirectory":true,"itemCount":context["totalFiles"],
+            "previewPath":members[0]["path"],
+            "members":members.iter().map(|member|json!({"path":member["path"],"name":member["name"],"type":member["type"]})).collect::<Vec<_>>()
+        }));
     }
     let (list, images) = prepare(state, raw.clone()).await?;
     let unavailable: Vec<_> = raw
@@ -902,10 +988,17 @@ pub async fn rank_batch(state: &Shared, profile_key: &str) -> AppResult<bool> {
     if list.is_empty() {
         return Ok(false);
     }
-    let schema = json!({"type":"object","properties":{"items":{"type":"array","items":{"type":"object","properties":{"id":{"type":"integer","enum":list.iter().map(|v|v["id"].clone()).collect::<Vec<_>>()},"score":{"type":"number","minimum":0,"maximum":100},"reason":{"type":"string"}},"required":["id","score","reason"],"additionalProperties":false}}},"required":["items"],"additionalProperties":false});
-    let review = provider::generate(&settings(state)?,
-        "Score every proposed file or collection for this person's interest using their history, explicit likes, the extracted metadata and actual previews. These scores will be stored and reused by a local feed mixer, not presented as a one-off recommendation list. 90-100: strong personal fit; 70-89: good fit; 50-69: plausible related discovery; below 50: not suitable for the personal feed. Reject incidental assets, content mismatches and unsupported assumptions. Ownership alone is not interest. Preserve collection versus individual identity and do not invent audible properties. Return every supplied ID once with a short evidence-based reason. Contact sheets have three columns and four rows, with cells numbered row-major.",
-        &prompt, &images, schema).await?;
+    let schema = json!({"type":"object","properties":{"items":{"type":"array","items":{"type":"object","properties":{"id":{"type":"integer","enum":list.iter().map(|v|v["id"].clone()).collect::<Vec<_>>()},"score":{"type":"number","minimum":0,"maximum":100},"reason":{"type":"string"},"serialCollection":{"type":"boolean","description":"This video or folder belongs to a single episodic series/season identified by its supplied collection inventory; false for mixed videos, films, music and books."}},"required":["id","score","reason","serialCollection"],"additionalProperties":false}}},"required":["items"],"additionalProperties":false});
+    let book_review = list
+        .iter()
+        .all(|item| item["type"] == "book" || item["type"] == "pdf");
+    let instructions = if book_review {
+        "Recommend books from this personal library. Saved reading progress and recent reading are strong PRIORITY boosts, not eligibility requirements. Keep current reading near the top AND offer a small amount of discovery from identifiable unread books. Do not reject a substantive unread book solely because it has no reading or playback history. Use the supplied titles, folders, library themes and reading profile; explain tentative discoveries honestly without inventing personal interests or book contents. Score active reading 90-100, supported related choices 70-89, and reasonable unread discoveries 50-69. Exclude incidental assets, forms and unrelated technical manuals below 50. For a numbered series prefer its beginning over arbitrary later volumes unless reading history supports a continuation. Score EVERY supplied ID. Reasons must be short, natural reader-facing explanations: do not mention scores, signals, JSON fields, playback metrics or internal analysis. No book contents or cover previews have been supplied."
+    } else {
+        "Score every proposed file or collection for this person's interest using their history, explicit likes, the extracted metadata and actual previews. These scores will be stored and reused by a local feed mixer, not presented as a one-off recommendation list. 90-100: strong personal fit; 70-89: good fit; 50-69: plausible related discovery; below 50: not suitable for the personal feed. Reject incidental assets, content mismatches and unsupported assumptions. Ownership alone is not interest. Identify episodic anime/TV seasons from folder paths and neighboring filenames in the supplied inventories. Set serialCollection=true for their episodes and season folder; score the season as a whole and write a reason about the series, not a particular episode. Recommend opening the season when reliable playback position is unavailable. Do not mistake a mixed film/video directory for a season. Preserve collection versus individual identity and do not invent audible properties. Return every supplied ID once with a short evidence-based reason. Contact sheets have three columns and four rows, with cells numbered row-major."
+    };
+    let review =
+        provider::generate(&settings(state)?, instructions, &prompt, &images, schema).await?;
     let scores = review["items"]
         .as_array()
         .ok_or_else(|| AppError::bad("AI omitted media scores"))?;
@@ -921,15 +1014,84 @@ pub async fn rank_batch(state: &Shared, profile_key: &str) -> AppResult<bool> {
         if let Some(reason) = decision.and_then(|v| v["reason"].as_str()) {
             item["reason"] = json!(short(reason, 250));
         }
-        item.as_object_mut().unwrap().remove("collectionContext");
+        item["serialCollection"] = json!(decision.is_some_and(|v| v["serialCollection"] == true));
         ranked.push(item);
     }
+    consolidate_series(&mut ranked, &collections);
+    for item in &mut ranked {
+        item.as_object_mut().unwrap().remove("collectionContext");
+    }
     super::feed::store_rankings(state, &ranked, profile_key)?;
+    if ranked
+        .iter()
+        .any(|item| item["type"] == "book" || item["type"] == "pdf")
+    {
+        crate::app::emit_admin(state, "book-recommendations-changed");
+    }
     Ok(!ranked.is_empty())
 }
+fn consolidate_series(ranked: &mut Vec<Value>, collections: &[Value]) {
+    let mut seasons: HashMap<String, Value> = HashMap::new();
+    for item in ranked
+        .iter()
+        .filter(|item| item["serialCollection"] == true)
+    {
+        let path = if item["type"] == "folder" {
+            item["path"].as_str()
+        } else if item["type"] == "video" {
+            item["collectionContext"]["collection"]["path"].as_str()
+        } else {
+            None
+        };
+        let Some(path) = path.filter(|path| !path.is_empty()) else {
+            continue;
+        };
+        let Some(collection) = collections
+            .iter()
+            .find(|collection| collection["path"] == path)
+        else {
+            continue;
+        };
+        if !collection["members"].as_array().is_some_and(|members| {
+            members
+                .iter()
+                .filter(|member| member["type"] == "video")
+                .count()
+                > 1
+        }) {
+            continue;
+        }
+        let season = seasons.entry(path.to_string()).or_insert_with(|| {
+            let mut season = collection.clone();
+            season["serialCollection"] = json!(true);
+            season["previewReady"] = json!(true);
+            season["previewKind"] = json!("collection");
+            season["aiScore"] = json!(0);
+            season
+        });
+        if item["aiScore"].as_f64().unwrap_or(0.0) >= season["aiScore"].as_f64().unwrap_or(0.0) {
+            season["aiScore"] = item["aiScore"].clone();
+            season["reason"] = item["reason"].clone();
+            season["previewPath"] = item["previewPath"]
+                .as_str()
+                .map_or_else(|| item["path"].clone(), |path| json!(path));
+        }
+    }
+    for item in ranked.iter_mut() {
+        let parent = crate::app::parent_logical(item["path"].as_str().unwrap_or(""));
+        if item["type"] == "video" && seasons.contains_key(&parent) {
+            item["aiScore"] = json!(0);
+        }
+    }
+    for (path, season) in seasons {
+        ranked.retain(|item| item["path"] != path);
+        ranked.push(season);
+    }
+}
+
 pub async fn ask(state: &Shared, query: &str, history: &[String], hour: i64) -> AppResult<Value> {
     let s = settings(state)?;
-    let plan_schema = json!({"type":"object","properties":{"terms":{"type":"array","items":{"type":"string"}},"unplayed":{"type":"boolean"},"mediaType":{"type":"string","enum":["any","audio","video"]},"minSeconds":{"type":"number"},"maxSeconds":{"type":"number"},"intent":{"type":"string","enum":["show","play","queue"]}},"required":["terms","unplayed","mediaType","minSeconds","maxSeconds","intent"],"additionalProperties":false});
+    let plan_schema = json!({"type":"object","properties":{"terms":{"type":"array","items":{"type":"string"}},"unplayed":{"type":"boolean"},"mediaType":{"type":"string","enum":["any","audio","video","book","pdf"]},"minSeconds":{"type":"number"},"maxSeconds":{"type":"number"},"intent":{"type":"string","enum":["show","play","queue"]}},"required":["terms","unplayed","mediaType","minSeconds","maxSeconds","intent"],"additionalProperties":false});
     let plan=provider::generate(&s,"Convert the latest request and earlier queries to library retrieval filters. Extract up to six artist, title, category or descriptive terms. Use synonyms across languages where useful. minSeconds/maxSeconds are 0 if unspecified. Only explicit play/queue commands have that intent; give me means show.",&json!({"query":query,"previousQueries":history}).to_string(),&[],plan_schema).await?;
     let terms = plan["terms"]
         .as_array()
@@ -938,7 +1100,7 @@ pub async fn ask(state: &Shared, query: &str, history: &[String], hour: i64) -> 
     let kind = plan["mediaType"].as_str().unwrap_or("any");
     let min = plan["minSeconds"].as_f64().unwrap_or(0.0).max(0.0);
     let max = plan["maxSeconds"].as_f64().unwrap_or(0.0).max(0.0);
-    let filters = "(?2=0 OR coalesce(t.plays,0)=0) AND (?3='any' OR c.kind=?3) AND (c.duration<=0 OR ((?4<=0 OR c.duration>=?4) AND (?5<=0 OR c.duration<=?5)))";
+    let filters = "(?2=0 OR (coalesce(t.plays,0)=0 AND rs.path IS NULL)) AND (?3='any' OR c.kind=?3) AND (c.duration<=0 OR ((?4<=0 OR c.duration>=?4) AND (?5<=0 OR c.duration<=?5)))";
     let mut list = Vec::new();
     let mut ids = HashSet::new();
     for term in terms.iter().take(6).filter_map(Value::as_str) {
@@ -1019,7 +1181,7 @@ pub async fn ask(state: &Shared, query: &str, history: &[String], hour: i64) -> 
             {
                 continue;
             }
-            collections.push(json!({"id":folder["id"],"path":path,"name":path.rsplit('/').next().unwrap_or(path),"type":"folder","isDirectory":true,"itemCount":folder["audio"].as_u64().unwrap_or(0)+folder["video"].as_u64().unwrap_or(0),"historicalOpens":folder["historicalOpens"],"previewPath":members[0]["path"],"members":members.iter().map(|v|json!({"path":v["path"],"name":v["name"],"type":v["type"]})).collect::<Vec<_>>() }));
+            collections.push(json!({"id":folder["id"],"path":path,"name":path.rsplit('/').next().unwrap_or(path),"type":"folder","isDirectory":true,"itemCount":folder["audio"].as_u64().unwrap_or(0)+folder["video"].as_u64().unwrap_or(0)+folder["book"].as_u64().unwrap_or(0)+folder["pdf"].as_u64().unwrap_or(0),"historicalOpens":folder["historicalOpens"],"previewPath":members[0]["path"],"members":members.iter().map(|v|json!({"path":v["path"],"name":v["name"],"type":v["type"]})).collect::<Vec<_>>() }));
         }
         list.truncate(48 - collections.len());
         list.extend(collections);
@@ -1037,7 +1199,7 @@ pub async fn ask(state: &Shared, query: &str, history: &[String], hour: i64) -> 
         return Ok(json!({"items":[],"message":"No matches.","intent":"show"}));
     }
     let schema = json!({"type":"object","properties":{"message":{"type":"string"},"items":{"type":"array","items":pick_schema(&list)}},"required":["message","items"],"additionalProperties":false});
-    let result=provider::generate(&s,"Select up to 12 relevant library items answering the request. Return an empty selection when no candidate fits. Explain uncertainty briefly, especially unknown historical playback or properties not evident from names/images. Never fabricate content. Use metadata, folder samples and attached previews. Preview sheets have 3 columns and 4 rows with cells numbered row-major. Recommend only music and videos meant for listening or watching, not incidental software or project assets. Folders and collections are valid recommendations when they answer the request more usefully than isolated files.",&prompt,&images,schema).await?;
+    let result=provider::generate(&s,"Select up to 12 relevant library items answering the request. Return an empty selection when no candidate fits. Explain uncertainty briefly, especially unknown historical playback or properties not evident from names/images. Never fabricate content. Use metadata, folder samples and attached previews. Preview sheets have 3 columns and 4 rows with cells numbered row-major. Recommend music, videos, books and PDFs meant for listening, watching or reading, excluding incidental software assets. Prioritize books with saved reading progress or recent reading activity. Book contents are unknown unless explicitly supplied; do not infer content from blank preview cells. Folders and collections are valid recommendations when they answer the request more usefully than isolated files.",&prompt,&images,schema).await?;
     let mut picked = selection(&result["items"], &list)?;
     picked.retain(|v| {
         crate::media::resolve(&state.config, v["path"].as_str().unwrap_or("")).is_ok_and(|r| {
@@ -1135,7 +1297,10 @@ pub async fn enrich(state: &Shared) -> AppResult<bool> {
         let Ok(resolved) = crate::media::resolve(&state.config, path) else {
             continue;
         };
-        if item["type"] == "audio" {
+        if item["type"] == "book" || item["type"] == "pdf" {
+            item["metadata"] =
+                json!({"evidence":"Filename and folder only; contents not inspected"});
+        } else if item["type"] == "audio" {
             if let Ok(metadata) = crate::routes::media::audio_metadata_path(&resolved.full).await {
                 item["duration"] = metadata["duration"].clone();
                 item["metadata"] = json!({"title":short(metadata["title"].as_str().unwrap_or(""),200),"artist":short(metadata["artist"].as_str().unwrap_or(""),200),"album":short(metadata["album"].as_str().unwrap_or(""),200),"genre":short(&metadata["genre"].to_string(),200)});
@@ -1228,6 +1393,7 @@ pub async fn enrich(state: &Shared) -> AppResult<bool> {
       let item=list.iter().find(|i|i["id"]==v["id"]).unwrap();
       let tags=v["tags"].as_array().ok_or_else(||AppError::bad("Invalid catalog tags"))?.iter().take(8).filter_map(Value::as_str).map(|s|short(s,60)).collect::<Vec<_>>().join(" ");
       tx.execute("UPDATE media_catalog SET description=?1,tags=?2,analyzed=?3,duration=?4,retry_after=0 WHERE id=?5 AND path=?6 AND fingerprint=?7",params![short(v["description"].as_str().unwrap_or(""),350),tags,crate::app::timestamp_ms() as i64,item["duration"].as_f64().unwrap_or(0.0),v["id"].as_i64(),item["path"].as_str(),item["fingerprint"].as_str()]).map_err(sql_error)?;
+      super::progress::reviewed(tx, item["path"].as_str().unwrap())?;
     }
     for item in &list {
       if !seen.contains(&item["id"].as_i64()) {
@@ -1241,6 +1407,27 @@ pub async fn enrich(state: &Shared) -> AppResult<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn episodic_videos_become_one_season_but_mixed_videos_stay_individual() {
+        let collection = json!({"id":-1,"path":"Anime/Season 1","name":"Season 1","type":"folder","isDirectory":true,"itemCount":12,"members":[{"path":"Anime/Season 1/01.mp4","type":"video"},{"path":"Anime/Season 1/02.mp4","type":"video"}]});
+        let episode = |id, name, serial| json!({"id":id,"path":format!("Anime/Season 1/{name}.mp4"),"type":"video","aiScore":85,"serialCollection":serial,"reason":"An anime season matching your interests","collectionContext":{"collection":{"path":"Anime/Season 1"}}});
+        let mut mixed = vec![episode(1, "01", false), episode(2, "02", false)];
+        consolidate_series(&mut mixed, std::slice::from_ref(&collection));
+        assert_eq!(mixed.len(), 2);
+        assert!(mixed.iter().all(|item| item["aiScore"] == 85));
+        let mut ranked = vec![episode(1, "01", true), episode(2, "02", false)];
+        consolidate_series(&mut ranked, &[collection]);
+        let approved: Vec<_> = ranked
+            .iter()
+            .filter(|item| item["aiScore"].as_f64().unwrap_or(0.0) >= 50.0)
+            .collect();
+        assert_eq!(approved.len(), 1);
+        assert_eq!(approved[0]["path"], "Anime/Season 1");
+        assert_eq!(approved[0]["type"], "folder");
+        assert_eq!(approved[0]["previewPath"], "Anime/Season 1/01.mp4");
+        assert_eq!(approved[0]["members"].as_array().unwrap().len(), 2);
+    }
     #[test]
     fn catalog_import_defers_file_checks_and_invalidates_cached_analysis() {
         let c = Connection::open_in_memory().unwrap();

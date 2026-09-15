@@ -85,7 +85,7 @@ function parseSyncedState(value: unknown): ReaderSyncedState | null {
         : undefined,
     chapterId: typeof input.chapterId === 'string' ? input.chapterId.slice(0, 1_024) : undefined,
     anchor: typeof input.anchor === 'string' ? input.anchor.slice(0, 1_024) : undefined,
-    progress: finiteInRange(input.progress, 0, 1, 0),
+    progress: input.progress == null ? undefined : finiteInRange(input.progress, 0, 1, 0),
     chapterProgress: finiteInRange(input.chapterProgress, 0, 1, 0),
     outlineExpanded: Array.isArray(input.outlineExpanded)
       ? input.outlineExpanded
