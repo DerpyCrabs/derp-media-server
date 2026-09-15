@@ -20,7 +20,7 @@ export type WorkspaceBrowserActions = Readonly<{
 }>
 
 export type WorkspaceViewerActions = Readonly<{
-  updateViewing: (windowId: string, path: string) => void
+  updateViewing: (windowId: string, path: string, imageSeed?: string | null) => void
   videoMetadata?: (windowId: string, width: number, height: number) => void
   audioActivate?: (windowId: string) => void
   dismissListenOnly?: (windowId: string) => void

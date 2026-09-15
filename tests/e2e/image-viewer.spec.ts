@@ -7,6 +7,94 @@ async function useListView(page: Page) {
 }
 
 test.describe('Image Viewer', () => {
+  test.describe('ordinary HTTP', () => {
+    test('shuffles without a secure browser context', async ({ page, baseURL }) => {
+      const url = new URL('/?dir=Images&viewing=Images%2Fphoto.jpg', baseURL)
+      url.hostname = 'media-server.test'
+      await page.route(`${url.origin}/**`, async (route) => {
+        const requestUrl = new URL(route.request().url())
+        const target = new URL(requestUrl.pathname + requestUrl.search, baseURL)
+        await route.continue({ url: target.href })
+      })
+      await page.goto(url.href, { waitUntil: 'domcontentloaded' })
+      expect(await page.evaluate(() => window.isSecureContext)).toBe(false)
+      expect(await page.evaluate(() => typeof crypto.randomUUID)).toBe('undefined')
+      const shuffle = page.getByRole('button', { name: 'Shuffle images' })
+      await shuffle.click()
+      await expect(page.getByRole('dialog').getByText(/\d+ of \d+/)).toHaveText('1 of 2')
+      const seed = new URL(page.url()).searchParams.get('imageSeed')
+      expect(seed).toBeTruthy()
+      await shuffle.click()
+      expect(new URL(page.url()).searchParams.get('imageSeed')).not.toBe(seed)
+      await page.reload()
+      await expect(page.getByRole('dialog').getByText(/\d+ of \d+/)).toHaveText('1 of 2')
+
+      const workspace = new URL('/workspace?ws=http-' + Date.now(), url)
+      await page.goto(workspace.href, { waitUntil: 'domcontentloaded', timeout: 5000 })
+      const content = page.locator('.workspace-window-content').first()
+      await content.getByText('Images', { exact: true }).click()
+      await content.locator('table').getByText('photo.jpg').click()
+      await page.getByRole('button', { name: 'Shuffle images' }).click()
+      await expect(page.getByText('1 of 2', { exact: true })).toBeVisible()
+    })
+  })
+
+  test('shuffle survives reload and copied URLs, and resets when reopening', async ({
+    page,
+    context,
+  }) => {
+    await page.goto('/?dir=Images&viewing=Images%2Fphoto.jpg')
+    const shuffle = page.getByRole('button', { name: 'Shuffle images' })
+    await shuffle.click()
+    await expect(page.getByRole('dialog').getByText(/\d+ of \d+/)).toHaveText('1 of 2')
+    const url = page.url()
+    const firstPath = new URL(url).searchParams.get('viewing')!
+    const firstName = firstPath.split('/').pop()!
+    const secondName = firstName === 'photo.jpg' ? 'photo.png' : 'photo.jpg'
+    expect(new URL(url).searchParams.get('imageSeed')).toBeTruthy()
+    const counter = await page
+      .getByRole('dialog')
+      .getByText(/\d+ of \d+/)
+      .textContent()
+    await page.reload()
+    await expect(page.getByRole('dialog').getByText(/\d+ of \d+/)).toHaveText(counter!)
+    const other = await context.newPage()
+    try {
+      await other.goto(url)
+      await expect(other.getByRole('dialog').getByText(/\d+ of \d+/)).toHaveText(counter!)
+      await other.keyboard.press('ArrowRight')
+      await expect(other.getByRole('dialog').getByText(/\d+ of \d+/)).toHaveText('2 of 2')
+      await other.getByRole('button', { name: 'Shuffle images' }).click()
+      await expect(other.getByRole('dialog').getByText(/\d+ of \d+/)).toHaveText('1 of 2')
+      const nextSeed = new URL(other.url()).searchParams.get('imageSeed')
+      expect(nextSeed).toBeTruthy()
+      expect(nextSeed).not.toBe(new URL(url).searchParams.get('imageSeed'))
+      expect(new URL(page.url()).searchParams.get('imageSeed')).toBe(
+        new URL(url).searchParams.get('imageSeed'),
+      )
+    } finally {
+      await other.close()
+    }
+    await page.keyboard.press('ArrowRight')
+    await expect(page.getByRole('dialog').getByText(/\d+ of \d+/)).toHaveText('2 of 2')
+    await expect(
+      page.getByRole('dialog').getByRole('img', { name: secondName, exact: true }),
+    ).toBeVisible()
+    expect(new URL(page.url()).searchParams.get('imageSeed')).toBe(
+      new URL(url).searchParams.get('imageSeed'),
+    )
+    await page.keyboard.press('ArrowLeft')
+    await expect(
+      page.getByRole('dialog').getByRole('img', { name: firstName, exact: true }),
+    ).toBeVisible()
+    await page.getByRole('button', { name: 'Close', exact: true }).click()
+    expect(new URL(page.url()).searchParams.has('imageSeed')).toBe(false)
+    await useListView(page)
+    await page.locator('table').getByText('photo.jpg').click()
+    await expect(shuffle).toBeVisible()
+    expect(new URL(page.url()).searchParams.has('imageSeed')).toBe(false)
+  })
+
   test('image thumbnails appear in grid view', async ({ page }) => {
     await page.goto('/?dir=Images')
     await page.getByRole('button', { name: 'Display options' }).click()
@@ -56,8 +144,8 @@ test.describe('Image Viewer', () => {
 
     const dialog = page.getByRole('dialog')
     const buttons = dialog.locator('button')
-    await expect(buttons).toHaveCount(6)
-    for (let index = 0; index < 6; index += 1) {
+    await expect(buttons).toHaveCount(7)
+    for (let index = 0; index < 7; index += 1) {
       const box = await buttons.nth(index).boundingBox()
       expect(box).not.toBeNull()
       expect(box!.x).toBeGreaterThanOrEqual(0)

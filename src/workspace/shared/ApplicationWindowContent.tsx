@@ -41,6 +41,8 @@ export function ApplicationWindowContent(props: ApplicationWindowContentProps) {
       viewer={() => (
         <ViewerPane
           viewingPath={() => definition()?.initialState?.viewing ?? ''}
+          imageSeed={() => definition()?.initialState?.imageSeed}
+          onImageSeedChange={(seed, path) => props.actions.viewer.updateViewing(id(), path, seed)}
           directory={() => definition()?.initialState?.dir ?? ''}
           contentVisible={props.visible}
           active={active}

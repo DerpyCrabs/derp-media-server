@@ -37,6 +37,8 @@ type Props = {
   showPlayback?: boolean
   presentation?: 'embedded' | 'modal'
   readerKind?: Accessor<'pdf' | 'folder' | 'book' | null>
+  imageSeed?: Accessor<string | null | undefined>
+  onImageSeedChange?: (seed: string | null, path: string) => void
   onClose?: () => void
   /** Close the viewer tab after switching to taskbar audio (playback keeps running). */
   onListenOnlyDismissViewer?: () => void
@@ -146,6 +148,8 @@ export function ViewerPane(props: Props) {
       <Show when={!readerKind() && mediaType() === MediaType.IMAGE && viewingPath()}>
         <ImageViewerPane
           viewingPath={viewingPath()}
+          imageSeed={props.imageSeed}
+          onImageSeedChange={props.onImageSeedChange}
           allFiles={() =>
             props.selection?.().some((f) => f.path === viewingPath())
               ? props.selection()

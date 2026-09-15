@@ -1,3 +1,4 @@
+import { randomId } from '@/lib/random-id'
 import { api } from '@/lib/api/client'
 import {
   getFileDragData,
@@ -1184,7 +1185,7 @@ export function CanvasWorkspace() {
       kind: 'hermes',
       file,
       target,
-      draftId: target.type === 'hermesDraft' ? crypto.randomUUID() : undefined,
+      draftId: target.type === 'hermesDraft' ? randomId() : undefined,
       source,
       openedFromWindowId,
     }
@@ -1272,9 +1273,9 @@ export function CanvasWorkspace() {
     )
   }
 
-  function updateViewing(windowId: string, path: string) {
+  function updateViewing(windowId: string, path: string, imageSeed?: string | null) {
     updateCanvasWorkspace((current) =>
-      WorkspaceDocumentCommands.updateViewing(current, windowId, path),
+      WorkspaceDocumentCommands.updateViewing(current, windowId, path, imageSeed),
     )
   }
 
@@ -2082,7 +2083,7 @@ export function CanvasWorkspace() {
         onCreate={() =>
           void settleCanvasGesturesBeforeNavigation().then(() =>
             workspaceRegistry.lifecycle.transition(() =>
-              navigateSearchParams({ ws: crypto.randomUUID() }, 'push'),
+              navigateSearchParams({ ws: randomId() }, 'push'),
             ),
           )
         }

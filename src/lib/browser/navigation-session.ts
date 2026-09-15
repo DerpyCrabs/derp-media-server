@@ -3,5 +3,6 @@ export interface NavigationState {
   viewing: string | null
   playing: string | null
   audioOnly: boolean
+  imageSeed?: string | null
   readerKind: 'pdf' | 'folder' | 'book' | null
 }

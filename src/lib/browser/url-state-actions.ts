@@ -1,7 +1,7 @@
 import { navigateSearchParams } from './browser-history'
 import { movePath, pathIsWithin, type PathMutation } from '@/lib/files/path-mutation'
 
-type UrlParamKey = 'dir' | 'viewing' | 'playing' | 'audioOnly'
+type UrlParamKey = 'dir' | 'viewing' | 'playing' | 'audioOnly' | 'imageSeed'
 
 type ParamUpdates = Partial<Record<UrlParamKey, string | null>>
 
@@ -18,20 +18,20 @@ export function navigateToFolder(path: string | null) {
   applyUpdates({ dir: path }, 'push')
 }
 
-export function viewFile(path: string, dir?: string) {
-  const updates: ParamUpdates = { viewing: path }
+export function viewFile(path: string, dir?: string, imageSeed: string | null = null) {
+  const updates: ParamUpdates = { viewing: path, imageSeed }
   if (dir !== undefined) updates.dir = dir
   applyUpdates(updates, 'replace')
 }
 
 export function playFile(path: string, dir?: string) {
-  const updates: ParamUpdates = { playing: path, viewing: null }
+  const updates: ParamUpdates = { playing: path, viewing: null, imageSeed: null }
   if (dir !== undefined) updates.dir = dir
   applyUpdates(updates, 'replace')
 }
 
 export function closeViewer() {
-  applyUpdates({ viewing: null }, 'replace')
+  applyUpdates({ viewing: null, imageSeed: null }, 'replace')
 }
 
 export function closePlayer() {
@@ -53,6 +53,7 @@ export function applyPathMutationToUrl(mutation: PathMutation) {
     updates[key] =
       mutation.type === 'path-moved' ? movePath(path, mutation.oldPath, mutation.newPath) : null
   }
+  if (updates.viewing === null) updates.imageSeed = null
   if (updates.playing === null) updates.audioOnly = null
   if (Object.keys(updates).length > 0) applyUpdates(updates, 'replace')
 }

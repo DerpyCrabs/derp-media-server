@@ -1,3 +1,4 @@
+import { randomId } from '@/lib/random-id'
 import { createSignal } from 'solid-js'
 import type { QueryClient } from '@tanstack/solid-query'
 import { radioTracks, recordingKey } from './radio'
@@ -61,7 +62,7 @@ export function continueRadio(session: PlaybackSession) {
     context: {
       kind: 'radio',
       title: `${current.name} radio`,
-      id: crypto.randomUUID(),
+      id: randomId(),
       radio: { ...defaultRadio, seeds: [current.locator] },
     },
   })
@@ -84,7 +85,7 @@ export function startRadio(
   const tracks = seed
     ? [seed, ...selected.filter((track) => recordingKey(track) !== recordingKey(seed))]
     : selected
-  playMusic(session, tracks, { kind: 'radio', title, id: crypto.randomUUID(), radio })
+  playMusic(session, tracks, { kind: 'radio', title, id: randomId(), radio })
   session.dispatch({ type: 'setRepeat', repeat: false })
 }
 

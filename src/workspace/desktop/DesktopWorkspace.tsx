@@ -1,3 +1,4 @@
+import { randomId } from '@/lib/random-id'
 import type { FileItem } from '@/lib/files/types'
 import { MediaType } from '@/lib/files/types'
 import { getMediaType } from '@/lib/media/media-utils'
@@ -253,8 +254,11 @@ export function DesktopWorkspace() {
     ifEditable(() => openInSplitViewFromBrowserPane(windowId, file))
   const editableRequestPlay = (source: WorkspaceSource, path: string, dir?: string) =>
     ifEditable(() => requestPlay(source, path, dir))
-  const editableUpdateWindowViewing = (windowId: string, viewing: string) =>
-    ifEditable(() => updateWindowViewing(windowId, viewing))
+  const editableUpdateWindowViewing = (
+    windowId: string,
+    viewing: string,
+    imageSeed?: string | null,
+  ) => ifEditable(() => updateWindowViewing(windowId, viewing, imageSeed))
   const editableResizeViewerWindowForVideoMetadata = (
     windowId: string,
     width: number,
@@ -689,9 +693,11 @@ export function DesktopWorkspace() {
     })
   }
 
-  function updateWindowViewing(windowId: string, viewing: string) {
+  function updateWindowViewing(windowId: string, viewing: string, imageSeed?: string | null) {
     setWorkspace((current) =>
-      current ? WorkspaceDocumentCommands.updateViewing(current, windowId, viewing) : current,
+      current
+        ? WorkspaceDocumentCommands.updateViewing(current, windowId, viewing, imageSeed)
+        : current,
     )
   }
 
@@ -849,7 +855,7 @@ export function DesktopWorkspace() {
           kind: 'hermes',
           file,
           target,
-          draftId: target.type === 'hermesDraft' ? crypto.randomUUID() : undefined,
+          draftId: target.type === 'hermesDraft' ? randomId() : undefined,
           source: sourceWindow?.source ?? browserSource(),
           openedFromWindowId: sourceWindow?.id,
           tabGroupId: attachToTab ? groupIdForWindow(sourceWindow) : null,
@@ -1458,7 +1464,7 @@ export function DesktopWorkspace() {
           window.open(`/workspace?ws=${encodeURIComponent(id)}`, '_blank', 'noopener,noreferrer')
         }}
         onCreate={() => {
-          const id = crypto.randomUUID()
+          const id = randomId()
           void workspaceRegistry.lifecycle.transition(() => {
             setWorkspacePanelOpen(false)
             navigateSearchParams({ ws: id, dir: null, preset: null }, 'push')

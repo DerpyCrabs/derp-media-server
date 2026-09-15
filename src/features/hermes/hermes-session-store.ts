@@ -1,3 +1,4 @@
+import { randomId } from '@/lib/random-id'
 import { createEffect, createMemo, createStore, reconcile, untrack, type Accessor } from 'solid-js'
 import { showAppConfirm } from '@/lib/ui/app-dialog'
 import type { FileDragData } from '@/lib/files/file-drag-data'
@@ -134,7 +135,7 @@ function stableKeyForSessionId(sessionId: string): string | undefined {
 function hermesChatKey(target: { sessionId?: string; draftId?: string }): string {
   return target.sessionId
     ? (stableKeyForSessionId(target.sessionId) ?? durableSessionKey(target.sessionId))
-    : `draft:${target.draftId ?? crypto.randomUUID()}`
+    : `draft:${target.draftId ?? randomId()}`
 }
 
 function bindHermesSessionId(key: string, sessionId: string): string {
@@ -712,7 +713,7 @@ function connectEvents() {
             scalarString(payload.request_id) ??
             scalarString(payload.tool_id) ??
             scalarString(payload.tool_call_id) ??
-            crypto.randomUUID(),
+            randomId(),
           prompt: messageText(payload.command ?? payload.description) || 'Hermes requests approval',
           choices: Array.isArray(payload.choices) ? payload.choices.map(String) : ['once', 'deny'],
         }
@@ -722,7 +723,7 @@ function connectEvents() {
         state.decision = {
           kind: 'clarify',
           requestId: typeof payload.request_id === 'string' ? payload.request_id : undefined,
-          dedupeId: scalarString(payload.request_id) ?? crypto.randomUUID(),
+          dedupeId: scalarString(payload.request_id) ?? randomId(),
           prompt: messageText(payload.question),
           choices: Array.isArray(payload.choices)
             ? payload.choices.map((choice: unknown) =>
@@ -738,7 +739,7 @@ function connectEvents() {
         state.decision = {
           kind: kind === 'sudo.request' ? 'sudo' : 'secret',
           requestId: typeof payload.request_id === 'string' ? payload.request_id : undefined,
-          dedupeId: scalarString(payload.request_id) ?? crypto.randomUUID(),
+          dedupeId: scalarString(payload.request_id) ?? randomId(),
           prompt:
             kind === 'sudo.request'
               ? 'Hermes needs administrator credentials'
@@ -946,7 +947,7 @@ function readFileBase64(file: File): Promise<string> {
 async function addHermesAttachments(key: string, files: Iterable<File>) {
   if (!sessions[key]) return
   for (const file of files) {
-    const id = crypto.randomUUID()
+    const id = randomId()
     if (file.size > HERMES_ATTACHMENT_LIMIT) {
       updateHermesState(key, (state) => {
         state.error = `${file.name} exceeds the 16 MiB attachment limit`
@@ -998,7 +999,7 @@ async function addHermesDraggedPath(key: string, dragged: FileDragData) {
     } else if (payload.mode === 'upload' && payload.attachment) {
       const attachment = payload.attachment as Omit<HermesAttachment, 'id' | 'status'>
       updateHermesState(key, (state) => {
-        state.attachments.push({ ...attachment, id: crypto.randomUUID(), status: 'ready' })
+        state.attachments.push({ ...attachment, id: randomId(), status: 'ready' })
       })
     }
   } catch (error) {
@@ -1340,7 +1341,7 @@ export function createHermesSession(target: Accessor<HermesSessionTarget>) {
   const resolvedTarget = createMemo(() => {
     const current = target()
     if (current.sessionId || current.draftId) return current
-    return { ...current, draftId: (fallbackDraftId ??= crypto.randomUUID()) }
+    return { ...current, draftId: (fallbackDraftId ??= randomId()) }
   })
   const key = createMemo(() => hermesChatKey(resolvedTarget()))
   createEffect(resolvedTarget, (current) => {

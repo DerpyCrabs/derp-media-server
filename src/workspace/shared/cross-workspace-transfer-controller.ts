@@ -1,3 +1,4 @@
+import { randomId } from '@/lib/random-id'
 import { createWorkspaceTransferMachine } from '@/workspace/model/workspace-transfer'
 import { workspaceValueEquals } from '@/workspace/model/workspace-equality'
 import type { PersistedWorkspaceState } from '@/workspace/model/use-workspace'
@@ -147,7 +148,7 @@ export function createCrossWorkspaceTransferController(
   ) => {
     const destinationWasCreated = transfer.destinationId === '__new__'
     const destinationId = destinationWasCreated
-      ? (options.createId?.() ?? crypto.randomUUID())
+      ? (options.createId?.() ?? randomId())
       : transfer.destinationId
     try {
       const result = await options.session.transfer.windows({

@@ -457,6 +457,54 @@ describe('workspace session authority', () => {
     }
   })
 
+  test('an old save acknowledgement preserves metadata queued by a newer edit', async () => {
+    const base = record('a', workspace('Base'), 1)
+    const first = deferred<void>()
+    const second = deferred<void>()
+    const firstStarted = deferred<void>()
+    const secondStarted = deferred<void>()
+    const names: Array<string | null> = []
+    const harness = createHarness({
+      id: 'a',
+      records: { a: base },
+      post: async (url, body) => {
+        if (url === '/api/workspaces/open') {
+          return { record: base, editable: true, leaseDurationMs: 10_000 }
+        }
+        if (url === '/api/workspaces/save') {
+          names.push((body.metadata as { name: string | null }).name)
+          if (names.length === 1) {
+            firstStarted.resolve()
+            await first.promise
+          } else if (names.length === 2) {
+            secondStarted.resolve()
+            await second.promise
+          }
+          return { revision: Number(body.revision) + 1 }
+        }
+        throw new Error('Unexpected request: ' + url)
+      },
+    })
+    try {
+      await harness.session.activate('a', base.snapshot)
+      harness.session.update(workspace('First edit'))
+      await firstStarted.promise
+      const renamed = harness.session.updateMetadataFor('a', { name: 'Renamed' })
+      first.resolve()
+      await secondStarted.promise
+      expect(harness.session.registry().records.a?.name).toBe('Renamed')
+      harness.session.update(workspace('Edit after old acknowledgement'))
+      second.resolve()
+      await renamed
+      await harness.session.flush()
+      expect(names).toEqual([null, 'Renamed', 'Renamed'])
+    } finally {
+      first.resolve()
+      second.resolve()
+      harness.dispose()
+    }
+  })
+
   test('stale registry refresh cannot erase metadata from the revisioned save queue', async () => {
     const base = record('a', workspace('Base'), 1)
     const records: Record<string, WorkspaceRecord> = { a: base }

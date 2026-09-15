@@ -75,6 +75,7 @@ export function BookContent(props: {
   document: RenderedBook
   appearance: BookAppearance
   currentChapterId: string
+  positionReady: boolean
   viewport: HTMLElement
   onNavigate: (chapterId: string, anchor?: string, recordHistory?: boolean) => void
 }) {
@@ -135,6 +136,7 @@ export function BookContent(props: {
   return (
     <div
       data-testid='reader-book'
+      aria-busy={props.positionReady ? 'false' : 'true'}
       class={documentClass()}
       style={{
         '--book-font-scale': String(props.appearance.fontScale ?? 1),

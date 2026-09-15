@@ -1,3 +1,4 @@
+import { randomId } from '@/lib/random-id'
 import type { PersistedWorkspaceState } from './use-workspace'
 
 export type WorkspaceRecord = {
@@ -43,7 +44,7 @@ export function workspaceDisplayName(record: WorkspaceRecord, position = 1): str
 export function workspaceClientId(): string {
   const key = 'workspace-client-id'
   const existing = sessionStorage.getItem(key)
-  const id = existing || crypto.randomUUID()
+  const id = existing || randomId()
   sessionStorage.setItem(key, id)
   return id
 }

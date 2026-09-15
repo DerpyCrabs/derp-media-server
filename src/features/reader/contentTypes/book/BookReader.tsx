@@ -67,7 +67,12 @@ export default function BookReader(props: ReaderContentProps) {
   })
   let restored = false
   let saveTimer: number | undefined
-  let blockedUntil = 0
+  const [positionReady, setPositionReady] = createSignal(false)
+  let navigationFrame = 0
+  let navigationVersion = 0
+  let positionVersion = 0
+  let disposed = false
+  let pendingPosition: BookReaderPosition | null = null
 
   const positionSync = createReaderPositionSync(
     () => props.sourcePath,
@@ -105,11 +110,7 @@ export default function BookReader(props: ReaderContentProps) {
   })
   const chapterElement = (chapterId: string) =>
     viewport()?.querySelector<HTMLElement>(`[data-book-chapter="${CSS.escape(chapterId)}"]`) ?? null
-  const scrollToChapter = (
-    chapterId: string,
-    anchor?: string,
-    behavior: ScrollBehavior = 'auto',
-  ) => {
+  const scrollToChapter = (chapterId: string, anchor?: string) => {
     const element = viewport()
     if (!element) return null
     const chapter = chapterElement(chapterId)
@@ -119,14 +120,20 @@ export default function BookReader(props: ReaderContentProps) {
     const targetRect = target.getBoundingClientRect()
     element.scrollTo({
       top: element.scrollTop + targetRect.top - viewportRect.top,
-      behavior,
+      behavior: 'instant',
     })
     return target
   }
   const capture = (): BookReaderPosition => {
     const element = viewport()
-    const chapter = chapterElement(state.chapterId)
+    if (pendingPosition) return { ...pendingPosition, outlineExpanded: [...state.outlineExpanded] }
+    const chapters = element
+      ? [...element.querySelectorAll<HTMLElement>('[data-book-chapter]')]
+      : []
     const viewportTop = element?.getBoundingClientRect().top ?? 0
+    const chapter =
+      chapters.find((chapter) => chapter.getBoundingClientRect().bottom > viewportTop + 8) ??
+      chapters.at(-1)
     const chapterRect = chapter?.getBoundingClientRect()
     const chapterProgress = chapterRect
       ? Math.max(0, Math.min(1, (viewportTop - chapterRect.top) / Math.max(1, chapterRect.height)))
@@ -139,19 +146,23 @@ export default function BookReader(props: ReaderContentProps) {
       : undefined
     return {
       kind: 'book',
-      chapterId: state.chapterId,
+      chapterId: chapter?.dataset.bookChapter ?? state.chapterId,
       anchor,
       chapterProgress,
       outlineExpanded: [...state.outlineExpanded],
     }
   }
-  const applyPosition = (position: BookReaderPosition, smooth = false, loaded = book.value()) => {
+  const applyPosition = (position: BookReaderPosition, loaded = book.value()) => {
     if (!loaded) return
     const chapterId =
       position.chapterId ||
       firstOutlineTarget(loaded.outline) ||
       loaded.document.chapters[0]?.id ||
       ''
+    const version = ++navigationVersion
+    positionVersion++
+    pendingPosition = { ...position, chapterId }
+    setPositionReady(false)
     setState((draft) => {
       draft.chapterId = chapterId
       draft.chapterProgress = position.chapterProgress
@@ -159,44 +170,49 @@ export default function BookReader(props: ReaderContentProps) {
         ? position.outlineExpanded
         : allOutlineIds(loaded.outline)
     })
-    requestAnimationFrame(() =>
-      requestAnimationFrame(() => {
-        const restoreByProgress = position.chapterProgress > 0
-        const target = scrollToChapter(
-          chapterId,
-          restoreByProgress ? undefined : position.anchor,
-          smooth ? 'smooth' : 'auto',
-        )
-        if (restoreByProgress && target && viewport()) {
-          viewport()!.scrollTop += target.offsetHeight * position.chapterProgress
-        }
-      }),
-    )
+    cancelAnimationFrame(navigationFrame)
+    navigationFrame = requestAnimationFrame(() => {
+      // Lay out the new chapter so its fonts are included in document.fonts.ready.
+      chapterElement(chapterId)?.getBoundingClientRect()
+      void document.fonts.ready.then(() =>
+        untrack(() => {
+          if (disposed || version !== navigationVersion) return
+          const restoreByProgress = position.chapterProgress > 0
+          const target = scrollToChapter(chapterId, restoreByProgress ? undefined : position.anchor)
+          if (restoreByProgress && target && viewport()) {
+            viewport()!.scrollTop +=
+              target.getBoundingClientRect().height * position.chapterProgress
+          }
+          pendingPosition = null
+          restored = true
+          setPositionReady(true)
+          schedulePersist()
+        }),
+      )
+    })
   }
   const persist = async () => {
     window.clearTimeout(saveTimer)
-    if (!restored || Date.now() < blockedUntil) return
+    if (!restored) return
+    const version = positionVersion
     const remote = await positionSync.save(capture())
-    if (remote) {
-      blockedUntil = Date.now() + 1_500
-      applyPosition(remote)
-    }
+    if (remote && !disposed && positionVersion === version) applyPosition(remote)
   }
   const schedulePersist = () => {
-    if (!restored || Date.now() < blockedUntil) return
+    if (!restored || !positionReady()) return
     window.clearTimeout(saveTimer)
     saveTimer = window.setTimeout(() => untrack(() => void persist()), 1_000)
   }
   const goToChapter = (chapterId: string, anchor?: string) => {
     if (!chapterId) return
-    setState((draft) => {
-      draft.chapterId = chapterId
-      draft.chapterProgress = 0
+    restored = true
+    applyPosition({
+      kind: 'book',
+      chapterId,
+      anchor,
+      chapterProgress: 0,
+      outlineExpanded: [...state.outlineExpanded],
     })
-    requestAnimationFrame(() =>
-      requestAnimationFrame(() => scrollToChapter(chapterId, anchor, 'smooth')),
-    )
-    schedulePersist()
   }
   const adjacentChapter = (offset: number) => {
     const loaded = book.value()
@@ -232,13 +248,13 @@ export default function BookReader(props: ReaderContentProps) {
           chapterProgress: 0,
           outlineExpanded: allOutlineIds(loaded.outline),
         },
-        false,
         loaded,
       )
-      restored = true
     },
   )
   onCleanup(() => {
+    disposed = true
+    cancelAnimationFrame(navigationFrame)
     window.clearTimeout(saveTimer)
   })
 
@@ -311,6 +327,8 @@ export default function BookReader(props: ReaderContentProps) {
       outline={outline()}
       onViewport={setViewport}
       onScroll={(element) => {
+        if (!positionReady()) return
+        positionVersion++
         const top = element.getBoundingClientRect().top + 8
         const chapters = [...element.querySelectorAll<HTMLElement>('[data-book-chapter]')]
         const atEnd = element.scrollHeight - element.clientHeight - element.scrollTop <= 2
@@ -374,6 +392,7 @@ export default function BookReader(props: ReaderContentProps) {
                     document={loaded().document}
                     appearance={preferences.bookAppearance()}
                     currentChapterId={state.chapterId}
+                    positionReady={positionReady()}
                     viewport={activeViewport()}
                     onNavigate={goToChapter}
                   />

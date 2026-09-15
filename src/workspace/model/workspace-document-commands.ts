@@ -76,6 +76,7 @@ function updateViewing(
   state: PersistedWorkspaceState,
   windowId: string,
   viewing: string,
+  imageSeed?: string | null,
 ): PersistedWorkspaceState {
   if (!state.windows.some((window) => window.id === windowId)) return state
   return {
@@ -92,6 +93,7 @@ function updateViewing(
               ...window.initialState,
               dir: parentPath(viewing),
               viewing,
+              ...(imageSeed !== undefined ? { imageSeed } : {}),
             },
           }
         : window,

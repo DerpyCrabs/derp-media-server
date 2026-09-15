@@ -1,3 +1,4 @@
+import { randomId } from '@/lib/random-id'
 import {
   createUrlSearchParamsMemo,
   navigateSearchParams,
@@ -57,18 +58,18 @@ function WorkspaceRenderer(props: { workspaceId: () => string }) {
       if (!ready) return
       if (!id) {
         if (dir) {
-          navigateSearchParams({ ws: crypto.randomUUID() }, 'replace')
+          navigateSearchParams({ ws: randomId() }, 'replace')
           return
         }
         const last = records.sort((left, right) => right.lastOpenedAt - left.lastOpenedAt)[0]
-        navigateSearchParams({ ws: last?.id ?? crypto.randomUUID() }, 'replace')
+        navigateSearchParams({ ws: last?.id ?? randomId() }, 'replace')
         return
       }
       if (deleted) {
         const next = records
           .filter((record) => record.id !== id)
           .sort((left, right) => right.lastOpenedAt - left.lastOpenedAt)[0]
-        navigateSearchParams({ ws: next?.id ?? crypto.randomUUID() }, 'replace')
+        navigateSearchParams({ ws: next?.id ?? randomId() }, 'replace')
         return
       }
       if (creation && record) {

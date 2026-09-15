@@ -1,3 +1,4 @@
+import { createWorkspaceSaveJournal, type WorkspaceSavePayload } from './workspace-save-journal'
 import { api, isApiError, post } from '@/lib/api/client'
 import { shareWorkspaceReferences } from '@/workspace/model/workspace-references'
 import {
@@ -72,11 +73,7 @@ export type WorkspaceRegistryOptions = {
   waitUntilSavingUnblocked?: () => Promise<void>
   http?: WorkspaceRegistryHttp
   clientId?: string
-}
-
-type WorkspaceSavePayload = {
-  document: PersistedWorkspaceState
-  metadata: { name: string | null; icon: string | null; iconColor: string | null }
+  saveStorage?: Storage | null
 }
 
 type PendingSave = PendingWorkspaceSave<WorkspaceSavePayload>
@@ -99,6 +96,14 @@ function sameWorkspace(left: PersistedWorkspaceState, right: PersistedWorkspaceS
 export function useWorkspaceRegistry(options: WorkspaceRegistryOptions) {
   const clientId = options.clientId ?? workspaceClientId()
   const http = options.http ?? { api, post }
+  const saveJournal = createWorkspaceSaveJournal(
+    options.saveStorage === undefined
+      ? typeof sessionStorage === 'undefined'
+        ? null
+        : sessionStorage
+      : options.saveStorage,
+    clientId,
+  )
   const operations = createWorkspaceOperationCoordinator()
   const [registry, setRegistry] = createSignal<WorkspaceRegistry>(EMPTY_REGISTRY)
   const [active, setActive] = createSignal<WorkspaceActiveSession>(IDLE_SESSION)
@@ -178,6 +183,7 @@ export function useWorkspaceRegistry(options: WorkspaceRegistryOptions) {
       },
       revision,
     }
+    saveJournal.enqueue(pending)
     if (options.savingBlocked?.()) deferredSaves.set(id, pending)
     else saveCoordinator.enqueue(pending)
   }
@@ -256,6 +262,7 @@ export function useWorkspaceRegistry(options: WorkspaceRegistryOptions) {
     activeSaveCount += 1
     setSaving(true)
     try {
+      saveJournal.started(pending)
       const result = await operations.run(pending.id, () =>
         http.post<{ revision: number }>('/api/workspaces/save', {
           id: pending.id,
@@ -266,16 +273,19 @@ export function useWorkspaceRegistry(options: WorkspaceRegistryOptions) {
         }),
       )
       const revision = result.revision
+      saveJournal.acknowledged(pending, revision)
       setRegistry((current) => {
         const record = current.records[pending.id]
         if (!record || record.revision > revision) return current
+        const queued = deferredSaves.get(pending.id) ?? saveCoordinator.pending(pending.id)
+        const latest = queued?.state ?? pending.state
         const nextRecord: WorkspaceRecord = {
           ...record,
-          snapshot,
+          snapshot: latest.document,
           revision,
         }
         for (const key of ['name', 'icon', 'iconColor'] as const) {
-          const value = pending.state.metadata[key]
+          const value = latest.metadata[key]
           if (value === null) delete nextRecord[key]
           else nextRecord[key] = value
         }
@@ -477,14 +487,29 @@ export function useWorkspaceRegistry(options: WorkspaceRegistryOptions) {
         return null
       }
       const record = sanitizeRecord(result.record)
-      setRegistryRecord(record)
+      const recovered = saveJournal.recover(record, result.editable)
+      setRegistryRecord(
+        recovered
+          ? {
+              ...record,
+              snapshot: recovered.state.document,
+              name: recovered.state.metadata.name ?? undefined,
+              icon: recovered.state.metadata.icon ?? undefined,
+              iconColor: recovered.state.metadata.iconColor ?? undefined,
+            }
+          : record,
+      )
       setActive({
         id,
         phase: 'open',
-        document: structuredClone(record.snapshot),
+        document: structuredClone(recovered?.state.document ?? record.snapshot),
         revision: record.revision,
         editable: result.editable,
       })
+      if (recovered) {
+        saveJournal.enqueue(recovered)
+        saveCoordinator.enqueue(recovered)
+      }
       await refreshRegistry()
       return { ...result, record }
     } catch {
@@ -687,6 +712,7 @@ export function useWorkspaceRegistry(options: WorkspaceRegistryOptions) {
     if (input.deleteSource) {
       tombstones.add(input.sourceId)
       saveCoordinator.clear(input.sourceId)
+      saveJournal.clear(input.sourceId)
       if (active().id === input.sourceId) setActive(IDLE_SESSION)
     } else if (active().id === input.sourceId) {
       setActive((current) => ({
@@ -762,6 +788,7 @@ export function useWorkspaceRegistry(options: WorkspaceRegistryOptions) {
     try {
       if (active().id === id) await flushWorkspace(id)
       await operations.run(id, () => http.post('/api/workspaces/delete', { id, clientId }))
+      saveJournal.clear(id)
       if (active().id === id) setActive(IDLE_SESSION)
       await refresh()
     } catch (error) {

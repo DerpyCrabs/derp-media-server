@@ -1,3 +1,4 @@
+import { randomId } from '@/lib/random-id'
 import { showAppConfirm } from '@/lib/ui/app-dialog'
 import type { WorkspaceSession } from './WorkspaceSession'
 import type { Accessor } from 'solid-js'
@@ -24,8 +25,7 @@ export function createWorkspaceLifecycleCommands(options: {
     const index = currentRegistry.order.indexOf(id)
     await options.session.catalog.delete(id)
     if (id !== options.activeId()) return
-    const next =
-      currentRegistry.order[index + 1] ?? currentRegistry.order[index - 1] ?? crypto.randomUUID()
+    const next = currentRegistry.order[index + 1] ?? currentRegistry.order[index - 1] ?? randomId()
     options.navigate(next, 'replace')
   }
 

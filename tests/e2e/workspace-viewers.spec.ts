@@ -311,6 +311,156 @@ test.describe('Workspace clipboard paste', () => {
 })
 
 test.describe('Workspace Image Viewer', () => {
+  for (const workspaceType of ['desktop', 'canvas'] as const) {
+    test(`image shuffle survives immediate ${workspaceType} reload with a save in flight`, async () => {
+      await gotoWorkspace(page)
+      await openFileFromBrowser(page, 'Images', 'photo.jpg')
+      const workspaceId = new URL(page.url()).searchParams.get('ws')!
+      if (workspaceType === 'canvas') {
+        await page.getByRole('button', { name: 'Open workspaces' }).click()
+        await page.locator(`[data-workspace-id="${workspaceId}"]`).click({ button: 'right' })
+        await page.getByRole('button', { name: 'Convert to canvas' }).click()
+        await page
+          .getByRole('alertdialog', { name: 'Convert to canvas?' })
+          .getByRole('button', { name: 'Convert', exact: true })
+          .click()
+        await expect(page.getByTestId('infinite-canvas')).toBeVisible()
+      }
+      const getSavedViewer = async () => {
+        const response = await sharedContext.request.get(`${workspaceE2EOrigin()}/api/workspaces`)
+        const registry = await response.json()
+        return (
+          registry.records[workspaceId]?.snapshot.windows as
+            | Array<{
+                type: string
+                initialState: { viewing?: string; imageSeed?: string }
+              }>
+            | undefined
+        )?.find((window) => window.type === 'viewer')?.initialState
+      }
+      await expect.poll(async () => (await getSavedViewer())?.viewing).toBe('Images/photo.jpg')
+      let release!: () => void
+      const pending = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      let delayed = false
+      let delaySaves = true
+      await page.route('**/api/workspaces/save', async (route) => {
+        if (!delaySaves || !route.request().postData()?.includes('imageSeed')) {
+          await route.continue()
+          return
+        }
+        delayed = true
+        await pending
+        await route.abort().catch(() => {})
+      })
+      try {
+        const shuffle = page.getByRole('button', { name: 'Shuffle images' })
+        await shuffle.click()
+        await expect.poll(() => delayed).toBe(true)
+        await shuffle.click()
+        await page.getByRole('button', { name: 'Next image', exact: true }).click()
+        await expect(page.getByText('2 of 2', { exact: true })).toBeVisible()
+        const expected = await page.evaluate((id) => {
+          const key = Object.keys(sessionStorage).find(
+            (key) => key.startsWith('workspace-pending:') && key.endsWith(':' + id),
+          )!
+          const entry = JSON.parse(sessionStorage.getItem(key)!)
+          return entry.pending.state.document.windows.find(
+            (window: { type: string }) => window.type === 'viewer',
+          ).initialState as { imageSeed: string; viewing: string }
+        }, workspaceId)
+        expect(expected.imageSeed).toBeTruthy()
+        delaySaves = false
+        const saved = page.waitForResponse(
+          (response) =>
+            response.url().endsWith('/api/workspaces/save') &&
+            response.request().postData()?.includes(expected.imageSeed) === true &&
+            response.ok(),
+        )
+        await test.step('reload before the old save completes', async () => {
+          await page.reload()
+          await expect(page.getByText('2 of 2', { exact: true })).toBeVisible()
+        })
+        await test.step('resend recovered state', async () => {
+          await saved
+        })
+        await expect.poll(getSavedViewer).toMatchObject(expected)
+        await expect
+          .poll(() =>
+            page.evaluate(
+              (id) =>
+                Object.keys(sessionStorage).some(
+                  (key) => key.startsWith('workspace-pending:') && key.endsWith(':' + id),
+                ),
+              workspaceId,
+            ),
+          )
+          .toBe(false)
+        await page.reload()
+        await expect(page.getByText('2 of 2', { exact: true })).toBeVisible()
+      } finally {
+        release()
+        await page.unrouteAll({ behavior: 'wait' }).catch(() => {})
+      }
+    })
+  }
+
+  test('image shuffle survives workspace reload', async () => {
+    await gotoWorkspace(page)
+    const viewer = await openFileFromBrowser(page, 'Images', 'photo.jpg')
+    const waitForShuffleSave = () =>
+      page.waitForResponse(
+        (response) =>
+          response.url().endsWith('/api/workspaces/save') &&
+          response.request().postData()?.includes('imageSeed') === true &&
+          response.ok(),
+      )
+    const saved = waitForShuffleSave()
+    await viewer.getByRole('button', { name: 'Shuffle images' }).click()
+    const firstSave = await saved
+    const firstSeed = (
+      firstSave.request().postDataJSON().snapshot.windows as Array<{
+        initialState: { imageSeed?: string }
+      }>
+    ).find((window) => window.initialState.imageSeed)?.initialState.imageSeed
+    expect(firstSeed).toBeTruthy()
+    await viewer.getByRole('button', { name: 'Next image', exact: true }).click()
+    await expect(viewer.getByText(/\d+ of \d+/)).toHaveText('2 of 2')
+    const reshuffled = page.waitForResponse(
+      (response) =>
+        response.url().endsWith('/api/workspaces/save') &&
+        response.request().postData()?.includes('imageSeed') === true &&
+        !response.request().postData()?.includes(firstSeed!) &&
+        response.ok(),
+    )
+    await viewer.getByRole('button', { name: 'Shuffle images' }).click()
+    await reshuffled
+    await expect(viewer.getByText(/\d+ of \d+/)).toHaveText('1 of 2')
+    const counter = await viewer.getByText(/\d+ of \d+/).textContent()
+    await page.reload()
+    const restored = page.getByRole('button', { name: 'Shuffle images' })
+    await expect(restored).toBeVisible()
+    await expect(
+      getWindowGroups(page)
+        .nth(1)
+        .getByText(/\d+ of \d+/),
+    ).toHaveText(counter!)
+    expect(new URL(page.url()).searchParams.has('imageSeed')).toBe(false)
+    await getWindowGroups(page)
+      .nth(1)
+      .locator('.workspace-window-buttons button:has(.lucide-x)')
+      .click()
+    await expect(getWindowGroups(page)).toHaveCount(1)
+    await getBrowserContent(page).locator('table').getByText('photo.jpg').click()
+    await expect(
+      getWindowGroups(page)
+        .nth(1)
+        .getByText(/\d+ of \d+/),
+    ).toHaveText('1 of 2')
+    await expect(getWindowGroups(page).nth(1).locator('img[alt="photo.jpg"]')).toBeVisible()
+  })
+
   test('image viewer: controls, fit, counter, and keyboard navigation', async () => {
     await gotoWorkspace(page)
     const viewer = await openFileFromBrowser(page, 'Images', 'photo.jpg')

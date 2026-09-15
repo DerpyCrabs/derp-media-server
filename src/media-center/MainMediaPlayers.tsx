@@ -24,6 +24,8 @@ function RootViewerPane(props: Props) {
   return (
     <ViewerPane
       viewingPath={viewingPath}
+      imageSeed={() => params().get('imageSeed')}
+      onImageSeedChange={(seed, path) => viewFile(path, directory() || undefined, seed)}
       selection={imageSelection}
       directory={directory}
       contentVisible={() => true}
@@ -32,7 +34,9 @@ function RootViewerPane(props: Props) {
       knowledgeBases={props.knowledgeBases}
       showPlayback={false}
       presentation='modal'
-      onNavigateViewing={(path) => viewFile(path, directory() || undefined)}
+      onNavigateViewing={(path) =>
+        viewFile(path, directory() || undefined, params().get('imageSeed'))
+      }
       onClose={closeViewer}
     />
   )

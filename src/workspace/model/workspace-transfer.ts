@@ -1,3 +1,4 @@
+import { randomId } from '@/lib/random-id'
 import type { WindowDefinition as WorkspaceWindowDefinition } from '@/lib/models/window-model'
 import type { PersistedWorkspaceState } from './use-workspace'
 import { cascadeWorkspaceBounds } from './workspace-placement'
@@ -200,7 +201,7 @@ export function transferWorkspaceGroups(
   const destinationIds = new Set(destination.windows.map((window) => window.id))
   const remap = new Map<string, string>()
   for (const window of payload) {
-    if (destinationIds.has(window.id)) remap.set(window.id, `${window.id}-${crypto.randomUUID()}`)
+    if (destinationIds.has(window.id)) remap.set(window.id, `${window.id}-${randomId()}`)
   }
   const mapped = (id: string) => remap.get(id) ?? id
   const orderedGroups = [...selectedGroups]
