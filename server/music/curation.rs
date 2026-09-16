@@ -72,7 +72,7 @@ pub fn needs_review(state: &Shared, profile: &str) -> AppResult<bool> {
     Ok(pending(&state.database.connection()?, profile)? > 0)
 }
 
-fn candidates(state: &Shared, profile: &str) -> AppResult<Vec<Candidate>> {
+fn candidates(state: &Shared, profile: &str, claimed: &str) -> AppResult<Vec<Candidate>> {
     let c = state.database.connection()?;
     let mut st = c
         .prepare(
@@ -82,9 +82,9 @@ fn candidates(state: &Shared, profile: &str) -> AppResult<Vec<Candidate>> {
          LEFT JOIN music_reviews r ON r.path=m.path
          LEFT JOIN media_totals t ON t.path=m.path
          LEFT JOIN media_feedback f ON f.path=m.path
-         WHERE r.path IS NULL OR r.version!=?1 OR r.fingerprint!=m.fingerprint
+         WHERE m.path NOT IN (SELECT value FROM json_each(?4)) AND (r.path IS NULL OR r.version!=?1 OR r.fingerprint!=m.fingerprint
            OR r.metadata!=m.metadata OR r.enrichment!=m.enrichment OR r.overrides!=m.overrides
-           OR (r.profile_key!=?2 AND json_extract(r.decision,'$.kind')='song')
+           OR (r.profile_key!=?2 AND json_extract(r.decision,'$.kind')='song'))
          ORDER BY coalesce(f.kind='more',0) DESC,coalesce(t.learned_plays,0) DESC,
            (coalesce(json_extract(m.metadata,'$.duration'),c.duration,0) BETWEEN 30 AND 1200) DESC,
            (coalesce(json_extract(m.metadata,'$.artist'),'')!='') DESC,
@@ -99,7 +99,8 @@ fn candidates(state: &Shared, profile: &str) -> AppResult<Vec<Candidate>> {
                 12
             } else {
                 BATCH_SIZE as i64
-            }
+            },
+            claimed
         ],
         |r| {
             Ok(Candidate {
@@ -184,7 +185,10 @@ fn validate(value: Value, ids: &[i64]) -> AppResult<Vec<Review>> {
 }
 
 pub async fn review_batch(state: &Shared, profile: &str) -> AppResult<bool> {
-    let mut list = candidates(state, profile)?;
+    let (mut list, _reservation) = state.media_ai.music_work.select(
+        |claimed| candidates(state, profile, claimed),
+        |item| item.path.clone(),
+    )?;
     if list.is_empty() {
         return Ok(false);
     }
@@ -253,12 +257,35 @@ pub async fn review_batch(state: &Shared, profile: &str) -> AppResult<bool> {
                     json!(review).to_string(),review.score,profile,VERSION,timestamp_ms() as i64],
             ).map_err(sql_error)?;
             if saved > 0 {
+                reuse_review(tx, &item.path)?;
                 crate::media_ai::progress::reviewed(tx, &item.path)?;
             }
         }
         Ok(())
     })?;
     Ok(true)
+}
+
+pub(super) fn reuse_review(c: &Connection, path: &str) -> AppResult<()> {
+    let scope = if path.is_empty() { "1" } else { "c.path=?1" };
+    c.execute(
+        &format!("UPDATE media_catalog AS c SET
+           description=(SELECT trim(json_extract(r.decision,'$.kind') || ': ' ||
+             coalesce(json_extract(r.decision,'$.title'),'') || ' ' ||
+             coalesce(json_extract(r.decision,'$.artist'),'') || ' ' ||
+             coalesce(json_extract(r.decision,'$.album'),'')) FROM music_reviews r WHERE r.path=c.path),
+           tags=(SELECT coalesce(group_concat(value,' '),'') FROM music_reviews r,json_each(r.decision,'$.genres') WHERE r.path=c.path),
+           analyzed=(SELECT reviewed_at FROM music_reviews r WHERE r.path=c.path),
+           duration=coalesce((SELECT json_extract(m.metadata,'$.duration') FROM music_tracks m WHERE m.path=c.path),duration),
+           retry_after=0
+         WHERE c.kind='audio' AND c.analyzed=0 AND {scope}
+           AND EXISTS(SELECT 1 FROM music_reviews r JOIN music_tracks m ON m.path=r.path
+             WHERE r.path=c.path AND r.version=?2 AND r.fingerprint=m.fingerprint
+             AND c.fingerprint=m.fingerprint AND r.metadata=m.metadata
+             AND r.enrichment=m.enrichment AND r.overrides=m.overrides)"),
+        params![path, VERSION],
+    ).map_err(sql_error)?;
+    Ok(())
 }
 
 pub(super) fn apply(track: &mut Track, value: &Value) {

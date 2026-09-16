@@ -34,7 +34,8 @@ pub fn initialize(c: &Connection) -> AppResult<()> {
         id TEXT PRIMARY KEY, path TEXT NOT NULL, created_at INTEGER NOT NULL);
       CREATE INDEX IF NOT EXISTS music_skips_path ON music_skips(path,created_at);",
     )
-    .map_err(sql_error)
+    .map_err(sql_error)?;
+    curation::reuse_review(c, "")
 }
 
 pub use curation::{needs_review, review_batch};

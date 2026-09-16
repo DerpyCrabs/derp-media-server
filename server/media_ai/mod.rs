@@ -3,6 +3,7 @@ mod feed;
 pub(crate) mod progress;
 pub(crate) mod provider;
 mod reading;
+mod work;
 use crate::{
     activity::sql_error,
     app::Shared,
@@ -18,15 +19,23 @@ pub(crate) use feed::profile_key as music_profile_key;
 use rusqlite::{Connection, params};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use tokio::sync::{Mutex, Semaphore};
 
 use crate::config::MediaAiConfig as Settings;
+
+const AI_CONCURRENCY: usize = 4;
 
 pub struct Runtime {
     scan_requested: AtomicBool,
     scan_active: AtomicBool,
     gate: Semaphore,
+    retry_at: AtomicU64,
+    station_retry_at: AtomicU64,
+    ranking: Mutex<()>,
+    stations: Mutex<()>,
+    pub(crate) music_work: work::Claims,
+    catalog_work: work::Claims,
     rank_requested: AtomicBool,
     music_requested: AtomicBool,
     feed_lock: std::sync::Mutex<()>,
@@ -39,7 +48,13 @@ impl Runtime {
         Self {
             scan_requested: AtomicBool::new(true),
             scan_active: AtomicBool::new(false),
-            gate: Semaphore::new(1),
+            gate: Semaphore::new(AI_CONCURRENCY),
+            retry_at: AtomicU64::new(0),
+            station_retry_at: AtomicU64::new(0),
+            ranking: Mutex::new(()),
+            stations: Mutex::new(()),
+            music_work: work::Claims::default(),
+            catalog_work: work::Claims::default(),
             rank_requested: AtomicBool::new(false),
             music_requested: AtomicBool::new(false),
             feed_lock: std::sync::Mutex::new(()),
@@ -234,6 +249,7 @@ async fn ask(State(state): State<Shared>, Json(body): Json<Ask>) -> AppResult<Js
     state.media_ai.interactive.fetch_add(1, Ordering::SeqCst);
     let _waiting = Interactive(&state.media_ai.interactive);
     let _permit = state.media_ai.gate.acquire().await.map_err(sql_error)?;
+    let _ranking = state.media_ai.ranking.lock().await;
     catalog::ask(&state, &body.query, &body.history, body.hour.clamp(0, 23))
         .await
         .map(Json)
@@ -372,81 +388,104 @@ pub fn start(state: &Shared) {
             }
         }
     });
-    tokio::spawn(async move {
-        let mut last_music = false;
-        let mut last_station = false;
-        let mut station_retry_at = 0;
-        loop {
-            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-            let Some(state) = weak.upgrade() else { break };
-            let Ok(s) = settings(&state) else { continue };
-            let requested = state.media_ai.rank_requested.load(Ordering::SeqCst);
-            let music_requested = state.media_ai.music_requested.load(Ordering::SeqCst);
-            if !s.enabled
-                || (s.paused && !requested && !music_requested)
-                || state.media_ai.interactive.load(Ordering::SeqCst) > 0
-            {
-                continue;
-            }
-            let Ok(permit) = state.media_ai.gate.try_acquire() else {
-                continue;
-            };
-            let profile = match feed::profile_key(&state) {
-                Ok(profile) => profile,
-                Err(error) => {
-                    *state.media_ai.status.lock().await = json!({"phase":"error","error":error.1});
+    for _ in 0..AI_CONCURRENCY {
+        let weak = weak.clone();
+        tokio::spawn(async move {
+            let mut last_music = false;
+            let mut last_station = false;
+            let mut worked_last = false;
+            loop {
+                if !worked_last {
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                }
+                worked_last = false;
+                let Some(state) = weak.upgrade() else { break };
+                let Ok(s) = settings(&state) else { continue };
+                let requested = state.media_ai.rank_requested.load(Ordering::SeqCst);
+                let music_requested = state.media_ai.music_requested.load(Ordering::SeqCst);
+                if !s.enabled
+                    || (crate::app::timestamp_ms() as u64)
+                        < state.media_ai.retry_at.load(Ordering::SeqCst)
+                    || (s.paused && !requested && !music_requested)
+                    || state.media_ai.interactive.load(Ordering::SeqCst) > 0
+                {
                     continue;
                 }
-            };
-            let rank = feed::needs_ranking(&state, &profile).unwrap_or(false);
-            let music = (!s.paused || music_requested)
-                && crate::music::needs_review(&state, &profile).unwrap_or(false)
-                && (music_requested || !rank || !last_music);
-            last_music = music;
-            if !rank {
-                state.media_ai.rank_requested.store(false, Ordering::SeqCst);
-                if s.paused && !music {
-                    state
-                        .media_ai
-                        .music_requested
-                        .store(false, Ordering::SeqCst);
+                let Ok(permit) = state.media_ai.gate.try_acquire() else {
                     continue;
-                }
-            }
-            if (!s.paused || music_requested)
-                && !last_station
-                && crate::app::timestamp_ms() >= station_retry_at
-            {
-                match crate::music::prepare_station(&state, &profile).await {
-                    Ok(true) => {
-                        last_station = true;
+                };
+                let profile = match feed::profile_key(&state) {
+                    Ok(profile) => profile,
+                    Err(error) => {
+                        *state.media_ai.status.lock().await =
+                            json!({"phase":"error","error":error.1});
                         continue;
                     }
-                    Ok(false) => {}
-                    Err(error) => {
-                        station_retry_at = crate::app::timestamp_ms() + 60_000;
-                        eprintln!("Music station preparation failed: {}", error.1);
-                    }
-                }
-            }
-            last_station = false;
-            let rank = rank && !music;
-            *state.media_ai.status.lock().await = json!({"phase":if music {"reviewing-music"} else if rank {"ranking"} else {"analyzing"}});
-            let result = if music {
-                crate::music::review_batch(&state, &profile).await
-            } else if rank {
-                catalog::rank_batch(&state, &profile).await
-            } else {
-                catalog::enrich(&state).await
-            };
-            match result {
-                Ok(worked) => {
-                    if music {
+                };
+                let ranking_guard = state.media_ai.ranking.try_lock().ok();
+                let rank = ranking_guard.is_some()
+                    && feed::needs_ranking(&state, &profile).unwrap_or(false);
+                let music = (!s.paused || music_requested)
+                    && crate::music::needs_review(&state, &profile).unwrap_or(false)
+                    && (music_requested || !rank || !last_music);
+                last_music = music;
+                if !rank && ranking_guard.is_some() {
+                    state.media_ai.rank_requested.store(false, Ordering::SeqCst);
+                    if s.paused && !music {
                         state
                             .media_ai
                             .music_requested
                             .store(false, Ordering::SeqCst);
-                        let _ = state.database.update(
+                        continue;
+                    }
+                }
+                if s.paused && !music && !rank {
+                    continue;
+                }
+                let ranking_guard = if rank && !music { ranking_guard } else { None };
+                let station_guard = state.media_ai.stations.try_lock().ok();
+                if station_guard.is_some()
+                    && (!s.paused || music_requested)
+                    && !last_station
+                    && crate::app::timestamp_ms() as u64
+                        >= state.media_ai.station_retry_at.load(Ordering::SeqCst)
+                {
+                    match crate::music::prepare_station(&state, &profile).await {
+                        Ok(true) => {
+                            last_station = true;
+                            worked_last = true;
+                            continue;
+                        }
+                        Ok(false) => {}
+                        Err(error) => {
+                            state.media_ai.station_retry_at.store(
+                                crate::app::timestamp_ms() as u64 + 60_000,
+                                Ordering::SeqCst,
+                            );
+                            eprintln!("Music station preparation failed: {}", error.1);
+                        }
+                    }
+                }
+                drop(station_guard);
+                last_station = false;
+                let rank = rank && !music;
+                *state.media_ai.status.lock().await = json!({"phase":if music {"reviewing-music"} else if rank {"ranking"} else {"analyzing"}});
+                let result = if music {
+                    crate::music::review_batch(&state, &profile).await
+                } else if rank {
+                    catalog::rank_batch(&state, &profile).await
+                } else {
+                    catalog::enrich(&state).await
+                };
+                match result {
+                    Ok(worked) => {
+                        worked_last = worked;
+                        if music {
+                            state
+                                .media_ai
+                                .music_requested
+                                .store(false, Ordering::SeqCst);
+                            let _ = state.database.update(
                             "music-curation-status",
                             &state.config.library_key,
                             json!({}),
@@ -455,44 +494,49 @@ pub fn start(state: &Shared) {
                                 Ok(())
                             },
                         );
+                        }
+                        if rank {
+                            let _ = feed::ranking_finished(&state, &profile, worked, false);
+                            state
+                                .media_ai
+                                .rank_requested
+                                .store(worked, Ordering::SeqCst);
+                        }
+                        *state.media_ai.status.lock().await = json!({"phase":if worked {"running"} else {"up-to-date"},"lastSuccess":crate::app::timestamp_ms()});
                     }
-                    if rank {
-                        let _ = feed::ranking_finished(&state, &profile, worked, false);
+                    Err(e) => {
                         state
                             .media_ai
-                            .rank_requested
-                            .store(worked, Ordering::SeqCst);
+                            .retry_at
+                            .store(crate::app::timestamp_ms() as u64 + 30_000, Ordering::SeqCst);
+                        if music {
+                            state
+                                .media_ai
+                                .music_requested
+                                .store(false, Ordering::SeqCst);
+                            let _ = state.database.update(
+                                "music-curation-status",
+                                &state.config.library_key,
+                                json!({}),
+                                |v| {
+                                    v["error"] = json!(e.1);
+                                    Ok(())
+                                },
+                            );
+                        }
+                        if rank {
+                            let _ = feed::ranking_finished(&state, &profile, false, true);
+                        }
+                        state.media_ai.rank_requested.store(false, Ordering::SeqCst);
+                        *state.media_ai.status.lock().await = json!({"phase":"error","error":e.1});
+                        drop(ranking_guard);
+                        drop(permit);
+                        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
                     }
-                    *state.media_ai.status.lock().await = json!({"phase":if worked {"running"} else {"up-to-date"},"lastSuccess":crate::app::timestamp_ms()});
-                }
-                Err(e) => {
-                    if music {
-                        state
-                            .media_ai
-                            .music_requested
-                            .store(false, Ordering::SeqCst);
-                        let _ = state.database.update(
-                            "music-curation-status",
-                            &state.config.library_key,
-                            json!({}),
-                            |v| {
-                                v["error"] = json!(e.1);
-                                Ok(())
-                            },
-                        );
-                    }
-                    if rank {
-                        let _ = feed::ranking_finished(&state, &profile, false, true);
-                    }
-                    state.media_ai.rank_requested.store(false, Ordering::SeqCst);
-                    *state.media_ai.status.lock().await = json!({"phase":"error","error":e.1});
-                    drop(permit);
-                    drop(state);
-                    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
                 }
             }
-        }
-    });
+        });
+    }
 }
 
 pub fn move_paths(tx: &rusqlite::Transaction<'_>, old: &str, new: &str) -> AppResult<()> {

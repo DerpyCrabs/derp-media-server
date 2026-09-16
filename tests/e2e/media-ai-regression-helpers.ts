@@ -17,7 +17,13 @@ type ProviderRequest = {
   messages: { role: string; content: { text?: string }[] | string }[]
   response_format: { json_schema: { schema: Schema } }
 }
-type Pick = { id: number; path: string; name: string; type: string; previewReady: boolean }
+type Pick = {
+  id: number
+  path: string
+  name: string
+  type: string
+  previewReady: boolean
+}
 export type Home = {
   rows: { items: Pick[] }[]
   nextCursor: number | null
@@ -31,6 +37,7 @@ type Library = {
   mediaDirectory: string
   database: DatabaseSync
   providerRequests: ProviderRequest[]
+  providerActivity: { active: number; peak: number }
   pauseProvider: () => () => void
   seed: (count: number, folder?: string) => Promise<Pick[]>
   cache: (items: Pick[]) => void
@@ -50,7 +57,12 @@ function modelReply(request: ProviderRequest) {
       id: number
       duration: number
       path: string
-      embeddedMetadata: { title?: string; artist?: string; album?: string; genre?: string[] }
+      embeddedMetadata: {
+        title?: string
+        artist?: string
+        album?: string
+        genre?: string[]
+      }
       userCorrections?: Record<string, unknown>
     }[]
   }
@@ -92,14 +104,31 @@ function modelReply(request: ProviderRequest) {
       maxSeconds: 0,
       intent: 'show',
     }
-  if (properties.paths) return { paths: prompt.libraryBranches?.map((branch) => branch.path) ?? [] }
+  if (properties.paths)
+    return {
+      paths: prompt.libraryBranches?.map((branch) => branch.path) ?? [],
+    }
   if (properties.collectionIds)
-    return { collectionIds: prompt.collections?.map((collection) => collection.id) ?? [] }
+    return {
+      collectionIds: prompt.collections?.map((collection) => collection.id) ?? [],
+    }
   if (properties.approvedIds) return { approvedIds: properties.approvedIds.items?.enum ?? [] }
   const scoring = !!properties.items?.items?.properties?.score
+  if (properties.items?.items?.properties?.description)
+    return {
+      items: (prompt.items ?? []).map(({ id }) => ({
+        id,
+        description: 'Fixture description',
+        tags: ['fixture'],
+      })),
+    }
   const items = (properties.items?.items?.properties?.id?.enum ?? [])
     .slice(0, scoring ? 48 : 12)
-    .map((id) => ({ id, reason: 'Matching fixture media', ...(scoring ? { score: 85 } : {}) }))
+    .map((id) => ({
+      id,
+      reason: 'Matching fixture media',
+      ...(scoring ? { score: 85 } : {}),
+    }))
   return properties.message ? { items, message: 'Fixture matches' } : { items }
 }
 
@@ -112,7 +141,11 @@ async function freePort() {
   return port
 }
 
-export const test = base.extend<{ library: Library; aiEnabled: boolean; aiPaused: boolean }>({
+export const test = base.extend<{
+  library: Library
+  aiEnabled: boolean
+  aiPaused: boolean
+}>({
   aiEnabled: [true, { option: true }],
   aiPaused: [true, { option: true }],
   page: async ({ context, library }, use) => {
@@ -129,8 +162,11 @@ export const test = base.extend<{ library: Library; aiEnabled: boolean; aiPaused
     const media = path.join(directory, 'media')
     fs.mkdirSync(media)
     const providerRequests: ProviderRequest[] = []
+    const providerActivity = { active: 0, peak: 0 }
     let providerGate: Promise<void> | undefined
     const provider = http.createServer(async (request, response) => {
+      providerActivity.active++
+      providerActivity.peak = Math.max(providerActivity.peak, providerActivity.active)
       try {
         const chunks: Buffer[] = []
         for await (const chunk of request) chunks.push(Buffer.from(chunk))
@@ -141,13 +177,18 @@ export const test = base.extend<{ library: Library; aiEnabled: boolean; aiPaused
         response.end(
           JSON.stringify({
             choices: [
-              { finish_reason: 'stop', message: { content: JSON.stringify(modelReply(body)) } },
+              {
+                finish_reason: 'stop',
+                message: { content: JSON.stringify(modelReply(body)) },
+              },
             ],
           }),
         )
       } catch (error) {
         response.statusCode = 500
         response.end(String(error))
+      } finally {
+        providerActivity.active--
       }
     })
     provider.listen(0, '127.0.0.1')
@@ -176,7 +217,12 @@ export const test = base.extend<{ library: Library; aiEnabled: boolean; aiPaused
       process.platform === 'win32' ? 'derp-media-server.exe' : 'derp-media-server',
     )
     const server = spawn(binary, process.env.E2E_DEV === '1' ? [] : ['--production'], {
-      env: { ...process.env, PORT: String(port), CONFIG_PATH: config, MEDIA_DIR: media },
+      env: {
+        ...process.env,
+        PORT: String(port),
+        CONFIG_PATH: config,
+        MEDIA_DIR: media,
+      },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     let output = ''
@@ -212,6 +258,7 @@ export const test = base.extend<{ library: Library; aiEnabled: boolean; aiPaused
         mediaDirectory: media,
         database: db,
         providerRequests,
+        providerActivity,
         pauseProvider() {
           let release!: () => void
           providerGate = new Promise<void>((resolve) => {
@@ -230,7 +277,13 @@ export const test = base.extend<{ library: Library; aiEnabled: boolean; aiPaused
             const full = path.join(media, logical)
             fs.mkdirSync(path.dirname(full), { recursive: true })
             fs.copyFileSync(path.join(fixtures, 'Music', 'track.mp3'), full)
-            items.push({ id, path: logical, name, type: 'audio', previewReady: true })
+            items.push({
+              id,
+              path: logical,
+              name,
+              type: 'audio',
+              previewReady: true,
+            })
           }
           await fetch(`${url}/api/files/search/reindex`, {
             method: 'POST',
@@ -242,7 +295,9 @@ export const test = base.extend<{ library: Library; aiEnabled: boolean; aiPaused
               const response = await fetch(
                 `${url}/api/files/search?q=${encodeURIComponent(items.at(-1)!.name)}&limit=100`,
               )
-              const result = (await response.json()) as { results?: { path: string }[] }
+              const result = (await response.json()) as {
+                results?: { path: string }[]
+              }
               return result.results?.some((item) => item.path === items.at(-1)!.path)
             })
             .toBe(true)
@@ -250,7 +305,9 @@ export const test = base.extend<{ library: Library; aiEnabled: boolean; aiPaused
           try {
             db.exec('DELETE FROM media_catalog')
             for (const item of items) {
-              const stat = fs.statSync(path.join(media, item.path), { bigint: true })
+              const stat = fs.statSync(path.join(media, item.path), {
+                bigint: true,
+              })
               db.prepare(
                 'INSERT INTO media_catalog(id,path,name,kind,fingerprint) VALUES(?,?,?,?,?)',
               ).run(item.id, item.path, item.name, 'audio', `${stat.size}:${stat.mtimeNs}`)

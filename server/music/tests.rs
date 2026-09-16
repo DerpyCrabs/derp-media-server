@@ -37,6 +37,47 @@ fn database() -> Connection {
 }
 
 #[test]
+fn reuse_valid_reviews_without_reanalyzing_audio_or_overwriting_richer_analysis() {
+    let c = database();
+    c.execute("UPDATE media_catalog SET description='Existing detailed analysis',analyzed=42 WHERE path='b.mp3'", []).unwrap();
+    c.execute(
+        "UPDATE music_tracks SET fingerprint='changed' WHERE path='c.mp3'",
+        [],
+    )
+    .unwrap();
+    c.execute(
+        "UPDATE music_tracks SET overrides='{\"title\":\"Corrected\"}' WHERE path='d.mp3'",
+        [],
+    )
+    .unwrap();
+    super::curation::reuse_review(&c, "a.mp3").unwrap();
+    super::initialize(&c).unwrap();
+    let read = |path| {
+        c.query_row(
+            "SELECT description,tags,analyzed FROM media_catalog WHERE path=?1",
+            [path],
+            |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, i64>(2)?,
+                ))
+            },
+        )
+        .unwrap()
+    };
+    assert_eq!(read("a.mp3"), ("song: a.mp3 One".into(), "jazz".into(), 1));
+    assert_eq!(
+        read("b.mp3"),
+        ("Existing detailed analysis".into(), "".into(), 42)
+    );
+    assert_eq!(read("c.mp3").2, 0);
+    assert_eq!(read("d.mp3").2, 0);
+    super::initialize(&c).unwrap();
+    assert_eq!(read("a.mp3").2, 1);
+}
+
+#[test]
 fn only_reviewed_songs_can_enter_music_recommendations() {
     let c = database();
     c.execute("DELETE FROM music_reviews WHERE path='a.mp3'", [])

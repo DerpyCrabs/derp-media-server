@@ -1238,11 +1238,12 @@ pub async fn enrich(state: &Shared) -> AppResult<bool> {
         "coalesce(t.learned_plays,0) DESC,c.id"
     };
     let favorites = favorites_json(state)?;
+    let (list, _reservation) = state.media_ai.catalog_work.select(|claimed| {
     let mut list = if count % 8 != 0 {
         items(
             state,
-            "c.analyzed=0 AND c.retry_after<=cast(strftime('%s','now') as integer)*1000 AND EXISTS(SELECT 1 FROM json_each(?1) f WHERE c.path=f.value OR substr(c.path,1,length(f.value)+1)=f.value||'/')",
-            &[&favorites],
+            "c.kind!='audio' AND c.path NOT IN (SELECT value FROM json_each(?2)) AND c.analyzed=0 AND c.retry_after<=cast(strftime('%s','now') as integer)*1000 AND EXISTS(SELECT 1 FROM json_each(?1) f WHERE c.path=f.value OR substr(c.path,1,length(f.value)+1)=f.value||'/')",
+            &[&favorites, &claimed],
             order,
             4,
         )?
@@ -1252,8 +1253,8 @@ pub async fn enrich(state: &Shared) -> AppResult<bool> {
     if list.len() < 4 {
         for item in items(
             state,
-            "c.analyzed=0 AND c.retry_after<=cast(strftime('%s','now') as integer)*1000",
-            &[],
+            "c.kind!='audio' AND c.path NOT IN (SELECT value FROM json_each(?2)) AND c.analyzed=0 AND c.retry_after<=cast(strftime('%s','now') as integer)*1000",
+            &[&favorites, &claimed],
             order,
             8,
         )? {
@@ -1265,6 +1266,8 @@ pub async fn enrich(state: &Shared) -> AppResult<bool> {
             }
         }
     }
+    Ok(list)
+    }, |item| item["path"].as_str().unwrap().to_string())?;
     let mut prepared = Vec::new();
     for mut item in list {
         let path = item["path"].as_str().unwrap_or("");
