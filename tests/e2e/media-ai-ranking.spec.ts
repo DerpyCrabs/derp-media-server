@@ -201,6 +201,7 @@ test('All keeps book recommendations in one compact row and opens the full selec
   await expect(more.getByRole('button', { name: /^Read / })).toHaveCount(0)
   await expect(shelf.locator('article')).toHaveCount(3)
   await expect(shelf.getByText('67%')).toBeVisible()
+  await expect(shelf.getByText('Read book', { exact: true })).toHaveCount(0)
   await expect(shelf.getByText(books[0].reason)).toHaveCount(0)
   for (const width of [1280, 390]) {
     await page.setViewportSize({ width, height: 800 })
@@ -213,6 +214,7 @@ test('All keeps book recommendations in one compact row and opens the full selec
   }
   await shelf.getByRole('button', { name: 'See all' }).click()
   await expect(shelf.locator('article')).toHaveCount(12)
+  await expect(shelf.getByText('Read book', { exact: true })).toHaveCount(0)
   await expect(shelf.getByText(books[0].reason).first()).toBeVisible()
 })
 

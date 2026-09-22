@@ -16,8 +16,25 @@ const picks = [
     reason: 'Something to listen to',
   },
 ]
-async function enable(page: Page) {
-  await mockAiHydration(page)
+async function enable(page: Page, mockMusic = false) {
+  if (mockMusic) {
+    await page.addInitScript(() => {
+      type State = { queries?: { queryKey?: unknown[] }[] }
+      let cached: State | undefined
+      Object.defineProperty(window, '__DEHYDRATED_STATE__', {
+        configurable: true,
+        get: () => cached,
+        set: (value: State) => {
+          value.queries = value.queries?.filter(
+            (query) => !['media-ai', 'music'].includes(String(query.queryKey?.[0])),
+          )
+          cached = value
+        },
+      })
+    })
+  } else {
+    await mockAiHydration(page)
+  }
   await page.route('**/api/media-ai/status', (route) =>
     route.fulfill({
       json: { enabled: true, total: 20000, analyzed: 84, job: { phase: 'paused' } },
@@ -44,6 +61,69 @@ test('configured home plays music and library navigation still works', async ({ 
   await expect(page.getByTestId('for-you')).toHaveCount(0)
   await expect(page.locator('table').getByText('photo.jpg')).toBeVisible()
 })
+for (const action of ['track', 'all', 'mix'] as const) {
+  test(`playing recommended music via ${action} keeps the default For you tab`, async ({
+    page,
+  }) => {
+    await enable(page, true)
+    const items = picks.map((pick) => ({
+      ...pick,
+      title: pick.name,
+      artist: 'Test artist',
+      album: '',
+      albumArtist: '',
+      genre: ['Jazz'],
+      genreSource: '',
+      duration: 60,
+      trackNumber: 1,
+      year: 2026,
+      liked: false,
+      plays: 0,
+      lastPlayed: 0,
+      hasArtwork: false,
+    }))
+    await page.route('**/api/music/home*', (route) =>
+      route.fulfill({
+        json: {
+          rows: [{ id: 'picks', title: 'Recommended songs', items }],
+          mixes: [{ genre: 'Jazz', count: items.length, items }],
+          albums: [],
+          genres: ['Jazz'],
+          genreViews: {},
+          radio: { tracks: items, stations: [] },
+          total: items.length,
+          searchEnabled: true,
+          aiEnabled: true,
+          paused: false,
+        },
+      }),
+    )
+    await page.goto('/')
+    const home = page.getByTestId('music-home')
+    await home
+      .getByRole('button', {
+        name:
+          action === 'track'
+            ? 'Play music First track'
+            : action === 'all'
+              ? 'Play all'
+              : 'Play Jazz mix',
+        exact: true,
+      })
+      .click()
+    await expect(page).toHaveURL(/playing=Music%2Ftrack.mp3/)
+    await expect(page.getByRole('button', { name: 'For you', exact: true })).toHaveAttribute(
+      'aria-current',
+      'page',
+    )
+    await expect(home).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Pause', exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Next track', exact: true }).click()
+    await expect(page).toHaveURL(/playing=MediaContent%2Ftrack.mp3/)
+    await expect(home).toBeVisible()
+  })
+}
+
 test('AI query follow-ups and feedback preserve the selection', async ({ page }) => {
   await enable(page)
   const queries: unknown[] = []
@@ -185,7 +265,11 @@ test('collection cards open their folder and offer collection and feedback actio
   await page.goto('/')
   await page.getByRole('button', { name: 'Options for Music', exact: true }).click()
   await page.getByRole('button', { name: 'Play collection', exact: true }).click()
-  await expect(page).toHaveURL(/dir=Music/)
+  await expect(page.getByRole('button', { name: 'For you', exact: true })).toHaveAttribute(
+    'aria-current',
+    'page',
+  )
+  await expect(page.getByTestId('for-you')).toBeVisible()
   await expect(page).toHaveURL(/playing=Music%2Ftrack.mp3/)
   await expect(page.locator('audio')).toBeAttached()
 })

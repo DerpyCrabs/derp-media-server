@@ -32,6 +32,8 @@ export function playMusic(
     notifyMusic('There are no tracks to play yet')
     return
   }
+  const params = new URLSearchParams(window.location.search)
+  const defaultHome = !['view', 'dir', 'playing', 'viewing'].some((key) => params.has(key))
   session.dispatch({
     type: 'load',
     item: musicItem(track),
@@ -42,7 +44,10 @@ export function playMusic(
     queueContext: context,
     autoplay: true,
   })
-  navigateSearchParams({ playing: track.path, audioOnly: null }, 'push')
+  navigateSearchParams(
+    { playing: track.path, audioOnly: null, ...(defaultHome ? { view: 'for-you' } : {}) },
+    'push',
+  )
 }
 
 export const defaultRadio: RadioOptions = {

@@ -364,7 +364,12 @@ export function ForYou(props: {
       queueContext: { kind: 'manual', title: item.name },
     })
     navigateSearchParams(
-      { view: 'library', dir: item.path, playing: first.path, audioOnly: null },
+      {
+        view: first.type === MediaType.VIDEO ? 'library' : 'for-you',
+        ...(first.type === MediaType.VIDEO ? { dir: item.path } : {}),
+        playing: first.path,
+        audioOnly: null,
+      },
       'push',
     )
   }
@@ -501,8 +506,8 @@ export function ForYou(props: {
                 {props.item.reason}
               </span>
             </Show>
-            <span class='mt-2 flex items-center gap-2 text-xs text-muted-foreground'>
-              <Show when={progress() != null} fallback={<span>Read book</span>}>
+            <Show when={progress() != null}>
+              <span class='mt-2 flex items-center gap-2 text-xs text-muted-foreground'>
                 <Show when={props.item.type !== MediaType.PDF}>
                   <span class='h-0.5 w-16 overflow-hidden rounded-full bg-foreground/10'>
                     <span
@@ -519,8 +524,8 @@ export function ForYou(props: {
                 <Show when={props.item.type !== MediaType.PDF}>
                   <span>read</span>
                 </Show>
-              </Show>
-            </span>
+              </span>
+            </Show>
           </span>
           <ArrowRight
             size={16}

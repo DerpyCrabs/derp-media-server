@@ -8,6 +8,7 @@ import {
   playNative,
   readyVideo,
   videos,
+  videoFolder,
 } from './media-ai-helpers'
 
 const direct = `/?view=for-you&playing=${encodeURIComponent(videos[0].path)}`
@@ -15,6 +16,20 @@ test.beforeAll(setupForYouMedia)
 test.afterAll(cleanupForYouMedia)
 test.beforeEach(async ({ page }) => {
   await enableForYou(page, videos)
+})
+
+test('playing a recommended video collection opens its Library folder', async ({ page }) => {
+  await enableForYou(page, [videoFolder])
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Options for Video collection', exact: true }).click()
+  await page.getByRole('button', { name: 'Play collection', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Library', exact: true })).toHaveAttribute(
+    'aria-current',
+    'page',
+  )
+  await expect(page).toHaveURL(/dir=MediaContent%2FForYouTestMedia/)
+  await expect(page).toHaveURL(/playing=MediaContent%2FForYouTestMedia%2Ffirst.mp4/)
+  await advancing(await readyVideo(page))
 })
 
 test('native Play on a For you deep link recovers from blocked autoplay', async ({ page }) => {
