@@ -421,7 +421,17 @@ async fn copy(State(state): State<Shared>, Json(body): Json<CopyBody>) -> AppRes
     ))
 }
 
-async fn upload(State(state): State<Shared>, mut multipart: Multipart) -> AppResult<Json<Value>> {
+#[derive(Deserialize, Default)]
+struct UploadQuery {
+    #[serde(default)]
+    create_only: bool,
+}
+
+async fn upload(
+    State(state): State<Shared>,
+    Query(query): Query<UploadQuery>,
+    mut multipart: Multipart,
+) -> AppResult<Json<Value>> {
     let mut target = String::new();
     let mut files = Vec::new();
     while let Some(field) = multipart
@@ -460,9 +470,15 @@ async fn upload(State(state): State<Shared>, mut multipart: Multipart) -> AppRes
         {
             continue;
         }
-        FileMutation::new(&state)
-            .upsert_file(&logical, &data)
-            .await?;
+        if query.create_only {
+            FileMutation::new(&state)
+                .create_file(&logical, &data)
+                .await?;
+        } else {
+            FileMutation::new(&state)
+                .upsert_file(&logical, &data)
+                .await?;
+        }
         broadcasts.insert(parent_logical(&logical), logical);
         count += 1;
     }

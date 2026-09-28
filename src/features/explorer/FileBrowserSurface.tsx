@@ -1,3 +1,4 @@
+import { runDesktopOperation } from '@/desktop/operations'
 import type { JSX } from '@solidjs/web'
 import type { Accessor } from 'solid-js'
 import { Show, createEffect, createSignal } from 'solid-js'
@@ -321,7 +322,7 @@ export function FileBrowserView(props: FileBrowserViewProps) {
   }
 
   function fileAttributes<Element extends HTMLElement>(file: FileItem, kind: 'grid' | 'list') {
-    const dragGrid = kind === 'grid' && isWorkspace()
+    const dragGrid = kind === 'grid' && (isWorkspace() || !!window.derpDesktop)
     const highlightGrid = isWorkspace() && kind === 'grid'
     return {
       ...(isWorkspace() ? { 'data-no-window-drag': '' } : {}),
@@ -338,6 +339,18 @@ export function FileBrowserView(props: FileBrowserViewProps) {
             ? 'true'
             : 'false'
           : undefined,
+      tabindex: window.derpDesktop ? 0 : undefined,
+      onKeyDown: (event: KeyboardEvent) => {
+        if (
+          window.derpDesktop &&
+          event.ctrlKey &&
+          event.key.toLowerCase() === 'c' &&
+          !file.isVirtual
+        ) {
+          event.preventDefault()
+          runDesktopOperation(window.derpDesktop.copy([file.path]))
+        }
+      },
       onPointerEnter: () => props.rows.onFilePointerEnter?.(file),
       onContextMenu: (event: MouseEvent) => {
         setDirectoryBackgroundMenu(null)
@@ -350,19 +363,19 @@ export function FileBrowserView(props: FileBrowserViewProps) {
           : undefined,
       onDragEnd: dragGrid || kind === 'list' ? onFileDragEnd : undefined,
       onDragOver:
-        (dragGrid || kind === 'list') && canMoveFile()
+        (dragGrid || kind === 'list') && (canMoveFile() || !!window.derpDesktop)
           ? (event: globalThis.DragEvent) => {
               if (file.isDirectory) onFolderDragOver(file, event)
             }
           : undefined,
       onDragLeave:
-        (dragGrid || kind === 'list') && canMoveFile()
+        (dragGrid || kind === 'list') && (canMoveFile() || !!window.derpDesktop)
           ? (event: globalThis.DragEvent) => {
               if (file.isDirectory) onFolderDragLeave(file, event)
             }
           : undefined,
       onDrop:
-        (dragGrid || kind === 'list') && canMoveFile()
+        (dragGrid || kind === 'list') && (canMoveFile() || !!window.derpDesktop)
           ? (event: globalThis.DragEvent) => {
               if (file.isDirectory) onFolderDrop(file, event)
             }

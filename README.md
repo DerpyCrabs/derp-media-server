@@ -207,6 +207,12 @@ as a folder. Paths are prefixed by the root name, for example `Movies/Incoming`.
 if the basename is empty, duplicates another media root, or conflicts with a virtual
 folder such as `Favorites` or `Most Played`.
 
+## Desktop client
+
+An optional Electron client opens library folders, images, videos, text, PDFs and books in native
+windows managed by your desktop. It includes a tray process, CLI opener, cross-app file copying,
+and Arch packaging with a user systemd service. See [desktop setup and packaging](desktop/README.md).
+
 ## Production
 
 ```bash

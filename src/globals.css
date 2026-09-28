@@ -747,14 +747,16 @@ body {
 
 .cm-md-table-header,
 .cm-md-table-row {
-  display: flex !important;
-  width: fit-content;
-  min-width: min(100%, 24rem);
+  display: grid !important;
+  grid-template-columns: repeat(var(--markdown-table-columns), minmax(0, 1fr));
+  width: max(100%, calc(var(--markdown-table-columns) * 12rem));
+  white-space: normal !important;
   border-right: 1px solid var(--border);
   border-left: 1px solid var(--border);
 }
 
 .cm-md-table-header {
+  background: var(--muted);
   border-top: 1px solid var(--border);
   font-weight: 700;
 }
@@ -764,9 +766,23 @@ body {
 }
 
 .cm-md-table-cell {
-  display: inline-block;
-  min-width: 7rem;
-  padding: 0.1rem 0.65rem;
+  min-width: 0;
+  padding: 0.5rem 0.65rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  border-right: 1px solid var(--border);
+}
+
+.cm-md-table-cell:last-of-type {
+  border-right: 0;
+}
+
+.cm-md-table-header > .cm-widgetBuffer,
+.cm-md-table-row > .cm-widgetBuffer,
+.cm-md-table-cell > .cm-widgetBuffer,
+.cm-md-table-header > span:not(.cm-md-table-cell),
+.cm-md-table-row > span:not(.cm-md-table-cell) {
+  display: none;
 }
 
 .cm-md-table-separator {

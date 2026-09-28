@@ -1,3 +1,4 @@
+import { runDesktopOperation } from '@/desktop/operations'
 import {
   getFileDragData,
   hasFileDragData,
@@ -49,7 +50,28 @@ export function createFileBrowserDragController(props: FileBrowserDragController
     return !targetPath.startsWith(source + '/')
   }
 
+  function nativeOver(event: globalThis.DragEvent, target: string) {
+    if (!window.derpDesktop || !event.dataTransfer?.types.includes('Files')) return false
+    event.stopPropagation()
+    if (isPathEditable(target, [...foldersFor(props.editableFolders)])) {
+      event.preventDefault()
+      event.dataTransfer.dropEffect = 'copy'
+    } else event.dataTransfer.dropEffect = 'none'
+    return true
+  }
+
+  function nativeDrop(event: globalThis.DragEvent, target: string) {
+    const desktop = window.derpDesktop
+    if (!desktop || !event.dataTransfer?.files.length) return false
+    event.preventDefault()
+    event.stopPropagation()
+    if (isPathEditable(target, [...foldersFor(props.editableFolders)]))
+      runDesktopOperation(desktop.importDrop(Array.from(event.dataTransfer.files), target))
+    return true
+  }
+
   function parentRowDragOver(event: globalThis.DragEvent) {
+    if (nativeOver(event, parentDirForDrop())) return
     const move = props.allowMoveFile()
     const dataTransfer = event.dataTransfer
     if (!move || !canDropOnParent() || !dataTransfer) return
@@ -72,6 +94,7 @@ export function createFileBrowserDragController(props: FileBrowserDragController
   }
 
   function parentRowDrop(event: globalThis.DragEvent) {
+    if (nativeDrop(event, parentDirForDrop())) return
     event.preventDefault()
     setDragOverPath(null)
     const move = props.allowMoveFile()
@@ -95,6 +118,11 @@ export function createFileBrowserDragController(props: FileBrowserDragController
   }
 
   function onFileDragStart(file: FileItem, event: globalThis.DragEvent) {
+    if (window.derpDesktop && !file.isVirtual) {
+      event.preventDefault()
+      runDesktopOperation(window.derpDesktop.drag([file.path]))
+      return
+    }
     const dataTransfer = event.dataTransfer
     if (!dataTransfer || !enableDrag()) return
     const canMove =
@@ -120,6 +148,7 @@ export function createFileBrowserDragController(props: FileBrowserDragController
   const resetDrag = onFileDragEnd
 
   function onFolderDragOver(file: FileItem, event: globalThis.DragEvent) {
+    if (file.isDirectory && nativeOver(event, file.path)) return
     const dataTransfer = event.dataTransfer
     if (!file.isDirectory || !props.allowMoveFile() || !dataTransfer) return
     const crossWindow = !draggedPath() && hasFileDragData(dataTransfer)
@@ -156,6 +185,7 @@ export function createFileBrowserDragController(props: FileBrowserDragController
   }
 
   function onFolderDrop(file: FileItem, event: globalThis.DragEvent) {
+    if (file.isDirectory && nativeDrop(event, file.path)) return
     event.preventDefault()
     setDragOverPath(null)
     const move = props.allowMoveFile()

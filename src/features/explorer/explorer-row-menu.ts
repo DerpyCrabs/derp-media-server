@@ -28,6 +28,7 @@ export type ExplorerRowAction =
   | 'knowledge-base'
   | 'download'
   | 'copy'
+  | 'copy-native'
   | 'move'
   | 'rename'
   | 'delete'
@@ -52,6 +53,7 @@ export type ExplorerRowMenuConfig = {
     rename?: (file: FileItem) => void
     move?: (file: FileItem) => void
     copy?: (file: FileItem) => void
+    copyToClipboard?: (file: FileItem) => void
     setIcon?: (file: FileItem) => void
   }
   open: {
@@ -139,6 +141,8 @@ export function createExplorerRowMenu(config: ExplorerRowMenuConfig): ExplorerRo
         return !file.isVirtual || canVirtual('download', file)
       case 'copy':
         return config.permissions.hasEditableFolders() && !file.isVirtual && !!config.edit.copy
+      case 'copy-native':
+        return !file.isVirtual && !!config.edit.copyToClipboard
       case 'move':
         return (
           config.permissions.currentDirectoryEditable() && !file.isVirtual && !!config.edit.move
@@ -191,6 +195,9 @@ export function createExplorerRowMenu(config: ExplorerRowMenuConfig): ExplorerRo
         break
       case 'copy':
         config.edit.copy?.(file)
+        break
+      case 'copy-native':
+        config.edit.copyToClipboard?.(file)
         break
       case 'move':
         config.edit.move?.(file)

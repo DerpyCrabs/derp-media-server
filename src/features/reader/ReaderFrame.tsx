@@ -1,3 +1,4 @@
+import { registerDesktopCloseHandler } from '@/desktop/close-handlers'
 import Maximize2 from 'lucide-solid/icons/maximize-2'
 import Minimize2 from 'lucide-solid/icons/minimize-2'
 import PanelLeft from 'lucide-solid/icons/panel-left'
@@ -41,6 +42,11 @@ type ReaderFrameProps = ReaderPresentation & {
 
 export function ReaderFrame(props: ReaderFrameProps) {
   const preferences = useReaderPreferences()
+  onSettled(() =>
+    registerDesktopCloseHandler(async () => {
+      await Promise.all([props.beforeClose?.(), preferences.flush()])
+    }),
+  )
   let readerRoot: HTMLDivElement | undefined
   let viewport: HTMLDivElement | undefined
   const menuHost = document.createElement('div')

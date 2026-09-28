@@ -1,0 +1,29 @@
+pkgname=derp-media-client
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Native file browser and media viewer for a local Derp Media Server'
+arch=('any')
+license=('MIT')
+depends=('electron44' 'wl-clipboard')
+makedepends=('bun')
+source=("$pkgname-$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+  cd "$srcdir/$pkgname-$pkgver"
+  bun desktop/build.ts
+}
+
+package() {
+  cd "$srcdir/$pkgname-$pkgver"
+  install -Dm644 dist/desktop/main.cjs "$pkgdir/usr/lib/$pkgname/main.cjs"
+  install -Dm644 dist/desktop/preload.cjs "$pkgdir/usr/lib/$pkgname/preload.cjs"
+  install -Dm644 dist/desktop/icon.png "$pkgdir/usr/lib/$pkgname/icon.png"
+  install -Dm755 packaging/arch/derp-media-client "$pkgdir/usr/bin/derp-media-client"
+  install -Dm644 packaging/arch/derp-media-client.desktop "$pkgdir/usr/share/applications/derp-media-client.desktop"
+  install -Dm644 packaging/arch/derp-media-client.service "$pkgdir/usr/lib/systemd/user/derp-media-client.service"
+  install -Dm644 desktop/icon.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/derp-media-client.svg"
+  install -Dm644 packaging/arch/desktop.example.json "$pkgdir/usr/share/$pkgname/desktop.example.json"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 desktop/README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+}

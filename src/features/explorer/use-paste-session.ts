@@ -1,3 +1,4 @@
+import { runDesktopOperation } from '@/desktop/operations'
 import { createSignal, onCleanup, type Accessor } from 'solid-js'
 import { extractPasteDataFromClipboardData } from '@/lib/files/extract-paste-data'
 import type { PasteData } from '@/lib/files/paste-data'
@@ -42,12 +43,22 @@ export function usePasteSession(options: {
     if (!options.editable() || !shouldOfferPasteAsNewFile(event)) return
     event.preventDefault()
     const request = requests.begin()
-    void extractPasteDataFromClipboardData(event.clipboardData, {
+    const dataPromise = extractPasteDataFromClipboardData(event.clipboardData, {
       textSuggestedExtension: options.inKnowledgeBase() ? 'md' : 'txt',
-    }).then((data) => {
+    })
+    const desktop = window.derpDesktop
+    const target = options.currentPath()
+    const finish = async () => {
+      if (desktop && (await desktop.hasFileClipboard())) {
+        if (requests.isCurrent(request)) await desktop.paste(target)
+        return
+      }
+      const data = await dataPromise
       if (!data || !requests.isCurrent(request)) return
       setSession({ data, existingFiles: options.files() })
-    })
+    }
+    if (desktop) runDesktopOperation(finish())
+    else void finish()
   }
 
   function submit(fileName: string, mode: 'create' | 'replace', expectedVersion?: number) {

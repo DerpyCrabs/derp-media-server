@@ -18,7 +18,11 @@
     "test:ui": "bun run build && playwright test --ui",
     "test:headed": "bun run build && playwright test --headed",
     "prepare": "husky",
-    "test:batch:dev": "cargo build --release --target-dir target/test-batch && E2E_DEV=1 bun tests/run-batches.ts"
+    "test:batch:dev": "cargo build --release --target-dir target/test-batch && E2E_DEV=1 bun tests/run-batches.ts",
+    "build:desktop": "bun desktop/build.ts",
+    "desktop": "bun run build:desktop && electron dist/desktop/main.cjs",
+    "package:arch": "bun desktop/package-arch.ts",
+    "test:desktop": "bun run build:client && bun run build:desktop && cargo build --release --target-dir target/test-batch && bun tests/desktop/smoke.ts"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.0",
@@ -50,6 +54,7 @@
     "@types/bun": "^1.4.2",
     "@types/node": "^26.5.0",
     "@types/turndown": "^5.0.6",
+    "electron": "^44.4.5",
     "eslint-plugin-solid": "~0.18.0",
     "happy-dom": "^20.14.3",
     "husky": "^9.1.7",
@@ -64,6 +69,7 @@
     "unrs-resolver"
   ],
   "trustedDependencies": [
-    "unrs-resolver"
+    "unrs-resolver",
+    "electron"
   ]
 }

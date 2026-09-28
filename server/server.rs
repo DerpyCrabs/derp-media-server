@@ -77,6 +77,7 @@ fn router(state: Shared) -> Router {
         .merge(crate::media_ai::router())
         .merge(crate::music::router())
         .merge(routes::config::router())
+        .merge(routes::desktop::router())
         .merge(routes::files::router())
         .merge(routes::hermes_chat::router())
         .merge(routes::settings::router())

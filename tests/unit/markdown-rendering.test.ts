@@ -106,6 +106,30 @@ afterAll(() => {
 })
 
 describe('Markdown read rendering', () => {
+  test('keeps code and mixed inline formatting inside their table cells', () => {
+    const source = '| Path | Value |\n| --- | --- |\n| `a.b` | `ONE`, **two**, `THREE` |'
+    const { parent, view } = renderMarkdown(source)
+    const row = parent.querySelector('.cm-md-table-row')!
+    const cells = row.querySelectorAll(':scope > .cm-md-table-cell')
+
+    expect(cells).toHaveLength(2)
+    expect(cells[0]!.textContent).toBe('a.b')
+    expect(cells[1]!.textContent).toBe('ONE, two, THREE')
+    expect(cells[1]!.querySelectorAll('.cm-md-inline-code')).toHaveLength(2)
+    expect(row.querySelector(':scope > .cm-md-inline-code')).toBeNull()
+    expect(view.state.doc.toString()).toBe(source)
+  })
+
+  test('preserves column positions after empty table cells', () => {
+    const { parent } = renderMarkdown('| A | B | C |\n|---|---|---|\n| x || z |\n| y |')
+    const rows = parent.querySelectorAll<HTMLElement>('.cm-md-table-row')
+    const cells = rows[0]!.querySelectorAll<HTMLElement>('.cm-md-table-cell')
+
+    expect(cells[0]!.style.gridColumn).toBe('1')
+    expect(cells[1]!.style.gridColumn).toBe('3')
+    expect(rows[1]!.style.getPropertyValue('--markdown-table-columns')).toBe('3')
+  })
+
   test('renders CommonMark entities without interpreting raw HTML', () => {
     const source = 'Tom &amp; Jerry &#169; &#x1F600; <b>literal</b>'
     const { parent, view } = renderMarkdown(source)

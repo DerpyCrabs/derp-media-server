@@ -39,6 +39,7 @@ export type FileBrowserHostActions = Readonly<{
   fileHover?: (file: FileItem) => void
   newTabLabel?: string
   defaultFileOpen?: Accessor<'new-tab' | 'new-window'>
+  copyToClipboard?: (file: FileItem) => void
 }>
 
 export type FileBrowserListingContext = Readonly<{
@@ -253,6 +254,7 @@ function FileBrowserInstance(props: { host: FileBrowserHost; currentPath: Access
           rename: fileActions.requestRename,
           move: fileActions.requestMove,
           copy: fileActions.requestCopy,
+          copyToClipboard: host.actions.copyToClipboard,
         },
         open: {
           get newTab() {

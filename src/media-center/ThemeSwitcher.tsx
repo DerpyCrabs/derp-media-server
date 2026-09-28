@@ -4,7 +4,7 @@ import { Show, createEffect, createSignal } from 'solid-js'
 import { Portal } from '@solidjs/web'
 import { ThemeSwitcherMenuContent } from './ThemeSwitcherMenuContent'
 
-type Props = { variant?: 'header' | 'floating' }
+type Props = { variant?: 'header' | 'floating'; compact?: boolean }
 
 export function ThemeSwitcher(props: Props) {
   const variant = () => props.variant ?? 'header'
@@ -73,10 +73,17 @@ export function ThemeSwitcher(props: Props) {
         title='Theme settings'
         aria-label='Open theme settings'
         aria-expanded={menuOpen() ? 'true' : 'false'}
-        class='inline-flex size-8 shrink-0 items-center justify-center rounded-md text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground dark:hover:bg-input/50 aria-expanded:bg-muted aria-expanded:text-foreground'
+        class={cn(
+          'inline-flex shrink-0 items-center justify-center text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground dark:hover:bg-input/50 aria-expanded:bg-muted aria-expanded:text-foreground',
+          props.compact ? 'h-7 w-7' : 'size-8 rounded-md',
+        )}
         onClick={toggleMenu}
       >
-        <Settings class='h-4 w-4' stroke-width={2} aria-hidden='true' />
+        <Settings
+          class={props.compact ? 'h-3.5 w-3.5' : 'h-4 w-4'}
+          stroke-width={2}
+          aria-hidden='true'
+        />
       </button>
       <Show when={menuOpen()}>
         <Portal>

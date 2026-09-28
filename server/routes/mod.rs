@@ -1,4 +1,5 @@
 pub mod config;
+pub mod desktop;
 pub mod files;
 pub mod hermes_chat;
 pub mod media;

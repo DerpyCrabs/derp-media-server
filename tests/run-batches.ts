@@ -42,6 +42,7 @@ export const BATCHES = [
     id: '4',
     tests: [
       'editable-folders',
+      'desktop',
       'solid-reactivity',
       'url-state',
       'multiple-media-dirs',

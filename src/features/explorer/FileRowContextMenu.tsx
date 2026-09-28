@@ -345,6 +345,17 @@ export function FileRowContextMenu(props: { model: ExplorerRowMenu }) {
                 {props.model.label('download', ctx.file)}
               </button>
             </Show>
+            <Show when={available('copy-native')}>
+              <button
+                type='button'
+                data-slot='context-menu-item'
+                role='menuitem'
+                class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
+                onClick={() => props.model.run('copy-native', ctx.file)}
+              >
+                Copy
+              </button>
+            </Show>
             <Show when={showCopyTo()}>
               <button
                 type='button'

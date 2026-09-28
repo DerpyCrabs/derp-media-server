@@ -78,7 +78,7 @@ export function FileBrowserPane(props: FileBrowserPaneProps) {
       ? [{ class: props.layout?.listSizeColumnClass ?? 'w-24' }]
       : []),
     ...(props.rows.renderListActions || props.rows.renderParentRowEnd
-      ? [{ class: 'w-[52px] sm:hidden' }]
+      ? [{ class: 'w-[52px] sm:w-0' }]
       : []),
   ]
   const listColSpan = () => tableColumns().length

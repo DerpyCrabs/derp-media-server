@@ -241,10 +241,11 @@ function buildDecorations(
   view: EditorView,
   runtime: MarkdownEditorRuntime,
   resolveReference: MarkdownReferenceResolver,
-): DecorationSet {
+): { decorations: DecorationSet; tableCells: DecorationSet } {
   const state = view.state
   const mode = state.facet(markdownModeFacet)
   const ranges: Range<Decoration>[] = []
+  const tableCells: Range<Decoration>[] = []
   const seen = new Set<string>()
 
   const add = (decoration: Decoration, from: number, to?: number, kind = '') => {
@@ -503,17 +504,42 @@ function buildDecorations(
           hide(node.from, node.to, `code-info-${node.from}`)
         }
 
-        if (node.name === 'TableHeader' || node.name === 'TableRow') {
+        if ((node.name === 'TableHeader' || node.name === 'TableRow') && !active) {
+          const header = node.parent?.firstChild
+          let columns = 0
+          for (let cell = header?.firstChild; cell; cell = cell.nextSibling) {
+            if (cell.name === 'TableCell') columns += 1
+          }
           add(
             Decoration.line({
               class: node.name === 'TableHeader' ? 'cm-md-table-header' : 'cm-md-table-row',
+              attributes: { style: `--markdown-table-columns: ${columns}` },
             }),
             state.doc.lineAt(node.from).from,
             undefined,
             `table-line-${node.name}`,
           )
-        } else if (node.name === 'TableCell') {
-          mark(node.from, node.to, 'cm-md-table-cell')
+        } else if (node.name === 'TableCell' && !active) {
+          const key = `table-cell-${node.from}`
+          if (!seen.has(key)) {
+            seen.add(key)
+            const row = node.parent!
+            let column = state.sliceDoc(row.from, row.from + 1) === '|' ? 0 : 1
+            for (
+              let sibling = row.firstChild;
+              sibling && sibling.from < node.from;
+              sibling = sibling.nextSibling
+            ) {
+              if (sibling.name === 'TableDelimiter') column += 1
+            }
+            tableCells.push(
+              Decoration.mark({
+                class: 'cm-md-table-cell',
+                inclusive: true,
+                attributes: { style: `grid-column: ${column}` },
+              }).range(node.from, node.to),
+            )
+          }
         } else if (node.name === 'TableDelimiter' && !active) {
           const source = state.sliceDoc(node.from, node.to)
           if (/^\|?\s*:?-+/.test(source)) {
@@ -536,7 +562,7 @@ function buildDecorations(
     })
   }
 
-  return Decoration.set(ranges, true)
+  return { decorations: Decoration.set(ranges, true), tableCells: Decoration.set(tableCells, true) }
 }
 
 export function livePreviewExtension(runtime: MarkdownEditorRuntime) {
@@ -545,6 +571,7 @@ export function livePreviewExtension(runtime: MarkdownEditorRuntime) {
     ViewPlugin.fromClass(
       class {
         decorations: DecorationSet
+        tableCells: DecorationSet
         referenceRoot: SyntaxNode
         resolveReference: MarkdownReferenceResolver
 
@@ -554,7 +581,9 @@ export function livePreviewExtension(runtime: MarkdownEditorRuntime) {
             this.referenceRoot,
             view.state.doc,
           )
-          this.decorations = buildDecorations(view, runtime, this.resolveReference)
+          const built = buildDecorations(view, runtime, this.resolveReference)
+          this.decorations = built.decorations
+          this.tableCells = built.tableCells
         }
 
         update(update: ViewUpdate): void {
@@ -582,11 +611,19 @@ export function livePreviewExtension(runtime: MarkdownEditorRuntime) {
             modeChanged ||
             refreshRequested
           ) {
-            this.decorations = buildDecorations(update.view, runtime, this.resolveReference)
+            const built = buildDecorations(update.view, runtime, this.resolveReference)
+            this.decorations = built.decorations
+            this.tableCells = built.tableCells
           }
         }
       },
-      { decorations: (plugin) => plugin.decorations },
+      {
+        decorations: (plugin) => plugin.decorations,
+        provide: (plugin) =>
+          EditorView.outerDecorations.of(
+            (view) => view.plugin(plugin)?.tableCells ?? Decoration.none,
+          ),
+      },
     ),
   ]
 }
