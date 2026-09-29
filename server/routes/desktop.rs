@@ -58,6 +58,7 @@ fn resolve_path(config: &Config, request: ResolveRequest) -> AppResult<Value> {
         "path": logical,
         "absolutePath": resolved.full,
         "isDirectory": metadata.is_dir(),
+        "editable": media::editable(config, &logical),
         "mediaType": if metadata.is_dir() { "folder" } else { media::media_type(&media::extension(&resolved.full)) },
     }))
 }

@@ -1,0 +1,4 @@
+[D-BUS Service]
+Name=org.freedesktop.impl.portal.desktop.derp
+Exec=/usr/bin/derp-media-client --tray
+SystemdService=derp-media-client.service

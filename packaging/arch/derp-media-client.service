@@ -4,7 +4,8 @@ PartOf=graphical-session.target
 After=graphical-session-pre.target
 
 [Service]
-Type=simple
+Type=dbus
+BusName=org.freedesktop.impl.portal.desktop.derp
 ExecStart=/usr/bin/derp-media-client --tray
 Restart=on-failure
 RestartSec=3

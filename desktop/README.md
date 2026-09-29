@@ -1,6 +1,6 @@
 # Desktop client (Linux / Hyprland)
 
-On Wayland, install `wl-clipboard` for native file copy/paste (included as an Arch package dependency).
+The standalone Qt 6 WebEngine application uses native Wayland windows and Qt clipboard/drag-and-drop. It does not depend on Quickshell. Build dependencies on Arch: `qt6-webengine qt6-webchannel kwindowsystem cmake ninja gcc`.
 
 The desktop client uses the existing local server, browser, viewers, readers and saved reader progress. Every browser, image/video viewer, text editor and reader uses the existing workspace presentation, edge to edge. It has no workspace membership or persisted window layout. Start an updated server built from this repository before opening files. The client does not start or package the server.
 
@@ -15,7 +15,7 @@ bun run desktop --tray
 bun run desktop -- /absolute/path/to/library/book.pdf
 ```
 
-`bun run desktop` builds the small Electron shell; it does not rebuild or start the server. `bun run dev` also serves the desktop page. Every CLI file/directory argument opens a new native window, including repeated paths. Relative paths and local `file://` URIs are accepted. Use `--` before filenames starting with a dash. No arguments opens the library; `--tray` starts without a visible window. The tray's New browser window action always opens a new window. Close discards a window; Quit exits the resident process.
+`bun run desktop` builds the Qt shell with CMake; it does not rebuild or start the server. `bun run dev` also serves the desktop page. Every CLI file/directory argument opens a new native window, including repeated paths. Relative paths and local `file://` URIs are accepted. Use `--` before filenames starting with a dash. No arguments opens the library; `--tray` starts without a visible window. The tray's New browser window action always opens a new window. Close discards a window; Quit exits the resident process.
 
 ## Configuration
 
@@ -25,7 +25,7 @@ On first start, the app creates `$XDG_CONFIG_HOME/derp-media-server/desktop.json
 { "port": 3000 }
 ```
 
-Restart the tray process after changing the port. The connection is always to `127.0.0.1`. The server and client must share the same filesystem namespace; remote servers and container path mappings are not supported. Media roots and write permissions come from the server, so they do not need duplicating in desktop configuration. Browser data lives under `$XDG_STATE_HOME/derp-media-server/desktop` (normally `~/.local/state/derp-media-server/desktop`).
+Restart the tray process after changing the port. The connection is always to `127.0.0.1`. The server and client must share the same filesystem namespace; remote servers and container path mappings are not supported. Media roots and write permissions come from the server, so they do not need duplicating in desktop configuration. Browser data lives under `$XDG_STATE_HOME/derp-media-server/qt-desktop` (normally `~/.local/state/derp-media-server/qt-desktop`).
 
 ## Arch package
 
@@ -35,7 +35,7 @@ cd dist/arch
 makepkg -si
 ```
 
-The generated PKGBUILD uses a checksummed snapshot of the current desktop sources, including uncommitted changes. It builds with Bun and uses Arch's `electron44` runtime. It installs `derp-media-client`, its desktop entry and icon, and a user service. It does not change your defaults or enable autostart automatically.
+The generated PKGBUILD uses a checksummed snapshot of the current desktop sources, including uncommitted changes. It builds with CMake and uses the system Qt libraries. It installs `derp-media-client`, its desktop entry and icon, a user service, and the FileChooser portal backend. It does not change your defaults or enable autostart automatically.
 
 ```
 derp-media-client ~/Media
@@ -76,4 +76,17 @@ PDF/book progress, existing settings, video controls, text editing, and server w
 
 ## Validation
 
-`bun run lint` checks frontend and desktop types. `bun run test:batch` runs the web/API regression suite. `bun run test:desktop` exercises actual Electron windows, native clipboard formats, imports and reader progress using an isolated server and configuration; run it only in a disposable graphical session because it opens windows. Direct Nautilus drag-and-drop still requires a manual interoperability check.
+`bun run lint` checks frontend and desktop types. `bun run test:batch` runs the web/API regression suite. `bun run test:desktop` exercises actual Qt windows and Wayland portal dialogs, native clipboard formats, imports and reader progress using an isolated server and configuration; run it in a Hyprland session; it opens test windows and uses the clipboard. Direct Nautilus drag-and-drop still requires a manual interoperability check.
+
+## File picker
+
+The same resident process provides `org.freedesktop.impl.portal.FileChooser`. Picker windows extend the shared workspace browser with single/multiple file or folder selection, save names, filters, choices, and overwrite confirmation. Double-click opens a folder; Ctrl/Shift select multiple items. Save destinations must be editable media folders. The portal returns local file URIs to the requesting app.
+
+To use it for portal requests, set this entry in `~/.config/xdg-desktop-portal/hyprland-portals.conf`, preserving your other preferences:
+
+```ini
+[preferred]
+org.freedesktop.impl.portal.FileChooser=derp
+```
+
+Restart `xdg-desktop-portal.service` after changing the preference. Applications must use the FileChooser portal to reach this picker. Requests supplying a Wayland parent token are attached to that window through XDG Foreign. Window placement for requests without a parent is compositor-controlled.

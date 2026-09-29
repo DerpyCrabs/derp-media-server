@@ -590,7 +590,7 @@ body {
   display: grid;
   width: 100%;
   grid-template-columns: repeat(
-    auto-fit,
+    auto-fill,
     minmax(min(100%, max(calc((100% - 5 * 1rem) / 6), min(8rem, calc((100% - 1rem) / 2)))), 1fr)
   );
 }

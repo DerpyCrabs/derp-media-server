@@ -83,7 +83,10 @@ type FileBrowserViewListing = Readonly<{
 
 type FileBrowserViewHost = Readonly<{
   openParent: () => void
-  openFile: (file: FileItem) => void
+  openFile: (file: FileItem, event?: MouseEvent | KeyboardEvent) => void
+  activateFile?: (file: FileItem) => void
+  selected?: (file: FileItem) => boolean
+  selectionKeyDown?: (event: KeyboardEvent) => void
   setViewMode: (mode: 'list' | 'grid') => void
   navigateBreadcrumb: (path: string) => void
   openBreadcrumbMenu?: (
@@ -326,7 +329,9 @@ export function FileBrowserView(props: FileBrowserViewProps) {
     const highlightGrid = isWorkspace() && kind === 'grid'
     return {
       ...(isWorkspace() ? { 'data-no-window-drag': '' } : {}),
+      'aria-selected': props.host.selected?.(file),
       class: cn(
+        props.host.selected?.(file) ? 'bg-accent text-accent-foreground' : '',
         props.rows.iconContext().playingPath === file.path ? 'bg-primary/10' : '',
         highlightGrid && file.isDirectory && props.controller.drag.dragOverPath() === file.path
           ? 'bg-primary/20'
@@ -341,6 +346,14 @@ export function FileBrowserView(props: FileBrowserViewProps) {
           : undefined,
       tabindex: window.derpDesktop ? 0 : undefined,
       onKeyDown: (event: KeyboardEvent) => {
+        props.host.selectionKeyDown?.(event)
+        if (event.defaultPrevented) return
+        if (props.host.activateFile && (event.key === 'Enter' || event.key === ' ')) {
+          event.preventDefault()
+          if (event.key === 'Enter') props.host.activateFile(file)
+          else props.host.openFile(file, event)
+          return
+        }
         if (
           window.derpDesktop &&
           event.ctrlKey &&
@@ -421,6 +434,7 @@ export function FileBrowserView(props: FileBrowserViewProps) {
               rows={{
                 onParentClick: props.host.openParent,
                 onFileClick: props.host.openFile,
+                onFileActivate: props.host.activateFile,
                 parentGridAttributes: () => parentAttributes<HTMLDivElement>('grid'),
                 parentRowAttributes: () => parentAttributes<HTMLTableRowElement>('list'),
                 fileGridAttributes: (file) => fileAttributes<HTMLDivElement>(file, 'grid'),

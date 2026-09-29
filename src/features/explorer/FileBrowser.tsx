@@ -65,6 +65,17 @@ export type FileBrowserHost = Readonly<{
   present: (request: FileBrowserPresentation) => void
   actions: FileBrowserHostActions
   toolbarExtras?: () => JSX.Element
+  selection?: {
+    includes: (file: FileItem) => boolean
+    click: (
+      file: FileItem,
+      event: MouseEvent | KeyboardEvent | undefined,
+      ordered: FileItem[],
+    ) => void
+    activate: (file: FileItem) => void
+    keyDown: (event: KeyboardEvent, ordered: FileItem[]) => void
+    visible: (file: FileItem) => boolean
+  }
   renderExtras?: (listing: FileBrowserListingContext) => JSX.Element
 }>
 
@@ -199,7 +210,7 @@ function FileBrowserInstance(props: { host: FileBrowserHost; currentPath: Access
   const sortingDisabled = createMemo(() => isVirtualFolder() || !!listing.virtualDirectory())
   const displayedFiles = createMemo(() =>
     sortFilesForPath(
-      files(),
+      files().filter((file) => host.selection?.visible(file) ?? true),
       currentPath(),
       queryData(browser.settingsQuery)?.sortOrders,
       sortingDisabled(),
@@ -363,7 +374,13 @@ function FileBrowserInstance(props: { host: FileBrowserHost; currentPath: Access
         listing={listingProps}
         host={{
           openParent: () => host.navigate(isVirtualFolder() ? '' : parentPath(currentPath())),
-          openFile,
+          openFile: (file, event) =>
+            host.selection ? host.selection.click(file, event, displayedFiles()) : openFile(file),
+          activateFile: host.selection?.activate,
+          selected: host.selection?.includes,
+          selectionKeyDown: host.selection
+            ? (event) => host.selection?.keyDown(event, displayedFiles())
+            : undefined,
           setViewMode,
           navigateBreadcrumb: host.navigate,
           openBreadcrumbMenu: chrome.openBreadcrumbMenu,

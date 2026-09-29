@@ -1,15 +1,19 @@
-import { mkdir, copyFile } from 'node:fs/promises'
-await mkdir('dist/desktop', { recursive: true })
-for (const entry of ['main', 'preload']) {
-  const result = await Bun.build({
-    entrypoints: [`desktop/${entry}.ts`],
-    outdir: 'dist/desktop',
-    target: 'node',
-    format: 'cjs',
-    naming: '[name].cjs',
-    external: ['electron'],
-    sourcemap: 'external',
-  })
-  if (!result.success) throw new AggregateError(result.logs, 'Desktop build failed')
+export {}
+for (const args of [
+  [
+    'cmake',
+    '-S',
+    'desktop/qt',
+    '-B',
+    'dist/desktop/build',
+    '-G',
+    'Ninja',
+    '-DCMAKE_BUILD_TYPE=RelWithDebInfo',
+    `-DDERP_DESKTOP_TESTS=${process.argv.includes('--tests') ? 'ON' : 'OFF'}`,
+    '-DCMAKE_RUNTIME_OUTPUT_DIRECTORY=' + process.cwd() + '/dist/desktop',
+  ],
+  ['cmake', '--build', 'dist/desktop/build', '--parallel', '4'],
+]) {
+  const child = Bun.spawn(args, { stdout: 'inherit', stderr: 'inherit' })
+  if (await child.exited) throw new Error('Qt desktop build failed')
 }
-await copyFile('desktop/icon.png', 'dist/desktop/icon.png')

@@ -6,6 +6,8 @@ export interface DesktopTarget {
 }
 
 export interface DesktopBridge {
+  onPicker?(callback: (request: PickerRequest) => void): () => void
+  pick?(selection: PickerSelection): Promise<{ overwrite?: string[] }>
   ready(): Promise<void>
   onBeforeClose(callback: () => Promise<void>): () => void
   onOpen(callback: (target: DesktopTarget) => void): () => void
@@ -24,4 +26,29 @@ declare global {
   interface Window {
     derpDesktop?: DesktopBridge
   }
+}
+
+export interface PickerRequest {
+  mode: 'OpenFile' | 'SaveFile' | 'SaveFiles'
+  directory: boolean
+  multiple: boolean
+  name: string
+  acceptLabel: string
+  filters: { name: string; rules: { type: number; value: string; patterns: string[] }[] }[]
+  filter: number
+  choices: {
+    id: string
+    label: string
+    options: { id: string; label: string }[]
+    selected: string
+  }[]
+}
+
+export interface PickerSelection {
+  paths: string[]
+  directory: string
+  name: string
+  filter: number
+  choices: Record<string, string>
+  overwrite?: boolean
 }

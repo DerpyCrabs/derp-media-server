@@ -41,7 +41,8 @@ export type FileBrowserPaneLayout = Readonly<{
 
 export type FileBrowserPaneRows = Readonly<{
   onParentClick: () => void
-  onFileClick: (file: FileItem) => void
+  onFileClick: (file: FileItem, event?: MouseEvent | KeyboardEvent) => void
+  onFileActivate?: (file: FileItem) => void
   parentGridAttributes?: Accessor<FileBrowserElementAttributes<HTMLDivElement>>
   parentRowAttributes?: Accessor<FileBrowserElementAttributes<HTMLTableRowElement>>
   fileGridAttributes?: (file: FileItem) => FileBrowserElementAttributes<HTMLDivElement>
@@ -150,8 +151,14 @@ export function FileBrowserPane(props: FileBrowserPaneProps) {
           'ring-foreground/10 bg-card text-card-foreground flex cursor-pointer flex-col overflow-hidden rounded-xl py-0 text-left shadow-xs ring-1 transition-colors select-none hover:bg-muted/50',
           attributes().class,
         )}
-        onClick={() => props.rows.onFileClick(file())}
-        onKeyDown={(event) => event.key === 'Enter' && props.rows.onFileClick(file())}
+        onClick={(event) => props.rows.onFileClick(file(), event)}
+        onDblClick={() => props.rows.onFileActivate?.(file())}
+        onKeyDown={(event) => {
+          const handler = attributes().onKeyDown
+          if (typeof handler === 'function') handler(event)
+          if (!event.defaultPrevented && event.key === 'Enter')
+            props.rows.onFileClick(file(), event)
+        }}
         role='button'
         tabindex={0}
       >
@@ -181,7 +188,8 @@ export function FileBrowserPane(props: FileBrowserPaneProps) {
           'group cursor-pointer select-none border-b border-border transition-colors hover:bg-muted/50',
           attributes().class,
         )}
-        onClick={() => props.rows.onFileClick(file())}
+        onClick={(event) => props.rows.onFileClick(file(), event)}
+        onDblClick={() => props.rows.onFileActivate?.(file())}
       >
         <td class='w-[40px] min-w-[40px] max-w-[40px] box-border p-3 align-middle sm:p-2'>
           <div class='flex items-center justify-center'>{props.rows.renderListIcon(file())}</div>

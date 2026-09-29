@@ -16,7 +16,8 @@ import { applyPathMutationToUrl } from '@/lib/browser/url-state-actions'
 import { isPathEditable, parentPath } from '@/lib/files/path-utils'
 import { FileSearchButton } from '@/features/explorer/FileSearchPalette'
 import { ThemeSwitcher } from '@/media-center/ThemeSwitcher'
-import type { DesktopTarget } from './bridge'
+import type { DesktopTarget, PickerRequest } from './bridge'
+import { createPicker, PickerControls } from './PickerControls'
 import { runDesktopOperation } from './operations'
 
 export function DesktopPage() {
@@ -36,6 +37,14 @@ export function DesktopPage() {
   const editableFolders = createMemo(() => [...(config.data?.editableFolders ?? [])])
   const mediaRoots = createMemo(() => [...(config.data?.mediaRoots ?? [])])
   const editable = createMemo(() => isPathEditable(directory(), editableFolders(), mediaRoots()))
+
+  const [pickerRequest, setPickerRequest] = createSignal<PickerRequest>()
+  const picker = createPicker({
+    request: pickerRequest,
+    directory,
+    navigate: (path) => navigateSearchParams({ dir: path }, 'push'),
+    bridge,
+  })
 
   function receive(target: DesktopTarget) {
     const viewer = !target.isDirectory || target.reader
@@ -58,15 +67,28 @@ export function DesktopPage() {
   }
 
   onSettled(() => {
+    const stopPicker = bridge?.onPicker?.(setPickerRequest)
     const stop = bridge?.onOpen(receive)
     const stopClose = bridge?.onBeforeClose(flushDesktopClose)
     if (bridge) runDesktopOperation(bridge.ready())
     const operation = (event: Event) =>
       setStatus((event as CustomEvent<{ pending?: boolean; error?: string }>).detail)
+    const escape = (event: KeyboardEvent) => {
+      if (
+        pickerRequest() &&
+        event.key === 'Escape' &&
+        !event.defaultPrevented &&
+        !document.querySelector('[role=dialog], [role=alertdialog], [role=menu]')
+      )
+        bridge?.close()
+    }
+    window.addEventListener('keydown', escape)
     window.addEventListener('desktop-operation', operation)
     return () => {
+      stopPicker?.()
       stop?.()
       stopClose?.()
+      window.removeEventListener('keydown', escape)
       window.removeEventListener('desktop-operation', operation)
     }
   })
@@ -83,6 +105,9 @@ export function DesktopPage() {
   }
   const host: FileBrowserHost = {
     layout: 'workspace',
+    get selection() {
+      return pickerRequest() ? picker.selection : undefined
+    },
     currentPath: directory,
     editableFolders,
     mediaRoots,
@@ -93,6 +118,10 @@ export function DesktopPage() {
     }),
     navigate: (path) => navigateSearchParams({ dir: path }, 'push'),
     present: (request) => {
+      if (pickerRequest()) {
+        picker.selection.activate(request.file)
+        return
+      }
       if (request.kind === 'virtual') {
         setStatus({ error: 'This virtual item cannot be opened in a desktop viewer.' })
         return
@@ -116,6 +145,7 @@ export function DesktopPage() {
           iconClass='h-3.5 w-3.5'
           onSelect={(file) => {
             if (file.isDirectory) host.navigate(file.path)
+            else if (pickerRequest()) picker.selection.activate({ ...file, size: 0 })
             else open(file.path)
           }}
         />
@@ -163,6 +193,15 @@ export function DesktopPage() {
           fallback={
             <div class='fixed inset-0 flex min-h-0 flex-col overflow-hidden'>
               <FileBrowser host={host} />
+              <Show when={pickerRequest()}>
+                {(request) => (
+                  <PickerControls
+                    request={request()}
+                    picker={picker}
+                    cancel={() => bridge?.close()}
+                  />
+                )}
+              </Show>
             </div>
           }
         >
