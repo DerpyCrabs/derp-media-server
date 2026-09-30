@@ -1,70 +1,44 @@
-import { createMemo, type Accessor } from 'solid-js'
-import { createAsyncValue } from './create-async-value'
+import { Effect } from 'effect'
 import {
-  loadSyncedReaderState,
-  saveSyncedReaderState,
+  loadSyncedReaderStateEffect,
+  saveSyncedReaderStateEffect,
   type ReaderSyncedState,
 } from './reader-state-client'
 
-type PositionEnvelope<T> = {
-  position: T | null
-  revision: number
-  fingerprint: string
-}
-
-export type ReaderPositionSync<T> = {
-  loaded: Accessor<T | null | undefined>
-  ready: Accessor<boolean>
-  save: (position: T) => Promise<T | null>
-}
-
 export function createReaderPositionSync<T>(
-  path: Accessor<string>,
+  path: string,
   normalize: (value: unknown) => T,
   serialize: (position: T) => ReaderSyncedState,
-): ReaderPositionSync<T> {
-  const remote = createAsyncValue(path, async (activePath): Promise<PositionEnvelope<T>> => {
-    const envelope = await loadSyncedReaderState(activePath)
-    return {
-      position: envelope.state ? normalize(envelope.state) : null,
-      revision: envelope.revision,
-      fingerprint: envelope.fingerprint,
-    }
-  })
+) {
   let revision = 0
   let fingerprint = ''
-  const loaded = createMemo(() => {
-    const envelope = remote.value()
-    if (!envelope) return undefined
+  const accept = (envelope: {
+    revision: number
+    fingerprint: string
+    state: ReaderSyncedState | null
+  }) => {
     revision = envelope.revision
     fingerprint = envelope.fingerprint
-    return envelope.position
-  })
-
+    return envelope.state ? normalize(envelope.state) : null
+  }
   return {
-    loaded,
-    ready: () => !remote.loading() && remote.value() !== undefined,
-    save: async (position) => {
-      const activePath = path()
-      loaded()
-      if (!activePath || !fingerprint) return null
-      let saved: Awaited<ReturnType<typeof saveSyncedReaderState>>
-      try {
-        saved = await saveSyncedReaderState(activePath, serialize(position), revision, fingerprint)
-      } catch {
-        return null
-      }
-      if (path() !== activePath) return null
-      if (saved) {
-        revision = saved.revision
-        fingerprint = saved.fingerprint
-        return null
-      }
-      const latest = await loadSyncedReaderState(activePath).catch(() => null)
-      if (!latest || path() !== activePath) return null
-      revision = latest.revision
-      fingerprint = latest.fingerprint
-      return latest.state ? normalize(latest.state) : null
-    },
+    load: loadSyncedReaderStateEffect(path).pipe(Effect.map(accept)),
+    save: (position: T) =>
+      Effect.gen(function* () {
+        if (!path || !fingerprint) return null
+        const saved = yield* saveSyncedReaderStateEffect(
+          path,
+          serialize(position),
+          revision,
+          fingerprint,
+        )
+        if (saved) {
+          revision = saved.revision
+          fingerprint = saved.fingerprint
+          return null
+        }
+        const latest = yield* loadSyncedReaderStateEffect(path)
+        return accept(latest)
+      }),
   }
 }

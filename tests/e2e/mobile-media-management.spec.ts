@@ -39,10 +39,7 @@ test.describe('mobile media management', () => {
     ])
     await page.reload()
     await expect(page.locator('table')).toBeVisible()
-    const listMore = page.getByRole('button', {
-      name: 'More actions for photo.jpg',
-      exact: true,
-    })
+    const listMore = page.getByRole('button', { name: 'More actions for photo.jpg', exact: true })
     await expect(listMore).toHaveCSS('width', '44px')
     await expect(listMore).toHaveCSS('height', '44px')
   })

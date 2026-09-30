@@ -1,19 +1,9 @@
-import type { Accessor } from 'solid-js'
-import type { JSX } from '@solidjs/web'
-import { Match, Switch } from 'solid-js'
-
+import { view, type JSX } from 'effectweb'
 export type FileExplorerListingProps = Readonly<{
-  viewMode: Accessor<'list' | 'grid'>
+  viewMode: 'list' | 'grid'
   renderGrid: () => JSX.Element
   renderList: () => JSX.Element
 }>
-
-/** Shared view-mode dispatcher; hosts only provide surface-specific item markup. */
-export function FileExplorerListing(props: FileExplorerListingProps) {
-  return (
-    <Switch>
-      <Match when={props.viewMode() === 'grid'}>{props.renderGrid()}</Match>
-      <Match when={props.viewMode() === 'list'}>{props.renderList()}</Match>
-    </Switch>
-  )
-}
+export const FileExplorerListing = view<FileExplorerListingProps>((props) =>
+  props.viewMode === 'grid' ? props.renderGrid() : props.renderList(),
+)

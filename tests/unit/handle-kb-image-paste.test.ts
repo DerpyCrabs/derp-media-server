@@ -1,3 +1,4 @@
+import { Effect } from 'effect'
 import { afterAll, beforeEach, describe, expect, test } from 'bun:test'
 import {
   tryPasteKnowledgeBaseImage,
@@ -50,13 +51,20 @@ function makeContext(overrides: Partial<KbImagePasteContext> = {}): KbImagePaste
   }
 }
 
+async function runPaste(...args: Parameters<typeof tryPasteKnowledgeBaseImage>) {
+  const effect = tryPasteKnowledgeBaseImage(...args)
+  if (!effect) return false
+  await Effect.runPromise(effect)
+  return true
+}
+
 describe('tryPasteKnowledgeBaseImage', () => {
   test('creates and inserts an image attachment', async () => {
     const paste = makeImagePaste()
     let completed: string | null | undefined
 
     expect(
-      await tryPasteKnowledgeBaseImage(
+      await runPaste(
         paste.event,
         makeContext({
           completeCodeMirrorPaste: (markdown) => {
@@ -75,12 +83,9 @@ describe('tryPasteKnowledgeBaseImage', () => {
 
   test('rolls back an attachment when the editor rejects completion', async () => {
     const paste = makeImagePaste()
-    expect(
-      await tryPasteKnowledgeBaseImage(
-        paste.event,
-        makeContext({ completeCodeMirrorPaste: () => false }),
-      ),
-    ).toBe(true)
+    expect(await runPaste(paste.event, makeContext({ completeCodeMirrorPaste: () => false }))).toBe(
+      true,
+    )
     expect(requests.map((request) => request.url)).toEqual([
       '/api/files/create',
       '/api/files/delete',
@@ -90,18 +95,13 @@ describe('tryPasteKnowledgeBaseImage', () => {
 
   test('ignores non-Markdown files and non-editable knowledge bases', async () => {
     const nonMarkdown = makeImagePaste()
-    expect(
-      await tryPasteKnowledgeBaseImage(
-        nonMarkdown.event,
-        makeContext({ viewingPath: 'Notes/note.txt' }),
-      ),
-    ).toBe(false)
+    expect(await runPaste(nonMarkdown.event, makeContext({ viewingPath: 'Notes/note.txt' }))).toBe(
+      false,
+    )
     expect(nonMarkdown.wasPrevented()).toBe(false)
 
     const locked = makeImagePaste()
-    expect(
-      await tryPasteKnowledgeBaseImage(locked.event, makeContext({ editableFolders: [] })),
-    ).toBe(false)
+    expect(await runPaste(locked.event, makeContext({ editableFolders: [] }))).toBe(false)
     expect(locked.wasPrevented()).toBe(false)
     expect(requests).toHaveLength(0)
   })

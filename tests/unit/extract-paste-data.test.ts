@@ -1,3 +1,4 @@
+import { Effect } from 'effect'
 import './test-dom-globals'
 
 import { describe, expect, test } from 'bun:test'
@@ -60,20 +61,25 @@ describe('extractPasteDataFromClipboardData', () => {
     const heading = makeTransfer()
     heading.setData('text/plain', 'intro\n# Clipboard title\nbody')
     expect(
-      (await extractPasteDataFromClipboardData(heading, { textSuggestedExtension: 'md' }))
-        ?.suggestedName,
+      (
+        await Effect.runPromise(
+          extractPasteDataFromClipboardData(heading, { textSuggestedExtension: 'md' }),
+        )
+      )?.suggestedName,
     ).toBe('Clipboard title.md')
 
     const line = makeTransfer()
     line.setData('text/plain', '\nUseful first line\nmore')
-    expect((await extractPasteDataFromClipboardData(line))?.suggestedName).toBe(
+    expect((await Effect.runPromise(extractPasteDataFromClipboardData(line)))?.suggestedName).toBe(
       'Useful first line.txt',
     )
   })
   test('uses md extension when requested', async () => {
     const dt = makeTransfer()
     dt.setData('text/plain', 'x')
-    const data = await extractPasteDataFromClipboardData(dt, { textSuggestedExtension: 'md' })
+    const data = await Effect.runPromise(
+      extractPasteDataFromClipboardData(dt, { textSuggestedExtension: 'md' }),
+    )
     expect(data?.type).toBe('text')
     expect(data?.suggestedName.endsWith('.md')).toBe(true)
     expect(data?.content).toBe('x')
@@ -82,14 +88,16 @@ describe('extractPasteDataFromClipboardData', () => {
   test('uses txt extension by default', async () => {
     const dt = makeTransfer()
     dt.setData('text/plain', 'y')
-    const data = await extractPasteDataFromClipboardData(dt)
+    const data = await Effect.runPromise(extractPasteDataFromClipboardData(dt))
     expect(data?.suggestedName.endsWith('.txt')).toBe(true)
   })
 
   test('falls back from html when plain is empty', async () => {
     const dt = makeTransfer()
     dt.setData('text/html', '<div><p>From chat</p></div>')
-    const data = await extractPasteDataFromClipboardData(dt, { textSuggestedExtension: 'md' })
+    const data = await Effect.runPromise(
+      extractPasteDataFromClipboardData(dt, { textSuggestedExtension: 'md' }),
+    )
     expect(data?.type).toBe('text')
     expect(data?.content).toBe('From chat')
     expect(data?.suggestedName.endsWith('.md')).toBe(true)
@@ -99,7 +107,7 @@ describe('extractPasteDataFromClipboardData', () => {
     const dt = makeTransfer()
     dt.setData('text/plain', 'plain only')
     dt.setData('text/html', '<p>html</p>')
-    const data = await extractPasteDataFromClipboardData(dt)
+    const data = await Effect.runPromise(extractPasteDataFromClipboardData(dt))
     expect(data?.content).toBe('plain only')
   })
 
@@ -107,7 +115,9 @@ describe('extractPasteDataFromClipboardData', () => {
     const dt = makeTransfer()
     dt.setData('text/plain', 'flat gemini plain without structure')
     dt.setData('text/html', GEMINI_STYLE_HTML)
-    const data = await extractPasteDataFromClipboardData(dt, { textSuggestedExtension: 'md' })
+    const data = await Effect.runPromise(
+      extractPasteDataFromClipboardData(dt, { textSuggestedExtension: 'md' }),
+    )
     expect(data?.type).toBe('text')
     expect(data?.content).toContain('###')
     expect(data?.content).not.toBe('flat gemini plain without structure')
@@ -117,7 +127,9 @@ describe('extractPasteDataFromClipboardData', () => {
     const dt = makeTransfer()
     dt.setData('text/plain', 'hello')
     dt.setData('text/html', '<p>hello</p>')
-    const data = await extractPasteDataFromClipboardData(dt, { textSuggestedExtension: 'md' })
+    const data = await Effect.runPromise(
+      extractPasteDataFromClipboardData(dt, { textSuggestedExtension: 'md' }),
+    )
     expect(data?.content).toBe('hello')
   })
 
@@ -125,17 +137,57 @@ describe('extractPasteDataFromClipboardData', () => {
     const dt = makeTransfer()
     dt.setData('text/plain', 'plain wins')
     dt.setData('text/html', GEMINI_STYLE_HTML)
-    const data = await extractPasteDataFromClipboardData(dt, { textSuggestedExtension: 'txt' })
+    const data = await Effect.runPromise(
+      extractPasteDataFromClipboardData(dt, { textSuggestedExtension: 'txt' }),
+    )
     expect(data?.content).toBe('plain wins')
   })
 
   test('txt falls back to flattened html when plain empty', async () => {
     const dt = makeTransfer()
     dt.setData('text/html', GEMINI_STYLE_HTML)
-    const data = await extractPasteDataFromClipboardData(dt)
+    const data = await Effect.runPromise(extractPasteDataFromClipboardData(dt))
     expect(data?.type).toBe('text')
     expect(data?.suggestedName.endsWith('.txt')).toBe(true)
     expect(data?.content).toContain('Section Title')
     expect(data?.content).not.toContain('###')
   })
+})
+
+test('interrupting clipboard file extraction aborts its FileReader', async () => {
+  const { Fiber } = await import('effect')
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'FileReader')
+  const readers: PendingReader[] = []
+  class PendingReader {
+    static LOADING = 1
+    readyState = 1
+    onload: unknown = null
+    onerror: unknown = null
+    aborted = false
+    constructor() {
+      readers.push(this)
+    }
+    readAsDataURL() {}
+    abort() {
+      this.aborted = true
+    }
+  }
+  Object.defineProperty(globalThis, 'FileReader', { configurable: true, value: PendingReader })
+  try {
+    const data = {
+      files: [new File(['image'], 'clip.png', { type: 'image/png' })],
+      items: [],
+      getData: () => '',
+    } as unknown as DataTransfer
+    const fiber = Effect.runFork(extractPasteDataFromClipboardData(data))
+    const reader = readers[0]
+    expect(reader).toBeDefined()
+    await Effect.runPromise(Fiber.interrupt(fiber))
+    expect(reader?.aborted).toBe(true)
+    expect(reader?.onload).toBeNull()
+    expect(reader?.onerror).toBeNull()
+  } finally {
+    if (descriptor) Object.defineProperty(globalThis, 'FileReader', descriptor)
+    else Reflect.deleteProperty(globalThis, 'FileReader')
+  }
 })

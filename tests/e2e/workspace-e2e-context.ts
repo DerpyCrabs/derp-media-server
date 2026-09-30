@@ -9,9 +9,7 @@ export function workspaceE2EOrigin(): string {
 
 /** Shared desktop context with clipboard access for workspace tests. */
 export async function createWorkspaceE2EContext(browser: Browser) {
-  const context = await browser.newContext({
-    ...devices['Desktop Chrome'],
-  })
+  const context = await browser.newContext({ ...devices['Desktop Chrome'] })
   await context.grantPermissions(['clipboard-read', 'clipboard-write'], {
     origin: workspaceE2EOrigin(),
   })

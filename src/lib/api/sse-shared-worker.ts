@@ -1,5 +1,8 @@
 /// <reference lib="webworker" />
 
+import { Schema } from 'effect'
+import { sseEventSchema, workerCommandSchema } from './sse-protocol'
+
 const INITIAL_DELAY_MS = 5000
 const MAX_DELAY_MS = 60000
 const BACKOFF_MULTIPLIER = 2
@@ -56,7 +59,9 @@ function openAdminStream() {
   adminSource = new EventSource('/api/events/stream')
   adminSource.onmessage = (event) => {
     try {
-      const data = JSON.parse(event.data) as { type?: string }
+      const decoded = Schema.decodeUnknownExit(sseEventSchema)(JSON.parse(event.data))
+      if (decoded._tag === 'Failure') return
+      const data = decoded.value
       if (data.type === 'connected') adminConnected = true
       adminRetry = 0
       broadcastAdmin(data)
@@ -78,8 +83,8 @@ function openAdminStream() {
 }
 
 function closeAdminStreamIfIdle() {
-  cancelAdminReconnect()
   if (adminRefTotal > 0) return
+  cancelAdminReconnect()
   adminRetry = 0
   adminConnected = false
   adminSource?.close()
@@ -87,8 +92,16 @@ function closeAdminStreamIfIdle() {
 }
 
 function onPortMessage(port: MessagePort, raw: unknown) {
-  if (!raw || typeof raw !== 'object') return
-  const message = raw as { type?: string }
+  const decoded = Schema.decodeUnknownExit(workerCommandSchema)(raw)
+  if (decoded._tag === 'Failure') return
+  const message = decoded.value
+  if (message.type === 'disconnect') {
+    adminRefTotal -= portStates.get(port)?.admin ?? 0
+    portStates.delete(port)
+    port.close()
+    closeAdminStreamIfIdle()
+    return
+  }
   if (message.type === 'network-offline') {
     cancelAdminReconnect()
     adminConnected = false
@@ -128,5 +141,3 @@ self.onconnect = (event: MessageEvent) => {
     onPortMessage(port, message.data)
   })
 }
-
-export {}

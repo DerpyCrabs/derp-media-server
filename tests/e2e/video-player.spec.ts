@@ -204,9 +204,7 @@ test.describe('Video Player', () => {
     await page.getByRole('menuitem', { name: 'Grid view' }).click()
     const card = page
       .locator('[data-testid=file-browser] .file-browser-grid [role=button]')
-      .filter({
-        hasText: 'sample.mp4',
-      })
+      .filter({ hasText: 'sample.mp4' })
     const thumb = card.locator('[data-testid=file-browser-video-thumbnail]')
     await expect(thumb).toBeVisible()
     await expect(thumb).toHaveAttribute('src', /\/api\/thumbnail\//)
@@ -255,4 +253,27 @@ test.describe('Video Player', () => {
     await page.getByRole('button', { name: 'Maximize player' }).click()
     await expect(page.locator('video')).toBeVisible()
   })
+})
+
+test('playback settings remain above video controls and focus overlays', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.goto(`/?dir=${VIDEO_DIR}&playing=${encodeURIComponent(VIDEO_FILE)}`)
+  await expect(page.locator('video')).toBeVisible()
+  await page.locator('video').hover()
+  await page.getByRole('button', { name: 'Playback settings', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Playback settings', exact: true })
+  await expect(dialog).toBeVisible()
+  await page.evaluate(() => window.scrollTo(0, 0))
+  await expect
+    .poll(() =>
+      dialog.evaluate((element) => {
+        const surface = element.parentElement!
+        const rect = surface.getBoundingClientRect()
+        const x = rect.left + rect.width / 2
+        return [rect.top + 4, rect.bottom - 4].every((y) =>
+          surface.contains(document.elementFromPoint(x, y)),
+        )
+      }),
+    )
+    .toBe(true)
 })

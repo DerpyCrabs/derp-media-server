@@ -1,10 +1,7 @@
 import type { FileItem } from '@/lib/files/types'
 import type { TaskbarPin, TaskbarPinSource } from '@/lib/models/taskbar-pins'
 
-type TaskbarPinTarget = {
-  path: string
-  source: TaskbarPinSource
-}
+type TaskbarPinTarget = { path: string; source: TaskbarPinSource }
 
 function normalizePinPath(path: string): string {
   return path

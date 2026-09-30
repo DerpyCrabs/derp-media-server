@@ -13,10 +13,7 @@ function markdownState(
 ): EditorState {
   return EditorState.create({
     doc,
-    selection: {
-      anchor: options.anchor ?? 0,
-      head: options.head ?? options.anchor ?? 0,
-    },
+    selection: { anchor: options.anchor ?? 0, head: options.head ?? options.anchor ?? 0 },
     extensions: [markdownLanguage, markdownModeFacet.of(options.mode ?? 'read')],
   })
 }

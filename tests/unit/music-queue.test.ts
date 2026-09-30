@@ -1,3 +1,4 @@
+import { Effect } from 'effect'
 import { describe, expect, test } from 'bun:test'
 import { createPlaybackSession } from '@/features/playback/playback-session'
 import type { PersistedPlaybackState, PlaybackItem } from '@/features/playback/types'
@@ -9,7 +10,9 @@ const item = (name: string, automatic = false): PlaybackItem => ({
   media: 'audio',
   ...(automatic ? { automatic: true } : {}),
 })
-const resolver = { resolve: () => ({ kind: 'resolved' as const, url: '/music.mp3' }) }
+const resolver = {
+  resolve: () => Effect.sync(() => ({ kind: 'resolved' as const, url: '/music.mp3' })),
+}
 
 describe('music queue', () => {
   test('manual additions precede radio suggestions and edits preserve playback position and source', () => {

@@ -4,10 +4,7 @@ import type { BookDocument } from '@/features/reader/contentTypes/book/book-type
 
 beforeAll(() => {
   const window = new HappyWindow({ url: 'http://localhost/' })
-  Object.defineProperty(globalThis, 'DOMParser', {
-    configurable: true,
-    value: window.DOMParser,
-  })
+  Object.defineProperty(globalThis, 'DOMParser', { configurable: true, value: window.DOMParser })
   Object.defineProperty(globalThis, 'XMLSerializer', {
     configurable: true,
     value: window.XMLSerializer,

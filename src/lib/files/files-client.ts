@@ -1,11 +1,12 @@
-import { api } from '@/lib/api/client'
-import type { FileItem } from './types'
+import { apiSchemaEffect, type ApiRequestOptions } from '@/lib/api/client'
+import { directoryFilesSchema } from './file-schemas'
 
-export type DirectoryFilesResponse = { files: FileItem[] }
+export type DirectoryFilesResponse = typeof directoryFilesSchema.Type
 
-export function fetchDirectoryFiles(
-  path: string,
-  signal?: AbortSignal,
-): Promise<DirectoryFilesResponse> {
-  return api<DirectoryFilesResponse>(`/api/files?dir=${encodeURIComponent(path)}`, { signal })
+export function fetchDirectoryFilesEffect(path: string, options?: ApiRequestOptions) {
+  return apiSchemaEffect(
+    directoryFilesSchema,
+    `/api/files?dir=${encodeURIComponent(path)}`,
+    options,
+  )
 }

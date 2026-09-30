@@ -1,4 +1,3 @@
-import type { AssistGridShape } from './workspace-assist-grid'
 import {
   clientPreferencesStore,
   MAX_TILED_WINDOW_GAP,
@@ -7,28 +6,10 @@ import {
 
 export { MAX_TILED_WINDOW_GAP, normalizeTiledWindowGap }
 
-const api = {
-  get assistGridShape() {
-    return clientPreferencesStore.getState().assistGridShape
-  },
-  get snapAssistOnTopDrag() {
-    return clientPreferencesStore.getState().snapAssistOnTopDrag
-  },
-  get tiledWindowGap() {
-    return clientPreferencesStore.getState().tiledWindowGap
-  },
-  setAssistGridShape(value: AssistGridShape) {
-    clientPreferencesStore.getState().setAssistGridShape(value)
-  },
-  setSnapAssistOnTopDrag(value: boolean) {
-    clientPreferencesStore.getState().setSnapAssistOnTopDrag(value)
-  },
-  setTiledWindowGap(value: number) {
-    clientPreferencesStore.getState().setTiledWindowGap(value)
-  },
-}
-
-export const useWorkspacePreferredSnapStore = {
-  getState: () => api,
-  subscribe: clientPreferencesStore.subscribe,
+export const workspaceLayoutPreferences = {
+  source: clientPreferencesStore.source,
+  read: clientPreferencesStore.read,
+  setAssistGridShape: clientPreferencesStore.setAssistGridShape,
+  setSnapAssistOnTopDrag: clientPreferencesStore.setSnapAssistOnTopDrag,
+  setTiledWindowGap: clientPreferencesStore.setTiledWindowGap,
 }

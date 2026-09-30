@@ -1,21 +1,22 @@
-import { createPlaybackScrubber } from '@/features/playback/create-playback-scrubber'
+import { PlaybackScrubber } from '@/features/playback/create-playback-scrubber'
 import { QueuePanel } from '@/features/music/QueuePanel'
-import { queryData } from '@/lib/api/query-data'
-import { fetchDirectoryFiles } from '@/lib/files/files-client'
+import { fetchDirectoryFilesEffect } from '@/lib/files/files-client'
 import { MediaType } from '@/lib/files/types'
-import { queryKeys } from '@/lib/api/query-keys'
-import { useQuery } from '@tanstack/solid-query'
-import Headphones from 'lucide-solid/icons/headphones'
-import Monitor from 'lucide-solid/icons/monitor'
-import Pause from 'lucide-solid/icons/pause'
-import Play from 'lucide-solid/icons/play'
-import Repeat from 'lucide-solid/icons/repeat'
-import StepBack from 'lucide-solid/icons/step-back'
-import StepForward from 'lucide-solid/icons/step-forward'
-import Volume2 from 'lucide-solid/icons/volume-2'
-import VolumeX from 'lucide-solid/icons/volume-x'
-import X from 'lucide-solid/icons/x'
-import { Show, createEffect, createMemo, createSignal } from 'solid-js'
+import { queryCache, groups } from '@/lib/api/cache'
+import { settingsQuery, statsQuery } from '@/lib/api/queries'
+import type { WorkspaceSettings } from '@/workspace/model/workspace-settings-types'
+import type { FileItem } from '@/lib/files/types'
+import { available, modelOwner, view, domBinding, type Snapshot, controllerView } from 'effectweb'
+import Headphones from '@effectweb/lucide/icons/headphones'
+import Monitor from '@effectweb/lucide/icons/monitor'
+import Pause from '@effectweb/lucide/icons/pause'
+import Play from '@effectweb/lucide/icons/play'
+import Repeat from '@effectweb/lucide/icons/repeat'
+import StepBack from '@effectweb/lucide/icons/step-back'
+import StepForward from '@effectweb/lucide/icons/step-forward'
+import Volume2 from '@effectweb/lucide/icons/volume-2'
+import VolumeX from '@effectweb/lucide/icons/volume-x'
+import X from '@effectweb/lucide/icons/x'
 import {
   buildAudioMetadataUrl,
   buildMediaUrl,
@@ -23,172 +24,194 @@ import {
 } from '@/lib/media/build-media-url'
 import {
   audioPlaybackQueueFromFiles,
-  fetchAudioMetadata,
+  fetchAudioMetadataEffect,
+  type AudioMetadata,
   formatPlaybackTime,
 } from '@/features/playback'
-import { usePlaybackSession, usePlaybackSnapshot } from '@/features/playback/PlaybackProvider'
+import { getPlaybackSession, playbackSource } from '@/features/playback/PlaybackProvider'
 import { parentPath } from '@/lib/files/path-utils'
 import { createFileSortMetadata, sortFilesForPath } from '@/features/explorer/file-display-settings'
-import { useExplorerSettings } from '@/features/explorer/use-explorer-settings'
-import { useViewStats } from '@/features/explorer/use-view-stats'
-
+import { observeQuery, query } from '@effectweb/query'
 type Props = {
   onShowVideo: (path: string, dir?: string) => void
   onStopPlayback: () => void
   suppressTaskbarAudioChrome?: () => boolean
 }
-
-export function WorkspaceTaskbarAudio(props: Props) {
-  const session = usePlaybackSession()
-  const playback = usePlaybackSnapshot()
-  const { settingsQuery } = useExplorerSettings()
-  const viewStats = useViewStats()
-  const [detailsState, setDetailsState] = createSignal({ key: '', open: false })
-  const item = createMemo(() => playback().currentItem)
-  const playingPath = createMemo(() => item()?.locator ?? null)
-  const currentDir = createMemo(() => parentPath(playingPath() ?? ''))
-  const isVideoFile = createMemo(() => item()?.media === 'video')
-  const shouldHandleAudio = createMemo(
-    () =>
-      !!item() && playback().mode === 'audio' && !(props.suppressTaskbarAudioChrome?.() ?? false),
-  )
-  const detailsKey = createMemo(() => {
-    const state = playback()
-    return shouldHandleAudio() && state.currentItem
-      ? `${state.currentItem.locator}\0${state.mode}`
-      : ''
+const audioFilesQuery = query({
+  name: 'workspace-audio-files',
+  groups: [groups.files],
+  load: (directory: string) => fetchDirectoryFilesEffect(directory),
+})
+const audioMetadataQuery = query({
+  name: 'workspace-audio-metadata',
+  load: (path: string) => fetchAudioMetadataEffect(buildAudioMetadataUrl(path)),
+})
+function audioController(props: Snapshot<Props>) {
+  const session = getPlaybackSession()
+  const owner = modelOwner({
+    props,
+    session,
+    playback: playbackSource.model(),
+    settings: undefined as WorkspaceSettings | undefined,
+    files: [] as FileItem[],
+    views: {} as Record<string, number>,
+    metadata: undefined as AudioMetadata | undefined,
+    detailsKey: '',
+    detailsOpen: false,
   })
-  const detailsOpen = () => {
-    const state = detailsState()
-    return !!detailsKey() && state.key === detailsKey() && state.open
-  }
-  const setDetailsOpen = (open: boolean) => setDetailsState({ key: detailsKey(), open })
-  createEffect(detailsKey, (key) => {
-    setDetailsState({ key, open: false })
+  let signature = ''
+  const settings = observeQuery(owner, queryCache, settingsQuery, (result) => {
+    owner.patch({ settings: available(result) })
+    updateQueue()
   })
-
-  const filesQuery = useQuery(() => ({
-    queryKey: queryKeys.files(currentDir()),
-    queryFn: ({ queryKey, signal }) => fetchDirectoryFiles(queryKey[1]!, signal),
-    enabled: shouldHandleAudio() && !!playingPath(),
-  }))
-  const allFiles = createMemo(() => {
-    const files = queryData(filesQuery)?.files ?? []
-    return sortFilesForPath(
-      files,
-      currentDir(),
-      queryData(settingsQuery)?.sortOrders,
-      false,
-      createFileSortMetadata(queryData(settingsQuery)?.favorites, viewStats.viewCounts()),
+  const stats = observeQuery(owner, queryCache, statsQuery, (result) => {
+    owner.patch({ views: available(result)?.views ?? {} })
+    updateQueue()
+  })
+  const files = observeQuery(owner, queryCache, audioFilesQuery, (result) => {
+    owner.patch({ files: available(result)?.files ?? [] })
+    updateQueue()
+  })
+  const metadata = observeQuery(owner, queryCache, audioMetadataQuery, 'metadata', available)
+  function updateQueue() {
+    const model = owner.read(),
+      item = model.playback.currentItem
+    if (
+      !item ||
+      model.playback.mode !== 'audio' ||
+      model.playback.queueContext ||
+      !model.files.length
     )
-  })
-  let queuedSignature = ''
-  createEffect(
-    () => {
-      const current = item()
-      if (!current || !shouldHandleAudio() || filesQuery.isPending) return null
-      if (playback().queueContext) return null
-      const queue = audioPlaybackQueueFromFiles(allFiles(), current)
-      return { queue, current, signature: queue.map((candidate) => candidate.locator).join('\x01') }
+      return
+    const sorted = sortFilesForPath(
+      [...model.files],
+      parentPath(item.locator),
+      model.settings?.sortOrders,
+      false,
+      createFileSortMetadata(model.settings?.favorites, model.views),
+    )
+    const queue = audioPlaybackQueueFromFiles(sorted, item)
+    const next = queue.map((item) => item.locator).join('\x01')
+    if (next === signature) return
+    signature = next
+    session.dispatch({ type: 'setQueue', queue, current: item })
+  }
+  function select() {
+    const current = playbackSource.model()
+    const detailsKey = `${current.currentItem?.locator}\0${current.mode}`
+    owner.patch({
+      playback: current,
+      ...(detailsKey !== owner.read().detailsKey ? { detailsKey, detailsOpen: false } : {}),
+    })
+    const enabled = current.mode === 'audio' && !owner.read().props.suppressTaskbarAudioChrome?.(),
+      path = current.currentItem?.locator
+    files.select(enabled && path ? parentPath(path) : undefined)
+    metadata.select(enabled && path ? path : undefined)
+  }
+  settings.select(true)
+  stats.select(true)
+  const stop = playbackSource.subscribe(select)
+  select()
+  const details = (open: boolean) => {
+    const current = owner.read().playback
+    owner.patch({
+      detailsKey: `${current.currentItem?.locator}\0${current.mode}`,
+      detailsOpen: open,
+    })
+  }
+  return {
+    source: owner.source,
+    receive(next: Snapshot<Props>) {
+      owner.patch({ props: next })
+      select()
     },
-    (next) => {
-      if (!next || next.signature === queuedSignature) return
-      queuedSignature = next.signature
-      session.dispatch({ type: 'setQueue', queue: next.queue, current: next.current })
+    dispose() {
+      stop()
+      owner.dispose()
     },
-  )
-  const coverArtUrl = createMemo(() => {
-    const cover = allFiles().find(
+    details,
+  }
+}
+type AudioModel = ReturnType<ReturnType<typeof audioController>['source']['model']>
+export const WorkspaceTaskbarAudio = controllerView({
+  create: (props: Snapshot<Props>) => {
+    const controller = audioController(props)
+    const owner = modelOwner({ ...controller.source.model(), setDetailsOpen: controller.details })
+    const stop = controller.source.subscribe((model) => owner.patch(model))
+    return {
+      source: owner.source,
+      receive: (props) => controller.receive(props),
+      dispose() {
+        stop()
+        controller.dispose()
+        owner.dispose()
+      },
+    }
+  },
+  view: view<AudioModel & { setDetailsOpen: (open: boolean) => void }>((model) => {
+    const props = model.props,
+      session = model.session,
+      setDetailsOpen = model.setDetailsOpen
+    const playback = () => model.playback,
+      item = () => model.playback.currentItem,
+      playingPath = () => item()?.locator ?? null,
+      currentDir = () => parentPath(playingPath() ?? ''),
+      isVideoFile = () => item()?.media === 'video'
+    const shouldHandleAudio = () =>
+      !!item() && playback().mode === 'audio' && !props.suppressTaskbarAudioChrome?.()
+    const detailsOpen = () =>
+      model.detailsOpen && model.detailsKey === `${playingPath()}\0${playback().mode}`
+    const audioMetadata = () => model.metadata,
+      fileName = () => item()?.name ?? '',
+      displayDuration = () => playback().duration || audioMetadata()?.duration || 0
+    const cover = model.files.find(
       (file) =>
         file.type === MediaType.IMAGE &&
         file.name.toLowerCase().replace(/\.[^.]+$/, '') === 'cover',
     )
-    return cover ? buildMediaUrl(cover.path) : null
-  })
-  const metadataUrl = createMemo(() => {
-    const path = playingPath()
-    return path ? buildAudioMetadataUrl(path) : ''
-  })
-  const metadataQuery = useQuery(() => ({
-    queryKey: queryKeys.audioMetadata(playingPath() ?? ''),
-    queryFn: ({ queryKey, signal }) =>
-      fetchAudioMetadata(buildAudioMetadataUrl(queryKey[2]), signal),
-    enabled: shouldHandleAudio() && !!metadataUrl(),
-    refetchOnWindowFocus: false,
-  }))
-  const audioMetadata = createMemo(() => queryData(metadataQuery))
-  const displayImageUrl = createMemo(() => {
-    const path = playingPath()
-    if (isVideoFile() && path) return buildThumbnailUrl(path)
-    return audioMetadata()?.coverArt || coverArtUrl()
-  })
-  const fileName = createMemo(() => item()?.name ?? '')
-  const displayDuration = createMemo(() => playback().duration || audioMetadata()?.duration || 0)
-  const scrubber = createPlaybackScrubber({
-    key: () => `${playingPath()}\0${playback().mode}`,
-    position: () => playback().position,
-    duration: displayDuration,
-    onSeek: (position) => session.dispatch({ type: 'seek', position }),
-  })
-  const hasPreviousAudio = createMemo(() => playback().currentIndex > 0 || playback().position > 20)
-  const hasNextAudio = createMemo(
-    () => playback().currentIndex >= 0 && playback().currentIndex + 1 < playback().queue.length,
-  )
-
-  createEffect(
-    () => detailsOpen(),
-    (isOpen) => {
-      if (!isOpen) return undefined
-      const onDown = (event: MouseEvent) => {
-        const target = event.target as Node | null
-        const root = document.querySelector('[data-workspace-taskbar-audio-root]')
-        if (root && target && !root.contains(target)) setDetailsOpen(false)
-      }
-      const onKey = (event: KeyboardEvent) => {
-        if (event.key === 'Escape') setDetailsOpen(false)
-      }
-      document.addEventListener('mousedown', onDown)
-      document.addEventListener('keydown', onKey)
-      // eslint-disable-next-line solid/reactivity
-      return () => {
-        document.removeEventListener('mousedown', onDown)
-        document.removeEventListener('keydown', onKey)
-      }
-    },
-  )
-
-  function handleShowVideo() {
-    const path = playingPath()
-    if (!path || !isVideoFile()) return
-    session.dispatch({ type: 'setMode', mode: 'video' })
-    props.onShowVideo(path, currentDir() || undefined)
-  }
-
-  return (
-    <Show when={shouldHandleAudio()}>
-      <div class='relative' data-workspace-taskbar-audio-root>
+    const displayImageUrl = () =>
+      isVideoFile() && playingPath()
+        ? buildThumbnailUrl(playingPath()!)
+        : audioMetadata()?.coverArt || (cover ? buildMediaUrl(cover.path) : null)
+    const hasPreviousAudio = () => playback().currentIndex > 0 || playback().position > 20,
+      hasNextAudio = () =>
+        playback().currentIndex >= 0 && playback().currentIndex + 1 < playback().queue.length
+    function handleShowVideo() {
+      const path = playingPath()
+      if (!path || !isVideoFile()) return
+      session.dispatch({ type: 'setMode', mode: 'video' })
+      props.onShowVideo(path, currentDir() || undefined)
+    }
+    return shouldHandleAudio() ? (
+      <div
+        class='relative'
+        data-workspace-taskbar-audio-root
+        use={domBinding(
+          { open: detailsOpen(), close: () => setDetailsOpen(false) },
+          audioDetailsEvents,
+        )}
+      >
         <div class='text-muted-foreground flex h-8 items-center gap-1 border-l border-border bg-muted/50 px-2'>
           <button
             type='button'
             class='hover:opacity-90 flex min-w-0 cursor-pointer items-center gap-1.5 pr-1 text-left transition-opacity'
-            onClick={() => setDetailsOpen(!detailsOpen())}
+            onClick={() => {
+              setDetailsOpen(!detailsOpen())
+            }}
             aria-label='Open audio controls'
             aria-expanded={detailsOpen() ? 'true' : 'false'}
           >
             <div class='bg-muted flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded'>
-              <Show
-                when={displayImageUrl()}
-                fallback={
-                  <Headphones class='text-muted-foreground h-3.5 w-3.5 shrink-0' stroke-width={2} />
-                }
-              >
+              {displayImageUrl() ? (
                 <img
                   src={displayImageUrl()!}
                   alt=''
                   class='block size-full object-cover object-center'
                   loading='eager'
                 />
-              </Show>
+              ) : (
+                <Headphones class='text-muted-foreground h-3.5 w-3.5 shrink-0' stroke-width={2} />
+              )}
             </div>
             <div class='hidden max-w-52 min-w-52 min-[1150px]:block'>
               <div class='text-foreground truncate text-[12px] leading-none font-medium'>
@@ -201,7 +224,7 @@ export function WorkspaceTaskbarAudio(props: Props) {
           </button>
         </div>
 
-        <Show when={detailsOpen()}>
+        {detailsOpen() ? (
           <div class='bg-popover absolute right-0 bottom-full z-100001 mb-2 w-80 border border-border shadow-xl'>
             <button
               type='button'
@@ -218,16 +241,15 @@ export function WorkspaceTaskbarAudio(props: Props) {
             <div class='space-y-3 p-3'>
               <div class='flex items-center gap-3 pr-10'>
                 <div class='flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded bg-neutral-800'>
-                  <Show
-                    when={displayImageUrl()}
-                    fallback={<Headphones class='text-muted-foreground h-5 w-5' stroke-width={2} />}
-                  >
+                  {displayImageUrl() ? (
                     <img
                       src={displayImageUrl()!}
                       alt='Album art'
                       class='h-full w-full object-cover object-center'
                     />
-                  </Show>
+                  ) : (
+                    <Headphones class='text-muted-foreground h-5 w-5' stroke-width={2} />
+                  )}
                 </div>
                 <div class='min-w-0 flex-1'>
                   <div class='text-foreground truncate text-sm font-medium'>
@@ -241,17 +263,18 @@ export function WorkspaceTaskbarAudio(props: Props) {
 
               <div class='text-muted-foreground flex items-center gap-2 text-[11px]'>
                 <span class='w-9 text-right tabular-nums'>
-                  {formatPlaybackTime(scrubber.position())}
+                  {formatPlaybackTime(playback().position)}
                 </span>
-                <input
-                  type='range'
-                  aria-label='Playback position'
-                  aria-valuetext={`${formatPlaybackTime(scrubber.position())} of ${formatPlaybackTime(displayDuration())}`}
-                  min={0}
-                  max={displayDuration() || 0}
-                  step={0.1}
-                  value={scrubber.position()}
-                  {...scrubber.handlers}
+                <PlaybackScrubber
+                  itemKey={`${playingPath()}\0${playback().mode}`}
+                  position={playback().position}
+                  duration={displayDuration()}
+                  ariaLabel='Playback position'
+                  ariaValueText={(position) =>
+                    `${formatPlaybackTime(position)} of ${formatPlaybackTime(displayDuration())}`
+                  }
+                  disabled={!item()}
+                  onSeek={(position) => session.dispatch({ type: 'seek', position })}
                   class='[&::-webkit-slider-thumb]:bg-primary h-1.5 flex-1 cursor-pointer appearance-none rounded-none bg-secondary [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full'
                 />
                 <span class='w-9 tabular-nums'>{formatPlaybackTime(displayDuration())}</span>
@@ -264,7 +287,9 @@ export function WorkspaceTaskbarAudio(props: Props) {
                     class='hover:bg-accent inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md disabled:opacity-50'
                     disabled={!hasPreviousAudio()}
                     aria-label='Previous track'
-                    onClick={() => session.dispatch({ type: 'previous' })}
+                    onClick={() => {
+                      session.dispatch({ type: 'previous' })
+                    }}
                   >
                     <StepBack class='h-4 w-4' stroke-width={2} />
                   </button>
@@ -272,18 +297,24 @@ export function WorkspaceTaskbarAudio(props: Props) {
                     type='button'
                     aria-label={playback().desiredPlaying ? 'Pause' : 'Play'}
                     class='bg-primary text-primary-foreground hover:bg-primary/90 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md'
-                    onClick={() => session.dispatch({ type: 'toggle' })}
+                    onClick={() => {
+                      session.dispatch({ type: 'toggle' })
+                    }}
                   >
-                    <Show when={playback().desiredPlaying} fallback={<Play class='h-4 w-4' />}>
+                    {playback().desiredPlaying ? (
                       <Pause class='h-4 w-4' />
-                    </Show>
+                    ) : (
+                      <Play class='h-4 w-4' />
+                    )}
                   </button>
                   <button
                     type='button'
                     class='hover:bg-accent inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md disabled:opacity-50'
                     disabled={!hasNextAudio()}
                     aria-label='Next track'
-                    onClick={() => session.dispatch({ type: 'next' })}
+                    onClick={() => {
+                      session.dispatch({ type: 'next' })
+                    }}
                   >
                     <StepForward class='h-4 w-4' stroke-width={2} />
                   </button>
@@ -296,7 +327,9 @@ export function WorkspaceTaskbarAudio(props: Props) {
                         ? 'bg-primary text-primary-foreground inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md'
                         : 'hover:bg-accent inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md'
                     }
-                    onClick={() => session.dispatch({ type: 'toggleRepeat' })}
+                    onClick={() => {
+                      session.dispatch({ type: 'toggleRepeat' })
+                    }}
                   >
                     <Repeat class='h-4 w-4' stroke-width={2} />
                   </button>
@@ -304,7 +337,7 @@ export function WorkspaceTaskbarAudio(props: Props) {
 
                 <div class='flex min-w-0 items-center justify-end gap-2'>
                   <QueuePanel />
-                  <Show when={isVideoFile()}>
+                  {isVideoFile() ? (
                     <button
                       type='button'
                       class='border-input bg-background hover:bg-accent inline-flex h-8 shrink-0 items-center gap-1 rounded-md border px-2 text-xs'
@@ -313,20 +346,18 @@ export function WorkspaceTaskbarAudio(props: Props) {
                       <Monitor class='h-4 w-4' stroke-width={2} />
                       Show video
                     </button>
-                  </Show>
+                  ) : null}
 
                   <div class='ml-1 flex min-w-0 max-w-32 flex-1 items-center gap-2'>
                     <button
                       type='button'
                       aria-label={playback().muted ? 'Unmute' : 'Mute'}
                       class='hover:bg-accent inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md'
-                      onClick={() =>
+                      onClick={() => {
                         session.dispatch({ type: 'setMuted', muted: !playback().muted })
-                      }
+                      }}
                     >
-                      <Show when={playback().muted} fallback={<Volume2 class='h-4 w-4' />}>
-                        <VolumeX class='h-4 w-4' />
-                      </Show>
+                      {playback().muted ? <VolumeX class='h-4 w-4' /> : <Volume2 class='h-4 w-4' />}
                     </button>
                     <input
                       type='range'
@@ -336,12 +367,12 @@ export function WorkspaceTaskbarAudio(props: Props) {
                       max={1}
                       step={0.01}
                       value={playback().muted ? 0 : playback().volume}
-                      onInput={(event) =>
+                      onInput={(event) => {
                         session.dispatch({
                           type: 'setVolume',
                           volume: Number.parseFloat(event.currentTarget.value),
                         })
-                      }
+                      }}
                       class='[&::-webkit-slider-thumb]:bg-primary h-1.5 min-w-0 flex-1 cursor-pointer appearance-none rounded-none bg-secondary [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full'
                     />
                   </div>
@@ -349,8 +380,26 @@ export function WorkspaceTaskbarAudio(props: Props) {
               </div>
             </div>
           </div>
-        </Show>
+        ) : null}
       </div>
-    </Show>
-  )
+    ) : null
+  }),
+})
+const audioDetailsEvents = (
+  element: HTMLElement,
+  current: () => { open: boolean; close: () => void },
+) => {
+  const click = (event: MouseEvent) => {
+    if (current().open && event.target instanceof Node && !element.contains(event.target))
+      current().close()
+  }
+  const key = (event: KeyboardEvent) => {
+    if (current().open && event.key === 'Escape') current().close()
+  }
+  document.addEventListener('mousedown', click)
+  document.addEventListener('keydown', key)
+  return () => {
+    document.removeEventListener('mousedown', click)
+    document.removeEventListener('keydown', key)
+  }
 }

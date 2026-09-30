@@ -5,11 +5,8 @@ const port = 6091
 
 export default defineConfig({
   ...baseConfig,
-  testMatch: 'solid-reactivity.spec.ts',
-  use: {
-    ...baseConfig.use,
-    baseURL: `http://localhost:${port}`,
-  },
+  testMatch: 'effectweb-reactivity.spec.ts',
+  use: { ...baseConfig.use, baseURL: `http://localhost:${port}` },
   webServer: {
     command: 'bun run dev',
     url: `http://127.0.0.1:${port}`,

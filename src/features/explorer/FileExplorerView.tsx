@@ -1,7 +1,5 @@
+import { view, type JSX } from 'effectweb'
 import type { FileItem } from '@/lib/files/types'
-import type { Accessor } from 'solid-js'
-import type { JSX } from '@solidjs/web'
-import { Show, children } from 'solid-js'
 import {
   DirectoryListingEmpty,
   DirectoryListingEmptyTableRow,
@@ -11,23 +9,21 @@ import {
 import { VirtualDirectoryGrid } from '@/features/explorer/VirtualDirectoryGrid'
 import { VirtualDirectoryList } from '@/features/explorer/VirtualDirectoryList'
 import { FileExplorerListing } from './FileExplorerListing'
-
 export type FileExplorerScrollTarget =
   | { kind: 'window' }
   | { kind: 'element'; getScrollElement: () => HTMLElement | undefined }
-
 export type FileExplorerViewProps = Readonly<{
-  files: Accessor<FileItem[]>
-  viewMode: Accessor<'list' | 'grid'>
-  includeParent: Accessor<boolean>
+  files: readonly FileItem[]
+  viewMode: 'list' | 'grid'
+  includeParent: boolean
   scrollTarget: FileExplorerScrollTarget
-  scrollScope?: Accessor<string | undefined>
-  loading: Accessor<boolean>
-  deferredLoading: Accessor<boolean>
-  error?: Accessor<string | undefined>
+  scrollScope?: string | undefined
+  loading: boolean
+  deferredLoading: boolean
+  error?: string | undefined
   onRetry?: () => void
-  showEmpty: Accessor<boolean>
-  canUpload: Accessor<boolean>
+  showEmpty: boolean
+  canUpload: boolean
   renderParentCard?: () => JSX.Element
   renderFileCard?: (file: FileItem) => JSX.Element
   renderParentRow?: () => JSX.Element
@@ -39,66 +35,65 @@ export type FileExplorerViewProps = Readonly<{
   listEmptyRow?: () => JSX.Element
   children?: JSX.Element
 }>
-
 /** Shared directory listing surface. Hosts own data, actions, and row rendering. */
-export function FileExplorerView(props: FileExplorerViewProps) {
-  const showError = () => props.error?.()
-  // Solid resolves children lazily; reading props.children twice would mount the subtree twice.
-  const content = children(() => props.children)
-
+export const FileExplorerView = view<FileExplorerViewProps>((props) => {
+  const showError = () => props.error
+  const content = () => props.children
   return (
     <>
-      <Show when={showError()}>
+      {showError() ? (
         <DirectoryListingErrorPanel onRetry={() => props.onRetry?.()} detail={showError()} />
-      </Show>
-      <Show when={!showError()}>
-        {content()}
-        <DirectoryListingLoading show={props.loading() && props.deferredLoading()} />
-        <Show when={!props.loading() && content() === undefined}>
-          <FileExplorerListing
-            viewMode={props.viewMode}
-            renderGrid={() => (
-              <div class='px-4 py-4'>
-                <Show when={props.renderParentCard && props.renderFileCard}>
-                  <VirtualDirectoryGrid
+      ) : null}
+      {!showError() ? (
+        <>
+          {content()}
+          <DirectoryListingLoading show={props.loading && props.deferredLoading} />
+          {!props.loading && content() === undefined ? (
+            <FileExplorerListing
+              viewMode={props.viewMode}
+              renderGrid={() => (
+                <div class='px-4 py-4'>
+                  {props.renderParentCard && props.renderFileCard ? (
+                    <VirtualDirectoryGrid
+                      files={props.files}
+                      includeParent={props.includeParent}
+                      scrollTarget={props.scrollTarget}
+                      scrollScope={props.scrollScope}
+                      class={props.gridClass}
+                      renderParentCard={props.renderParentCard!}
+                      renderFileCard={props.renderFileCard!}
+                    />
+                  ) : null}
+                  <DirectoryListingEmpty show={props.showEmpty} canUpload={props.canUpload} />
+                </div>
+              )}
+              renderList={() =>
+                props.renderParentRow && props.renderFileRow ? (
+                  <VirtualDirectoryList
                     files={props.files}
                     includeParent={props.includeParent}
                     scrollTarget={props.scrollTarget}
                     scrollScope={props.scrollScope}
-                    class={props.gridClass}
-                    renderParentCard={props.renderParentCard!}
-                    renderFileCard={props.renderFileCard!}
+                    colSpan={props.listColSpan ?? 3}
+                    sizeColumnClass={props.listSizeColumnClass}
+                    class={props.listClass}
+                    renderParentRow={props.renderParentRow!}
+                    renderFileRow={props.renderFileRow!}
+                    renderEmptyRow={() =>
+                      props.listEmptyRow?.() ?? (
+                        <DirectoryListingEmptyTableRow
+                          show={props.showEmpty}
+                          canUpload={props.canUpload}
+                        />
+                      )
+                    }
                   />
-                </Show>
-                <DirectoryListingEmpty show={props.showEmpty()} canUpload={props.canUpload()} />
-              </div>
-            )}
-            renderList={() => (
-              <Show when={props.renderParentRow && props.renderFileRow}>
-                <VirtualDirectoryList
-                  files={props.files}
-                  includeParent={props.includeParent}
-                  scrollTarget={props.scrollTarget}
-                  scrollScope={props.scrollScope}
-                  colSpan={props.listColSpan ?? 3}
-                  sizeColumnClass={props.listSizeColumnClass}
-                  class={props.listClass}
-                  renderParentRow={props.renderParentRow!}
-                  renderFileRow={props.renderFileRow!}
-                  renderEmptyRow={() =>
-                    props.listEmptyRow?.() ?? (
-                      <DirectoryListingEmptyTableRow
-                        show={props.showEmpty()}
-                        canUpload={props.canUpload()}
-                      />
-                    )
-                  }
-                />
-              </Show>
-            )}
-          />
-        </Show>
-      </Show>
+                ) : null
+              }
+            />
+          ) : null}
+        </>
+      ) : null}
     </>
   )
-}
+})

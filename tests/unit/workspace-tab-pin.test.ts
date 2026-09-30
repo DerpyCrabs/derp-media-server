@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { MediaType } from '@/lib/files/types'
-import type { PersistedWorkspaceState } from '@/workspace/model/use-workspace'
+import type { PersistedWorkspaceState } from '@/workspace/model/workspace'
 import type { WindowDefinition as WorkspaceWindowDefinition } from '@/lib/models/window-model'
 import {
   clampTabInsertIndex,

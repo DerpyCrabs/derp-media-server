@@ -1,13 +1,6 @@
-export type ThumbnailLoadTicket = {
-  cancel: () => void
-  release: () => void
-}
+export type ThumbnailLoadTicket = { cancel: () => void; release: () => void }
 
-type QueueItem = {
-  start: () => void
-  active: boolean
-  cancelled: boolean
-}
+type QueueItem = { start: () => void; active: boolean; cancelled: boolean }
 
 const DEFAULT_CONCURRENCY = 4
 
@@ -18,11 +11,7 @@ class ThumbnailLoadQueue {
   constructor(private readonly concurrency = DEFAULT_CONCURRENCY) {}
 
   enqueue(start: () => void): ThumbnailLoadTicket {
-    const item: QueueItem = {
-      start,
-      active: false,
-      cancelled: false,
-    }
+    const item: QueueItem = { start, active: false, cancelled: false }
 
     const release = () => {
       if (!item.active) return

@@ -35,22 +35,12 @@ export type SnapZone =
   | 'bottom-right-third'
 
 export interface WindowLayout {
-  bounds?: {
-    x: number
-    y: number
-    width: number
-    height: number
-  } | null
+  bounds?: { x: number; y: number; width: number; height: number } | null
   fullscreen?: boolean
   snapZone?: SnapZone | null
   minimized?: boolean
   zIndex?: number
-  restoreBounds?: {
-    x: number
-    y: number
-    width: number
-    height: number
-  } | null
+  restoreBounds?: { x: number; y: number; width: number; height: number } | null
   tiling?: TilingPlacement | null
 }
 
@@ -61,8 +51,8 @@ export interface TilingPlacement {
   colEnd: number
   rowStart: number
   rowEnd: number
-  colLines: number[]
-  rowLines: number[]
+  colLines: readonly number[]
+  rowLines: readonly number[]
 }
 
 export interface WindowDefinition {
@@ -80,12 +70,7 @@ export interface WindowDefinition {
   tabPinned?: boolean
   layout?: WindowLayout
   fileOpenTargetWindowId?: string | null
-  hermes?: {
-    sessionId?: string
-    draftId?: string
-    cwd?: string | null
-    readOnly?: boolean
-  }
+  hermes?: { sessionId?: string; draftId?: string; cwd?: string | null; readOnly?: boolean }
 }
 
 export type PinnedTaskbarItem = TaskbarPin
@@ -97,7 +82,7 @@ export interface TabGroupSplitState {
 
 export interface PersistedWindowState {
   workspaceType: 'desktop' | 'canvas'
-  windows: WindowDefinition[]
+  windows: readonly WindowDefinition[]
   activeWindowId: string | null
   activeTabMap: Record<string, string>
   nextWindowId: number

@@ -1,9 +1,4 @@
-export type WorkspaceRect = {
-  x: number
-  y: number
-  width: number
-  height: number
-}
+export type WorkspaceRect = { x: number; y: number; width: number; height: number }
 
 type CanvasSize = { width: number; height: number }
 

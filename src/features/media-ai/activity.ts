@@ -1,3 +1,5 @@
+import { Effect } from 'effect'
+import { commandSlot, lifetime } from 'effectweb'
 import type { PlaybackCommand, PlaybackSession } from '@/features/playback/types'
 
 export function createActivityId() {
@@ -28,58 +30,82 @@ export function currentActivityId() {
 export function excludeCurrentActivity() {
   current?.exclude()
 }
-const pending: ActivityEvent[] = []
-let sending = false
+type ActivityQueueState = { pending: ActivityEvent[]; restored: boolean }
+const queue: ActivityQueueState = import.meta.hot?.data.activityQueue ?? {
+  pending: [],
+  restored: false,
+}
+if (import.meta.hot) import.meta.hot.data.activityQueue = queue
+const pending = queue.pending
 function persist() {
   try {
     sessionStorage.setItem('media-activity-pending', JSON.stringify(pending.slice(-100)))
   } catch {}
 }
-async function drain() {
-  if (sending) return
-  sending = true
-  try {
-    while (pending.length) {
-      const response = await fetch('/api/activity', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(pending[0]),
-        keepalive: true,
-      })
-      if (!response.ok && response.status >= 500) break
-      pending.shift()
-      persist()
-    }
-  } catch {
-  } finally {
-    sending = false
-  }
+const drainSlot = commandSlot('activity-drain')
+const retrySlot = commandSlot('activity-retry')
+let activityLifetime = lifetime()
+function drain() {
+  activityLifetime.run(
+    drainSlot,
+    Effect.gen(function* () {
+      while (pending.length) {
+        const event = pending[0]!
+        const response = yield* Effect.tryPromise({
+          try: (signal) =>
+            fetch('/api/activity', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(event),
+              keepalive: true,
+              signal,
+            }),
+          catch: (error) => error,
+        })
+        if (!response.ok && response.status >= 500) break
+        const index = pending.indexOf(event)
+        if (index !== -1) pending.splice(index, 1)
+        persist()
+      }
+    }).pipe(Effect.catch(() => Effect.void)),
+    'drop',
+  )
 }
 export function sendActivity(event: ActivityEvent) {
   pending.push(event)
   if (pending.length > 100) pending.shift()
   persist()
-  void drain()
+  drain()
 }
 export function restoreActivityQueue() {
-  try {
-    const saved: unknown = JSON.parse(sessionStorage.getItem('media-activity-pending') || '[]')
-    if (Array.isArray(saved))
-      pending.push(
-        ...saved
-          .filter(
-            (v): v is ActivityEvent =>
-              v &&
-              typeof v.id === 'string' &&
-              typeof v.end === 'number' &&
-              Date.now() - v.end < 86_400_000,
+  if (activityLifetime.disposed) activityLifetime = lifetime()
+  if (!queue.restored) {
+    queue.restored = true
+    try {
+      const saved: unknown = JSON.parse(sessionStorage.getItem('media-activity-pending') || '[]')
+      if (Array.isArray(saved)) {
+        for (const value of saved) {
+          if (
+            value &&
+            typeof value.id === 'string' &&
+            typeof value.seq === 'number' &&
+            typeof value.end === 'number' &&
+            Date.now() - value.end < 86_400_000 &&
+            !pending.some((event) => event.id === value.id && event.seq === value.seq)
           )
-          .slice(-100),
-      )
-  } catch {}
-  void drain()
-  const timer = window.setInterval(() => void drain(), 10_000)
-  return () => window.clearInterval(timer)
+            pending.push(value)
+        }
+        pending.splice(0, Math.max(0, pending.length - 100))
+      }
+    } catch {}
+  }
+  drain()
+  activityLifetime.run(
+    retrySlot,
+    Effect.forever(Effect.sleep(10_000).pipe(Effect.andThen(Effect.sync(drain)))),
+    'replace',
+  )
+  return () => activityLifetime.dispose()
 }
 
 export function trackPlayback(

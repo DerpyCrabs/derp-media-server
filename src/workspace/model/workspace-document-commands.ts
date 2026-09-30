@@ -1,4 +1,4 @@
-import type { PersistedWorkspaceState } from './use-workspace'
+import type { PersistedWorkspaceState } from './workspace'
 import {
   exitSplitViewState,
   ensureSplitActiveNotLeft,
@@ -234,11 +234,7 @@ function rollbackTabPull(
     const membershipWasLocallyChanged =
       previous.tabGroupId !== local.tabGroupId && window.tabGroupId === local.tabGroupId
     if (!membershipWasLocallyChanged) return window
-    return {
-      ...window,
-      tabGroupId: previous.tabGroupId,
-      layout: previous.layout,
-    }
+    return { ...window, tabGroupId: previous.tabGroupId, layout: previous.layout }
   })
 
   const activeTabMap = sameMapEntry(latest.activeTabMap, projected.activeTabMap, groupId)

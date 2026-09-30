@@ -19,14 +19,14 @@ const picks = [
 async function enable(page: Page, mockMusic = false) {
   if (mockMusic) {
     await page.addInitScript(() => {
-      type State = { queries?: { queryKey?: unknown[] }[] }
+      type State = { entries?: { key?: unknown[] }[] }
       let cached: State | undefined
-      Object.defineProperty(window, '__DEHYDRATED_STATE__', {
+      Object.defineProperty(window, '__INITIAL_DATA__', {
         configurable: true,
         get: () => cached,
         set: (value: State) => {
-          value.queries = value.queries?.filter(
-            (query) => !['media-ai', 'music'].includes(String(query.queryKey?.[0])),
+          value.entries = value.entries?.filter(
+            (query) => !['media-ai', 'music'].includes(String(query.key?.[0])),
           )
           cached = value
         },
@@ -126,9 +126,9 @@ for (const action of ['track', 'all', 'mix'] as const) {
 
 test('AI query follow-ups and feedback preserve the selection', async ({ page }) => {
   await enable(page)
-  const queries: unknown[] = []
+  const entries: unknown[] = []
   await page.route('**/api/media-ai/ask', (route) => {
-    queries.push(route.request().postDataJSON())
+    entries.push(route.request().postDataJSON())
     return route.fulfill({
       json: { items: picks, message: 'Here is music from your library.', intent: 'show' },
     })
@@ -142,8 +142,8 @@ test('AI query follow-ups and feedback preserve the selection', async ({ page })
   await expect(page.getByText('Here is music from your library.')).toHaveCount(0)
   await page.getByRole('textbox', { name: 'Search your library' }).fill('Something different')
   await page.getByRole('button', { name: 'Search', exact: true }).click()
-  await expect.poll(() => queries.length).toBe(2)
-  expect(queries[1]).toMatchObject({ query: 'Something different', history: ['Show music'] })
+  await expect.poll(() => entries.length).toBe(2)
+  expect(entries[1]).toMatchObject({ query: 'Something different', history: ['Show music'] })
   await page.getByRole('button', { name: 'Like First track', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Like First track', exact: true })).toHaveAttribute(
     'aria-pressed',
@@ -169,11 +169,7 @@ test('recommendation audio queue survives reload and gallery browsing', async ({
   ]
   await page.route('**/api/media-ai/home*', (route) =>
     route.fulfill({
-      json: {
-        enabled: true,
-        generatedAt: Date.now(),
-        rows: [{ title: 'For you', items: audio }],
-      },
+      json: { enabled: true, generatedAt: Date.now(), rows: [{ title: 'For you', items: audio }] },
     }),
   )
   await page.goto('/')
@@ -519,6 +515,14 @@ test('Library header search selects results through the existing modal', async (
           },
         ],
         truncated: false,
+        status: {
+          state: 'ready',
+          stale: false,
+          indexedEntries: 1,
+          scannedDirectories: 1,
+          watcherCount: 0,
+          roots: [],
+        },
       },
     }),
   )

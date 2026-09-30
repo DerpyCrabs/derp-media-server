@@ -1,3 +1,4 @@
+import type { Snapshot } from 'effectweb'
 import type { AudioMetadata } from './audio'
 import type { PlaybackItem, PlaybackMode } from './types'
 
@@ -6,7 +7,7 @@ export type PlaybackMediaSessionMetadataInput = Readonly<{
   mode: PlaybackMode
   album?: string
   artworkUrl?: string | null
-  metadata?: AudioMetadata
+  metadata?: Snapshot<AudioMetadata>
   artworkBaseUrl?: string
 }>
 

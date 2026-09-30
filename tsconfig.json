@@ -13,11 +13,9 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "jsx": "preserve",
-    "jsxImportSource": "@solidjs/web",
+    "jsxImportSource": "effectweb",
     "incremental": true,
-    "paths": {
-      "@/*": ["./src/*"]
-    }
+    "paths": { "@/*": ["./src/*"] }
   },
   "include": ["**/*.ts", "**/*.tsx", "**/*.mts"],
   "exclude": ["node_modules", "dist", "test-results", "playwright-report"]

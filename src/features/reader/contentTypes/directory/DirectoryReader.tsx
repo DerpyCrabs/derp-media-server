@@ -1,98 +1,83 @@
-import { useQueryClient } from '@tanstack/solid-query'
-import { queryKeys } from '@/lib/api/query-keys'
-import { fetchDirectoryFiles } from '@/lib/files/files-client'
+import { view } from 'effectweb'
+import { Effect } from 'effect'
+import { queryCache } from '@/lib/api/cache'
+import { settingsQuery, statsQuery } from '@/lib/api/queries'
+import { fetchDirectoryFilesEffect } from '@/lib/files/files-client'
 import { createFileSortMetadata, sortFilesForPath } from '@/features/explorer/file-display-settings'
-import { useExplorerSettings } from '@/features/explorer/use-explorer-settings'
-import { useViewStats } from '@/features/explorer/use-view-stats'
 import { MediaType } from '@/lib/files/types'
 import { buildMediaUrl } from '@/lib/media/build-media-url'
 import { ImageContent } from '../ImageContent'
 import { PagedReader, type PagedDocument } from '../paged/PagedReader'
-import type { ReaderPage } from '../../reader-position'
 import type { ReaderContentProps } from '../../reader-types'
 
-const loadImageSize = (source: string, signal: AbortSignal) =>
-  new Promise<{ width: number; height: number }>((resolve) => {
+const loadImageSize = (source: string) =>
+  Effect.callback<{ width: number; height: number }>((resume) => {
     const image = new Image()
-    let settled = false
-    const finish = (size: { width: number; height: number }) => {
-      if (settled) return
-      settled = true
+    image.onload = () =>
+      resume(
+        Effect.succeed({ width: image.naturalWidth || 900, height: image.naturalHeight || 1200 }),
+      )
+    image.onerror = () => resume(Effect.succeed({ width: 900, height: 1200 }))
+    image.src = source
+    return Effect.sync(() => {
       image.onload = null
       image.onerror = null
-      signal.removeEventListener('abort', abort)
-      resolve(size)
-    }
-    const abort = () => {
       image.src = ''
-      finish({ width: 900, height: 1200 })
-    }
-    image.onload = () =>
-      finish({ width: image.naturalWidth || 900, height: image.naturalHeight || 1200 })
-    image.onerror = () => finish({ width: 900, height: 1200 })
-    if (signal.aborted) abort()
-    else {
-      signal.addEventListener('abort', abort, { once: true })
-      image.src = source
-    }
+    })
   })
 
-export default function DirectoryReader(props: ReaderContentProps) {
-  const queryClient = useQueryClient()
-  const { settingsQuery } = useExplorerSettings()
-  const viewStats = useViewStats()
-  const load = async (path: string, signal: AbortSignal): Promise<PagedDocument> => {
-    const [payload, settings, views] = await Promise.all([
-      queryClient.fetchQuery({
-        queryKey: queryKeys.files(path),
-        queryFn: ({ signal }) => fetchDirectoryFiles(path, signal),
-      }),
-      (settingsQuery.data
-        ? Promise.resolve(settingsQuery.data)
-        : settingsQuery.refetch().then((result) => result.data)
-      ).catch(() => undefined),
-      (viewStats.query.data
-        ? Promise.resolve(viewStats.query.data.views)
-        : viewStats.query.refetch().then((result) => result.data?.views ?? {})
-      ).catch(() => ({})),
-    ])
-    signal.throwIfAborted()
+const load = (path: string): Effect.Effect<PagedDocument, unknown> =>
+  Effect.gen(function* () {
+    const [payload, settings, stats] = yield* Effect.all(
+      [
+        fetchDirectoryFilesEffect(path),
+        queryCache
+          .prefetch(settingsQuery, true)
+          .pipe(Effect.catch(() => Effect.succeed(undefined))),
+        queryCache
+          .prefetch(statsQuery, true)
+          .pipe(Effect.catch(() => Effect.succeed({ views: {} }))),
+      ],
+      { concurrency: 'unbounded' },
+    )
     const files = sortFilesForPath(
       payload.files,
       path,
       settings?.sortOrders,
       false,
-      createFileSortMetadata(settings?.favorites, views),
+      createFileSortMetadata(settings?.favorites, stats.views),
     ).filter((file) => !file.isDirectory && file.type === MediaType.IMAGE)
-    if (!files.length) throw new Error('Folder contains no supported images')
-    const pages = await Promise.all(
-      files.map(async (file): Promise<ReaderPage> => {
-        const source = buildMediaUrl(file.path.replace(/\\/g, '/'))
-        return {
-          id: file.path,
-          name: file.name,
-          source,
-          ...(await loadImageSize(source, signal)),
-          kind: 'image',
-        }
-      }),
+    if (!files.length) return yield* Effect.fail(new Error('Folder contains no supported images'))
+    const pages = yield* Effect.forEach(
+      files,
+      (file) =>
+        Effect.gen(function* () {
+          const source = buildMediaUrl(file.path.replace(/\\/g, '/'))
+          return {
+            id: file.path,
+            name: file.name,
+            source,
+            ...(yield* loadImageSize(source)),
+            kind: 'image' as const,
+          }
+        }),
+      { concurrency: 8 },
     )
     return { pages, outline: [] }
-  }
-
-  return (
-    <PagedReader
-      {...props}
-      load={load}
-      selectionModes={['image']}
-      renderPage={({ page, zoom, frame }) => (
-        <ImageContent
-          page={page}
-          zoom={zoom}
-          selectionMode={frame.selectionMode()}
-          onRegion={frame.selectRegion}
-        />
-      )}
-    />
-  )
-}
+  })
+const DirectoryReader = view<ReaderContentProps>((props) => (
+  <PagedReader
+    {...props}
+    load={load}
+    selectionModes={['image']}
+    renderPage={({ page, zoom, frame }) => (
+      <ImageContent
+        page={page}
+        zoom={zoom}
+        selectionMode={frame.selectionMode}
+        onRegion={frame.selectRegion}
+      />
+    )}
+  />
+))
+export default DirectoryReader

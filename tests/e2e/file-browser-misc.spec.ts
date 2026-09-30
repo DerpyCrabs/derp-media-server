@@ -7,19 +7,50 @@ const mediaDir = batchId ? `test-media-${batchId}` : 'test-media'
 const UPLOAD_DIR = 'MediaContent'
 
 test.describe('File browser misc', () => {
+  test('keeps a right-edge mobile menu at its intrinsic width after layout updates', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto('/?view=library')
+    const row = page.locator('tr').filter({ hasText: 'Videos' }).first()
+    await row.click({ button: 'right', position: { x: 370, y: 20 } })
+    const menu = page.locator('[data-slot="file-row-context-menu"]')
+    await expect(menu).toBeVisible()
+    const intrinsicWidth = await menu.evaluate((element) => {
+      const copy = element.cloneNode(true) as HTMLElement
+      copy.style.left = '0px'
+      copy.style.top = '0px'
+      copy.style.visibility = 'hidden'
+      document.body.appendChild(copy)
+      const width = copy.getBoundingClientRect().width
+      copy.remove()
+      return width
+    })
+    for (const width of [410, 390, 410, 390]) {
+      await page.setViewportSize({ width, height: 844 })
+      await expect
+        .poll(async () => {
+          const bounds = await menu.boundingBox()
+          return bounds ? Math.abs(bounds.width - intrinsicWidth) : Infinity
+        })
+        .toBeLessThan(1)
+      const bounds = await menu.boundingBox()
+      expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width - 7)
+    }
+  })
+
   test('hydrates the active infinite listing with the browser query shape', async ({ page }) => {
     await page.goto('/?dir=Documents')
     await expect(page.getByTestId('file-browser')).toBeVisible()
     const hydrated = await page.evaluate(() => {
-      const state = window.__DEHYDRATED_STATE__
-      const entry = state?.queries.find(
+      const state = window.__INITIAL_DATA__
+      const entry = state?.entries.find(
         (entry) =>
-          JSON.stringify(entry.queryKey) === JSON.stringify(['files', 'Documents', 'file-browser']),
+          JSON.stringify(entry.key) === JSON.stringify(['files', 'Documents', 'file-browser']),
       )
-      return { queryType: entry?.queryType, data: entry?.state.data }
+      return { data: entry?.data }
     })
     expect(hydrated).toMatchObject({
-      queryType: 'infinite',
       data: { pages: [{ files: expect.any(Array) }], pageParams: [0] },
     })
   })
@@ -177,9 +208,7 @@ test.describe('File browser clipboard paste', () => {
     await page.getByTestId('file-browser').focus()
     await page.evaluate(async () => {
       await navigator.clipboard.write([
-        new ClipboardItem({
-          'text/plain': new Blob(['paste dialog e2e'], { type: 'text/plain' }),
-        }),
+        new ClipboardItem({ 'text/plain': new Blob(['paste dialog e2e'], { type: 'text/plain' }) }),
       ])
     })
     await page.keyboard.press('Control+v')

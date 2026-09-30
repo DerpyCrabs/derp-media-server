@@ -1,153 +1,160 @@
 import { QueuePanel } from '@/features/music/QueuePanel'
-import { createPlaybackScrubber } from '@/features/playback/create-playback-scrubber'
-import { queryData } from '@/lib/api/query-data'
-import { selection } from '@/features/media-ai/selection'
-import { fetchDirectoryFiles } from '@/lib/files/files-client'
-import { queryKeys } from '@/lib/api/query-keys'
 import { MediaType } from '@/lib/files/types'
-import { useQuery } from '@tanstack/solid-query'
-import Monitor from 'lucide-solid/icons/monitor'
-import Pause from 'lucide-solid/icons/pause'
-import Play from 'lucide-solid/icons/play'
-import Repeat from 'lucide-solid/icons/repeat'
-import StepBack from 'lucide-solid/icons/step-back'
-import StepForward from 'lucide-solid/icons/step-forward'
-import Volume2 from 'lucide-solid/icons/volume-2'
-import VolumeX from 'lucide-solid/icons/volume-x'
-import { Show, createEffect, createMemo } from 'solid-js'
+import Monitor from '@effectweb/lucide/icons/monitor'
+import Pause from '@effectweb/lucide/icons/pause'
+import Play from '@effectweb/lucide/icons/play'
+import Repeat from '@effectweb/lucide/icons/repeat'
+import StepBack from '@effectweb/lucide/icons/step-back'
+import StepForward from '@effectweb/lucide/icons/step-forward'
+import Volume2 from '@effectweb/lucide/icons/volume-2'
+import VolumeX from '@effectweb/lucide/icons/volume-x'
 import {
   audioPlaybackQueueFromFiles,
-  fetchAudioMetadata,
   formatPlaybackTime,
   playbackQueuesEqual,
 } from '@/features/playback'
-import { usePlaybackSession, usePlaybackSnapshot } from '@/features/playback/PlaybackProvider'
-import {
-  buildAudioMetadataUrl,
-  buildMediaUrl,
-  buildThumbnailUrl,
-} from '@/lib/media/build-media-url'
+import { buildMediaUrl, buildThumbnailUrl } from '@/lib/media/build-media-url'
 import { setAudioOnly } from '@/lib/browser/url-state-actions'
 import { parentPath } from '@/lib/files/path-utils'
 import { createFileSortMetadata, sortFilesForPath } from '@/features/explorer/file-display-settings'
-import { useExplorerSettings } from '@/features/explorer/use-explorer-settings'
-import { useViewStats } from '@/features/explorer/use-view-stats'
-
-export function AudioPlayer() {
-  const session = usePlaybackSession()
-  const snapshot = usePlaybackSnapshot()
-  const { settingsQuery } = useExplorerSettings()
-  const viewStats = useViewStats()
-
-  const currentItem = createMemo(() => snapshot().currentItem)
-  const playbackMode = createMemo(() => snapshot().mode)
-  const shouldHandleAudio = createMemo(() => !!currentItem() && playbackMode() === 'audio')
-  const playingPath = createMemo(() => currentItem()?.locator ?? '')
-  const currentDir = createMemo(() => parentPath(playingPath()))
-  const fileName = createMemo(() => currentItem()?.name ?? '')
-  const isVideoFile = createMemo(() => currentItem()?.media === 'video')
-
-  const filesQuery = useQuery(() => ({
-    queryKey: queryKeys.files(currentDir()),
-    queryFn: () => fetchDirectoryFiles(currentDir()),
-    enabled: shouldHandleAudio() && !!playingPath(),
-  }))
-  const allFiles = createMemo(() => {
-    const files = queryData(filesQuery)?.files ?? []
-    return sortFilesForPath(
-      files,
-      currentDir(),
-      queryData(settingsQuery)?.sortOrders,
-      false,
-      createFileSortMetadata(queryData(settingsQuery)?.favorites, viewStats.viewCounts()),
+import { AsyncResult } from 'effect/unstable/reactivity'
+import { available, modelOwner, view, type Snapshot, controllerView } from 'effectweb'
+import { queryCache } from '@/lib/api/cache'
+import { settingsQuery, statsQuery } from '@/lib/api/queries'
+import { mediaSelectionSource } from '@/features/media-ai/selection'
+import { getPlaybackSession } from '@/features/playback/PlaybackProvider'
+import { playbackFilesQuery, audioMetadataQuery } from '@/features/playback/PlaybackMediaHost'
+import { PlaybackScrubber } from '@/features/playback/create-playback-scrubber'
+import type { FileItem } from '@/lib/files/types'
+import type { GlobalSettings } from '@/lib/models/settings-types'
+import type { AudioMetadata } from '@/features/playback/audio'
+import { observeQuery } from '@effectweb/query'
+function createAudioPlayer() {
+  const session = getPlaybackSession()
+  const owner = modelOwner({
+    playback: session.getSnapshot(),
+    files: [] as readonly FileItem[],
+    settings: undefined as Snapshot<GlobalSettings> | undefined,
+    views: {} as Readonly<Record<string, number>>,
+    metadata: undefined as Snapshot<AudioMetadata> | undefined,
+    metadataLoading: false,
+    filesReady: false,
+  })
+  const syncQueue = () => {
+    const state = owner.read()
+    const current = state.playback.currentItem
+    if (
+      !current ||
+      state.playback.mode !== 'audio' ||
+      !state.filesReady ||
+      mediaSelectionSource.model().selection.some((f) => f.path === current.locator)
     )
-  })
-
-  createEffect(
-    () => {
-      const current = currentItem()
-      if (
-        !current ||
-        playbackMode() !== 'audio' ||
-        filesQuery.isPending ||
-        selection().some((f) => f.path === current.locator)
-      )
-        return null
-      return { current, queue: audioPlaybackQueueFromFiles(allFiles(), current) }
-    },
-    (next) => {
-      if (!next) return
-      const state = session.getSnapshot()
-      if (!state.queueContext && !playbackQueuesEqual(state.queue, next.queue)) {
-        session.dispatch({ type: 'setQueue', queue: next.queue, current: next.current })
-      }
-    },
-  )
-
-  const coverArtUrl = createMemo(() => {
-    const coverFile = allFiles().find((file) => {
-      if (file.type !== MediaType.IMAGE) return false
-      return file.name.toLowerCase().replace(/\.[^.]+$/, '') === 'cover'
+      return
+    const files = sortFilesForPath(
+      state.files,
+      parentPath(current.locator),
+      state.settings?.sortOrders,
+      false,
+      createFileSortMetadata(state.settings?.favorites, state.views),
+    )
+    const queue = audioPlaybackQueueFromFiles(files, current)
+    const latest = session.getSnapshot()
+    if (!latest.queueContext && !playbackQueuesEqual(latest.queue, queue))
+      session.dispatch({ type: 'setQueue', queue, current })
+  }
+  const files = observeQuery(owner, queryCache, playbackFilesQuery, (result) => {
+    owner.patch({
+      files: available(result)?.files ?? [],
+      filesReady: available(result) !== undefined,
     })
-    return coverFile ? buildMediaUrl(coverFile.path) : null
+    syncQueue()
   })
-
-  const metadataUrl = createMemo(() => {
-    const path = playingPath()
-    return path ? buildAudioMetadataUrl(path) : ''
+  const metadata = observeQuery(owner, queryCache, audioMetadataQuery, (result) =>
+    owner.patch({ metadata: available(result), metadataLoading: AsyncResult.isInitial(result) }),
+  )
+  const settings = observeQuery(owner, queryCache, settingsQuery, (result) => {
+    owner.patch({ settings: available(result) })
+    syncQueue()
   })
-  const metadataQuery = useQuery(() => ({
-    queryKey: queryKeys.audioMetadata(playingPath()),
-    queryFn: () => fetchAudioMetadata(metadataUrl()),
-    enabled: shouldHandleAudio() && !!metadataUrl(),
-    refetchOnWindowFocus: false,
-  }))
-  const audioMetadata = createMemo(() => queryData(metadataQuery))
-
-  const displayImageUrl = createMemo(() => {
-    const path = playingPath()
-    if (isVideoFile() && path) return buildThumbnailUrl(path)
-    return audioMetadata()?.coverArt || coverArtUrl()
+  const stats = observeQuery(owner, queryCache, statsQuery, (result) => {
+    owner.patch({ views: available(result)?.views ?? {} })
+    syncQueue()
   })
-  const displayDuration = createMemo(() => {
-    const metadataDuration = audioMetadata()?.duration
-    return isVideoFile() && metadataDuration && metadataDuration > 0
-      ? metadataDuration
-      : snapshot().duration
-  })
-  const scrubber = createPlaybackScrubber({
-    key: () => `${playingPath()}\0${playbackMode()}`,
-    position: () => snapshot().position,
-    duration: displayDuration,
-    onSeek: (position) => session.dispatch({ type: 'seek', position }),
-  })
-  const scrubTime = scrubber.position
-  const isRepeat = createMemo(() => snapshot().repeat)
-  const hasPreviousAudio = createMemo(() => {
-    const state = snapshot()
-    return state.position > 20 || state.currentIndex > 0
-  })
-  const hasNextAudio = createMemo(() => {
-    const state = snapshot()
-    return state.currentIndex >= 0 && state.currentIndex + 1 < state.queue.length
-  })
-
-  function playPrevious() {
-    session.dispatch({ type: 'previous' })
+  let selected = ''
+  let selectedDirectory: string | undefined
+  const update = () => {
+    const playback = session.getSnapshot()
+    owner.patch({ playback })
+    const path = playback.mode === 'audio' ? (playback.currentItem?.locator ?? '') : ''
+    if (selected !== path) {
+      selected = path
+      const directory = path ? parentPath(path) : undefined
+      if (directory !== selectedDirectory) {
+        selectedDirectory = directory
+        owner.patch({ filesReady: false })
+        files.select(directory)
+      }
+      metadata.select(path || undefined)
+    }
+    syncQueue()
   }
-
-  function playNext() {
-    session.dispatch({ type: 'next' })
-  }
-
-  function handleShowVideo() {
-    if (!isVideoFile()) return
-    session.dispatch({ type: 'setMode', mode: 'video' })
-    setAudioOnly(false)
-  }
-
-  return (
-    <Show when={shouldHandleAudio()}>
+  settings.select(true)
+  stats.select(true)
+  owner.own(session.subscribe(update))
+  owner.own(mediaSelectionSource.subscribe(syncQueue))
+  update()
+  return { source: owner.source, dispose: owner.dispose }
+}
+export const AudioPlayer = controllerView({
+  create: createAudioPlayer,
+  view: view((model) => {
+    const session = {
+      dispatch: (command: Parameters<ReturnType<typeof getPlaybackSession>['dispatch']>[0]) => {
+        getPlaybackSession().dispatch(command)
+      },
+    }
+    const currentItem = () => model.playback.currentItem
+    const playbackMode = () => model.playback.mode
+    const shouldHandleAudio = () => !!currentItem() && playbackMode() === 'audio'
+    const playingPath = () => currentItem()?.locator ?? ''
+    const fileName = () => currentItem()?.name ?? ''
+    const isVideoFile = () => currentItem()?.media === 'video'
+    const allFiles = sortFilesForPath(
+      model.files,
+      parentPath(playingPath()),
+      model.settings?.sortOrders,
+      false,
+      createFileSortMetadata(model.settings?.favorites, model.views),
+    )
+    const coverFile = allFiles.find(
+      (file) =>
+        file.type === MediaType.IMAGE &&
+        file.name.toLowerCase().replace(/\.[^.]+$/, '') === 'cover',
+    )
+    const displayImageUrl = () =>
+      isVideoFile() && playingPath()
+        ? buildThumbnailUrl(playingPath())
+        : model.metadata?.coverArt || (coverFile ? buildMediaUrl(coverFile.path) : null)
+    const displayDuration = () =>
+      isVideoFile() && (model.metadata?.duration ?? 0) > 0
+        ? model.metadata!.duration!
+        : model.playback.duration
+    const scrubTime = () => model.playback.position
+    const isRepeat = () => model.playback.repeat
+    const hasPreviousAudio = () => model.playback.position > 20 || model.playback.currentIndex > 0
+    const hasNextAudio = () =>
+      model.playback.currentIndex >= 0 &&
+      model.playback.currentIndex + 1 < model.playback.queue.length
+    const playPrevious = () => session.dispatch({ type: 'previous' })
+    const playNext = () => session.dispatch({ type: 'next' })
+    const handleShowVideo = () => {
+      if (isVideoFile()) {
+        session.dispatch({ type: 'setMode', mode: 'video' })
+        setAudioOnly(false)
+      }
+    }
+    const metadataQuery = { isLoading: model.metadataLoading }
+    return shouldHandleAudio() ? (
       <div
         data-testid='audio-player-chrome'
         class='fixed right-0 bottom-0 left-0 z-50 border-t border-border bg-background pb-[env(safe-area-inset-bottom,0px)]'
@@ -159,15 +166,12 @@ export function AudioPlayer() {
               width: `${displayDuration() > 0 ? (scrubTime() / displayDuration()) * 100 : 0}%`,
             }}
           />
-          <input
-            type='range'
-            aria-label='Playback position'
-            aria-valuetext={`${formatPlaybackTime(scrubTime())} of ${formatPlaybackTime(displayDuration())}`}
-            min={0}
-            max={displayDuration() || 0}
-            step={0.1}
-            value={scrubTime()}
-            {...scrubber.handlers}
+          <PlaybackScrubber
+            itemKey={`${playingPath()}\0${playbackMode()}`}
+            position={scrubTime()}
+            duration={displayDuration()}
+            onSeek={(position) => session.dispatch({ type: 'seek', position })}
+            ariaLabel='Playback position'
             class='absolute -top-2.5 left-0 h-5 w-full cursor-pointer touch-none opacity-0'
             disabled={!currentItem()}
           />
@@ -187,17 +191,16 @@ export function AudioPlayer() {
               </button>
               <button
                 type='button'
-                aria-label={snapshot().desiredPlaying ? 'Pause' : 'Play'}
+                aria-label={model.playback.desiredPlaying ? 'Pause' : 'Play'}
                 disabled={!currentItem()}
                 onClick={() => session.dispatch({ type: 'toggle' })}
                 class='inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 min-[650px]:size-10'
               >
-                <Show
-                  when={snapshot().desiredPlaying}
-                  fallback={<Play class='size-3.5 min-[650px]:size-4' />}
-                >
+                {model.playback.desiredPlaying ? (
                   <Pause class='size-3.5 min-[650px]:size-4' />
-                </Show>
+                ) : (
+                  <Play class='size-3.5 min-[650px]:size-4' />
+                )}
               </button>
               <button
                 type='button'
@@ -222,7 +225,7 @@ export function AudioPlayer() {
               >
                 <Repeat class='size-3.5 min-[650px]:size-4' />
               </button>
-              <Show when={isVideoFile()}>
+              {isVideoFile() ? (
                 <button
                   type='button'
                   disabled={!currentItem()}
@@ -232,22 +235,19 @@ export function AudioPlayer() {
                 >
                   <Monitor class='size-3.5 min-[650px]:size-4' />
                 </button>
-              </Show>
+              ) : null}
             </div>
 
             <div class='hidden h-8 w-px shrink-0 bg-border min-[650px]:block' />
 
             <div class='hidden flex-1 items-center gap-3 min-[650px]:flex'>
               <span class='text-sm tabular-nums'>{formatPlaybackTime(scrubTime())}</span>
-              <input
-                type='range'
-                aria-label='Playback position'
-                aria-valuetext={`${formatPlaybackTime(scrubTime())} of ${formatPlaybackTime(displayDuration())}`}
-                min={0}
-                max={displayDuration() || 0}
-                step={0.1}
-                value={scrubTime()}
-                {...scrubber.handlers}
+              <PlaybackScrubber
+                itemKey={`${playingPath()}\0${playbackMode()}`}
+                position={scrubTime()}
+                duration={displayDuration()}
+                onSeek={(position) => session.dispatch({ type: 'seek', position })}
+                ariaLabel='Playback position'
                 class='h-2 flex-1 cursor-pointer appearance-none rounded-lg bg-secondary [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary'
                 disabled={!currentItem()}
               />
@@ -259,22 +259,20 @@ export function AudioPlayer() {
             <div class='hidden min-w-[140px] items-center gap-2 lg:flex'>
               <button
                 type='button'
-                aria-label={snapshot().muted ? 'Unmute' : 'Mute'}
-                onClick={() => session.dispatch({ type: 'setMuted', muted: !snapshot().muted })}
+                aria-label={model.playback.muted ? 'Unmute' : 'Mute'}
+                onClick={() => session.dispatch({ type: 'setMuted', muted: !model.playback.muted })}
                 class='inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md hover:bg-accent'
               >
-                <Show when={snapshot().muted} fallback={<Volume2 class='h-4 w-4' />}>
-                  <VolumeX class='h-4 w-4' />
-                </Show>
+                {model.playback.muted ? <VolumeX class='h-4 w-4' /> : <Volume2 class='h-4 w-4' />}
               </button>
               <input
                 type='range'
                 aria-label='Volume'
-                aria-valuetext={`${Math.round((snapshot().muted ? 0 : snapshot().volume) * 100)} percent`}
+                aria-valuetext={`${Math.round((model.playback.muted ? 0 : model.playback.volume) * 100)} percent`}
                 min={0}
                 max={1}
                 step={0.01}
-                value={snapshot().muted ? 0 : snapshot().volume}
+                value={model.playback.muted ? 0 : model.playback.volume}
                 onInput={(event) =>
                   session.dispatch({
                     type: 'setVolume',
@@ -290,25 +288,27 @@ export function AudioPlayer() {
 
             <div class='flex min-w-0 flex-1 items-center gap-2 min-[650px]:w-[200px] min-[650px]:flex-none min-[650px]:gap-3 lg:w-[280px]'>
               <div class='size-9 shrink-0 overflow-hidden rounded bg-secondary min-[650px]:size-12'>
-                <Show when={displayImageUrl()}>
+                {displayImageUrl() ? (
                   <img src={displayImageUrl()!} alt='Album art' class='size-full object-cover' />
-                </Show>
+                ) : null}
               </div>
 
               <div class='min-w-0 flex-1'>
-                <Show when={!metadataQuery.isLoading}>
-                  <div class='truncate text-xs font-medium min-[650px]:text-sm'>
-                    {audioMetadata()?.title || fileName()}
-                  </div>
-                  <div class='truncate text-[11px] text-muted-foreground min-[650px]:text-xs'>
-                    {audioMetadata()?.artist || 'Unknown Artist'}
-                  </div>
-                </Show>
+                {!metadataQuery.isLoading ? (
+                  <>
+                    <div class='truncate text-xs font-medium min-[650px]:text-sm'>
+                      {model.metadata?.title || fileName()}
+                    </div>
+                    <div class='truncate text-[11px] text-muted-foreground min-[650px]:text-xs'>
+                      {model.metadata?.artist || 'Unknown Artist'}
+                    </div>
+                  </>
+                ) : null}
               </div>
             </div>
           </div>
         </div>
       </div>
-    </Show>
-  )
-}
+    ) : null
+  }),
+})

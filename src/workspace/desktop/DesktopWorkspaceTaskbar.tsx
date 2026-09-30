@@ -1,15 +1,15 @@
+import { view, type Snapshot, type JSX } from 'effectweb'
 import { FLOATING_Z_PIN_MENU } from '@/lib/ui/floating-z-index'
 import type { TaskbarPin as PinnedTaskbarItem } from '@/lib/models/taskbar-pins'
-import FolderOpen from 'lucide-solid/icons/folder-open'
-import PanelsTopLeft from 'lucide-solid/icons/panels-top-left'
-import { Show } from 'solid-js'
-import type { JSX } from '@solidjs/web'
+import FolderOpen from '@effectweb/lucide/icons/folder-open'
+import PanelsTopLeft from '@effectweb/lucide/icons/panels-top-left'
+import type { WorkspaceSession } from '../shared/WorkspaceSession'
 import { FloatingContextMenu } from '@/features/explorer/FloatingContextMenu'
 import type { GlobalSettings } from '@/lib/models/settings-types'
 import { WorkspaceTaskbarAudio } from '@/workspace/taskbar/WorkspaceTaskbarAudio'
 import { WorkspaceTaskbarSettings } from '@/workspace/taskbar/WorkspaceTaskbarSettings'
 import type { WindowSource as WorkspaceSource } from '@/lib/models/window-model'
-import type { PersistedWorkspaceState } from '@/workspace/model/use-workspace'
+import type { PersistedWorkspaceState } from '@/workspace/model/workspace'
 import { FileSearchButton } from '@/features/explorer/FileSearchPalette'
 import type { FileSearchResult } from '@/lib/files/file-search'
 import { WorkspaceSaveStatus } from '@/workspace/shared/WorkspaceSaveStatus'
@@ -19,8 +19,8 @@ import {
   WORKSPACE_TASKBAR_END_CLASS,
   WORKSPACE_TASKBAR_ICON_BUTTON_CLASS,
 } from '@/workspace/shared/WorkspaceTaskbar'
-
 export type DesktopWorkspaceTaskbarProps = {
+  session: WorkspaceSession
   commands: {
     openBrowser: () => void
     openWorkspaces: () => void
@@ -28,17 +28,17 @@ export type DesktopWorkspaceTaskbarProps = {
     changeTransition: (value: 'instant' | 'fade') => void
   }
   items: {
-    hasAny: () => boolean
-    pinned: () => PinnedTaskbarItem[]
-    groupIds: () => string[]
+    hasAny: boolean
+    pinned: readonly PinnedTaskbarItem[]
+    groupIds: readonly string[]
     windowRows: () => JSX.Element
-    settings: () => GlobalSettings | undefined
-    fileIconContext: () => import('@/features/explorer/use-file-icon').FileIconContext
+    settings: Snapshot<GlobalSettings> | undefined
+    fileIconContext: import('@/features/explorer/file-icon').FileIconContext
     selectPinned: (pin: PinnedTaskbarItem) => void
   }
   pinMenu: {
-    state: () => { x: number; y: number; pinId: string } | null
-    set: (v: { x: number; y: number; pinId: string } | null) => void
+    state: { x: number; y: number; pinId: string } | null
+    onSet: (v: { x: number; y: number; pinId: string } | null) => void
     remove: (id: string) => void
   }
   playback: {
@@ -50,8 +50,7 @@ export type DesktopWorkspaceTaskbarProps = {
     suppressAudioChrome?: () => boolean
   }
 }
-
-export function DesktopWorkspaceTaskbar(props: DesktopWorkspaceTaskbarProps) {
+export const DesktopWorkspaceTaskbar = view<DesktopWorkspaceTaskbarProps>((props) => {
   return (
     <>
       <WorkspaceTaskbar>
@@ -76,35 +75,37 @@ export function DesktopWorkspaceTaskbar(props: DesktopWorkspaceTaskbarProps) {
         </button>
 
         <div class='scrollbar-none flex min-w-0 flex-1 items-center overflow-x-auto'>
-          <Show when={props.items.hasAny()}>
-            <Show when={props.items.pinned().length > 0}>
-              <WorkspaceTaskbarPins
-                items={props.items.pinned()}
-                customIcons={props.items.settings()?.customIcons ?? {}}
-                fileIconContext={props.items.fileIconContext()}
-                onSelect={props.items.selectPinned}
-                onContextMenu={(pin, event) => {
-                  event.preventDefault()
-                  props.pinMenu.set({ x: event.clientX, y: event.clientY, pinId: pin.id })
-                }}
-              />
-            </Show>
-            <Show when={props.items.pinned().length > 0 && props.items.groupIds().length > 0}>
-              <div class='w-2 shrink-0' aria-hidden='true' />
-            </Show>
-            <div class='scrollbar-none flex min-w-0 flex-1 items-center gap-1 overflow-x-auto'>
-              {props.items.windowRows()}
-            </div>
-          </Show>
-          <Show when={!props.items.hasAny()}>
+          {props.items.hasAny ? (
+            <>
+              {props.items.pinned.length > 0 ? (
+                <WorkspaceTaskbarPins
+                  items={props.items.pinned}
+                  customIcons={props.items.settings?.customIcons ?? {}}
+                  fileIconContext={props.items.fileIconContext}
+                  onSelect={props.items.selectPinned}
+                  onContextMenu={(pin, event) => {
+                    event.preventDefault()
+                    props.pinMenu.onSet({ x: event.clientX, y: event.clientY, pinId: pin.id })
+                  }}
+                />
+              ) : null}
+              {props.items.pinned.length > 0 && props.items.groupIds.length > 0 ? (
+                <div class='w-2 shrink-0' aria-hidden='true' />
+              ) : null}
+              <div class='scrollbar-none flex min-w-0 flex-1 items-center gap-1 overflow-x-auto'>
+                {props.items.windowRows()}
+              </div>
+            </>
+          ) : null}
+          {!props.items.hasAny ? (
             <div class='text-sm text-muted-foreground'>
               No windows open. Use the browser button to start a workspace.
             </div>
-          </Show>
+          ) : null}
         </div>
 
         <div class={WORKSPACE_TASKBAR_END_CLASS}>
-          <WorkspaceSaveStatus />
+          <WorkspaceSaveStatus session={props.session} />
           <FileSearchButton
             title='Search library and open a new window'
             testId='workspace-global-file-search-trigger'
@@ -128,7 +129,7 @@ export function DesktopWorkspaceTaskbar(props: DesktopWorkspaceTaskbarProps) {
             onStopPlayback={props.playback.stop}
           />
           <WorkspaceTaskbarSettings
-            workspaceTransition={() => props.items.settings()?.workspaceTransition ?? 'fade'}
+            workspaceTransition={props.items.settings?.workspaceTransition ?? 'fade'}
             onWorkspaceTransitionChange={props.commands.changeTransition}
           />
         </div>
@@ -137,7 +138,7 @@ export function DesktopWorkspaceTaskbar(props: DesktopWorkspaceTaskbarProps) {
       <FloatingContextMenu
         state={props.pinMenu.state}
         anchor={(m) => ({ x: m.x, y: m.y })}
-        onDismiss={() => props.pinMenu.set(null)}
+        onDismiss={() => props.pinMenu.onSet(null)}
         zIndex={FLOATING_Z_PIN_MENU}
         data-slot='pin-context-menu'
         pinContextMenuRoot
@@ -150,7 +151,7 @@ export function DesktopWorkspaceTaskbar(props: DesktopWorkspaceTaskbarProps) {
             role='menuitem'
             onClick={() => {
               props.pinMenu.remove(m.pinId)
-              props.pinMenu.set(null)
+              props.pinMenu.onSet(null)
             }}
           >
             Unpin
@@ -159,4 +160,4 @@ export function DesktopWorkspaceTaskbar(props: DesktopWorkspaceTaskbarProps) {
       </FloatingContextMenu>
     </>
   )
-}
+})

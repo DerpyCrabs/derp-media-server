@@ -488,9 +488,7 @@ test('click seeking in a partial stream keeps the requested timestamp throughout
           (video: HTMLVideoElement, target) => Math.abs(video.currentTime - target),
           target,
         ),
-      {
-        timeout: 10000,
-      },
+      { timeout: 10000 },
     )
     .toBeLessThan(0.25)
   await page.waitForTimeout(250)

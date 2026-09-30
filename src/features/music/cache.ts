@@ -1,14 +1,18 @@
-import type { QueryClient } from '@tanstack/solid-query'
+import type { Snapshot } from 'effectweb'
+import { groups, queryCache } from '@/lib/api/cache'
+import { musicHomeQuery } from './queries'
 import type { MusicHomeData, MusicTrack } from './types'
 
-export function updateMusicFeedback(client: QueryClient, input: { path: string; kind: string }) {
-  const update = (items: MusicTrack[]) =>
+export function updateMusicFeedback(input: { path: string; kind: string }) {
+  const update = (items: readonly Snapshot<MusicTrack>[]) =>
     items.flatMap((item) => {
       if (item.path !== input.path && !item.path.startsWith(`${input.path}/`)) return [item]
       if (input.kind === 'hide' || input.kind === 'later') return []
       return [{ ...item, liked: input.kind === 'more' }]
     })
-  const updateSections = (sections: Pick<MusicHomeData, 'rows' | 'albums' | 'mixes'>) => ({
+  const updateSections = (
+    sections: Snapshot<Pick<MusicHomeData, 'rows' | 'albums' | 'mixes'>>,
+  ) => ({
     ...sections,
     rows: sections.rows.map((row) => ({ ...row, items: update(row.items) })),
     albums: sections.albums.map((album) => ({ ...album, items: update(album.items) })),
@@ -17,7 +21,7 @@ export function updateMusicFeedback(client: QueryClient, input: { path: string; 
       return { ...mix, items, count: items.length }
     }),
   })
-  client.setQueriesData<MusicHomeData>({ queryKey: ['music', 'home'] }, (home) =>
+  queryCache.updateQueryData(musicHomeQuery, '', (home) =>
     home
       ? {
           ...home,
@@ -32,4 +36,8 @@ export function updateMusicFeedback(client: QueryClient, input: { path: string; 
         }
       : home,
   )
+  queryCache.batch(() => {
+    queryCache.invalidateGroup(groups.mediaAi)
+    queryCache.invalidateGroup(groups.recommendations)
+  })
 }

@@ -94,10 +94,7 @@ describe('computeSnappedResizeWindows (extracted from session store)', () => {
       title: 'TL',
       source: { kind: 'local', rootPath: null },
       initialState: {},
-      layout: {
-        snapZone: 'top-left',
-        bounds: { x: 0, y: 0, width: halfW, height: halfH },
-      },
+      layout: { snapZone: 'top-left', bounds: { x: 0, y: 0, width: halfW, height: halfH } },
     }
     const bottomRightMisTagged: WorkspaceWindowDefinition = {
       id: 'br',
@@ -141,10 +138,7 @@ describe('computeSnappedResizeWindows (extracted from session store)', () => {
       title: 'L',
       source: { kind: 'local', rootPath: null },
       initialState: {},
-      layout: {
-        snapZone: 'left',
-        bounds: { x: 0, y: 0, width: halfW, height: vh },
-      },
+      layout: { snapZone: 'left', bounds: { x: 0, y: 0, width: halfW, height: vh } },
     }
     const topRight: WorkspaceWindowDefinition = {
       id: 't',
@@ -192,10 +186,7 @@ describe('computeSnappedResizeWindows (extracted from session store)', () => {
       title: 'A',
       source: { kind: 'local', rootPath: null },
       initialState: {},
-      layout: {
-        snapZone: 'top-left-third',
-        bounds: { x: 0, y: 0, width: thirdW, height: halfH },
-      },
+      layout: { snapZone: 'top-left-third', bounds: { x: 0, y: 0, width: thirdW, height: halfH } },
     }
     const wB: WorkspaceWindowDefinition = {
       id: 'b',

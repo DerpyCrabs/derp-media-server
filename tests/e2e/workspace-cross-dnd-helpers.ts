@@ -65,9 +65,9 @@ export async function navigateToMediaContent(content: Locator) {
 export async function createTempFile(page: Page, content: Locator, fileName: string) {
   await content.locator('button[title="Create new file"]').scrollIntoViewIfNeeded()
   await content.locator('button[title="Create new file"]').click()
-  const dialog = page.locator('[role="dialog"]').filter({
-    has: page.locator('input[placeholder*="File name"]'),
-  })
+  const dialog = page
+    .locator('[role="dialog"]')
+    .filter({ has: page.locator('input[placeholder*="File name"]') })
   await expect(dialog).toBeVisible()
   await dialog.locator('input[placeholder*="File name"]').fill(fileName)
   await dialog.getByRole('button', { name: 'Create' }).click()

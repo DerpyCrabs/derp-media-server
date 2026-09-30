@@ -1,9 +1,9 @@
+import { Effect } from 'effect'
 import { reportEarlySkip } from '@/features/music/RadioContinuation'
 import { trackPlayback, sendActivity } from '@/features/media-ai/activity'
 import { buildAudioExtractUrl, buildMediaUrl } from '@/lib/media/build-media-url'
 import { createPlaybackSession } from './playback-session'
 import { videoPlaybackProgress } from './video-progress-persistence'
-import type { QueryClient } from '@tanstack/solid-query'
 import { resolveVideoSource } from './video-source'
 import type {
   PersistedPlaybackState,
@@ -15,12 +15,12 @@ import type {
 } from './types'
 
 export const ownerPlaybackSourceResolver: PlaybackSourceResolver = Object.freeze({
-  resolve(request: PlaybackSourceRequest): PlaybackSourceResolution {
+  resolve(request: PlaybackSourceRequest): Effect.Effect<PlaybackSourceResolution> {
     const url =
       request.item.media === 'video' && request.mode === 'audio'
         ? buildAudioExtractUrl(request.item.locator)
         : buildMediaUrl(request.item.locator)
-    return { kind: 'resolved', url }
+    return Effect.succeed({ kind: 'resolved', url })
   },
 })
 
@@ -29,15 +29,15 @@ const legacyVideoPlaybackPersistence: PlaybackPersistence = {
   save(state: PersistedPlaybackState) {
     const item = state.queue[state.currentIndex]
     if (item?.media === 'video') {
-      videoPlaybackProgress.getState().saveTime(item.locator, state.position, state.duration)
+      videoPlaybackProgress.saveTime(item.locator, state.position, state.duration)
     }
   },
   legacyPosition(locator: string) {
-    return videoPlaybackProgress.getState().getSavedTime(locator)
+    return videoPlaybackProgress.getSavedTime(locator)
   },
 }
 
-export function createOwnerBrowserPlaybackSession(queryClient: QueryClient): PlaybackSession {
+export function createOwnerBrowserPlaybackSession(): PlaybackSession {
   const persistence: PlaybackPersistence = {
     ...legacyVideoPlaybackPersistence,
     load() {
@@ -62,7 +62,7 @@ export function createOwnerBrowserPlaybackSession(queryClient: QueryClient): Pla
       sourceResolver: {
         resolve: (request) =>
           request.item.media === 'video'
-            ? resolveVideoSource(queryClient, request)
+            ? resolveVideoSource(request)
             : ownerPlaybackSourceResolver.resolve(request),
       },
       persistence,

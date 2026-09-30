@@ -112,9 +112,7 @@ async function replaceTaskbarPins(request: APIRequestContext, items: unknown[]) 
     expect(response.ok()).toBe(true)
   }
   for (const pin of items) {
-    const response = await request.post('/api/settings/workspaceTaskbarPins/add', {
-      data: { pin },
-    })
+    const response = await request.post('/api/settings/workspaceTaskbarPins/add', { data: { pin } })
     expect(response.ok()).toBe(true)
   }
 }
@@ -361,11 +359,7 @@ test('renders grouped tabs as one card and summarizes them while zoomed out', as
       id,
       clientId: CLIENT_ID,
       revision: record.revision,
-      snapshot: {
-        ...canvasSnapshot(windows),
-        activeWindowId: 'two',
-        activeTabMap: { one: 'two' },
-      },
+      snapshot: { ...canvasSnapshot(windows), activeWindowId: 'two', activeTabMap: { one: 'two' } },
     },
   })
   await page.reload()
@@ -645,10 +639,7 @@ test('merges cards by dragging one tab onto another tab bar', async ({ page, req
     source: { kind: 'local' },
     initialState: {},
     tabGroupId: null,
-    layout: {
-      bounds: { x: 40 + index * 680, y: 80, width: 640, height: 480 },
-      zIndex: index + 1,
-    },
+    layout: { bounds: { x: 40 + index * 680, y: 80, width: 640, height: 480 }, zIndex: index + 1 },
   }))
   await replaceCanvasWorkspace(request, id, canvasSnapshot(windows))
   await page.reload()
@@ -743,9 +734,7 @@ test('renaming a file updates its canvas card and pin through SSE', async ({ pag
     await expect.poll(() => pinnedPath(pin)).toBe(oldPath)
 
     const mutationStartedAt = Date.now()
-    const renamed = await request.post('/api/files/rename', {
-      data: { oldPath, newPath },
-    })
+    const renamed = await request.post('/api/files/rename', { data: { oldPath, newPath } })
     expect(renamed.ok()).toBe(true)
 
     await expect

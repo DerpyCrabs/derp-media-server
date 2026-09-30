@@ -23,9 +23,7 @@ async function deleteFile(page: Page, filePath: string) {
 }
 
 async function createFile(page: Page, filePath: string, content = 'test content') {
-  await page.request.post('/api/files/create', {
-    data: { type: 'file', path: filePath, content },
-  })
+  await page.request.post('/api/files/create', { data: { type: 'file', path: filePath, content } })
 }
 
 test.describe('SSE Live Updates', () => {

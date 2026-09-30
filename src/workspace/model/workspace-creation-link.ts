@@ -1,11 +1,8 @@
-import { DEFAULT_WORKSPACE_SOURCE, type PersistedWorkspaceState } from './use-workspace'
+import { DEFAULT_WORKSPACE_SOURCE, type PersistedWorkspaceState } from './workspace'
 import { convertWorkspaceSnapshot, type WorkspaceType } from './workspace-conversion'
 import { defaultPersistedState } from '../shared/workspace-page-persistence'
 
-export type WorkspaceCreationLink = {
-  type: WorkspaceType
-  name?: string
-}
+export type WorkspaceCreationLink = { type: WorkspaceType; name?: string }
 
 export function parseWorkspaceCreationLink(
   params: Pick<URLSearchParams, 'get'>,
@@ -13,10 +10,7 @@ export function parseWorkspaceCreationLink(
   const type = params.get('new')
   if (type !== 'desktop' && type !== 'canvas') return null
   const name = params.get('name')?.trim()
-  return {
-    type,
-    ...(name ? { name } : {}),
-  }
+  return { type, ...(name ? { name } : {}) }
 }
 
 export function createLinkedWorkspaceSnapshot(type: WorkspaceType): PersistedWorkspaceState {

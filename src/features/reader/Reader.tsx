@@ -1,37 +1,48 @@
-import { Loading, Match, Show, Switch, lazy } from 'solid-js'
-import { ReaderPreferencesProvider } from './ReaderPreferences'
-import type { ReaderContentKind, ReaderPresentation } from './reader-types'
+import { domMount, view } from 'effectweb'
+import { Effect } from 'effect'
+import { lazyView } from 'effectweb/advanced'
+import { ReaderPreferencesProvider, readerPreferences } from './ReaderPreferences'
+import type { ReaderContentKind, ReaderContentProps, ReaderPresentation } from './reader-types'
 
-const PdfReader = lazy(() => import('./contentTypes/pdf/PdfReader'))
-const DirectoryReader = lazy(() => import('./contentTypes/directory/DirectoryReader'))
-const BookReader = lazy(() => import('./contentTypes/book/BookReader'))
-
-export type ReaderProps = ReaderPresentation & {
-  sourcePath: string
-  kind: ReaderContentKind
-}
-
-export function Reader(props: ReaderProps) {
-  const source = () => (props.sourcePath ? `${props.kind}\0${props.sourcePath}` : '')
-  return (
-    <Show when={source()} keyed>
-      {(_source) => (
-        <ReaderPreferencesProvider>
-          <Loading fallback={<div class='absolute inset-0 bg-neutral-900' />}>
-            <Switch>
-              <Match when={props.kind === 'pdf'}>
-                <PdfReader {...props} />
-              </Match>
-              <Match when={props.kind === 'directory'}>
-                <DirectoryReader {...props} />
-              </Match>
-              <Match when={props.kind === 'book'}>
-                <BookReader {...props} />
-              </Match>
-            </Switch>
-          </Loading>
-        </ReaderPreferencesProvider>
-      )}
-    </Show>
-  )
-}
+const pending = view<ReaderContentProps>(() => <div class='absolute inset-0 bg-neutral-900' />)
+const PdfReader = lazyView(
+  () =>
+    Effect.map(
+      Effect.tryPromise(() => import('./contentTypes/pdf/PdfReader')),
+      (module) => module.default,
+    ),
+  { pending },
+)
+const DirectoryReader = lazyView(
+  () =>
+    Effect.map(
+      Effect.tryPromise(() => import('./contentTypes/directory/DirectoryReader')),
+      (module) => module.default,
+    ),
+  { pending },
+)
+const BookReader = lazyView(
+  () =>
+    Effect.map(
+      Effect.tryPromise(() => import('./contentTypes/book/BookReader')),
+      (module) => module.default,
+    ),
+  { pending },
+)
+export type ReaderProps = ReaderPresentation & { sourcePath: string; kind: ReaderContentKind }
+const startPreferences = domMount(() => readerPreferences.start())
+export const Reader = view<ReaderProps>((props) =>
+  props.sourcePath ? (
+    <div class='contents' use={startPreferences}>
+      <ReaderPreferencesProvider>
+        {props.kind === 'pdf' ? (
+          <PdfReader {...props} />
+        ) : props.kind === 'directory' ? (
+          <DirectoryReader {...props} />
+        ) : (
+          <BookReader {...props} />
+        )}
+      </ReaderPreferencesProvider>
+    </div>
+  ) : null,
+)

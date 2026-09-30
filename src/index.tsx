@@ -1,47 +1,54 @@
-/* @refresh reload */
+import { desktopOperations } from './desktop/operations'
 import '@fontsource-variable/geist'
 import '@fontsource-variable/geist-mono'
 import './globals.css'
-import {
-  QueryClient,
-  QueryClientProvider,
-  hydrate,
-  type DehydratedState,
-} from '@tanstack/solid-query'
-import { render } from '@solidjs/web'
+import { Effect, Fiber } from 'effect'
+import { makeModelOwner, mount } from 'effectweb'
 import { App } from './App'
-import { AppProviders } from './AppProviders'
+import { createPlaybackPathMutationLifetime } from './features/playback/path-mutation-lifetime'
+import { initializePlayback } from './features/playback/PlaybackProvider'
+import { createOwnerBrowserPlaybackSession } from './features/playback/browser-session'
+import { createRadioContinuation } from './features/music/RadioContinuation'
+import { musicUiLifetime } from './features/music/actions'
+import { initializeMusicStatus } from './features/music/enabled'
+import { createBrowserHistoryLifetime } from './lib/browser/browser-history'
+import { createThemeLifetime } from './lib/state/theme-lifetime'
+import { appDialogs } from './lib/ui/app-dialog'
+import { queryCache } from './lib/api/cache'
+import { createHermesLifetime } from './features/hermes/hermes-session-store'
+import { createClientPreferencesLifetime } from './workspace/shared/client-preferences-store'
+import { readerPreferences } from './features/reader/ReaderPreferences'
 
-declare global {
-  interface Window {
-    __DEHYDRATED_STATE__?: DehydratedState
-  }
-}
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: Infinity,
-      refetchOnWindowFocus: true,
-    },
-  },
-})
-
-const dehydrated = window.__DEHYDRATED_STATE__
-if (dehydrated) {
-  hydrate(queryClient, dehydrated)
-}
-
-const root = document.getElementById('root')
-if (root) {
-  render(
-    () => (
-      <QueryClientProvider client={queryClient}>
-        <AppProviders>
-          <App />
-        </AppProviders>
-      </QueryClientProvider>
-    ),
-    root,
-  )
-}
+const application = Effect.scoped(
+  Effect.gen(function* () {
+    yield* Effect.addFinalizer(() => queryCache.close())
+    const own = <T extends { dispose(): void; close?: () => Effect.Effect<void, unknown> }>(
+      create: () => T,
+    ) =>
+      Effect.acquireRelease(Effect.sync(create), (value) =>
+        value.close ? value.close().pipe(Effect.orDie) : Effect.sync(() => value.dispose()),
+      )
+    yield* own(() => appDialogs)
+    yield* own(() => desktopOperations)
+    yield* own(createBrowserHistoryLifetime)
+    yield* own(createThemeLifetime)
+    yield* own(createClientPreferencesLifetime)
+    yield* own(createHermesLifetime)
+    yield* own(() => readerPreferences)
+    yield* own(() => initializePlayback(createOwnerBrowserPlaybackSession()))
+    yield* own(createPlaybackPathMutationLifetime)
+    yield* own(() => musicUiLifetime)
+    yield* own(initializeMusicStatus)
+    yield* own(createRadioContinuation)
+    const owner = yield* makeModelOwner({})
+    const root = document.getElementById('root')
+    if (!root) return
+    yield* mount(root, App, owner.source)
+    yield* Effect.never
+  }),
+)
+const fiber = Effect.runFork(application)
+if (import.meta.hot)
+  import.meta.hot.dispose(() => {
+    Effect.runFork(Fiber.interrupt(fiber))
+  })

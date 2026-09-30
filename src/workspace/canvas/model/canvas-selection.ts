@@ -1,4 +1,5 @@
-import { createMemo, createSignal, untrack, type Accessor } from 'solid-js'
+import { modelOwner } from 'effectweb'
+type Accessor<T> = () => T
 import type { PersistedWindowState } from '@/lib/models/window-model'
 
 export type CanvasSelectionState = {
@@ -31,18 +32,23 @@ export function resolveCanvasSelection(
 export function createCanvasSelection(options: {
   workspace: Accessor<PersistedWindowState | null>
 }) {
-  const initial = untrack(options.workspace)
+  const initial = options.workspace()
   const initialActiveWindowId =
     initial?.activeWindowId &&
     initial.windows.some((window) => window.id === initial.activeWindowId)
       ? initial.activeWindowId
       : null
-  const [local, setLocal] = createSignal<CanvasSelectionState>({
+  const owner = modelOwner<CanvasSelectionState>({
     activeWindowId: initialActiveWindowId,
     focusedId: initialActiveWindowId,
     selectedIds: initialActiveWindowId ? [initialActiveWindowId] : [],
   })
-  const resolved = createMemo(() => resolveCanvasSelection(local(), options.workspace()))
+  const resolved = () =>
+    resolveCanvasSelection(
+      { ...owner.read(), selectedIds: [...owner.read().selectedIds] },
+      options.workspace(),
+    )
+  const setLocal = (value: CanvasSelectionState) => owner.patch(value)
 
   function replace(id: string) {
     const current = resolved()
@@ -80,6 +86,8 @@ export function createCanvasSelection(options: {
   }
 
   return {
+    source: owner.source,
+    dispose: owner.dispose,
     focusedId: () => resolved().focusedId,
     selectedIds: () => resolved().selectedIds,
     replace,

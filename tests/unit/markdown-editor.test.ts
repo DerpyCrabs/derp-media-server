@@ -1,3 +1,4 @@
+import { Deferred, Effect } from 'effect'
 import { Window as HappyWindow } from 'happy-dom'
 import { afterAll, afterEach, describe, expect, test } from 'bun:test'
 
@@ -88,11 +89,7 @@ const { TaskCheckboxWidget } = taskModule
 const controllers: MarkdownEditorController[] = []
 
 function mountEditor(
-  options: {
-    doc?: string
-    mode?: 'read' | 'edit'
-    runtime?: Partial<MarkdownEditorRuntime>
-  } = {},
+  options: { doc?: string; mode?: 'read' | 'edit'; runtime?: Partial<MarkdownEditorRuntime> } = {},
 ) {
   const parent = document.createElement('div')
   document.body.append(parent)
@@ -122,11 +119,7 @@ function dispatchClipboard(
   if (values.plain !== undefined) clipboardData.setData('text/plain', values.plain)
   if (values.html !== undefined) clipboardData.setData('text/html', values.html)
   if (values.image) clipboardData.items.add(values.image)
-  const event = new ClipboardEvent('paste', {
-    bubbles: true,
-    cancelable: true,
-    clipboardData,
-  })
+  const event = new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData })
   controller.view.contentDOM.dispatchEvent(event)
   return { clipboardData, event }
 }
@@ -180,10 +173,7 @@ describe('Markdown clipboard integration', () => {
     const { controller, changes } = mountEditor({ doc: 'left OLD right' })
     controller.view.dispatch({ selection: { anchor: 5, head: 8 } })
 
-    const { event } = dispatchClipboard(controller, {
-      plain: 'flattened fallback',
-      html,
-    })
+    const { event } = dispatchClipboard(controller, { plain: 'flattened fallback', html })
 
     expect(event.defaultPrevented).toBe(true)
     expect(controller.view.state.doc.toString()).toBe(`left ${markdown} right`)
@@ -230,7 +220,7 @@ describe('Markdown clipboard integration', () => {
           receivedEvent = event
           receivedSelection = selection
           complete('![[paste.png]]')
-          return true
+          return Effect.void
         },
       },
     })
@@ -249,17 +239,14 @@ describe('Markdown clipboard integration', () => {
 
   test('maps an async image insertion through typing and keeps it undoable', async () => {
     let completePaste: ((markdown: string | null) => boolean) | undefined
-    let resolveUpload: ((handled: boolean) => void) | undefined
-    const upload = new Promise<boolean>((resolve) => {
-      resolveUpload = resolve
-    })
+    const upload = Deferred.makeUnsafe<void>()
     const { controller } = mountEditor({
       doc: 'abcdef',
       runtime: {
         onPasteImage(event, _selection, complete) {
           event.preventDefault()
           completePaste = complete
-          return upload
+          return Deferred.await(upload)
         },
       },
     })
@@ -274,8 +261,8 @@ describe('Markdown clipboard integration', () => {
       userEvent: 'input.type',
     })
     completePaste?.('![[paste.png]]')
-    resolveUpload?.(true)
-    await upload
+    Deferred.doneUnsafe(upload, Effect.void)
+    await Effect.runPromise(Deferred.await(upload))
 
     expect(controller.view.state.doc.toString()).toBe('ab![[paste.png]]typedef')
     expect(undo(controller.view)).toBe(true)
@@ -284,17 +271,14 @@ describe('Markdown clipboard integration', () => {
 
   test('does not erase edits made inside an asynchronous image paste selection', async () => {
     let completePaste: ((markdown: string | null) => boolean) | undefined
-    let resolveUpload: ((handled: boolean) => void) | undefined
-    const upload = new Promise<boolean>((resolve) => {
-      resolveUpload = resolve
-    })
+    const upload = Deferred.makeUnsafe<void>()
     const { controller } = mountEditor({
       doc: 'abcdef',
       runtime: {
         onPasteImage(event, _selection, complete) {
           event.preventDefault()
           completePaste = complete
-          return upload
+          return Deferred.await(upload)
         },
       },
     })
@@ -309,8 +293,8 @@ describe('Markdown clipboard integration', () => {
       userEvent: 'input.type',
     })
     completePaste?.('![[paste.png]]')
-    resolveUpload?.(true)
-    await upload
+    Deferred.doneUnsafe(upload, Effect.void)
+    await Effect.runPromise(Deferred.await(upload))
 
     expect(controller.view.state.doc.toString()).toBe('ab![[paste.png]]Xef')
     expect(undo(controller.view)).toBe(true)
@@ -319,17 +303,14 @@ describe('Markdown clipboard integration', () => {
 
   test('finishes an asynchronous image paste after switching to read mode', async () => {
     let completePaste: ((markdown: string | null) => boolean) | undefined
-    let resolveUpload: ((handled: boolean) => void) | undefined
-    const upload = new Promise<boolean>((resolve) => {
-      resolveUpload = resolve
-    })
+    const upload = Deferred.makeUnsafe<void>()
     const { changes, controller } = mountEditor({
       doc: 'note',
       runtime: {
         onPasteImage(event, _selection, complete) {
           event.preventDefault()
           completePaste = complete
-          return upload
+          return Deferred.await(upload)
         },
       },
     })
@@ -340,8 +321,8 @@ describe('Markdown clipboard integration', () => {
 
     controller.setMode('read', 'Markdown document')
     completePaste?.('![[paste.png]]')
-    resolveUpload?.(true)
-    await upload
+    Deferred.doneUnsafe(upload, Effect.void)
+    await Effect.runPromise(Deferred.await(upload))
 
     expect(controller.view.state.readOnly).toBe(true)
     expect(controller.view.state.doc.toString()).toBe('note![[paste.png]]')
@@ -367,16 +348,10 @@ describe('Markdown editor mode and external synchronization', () => {
       expect(changes.at(-1)).toBe(`${source}!`)
 
       controller.setMode('read', 'Markdown document')
-      controller.view.dispatch({
-        selection: { anchor: 0, head: controller.view.state.doc.length },
-      })
+      controller.view.dispatch({ selection: { anchor: 0, head: controller.view.state.doc.length } })
       const clipboardData = new DataTransfer()
       controller.view.contentDOM.dispatchEvent(
-        new ClipboardEvent('copy', {
-          bubbles: true,
-          cancelable: true,
-          clipboardData,
-        }),
+        new ClipboardEvent('copy', { bubbles: true, cancelable: true, clipboardData }),
       )
       expect(clipboardData.getData('text/plain')).toBe(`${source}!`)
     }
@@ -394,16 +369,10 @@ describe('Markdown editor mode and external synchronization', () => {
     expect(changes.at(-1)).toBe('aX\r\nP\nQ\rc\rd')
 
     controller.setMode('read', 'Markdown document')
-    controller.view.dispatch({
-      selection: { anchor: 0, head: controller.view.state.doc.length },
-    })
+    controller.view.dispatch({ selection: { anchor: 0, head: controller.view.state.doc.length } })
     const clipboardData = new DataTransfer()
     controller.view.contentDOM.dispatchEvent(
-      new ClipboardEvent('copy', {
-        bubbles: true,
-        cancelable: true,
-        clipboardData,
-      }),
+      new ClipboardEvent('copy', { bubbles: true, cancelable: true, clipboardData }),
     )
     expect(clipboardData.getData('text/plain')).toBe('aX\r\nP\nQ\rc\rd')
   })
@@ -427,9 +396,7 @@ describe('Markdown editor mode and external synchronization', () => {
       ['a\nb', 'x\r\ny'],
     ] as const) {
       const { controller, changes } = mountEditor({ doc: original })
-      controller.view.dispatch({
-        selection: { anchor: 0, head: controller.view.state.doc.length },
-      })
+      controller.view.dispatch({ selection: { anchor: 0, head: controller.view.state.doc.length } })
 
       dispatchClipboard(controller, { plain: pasted })
       expect(changes.at(-1)).toBe(pasted)
@@ -464,9 +431,7 @@ describe('Markdown editor mode and external synchronization', () => {
   test('accepts external mixed line endings without normalizing the next edit', () => {
     const { controller, changes } = mountEditor({ doc: 'old' })
     controller.setContent('first\r\nsecond\nthird')
-    controller.view.dispatch({
-      changes: { from: controller.view.state.doc.length, insert: '!' },
-    })
+    controller.view.dispatch({ changes: { from: controller.view.state.doc.length, insert: '!' } })
 
     expect(changes).toEqual(['first\r\nsecond\nthird!'])
   })
@@ -504,10 +469,7 @@ describe('Markdown editor mode and external synchronization', () => {
 
   test('external replacement clears history instead of mapping undo into new content', () => {
     const { controller } = mountEditor({ doc: 'abc' })
-    controller.view.dispatch({
-      changes: { from: 0, to: 1, insert: 'x' },
-      userEvent: 'input.type',
-    })
+    controller.view.dispatch({ changes: { from: 0, to: 1, insert: 'x' }, userEvent: 'input.type' })
 
     controller.setContent('remote')
 
@@ -517,17 +479,14 @@ describe('Markdown editor mode and external synchronization', () => {
 
   test('external replacement invalidates pending asynchronous image paste', async () => {
     let completePaste: ((markdown: string | null) => boolean) | undefined
-    let resolveUpload: ((handled: boolean) => void) | undefined
-    const upload = new Promise<boolean>((resolve) => {
-      resolveUpload = resolve
-    })
+    const upload = Deferred.makeUnsafe<void>()
     const { controller } = mountEditor({
       doc: 'first document',
       runtime: {
         onPasteImage(event, _selection, complete) {
           event.preventDefault()
           completePaste = complete
-          return upload
+          return Deferred.await(upload)
         },
       },
     })
@@ -538,8 +497,8 @@ describe('Markdown editor mode and external synchronization', () => {
 
     controller.setContent('second document')
     expect(completePaste?.('![[paste.png]]')).toBe(false)
-    resolveUpload?.(true)
-    await upload
+    Deferred.doneUnsafe(upload, Effect.void)
+    await Effect.runPromise(Deferred.await(upload))
 
     expect(controller.view.state.doc.toString()).toBe('second document')
   })
@@ -564,9 +523,10 @@ describe('Markdown editor mode and external synchronization', () => {
     let saves = 0
     const { controller } = mountEditor({
       runtime: {
-        onSave: () => {
-          saves += 1
-        },
+        onSave: () =>
+          Effect.sync(() => {
+            saves += 1
+          }),
       },
     })
     const event = new KeyboardEvent('keydown', {
@@ -640,11 +600,7 @@ describe('Markdown editor mode and external synchronization', () => {
     expect(controller.view.state.sliceDoc(selection.from, selection.to)).toBe(imageSource)
     expect(opened).toEqual([])
 
-    const doubleClick = new MouseEvent('dblclick', {
-      detail: 2,
-      bubbles: true,
-      cancelable: true,
-    })
+    const doubleClick = new MouseEvent('dblclick', { detail: 2, bubbles: true, cancelable: true })
     controller.view.contentDOM.dispatchEvent(doubleClick)
 
     expect(doubleClick.defaultPrevented).toBe(true)
@@ -680,11 +636,7 @@ describe('Markdown editor mode and external synchronization', () => {
     const { controller } = mountEditor({ doc: source, mode: 'read' })
     controller.view.dispatch({ selection: { anchor: 0, head: source.length } })
     const clipboardData = new DataTransfer()
-    const event = new ClipboardEvent('copy', {
-      bubbles: true,
-      cancelable: true,
-      clipboardData,
-    })
+    const event = new ClipboardEvent('copy', { bubbles: true, cancelable: true, clipboardData })
 
     controller.view.contentDOM.dispatchEvent(event)
 
@@ -757,10 +709,7 @@ describe('task checkbox widget', () => {
     checkbox.dispatchEvent(new Event('change'))
 
     expect(dispatches).toEqual([
-      {
-        changes: { from: 5, to: 6, insert: 'x' },
-        userEvent: 'input.markdown.task',
-      },
+      { changes: { from: 5, to: 6, insert: 'x' }, userEvent: 'input.markdown.task' },
     ])
     expect(focused).toBe(true)
   })
@@ -776,10 +725,7 @@ describe('task checkbox widget', () => {
     checkbox.checked = false
     checkbox.dispatchEvent(new Event('change'))
     expect(dispatches).toEqual([
-      {
-        changes: { from: 11, to: 12, insert: ' ' },
-        userEvent: 'input.markdown.task',
-      },
+      { changes: { from: 11, to: 12, insert: ' ' }, userEvent: 'input.markdown.task' },
     ])
   })
 

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { applyWorkspacePathMutation } from '@/workspace/model/workspace-path-mutation'
 import { parsePathMutation, type PathMutation } from '@/lib/files/path-mutation'
-import type { PersistedWorkspaceState } from '@/workspace/model/use-workspace'
+import type { PersistedWorkspaceState } from '@/workspace/model/workspace'
 import type { WindowDefinition as WorkspaceWindowDefinition } from '@/lib/models/window-model'
 
 function window(
@@ -11,15 +11,7 @@ function window(
   iconPath: string,
   tabGroupId: string | null = null,
 ): WorkspaceWindowDefinition {
-  return {
-    id,
-    type,
-    title: id,
-    iconPath,
-    source: { kind: 'local' },
-    initialState,
-    tabGroupId,
-  }
+  return { id, type, title: id, iconPath, source: { kind: 'local' }, initialState, tabGroupId }
 }
 
 function state(windows: WorkspaceWindowDefinition[]): PersistedWorkspaceState {
@@ -34,13 +26,11 @@ function state(windows: WorkspaceWindowDefinition[]): PersistedWorkspaceState {
 
 describe('workspace path mutations', () => {
   test('accepts only complete path mutation events', () => {
-    expect(
-      parsePathMutation({
-        type: 'path-moved',
-        oldPath: 'Old',
-        newPath: 'New',
-      }),
-    ).toEqual({ type: 'path-moved', oldPath: 'Old', newPath: 'New' })
+    expect(parsePathMutation({ type: 'path-moved', oldPath: 'Old', newPath: 'New' })).toEqual({
+      type: 'path-moved',
+      oldPath: 'Old',
+      newPath: 'New',
+    })
     expect(parsePathMutation({ type: 'path-moved', oldPath: 'Old' })).toBeNull()
     expect(parsePathMutation({ type: 'files-changed', path: 'Old' })).toBeNull()
   })
@@ -109,10 +99,7 @@ describe('workspace path mutations', () => {
       },
     }
 
-    const next = applyWorkspacePathMutation(before, {
-      type: 'path-removed',
-      path: 'Media/Old',
-    })
+    const next = applyWorkspacePathMutation(before, { type: 'path-removed', path: 'Media/Old' })
 
     expect(next.windows.map((item) => item.id)).toEqual(['retained'])
     expect(next.windows[0]?.tabGroupId).toBeNull()

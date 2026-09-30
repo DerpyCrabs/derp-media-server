@@ -1,5 +1,4 @@
 import { describe, expect, test } from 'bun:test'
-import { createRoot } from 'solid-js'
 import { createHermesChatUiState } from '@/features/hermes/hermes-chat-ui-state'
 import { createCanvasOverlayState } from '@/workspace/canvas/model/canvas-overlay-state'
 import { resolveCanvasSelection } from '@/workspace/canvas/model/canvas-selection'
@@ -23,46 +22,40 @@ function workspace(activeWindowId: string | null, ids: string[]): PersistedWindo
 
 describe('component state models', () => {
   test('a stale Hermes dialog close cannot dismiss a newer dialog', () => {
-    createRoot((dispose) => {
-      const state = createHermesChatUiState()
-      state.dialogs.openImage('/preview.png')
-      state.dialogs.openRename('New name')
-      state.dialogs.close('image')
+    const state = createHermesChatUiState()
+    state.dialogs.openImage('/preview.png')
+    state.dialogs.openRename('New name')
+    state.dialogs.close('image')
 
-      expect(state.dialogs.renameOpen()).toBe(true)
-      expect(state.dialogs.renameValue()).toBe('New name')
-      expect(state.dialogs.previewImage()).toBeNull()
-      dispose()
-    })
+    expect(state.dialogs.renameOpen()).toBe(true)
+    expect(state.dialogs.renameValue()).toBe('New name')
+    expect(state.dialogs.previewImage()).toBeNull()
+    state.dispose()
   })
 
   test('Hermes prompt history owns deduplication and navigation', () => {
-    createRoot((dispose) => {
-      const state = createHermesChatUiState()
-      state.promptHistory.record('first')
-      state.promptHistory.record('second')
-      state.promptHistory.record('first')
+    const state = createHermesChatUiState()
+    state.promptHistory.record('first')
+    state.promptHistory.record('second')
+    state.promptHistory.record('first')
 
-      expect(state.promptHistory.navigate('older')).toBe('first')
-      expect(state.promptHistory.navigate('older')).toBe('second')
-      expect(state.promptHistory.navigate('newer')).toBe('first')
-      state.promptHistory.resetCursor()
-      expect(state.promptHistory.navigate('newer')).toBe('')
-      dispose()
-    })
+    expect(state.promptHistory.navigate('older')).toBe('first')
+    expect(state.promptHistory.navigate('older')).toBe('second')
+    expect(state.promptHistory.navigate('newer')).toBe('first')
+    state.promptHistory.resetCursor()
+    expect(state.promptHistory.navigate('newer')).toBe('')
+    state.dispose()
   })
 
   test('canvas menus are exclusive and stale closes preserve the active menu', () => {
-    createRoot((dispose) => {
-      const state = createCanvasOverlayState()
-      state.canvasMenu.open({ kind: 'canvas', clientX: 1, clientY: 2, worldX: 3, worldY: 4 })
-      state.pinMenu.open({ x: 5, y: 6, pinId: 'pin' })
-      state.canvasMenu.close()
+    const state = createCanvasOverlayState()
+    state.canvasMenu.open({ kind: 'canvas', clientX: 1, clientY: 2, worldX: 3, worldY: 4 })
+    state.pinMenu.open({ x: 5, y: 6, pinId: 'pin' })
+    state.canvasMenu.close()
 
-      expect(state.canvasMenu.value()).toBeNull()
-      expect(state.pinMenu.value()).toEqual({ x: 5, y: 6, pinId: 'pin' })
-      dispose()
-    })
+    expect(state.canvasMenu.value()).toBeNull()
+    expect(state.pinMenu.value()).toEqual({ x: 5, y: 6, pinId: 'pin' })
+    state.dispose()
   })
 
   test('canvas selection follows external focus and removes deleted windows', () => {

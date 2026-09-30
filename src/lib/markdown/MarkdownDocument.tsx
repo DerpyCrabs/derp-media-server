@@ -1,171 +1,114 @@
-import { Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js'
-import type { JSX } from '@solidjs/web'
-
-import { createMarkdownEditor, type MarkdownEditorController } from './create-editor'
+import { Effect } from 'effect'
+import { cn } from '@/lib/ui/cn'
+import { domBinding, domMount, localComponent, view } from 'effectweb'
+import { createMarkdownEditor } from './create-editor'
 import type { MarkdownDocumentProps, MarkdownEditorRuntime } from './types'
-
-export default function MarkdownDocument(props: MarkdownDocumentProps): JSX.Element {
-  const [mountElement, setMountElement] = createSignal<HTMLDivElement>()
-  let editor: MarkdownEditorController | undefined
-  let expandedDialog: HTMLDivElement | undefined
-  let imageReturnFocus: HTMLElement | null = null
-  const [controller, setController] = createSignal<MarkdownEditorController | null>(null)
-  const [expandedImage, setExpandedImage] = createSignal<{ src: string; alt: string } | null>(null)
-  // Conditional JSX prop getters can create memos; resolve them before imperative setup.
-  const content = createMemo(() => props.content)
-  const presentation = createMemo(() => {
-    const mode = props.mode
-    return {
-      mode,
-      label: props.ariaLabel ?? (mode === 'read' ? 'Markdown document' : 'Markdown editor'),
-    }
-  })
-  const callbacks = createMemo(() => ({
-    resolveImageUrl: props.resolveImageUrl,
-    onChange: props.onChange,
-    onBlur: props.onBlur,
-    onSave: props.onSave,
-    onPasteImage: props.onPasteImage,
-  }))
-
-  const closeExpandedImage = () => {
-    setExpandedImage(null)
-    requestAnimationFrame(() => imageReturnFocus?.focus())
-  }
-
+type EditorBinding = MarkdownDocumentProps & { openImage: (src: string, alt?: string) => void }
+const editorBinding = (parent: HTMLDivElement, current: () => EditorBinding) => {
   const runtime: MarkdownEditorRuntime = {
-    resolveImageUrl: (src) => callbacks().resolveImageUrl(src),
-    openImage: (src, alt) => {
-      if (props.onOpenImage) {
-        props.onOpenImage(src, alt)
-        return
-      }
-      imageReturnFocus =
-        document.activeElement instanceof HTMLElement ? document.activeElement : null
-      setExpandedImage({ src, alt: alt ?? '' })
-    },
-    onChange: (content) => callbacks().onChange?.(content),
-    onBlur: () => callbacks().onBlur?.(),
-    onSave: () => callbacks().onSave?.(),
+    resolveImageUrl: (src) => current().resolveImageUrl(src),
+    openImage: (src, alt) => (current().onOpenImage ?? current().openImage)(src, alt),
+    onChange: (content) => current().onChange?.(content),
+    onBlur: () => current().onBlur?.(),
+    onSave: () => current().onSave?.() ?? Effect.void,
     onPasteImage: (event, selection, complete) =>
-      callbacks().onPasteImage?.(event, selection, complete) ?? false,
+      current().onPasteImage?.(event, selection, complete) ?? false,
   }
-
-  createEffect(
-    () => ({
-      parent: mountElement(),
-      content: content(),
-      presentation: presentation(),
-      callbacks: callbacks(),
-    }),
-    ({ parent, content, presentation, callbacks }) => {
-      if (!parent || editor) return
-      Object.assign(runtime, callbacks)
-      editor = createMarkdownEditor({
-        parent,
-        doc: content,
-        mode: presentation.mode,
-        ariaLabel: presentation.label,
-        runtime,
-      })
-      setController(editor)
-    },
-  )
-
-  createEffect(
-    () => ({ controller: controller(), ...presentation() }),
-    ({ controller: next, mode, label }) => {
-      next?.setMode(mode, label)
-    },
-  )
-
-  createEffect(
-    () => ({ controller: controller(), content: content() }),
-    ({ controller: next, content }) => {
-      next?.setContent(content)
-    },
-  )
-
-  createEffect(
-    () => ({ controller: controller(), ...callbacks() }),
-    ({ controller: next, resolveImageUrl, onChange, onBlur, onSave, onPasteImage }) => {
-      runtime.resolveImageUrl = resolveImageUrl
-      runtime.onChange = onChange
-      runtime.onBlur = onBlur
-      runtime.onSave = onSave
-      runtime.onPasteImage = onPasteImage
-      next?.refresh()
-    },
-  )
-
-  createEffect(
-    () => !!expandedImage(),
-    (isExpanded) => {
-      if (!isExpanded) return undefined
-      requestAnimationFrame(() => expandedDialog?.focus())
-      const closeOnEscape = (event: KeyboardEvent) => {
-        if (event.key === 'Escape') closeExpandedImage()
+  const initial = current()
+  let mode = initial.mode
+  let ariaLabel = initial.ariaLabel ?? (mode === 'read' ? 'Markdown document' : 'Markdown editor')
+  const editor = createMarkdownEditor({
+    parent,
+    doc: initial.content,
+    mode: initial.mode,
+    ariaLabel,
+    runtime,
+  })
+  return {
+    update: () => {
+      const props = current()
+      const nextLabel =
+        props.ariaLabel ?? (props.mode === 'read' ? 'Markdown document' : 'Markdown editor')
+      if (mode !== props.mode || ariaLabel !== nextLabel) {
+        mode = props.mode
+        ariaLabel = nextLabel
+        editor.setMode(mode, ariaLabel)
       }
-      window.addEventListener('keydown', closeOnEscape)
-      // eslint-disable-next-line solid/reactivity
-      return () => window.removeEventListener('keydown', closeOnEscape)
+      editor.setContent(props.content)
+      editor.refresh()
     },
-  )
-
-  onCleanup(() => editor?.destroy())
-
-  return (
-    <div
-      class={[
-        'markdown-document relative h-full min-h-full overflow-hidden',
-        { 'markdown-document-compact': props.compact === true },
-      ]}
-      data-testid='markdown-document'
-      data-mode={props.mode}
-    >
+    dispose: () => editor.destroy(),
+  }
+}
+const focusDialog = domMount((element: HTMLDivElement) => {
+  const previous = document.activeElement
+  element.focus()
+  return () => {
+    if (previous instanceof HTMLElement && previous.isConnected) previous.focus()
+  }
+})
+const MarkdownDocument = localComponent<
+  MarkdownDocumentProps,
+  { expandedImage: { src: string; alt: string } | null }
+>({
+  init: () => ({ expandedImage: null }),
+  view: view((model, patch) => {
+    const props = model.props
+    const close = () => patch({ expandedImage: null })
+    return (
       <div
-        ref={(element) => {
-          setMountElement(element)
-        }}
-        class='h-full min-h-full'
-      />
-      <Show when={expandedImage()}>
-        {(src) => (
+        class={cn('markdown-document relative h-full min-h-full overflow-hidden', {
+          'markdown-document-compact': props.compact === true,
+        })}
+        data-testid='markdown-document'
+        data-mode={props.mode}
+      >
+        <div
+          class='h-full min-h-full'
+          use={domBinding(
+            {
+              ...props,
+              openImage: (src: string, alt?: string) =>
+                patch({ expandedImage: { src, alt: alt ?? '' } }),
+            },
+            editorBinding,
+          )}
+        />
+        {model.expandedImage ? (
           <div
             role='dialog'
             aria-modal='true'
             aria-label='View image fullscreen'
             tabindex={0}
-            ref={(element) => {
-              expandedDialog = element
-            }}
+            use={focusDialog}
             class='absolute inset-0 z-[100] flex cursor-zoom-out items-center justify-center bg-black/90 p-4'
-            onClick={(event) => event.target === event.currentTarget && closeExpandedImage()}
+            onClick={(event) => event.target === event.currentTarget && close()}
             onKeyDown={(event) => {
-              if (event.key === 'Escape' || event.key === 'Enter' || event.key === ' ') {
+              if (['Escape', 'Enter', ' '].includes(event.key)) {
                 event.preventDefault()
-                closeExpandedImage()
+                close()
               }
             }}
           >
             <button
               type='button'
               class='absolute top-4 right-4 z-10 rounded-md p-2 text-white/80 transition-colors hover:bg-white/10 hover:text-white'
-              onClick={closeExpandedImage}
+              onClick={close}
               aria-label='Close'
             >
               ×
             </button>
             <img
-              src={src().src}
-              alt={src().alt}
+              src={model.expandedImage.src}
+              alt={model.expandedImage.alt}
               class='max-h-full max-w-full cursor-default object-contain'
               draggable={false}
               loading='eager'
             />
           </div>
-        )}
-      </Show>
-    </div>
-  )
-}
+        ) : null}
+      </div>
+    )
+  }),
+})
+export default MarkdownDocument

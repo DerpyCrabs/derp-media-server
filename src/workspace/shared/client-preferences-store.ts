@@ -1,22 +1,21 @@
-import { createStore } from 'solid-js'
+import { Option, Schema } from 'effect'
+import { modelOwner } from 'effectweb'
 import type { FileOpenTarget } from '@/lib/models/open-target'
 import { type AssistGridShape, isAssistGridShape } from '@/workspace/model/workspace-assist-grid'
-import {
-  createStoreListeners,
-  readPersistedState,
-  writePersistedState,
-} from '@/lib/state/client-store-utils'
+import { readPersistedState, writePersistedState } from '@/lib/state/client-store-utils'
 
 export const FILE_OPEN_TARGET_STORAGE_KEY = 'workspace-file-open-target-v2'
 export const WORKSPACE_LAYOUT_STORAGE_KEY = 'workspace-preferred-snap'
 export const MAX_TILED_WINDOW_GAP = 24
 
-type FileOpenPersisted = { target?: unknown }
-type LayoutPersisted = {
-  assistGridShape?: unknown
-  snapAssistOnTopDrag?: unknown
-  tiledWindowGap?: unknown
-}
+const fileOpenPersistedSchema = Schema.Struct({ target: Schema.optional(Schema.Unknown) })
+const layoutPersistedSchema = Schema.Struct({
+  assistGridShape: Schema.optional(Schema.Unknown),
+  snapAssistOnTopDrag: Schema.optional(Schema.Unknown),
+  tiledWindowGap: Schema.optional(Schema.Unknown),
+})
+type FileOpenPersisted = typeof fileOpenPersistedSchema.Type
+type LayoutPersisted = typeof layoutPersistedSchema.Type
 
 type ClientPreferences = {
   fileOpenTarget: FileOpenTarget
@@ -37,11 +36,12 @@ export function normalizeTiledWindowGap(value: unknown): number {
   return Math.max(0, Math.min(MAX_TILED_WINDOW_GAP, Math.round(value)))
 }
 
-function parsePersisted<T>(raw: string | null): T | null {
+function parsePersisted<A>(raw: string | null, schema: Schema.Decoder<A>): A | null {
   if (!raw) return null
   try {
-    const parsed = JSON.parse(raw) as { state?: T }
-    return parsed.state ?? null
+    const parsed: unknown = JSON.parse(raw)
+    const envelope = Schema.decodeUnknownOption(Schema.Struct({ state: schema }))(parsed)
+    return Option.isSome(envelope) ? envelope.value.state : null
   } catch {
     return null
   }
@@ -67,16 +67,15 @@ function normalizeLayout(value: LayoutPersisted | null) {
   }
 }
 
-const initialFile = readPersistedState<FileOpenPersisted>(FILE_OPEN_TARGET_STORAGE_KEY)
-const initialLayout = readPersistedState<LayoutPersisted>(WORKSPACE_LAYOUT_STORAGE_KEY)
-const [store, setStore] = createStore<ClientPreferences>({
+const initialFile = readPersistedState(FILE_OPEN_TARGET_STORAGE_KEY, fileOpenPersistedSchema)
+const initialLayout = readPersistedState(WORKSPACE_LAYOUT_STORAGE_KEY, layoutPersistedSchema)
+const owner = modelOwner<ClientPreferences>({
   ...DEFAULTS,
   fileOpenTarget: normalizeFileOpen(initialFile),
   ...normalizeLayout(initialLayout),
 })
-const listeners = createStoreListeners()
 
-function persistFileOpen(target: FileOpenTarget = store.fileOpenTarget) {
+function persistFileOpen(target: FileOpenTarget = owner.read().fileOpenTarget) {
   writePersistedState(FILE_OPEN_TARGET_STORAGE_KEY, { target })
 }
 
@@ -88,81 +87,51 @@ function persistLayout(
   } = {},
 ) {
   writePersistedState(WORKSPACE_LAYOUT_STORAGE_KEY, {
-    assistGridShape: overrides.assistGridShape ?? store.assistGridShape,
-    snapAssistOnTopDrag: overrides.snapAssistOnTopDrag ?? store.snapAssistOnTopDrag,
-    tiledWindowGap: overrides.tiledWindowGap ?? store.tiledWindowGap,
+    assistGridShape: overrides.assistGridShape ?? owner.read().assistGridShape,
+    snapAssistOnTopDrag: overrides.snapAssistOnTopDrag ?? owner.read().snapAssistOnTopDrag,
+    tiledWindowGap: overrides.tiledWindowGap ?? owner.read().tiledWindowGap,
   })
 }
 
 export function syncClientPreferenceStorage(key: string, raw: string | null) {
   if (key === FILE_OPEN_TARGET_STORAGE_KEY) {
-    const fileOpenTarget = normalizeFileOpen(parsePersisted<FileOpenPersisted>(raw))
-    setStore((state) => {
-      state.fileOpenTarget = fileOpenTarget
-    })
+    const fileOpenTarget = normalizeFileOpen(parsePersisted(raw, fileOpenPersistedSchema))
+    owner.patch({ fileOpenTarget })
   } else if (key === WORKSPACE_LAYOUT_STORAGE_KEY) {
-    const layout = normalizeLayout(parsePersisted<LayoutPersisted>(raw))
-    setStore((state) => {
-      Object.assign(state, layout)
-    })
+    const layout = normalizeLayout(parsePersisted(raw, layoutPersistedSchema))
+    owner.patch(layout)
   } else {
     return
   }
-  listeners.notify()
 }
 
-if (typeof window !== 'undefined') {
-  window.addEventListener('storage', (event) => {
+export function createClientPreferencesLifetime() {
+  const onStorage = (event: StorageEvent) => {
     if (event.storageArea !== localStorage) return
     syncClientPreferenceStorage(event.key ?? '', event.newValue)
-  })
-}
-
-const api = {
-  get fileOpenTarget() {
-    return store.fileOpenTarget
-  },
-  get assistGridShape() {
-    return store.assistGridShape
-  },
-  get snapAssistOnTopDrag() {
-    return store.snapAssistOnTopDrag
-  },
-  get tiledWindowGap() {
-    return store.tiledWindowGap
-  },
-  setFileOpenTarget(value: FileOpenTarget) {
-    setStore((state) => {
-      state.fileOpenTarget = value
-    })
-    persistFileOpen(value)
-    listeners.notify()
-  },
-  setAssistGridShape(value: AssistGridShape) {
-    setStore((state) => {
-      state.assistGridShape = value
-    })
-    persistLayout({ assistGridShape: value })
-    listeners.notify()
-  },
-  setSnapAssistOnTopDrag(value: boolean) {
-    setStore((state) => {
-      state.snapAssistOnTopDrag = value
-    })
-    persistLayout({ snapAssistOnTopDrag: value })
-    listeners.notify()
-  },
-  setTiledWindowGap(value: number) {
-    const normalizedGap = normalizeTiledWindowGap(value)
-    setStore((state) => {
-      state.tiledWindowGap = normalizedGap
-    })
-    persistLayout({ tiledWindowGap: normalizedGap })
-    listeners.notify()
-  },
+  }
+  window.addEventListener('storage', onStorage)
+  return { dispose: () => window.removeEventListener('storage', onStorage) }
 }
 
 export const clientPreferencesStore = {
-  getState: () => api,
-  subscribe: (listener: () => void) => listeners.subscribe(listener),
+  source: owner.source,
+  read: owner.read,
+  setFileOpenTarget(this: void, value: FileOpenTarget) {
+    owner.patch({ fileOpenTarget: value })
+    persistFileOpen(value)
+  },
+  setAssistGridShape(this: void, value: AssistGridShape) {
+    owner.patch({ assistGridShape: value })
+    persistLayout({ assistGridShape: value })
+  },
+  setSnapAssistOnTopDrag(this: void, value: boolean) {
+    owner.patch({ snapAssistOnTopDrag: value })
+    persistLayout({ snapAssistOnTopDrag: value })
+  },
+  setTiledWindowGap(this: void, value: number) {
+    const normalizedGap = normalizeTiledWindowGap(value)
+    owner.patch({ tiledWindowGap: normalizedGap })
+    persistLayout({ tiledWindowGap: normalizedGap })
+  },
 }

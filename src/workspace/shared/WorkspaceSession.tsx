@@ -1,83 +1,74 @@
-import { useAdminEventsStream } from '@/lib/api/use-admin-events-stream'
+import { commandSlot, lifetime } from 'effectweb'
+import { Deferred, Effect } from 'effect'
 import { applyWorkspacePathMutation } from '@/workspace/model/workspace-path-mutation'
-import { useWorkspaceRegistry } from './use-workspace-registry'
-import {
-  createContext,
-  createEffect,
-  createSignal,
-  onCleanup,
-  useContext,
-  type Accessor,
-} from 'solid-js'
-import type { JSX } from '@solidjs/web'
+import { subscribeSseAdmin } from '@/lib/api/sse-shared-worker-client'
+import { parsePathMutation } from '@/lib/files/path-mutation'
+import { createWorkspaceRegistry } from './workspace-registry'
 
-export type WorkspaceSession = ReturnType<typeof useWorkspaceRegistry> & {
-  registerSavingBlocker: (blocked: Accessor<boolean>) => () => void
-}
+export type WorkspaceSession = ReturnType<typeof createWorkspaceSession>
 
-const WorkspaceSessionContext = createContext<WorkspaceSession>()
-
-export function WorkspaceSessionProvider(props: {
-  workspaceId: Accessor<string>
-  children: JSX.Element
-}) {
-  const [savingBlockers, setSavingBlockers] = createSignal<Accessor<boolean>[]>([])
-  const savingWaiters = new Set<() => void>()
-
-  const registerSavingBlocker = (blocked: Accessor<boolean>) => {
-    let disposed = false
-    queueMicrotask(() => {
-      if (disposed) return
-      setSavingBlockers((current) => (current.includes(blocked) ? current : [...current, blocked]))
-    })
-    return () => {
-      disposed = true
-      queueMicrotask(() => {
-        setSavingBlockers((current) => current.filter((item) => item !== blocked))
-      })
-    }
-  }
-
-  const savingBlocked = () => savingBlockers().some((blocked) => blocked())
-  createEffect(savingBlocked, (blocked) => {
-    if (blocked) return
-    for (const resolve of savingWaiters) resolve()
-    savingWaiters.clear()
-  })
-  onCleanup(() => {
-    for (const resolve of savingWaiters) resolve()
-    savingWaiters.clear()
-  })
-
-  const session = useWorkspaceRegistry({
-    workspaceId: () => props.workspaceId(),
+export function createWorkspaceSession(workspaceId: () => string) {
+  const blockers = new Set<() => boolean>()
+  const owner = lifetime()
+  const refreshSlot = commandSlot('workspace-remote-change')
+  const waiters = new Set<Deferred.Deferred<void>>()
+  const savingBlocked = () => [...blockers].some((blocked) => blocked())
+  const registry = createWorkspaceRegistry({
+    workspaceId,
     savingBlocked,
     waitUntilSavingUnblocked: () =>
-      savingBlocked()
-        ? new Promise<void>((resolve) => savingWaiters.add(resolve))
-        : Promise.resolve(),
+      Effect.suspend(() => {
+        if (!savingBlocked()) return Effect.void
+        const waiter = Deferred.makeUnsafe<void>()
+        waiters.add(waiter)
+        return Deferred.await(waiter).pipe(
+          Effect.ensuring(Effect.sync(() => waiters.delete(waiter))),
+        )
+      }),
   })
-  useAdminEventsStream(
-    true,
-    (mutation) => {
-      const current = session.document.value()
-      if (current) session.document.replace(applyWorkspacePathMutation(current, mutation))
-      void session.catalog.reconcileRemoteChange()
-    },
-    () => void session.catalog.reconcileRemoteChange(),
-  )
-
-  const publicSession: WorkspaceSession = {
-    ...session,
-    registerSavingBlocker,
+  const savingBlockChanged = () => {
+    registry.savingBlockChanged()
+    if (savingBlocked()) return
+    for (const waiter of waiters) Deferred.doneUnsafe(waiter, Effect.void)
+    waiters.clear()
   }
-
-  return <WorkspaceSessionContext value={publicSession}>{props.children}</WorkspaceSessionContext>
-}
-
-export function useWorkspaceSession(options?: { savingBlocked?: Accessor<boolean> }) {
-  const session = useContext(WorkspaceSessionContext)
-  if (!session) throw new Error('WorkspaceSessionProvider is missing')
-  if (options?.savingBlocked) onCleanup(session.registerSavingBlocker(options.savingBlocked))
-  return session
+  const unsubscribe = subscribeSseAdmin((event) => {
+    const mutation = parsePathMutation(event)
+    if (mutation) {
+      const current = registry.document.value()
+      if (current) registry.document.replace(applyWorkspacePathMutation(current, mutation))
+    }
+    if (
+      mutation ||
+      ['connected', 'resync-required', 'workspaces-changed'].includes(event.type ?? '')
+    ) {
+      owner.run(refreshSlot, registry.catalog.reconcileRemoteChange(), 'latest-queued')
+    }
+  })
+  registry.start()
+  return {
+    ...registry,
+    savingBlockChanged,
+    registerSavingBlocker(blocked: () => boolean) {
+      blockers.add(blocked)
+      return () => {
+        blockers.delete(blocked)
+        savingBlockChanged()
+      }
+    },
+    close: () =>
+      Effect.sync(() => {
+        unsubscribe()
+        blockers.clear()
+        for (const waiter of waiters) Deferred.doneUnsafe(waiter, Effect.void)
+        waiters.clear()
+      }).pipe(Effect.andThen(registry.close()), Effect.ensuring(owner.close().pipe(Effect.orDie))),
+    dispose() {
+      unsubscribe()
+      owner.dispose()
+      registry.dispose()
+      for (const waiter of waiters) Deferred.doneUnsafe(waiter, Effect.void)
+      waiters.clear()
+    },
+  }
 }

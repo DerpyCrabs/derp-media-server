@@ -1,7 +1,7 @@
 import type { BookChapter } from './book-types'
 
 export function bookProgress(
-  chapters: Pick<BookChapter, 'id' | 'textLength'>[],
+  chapters: readonly Pick<BookChapter, 'id' | 'textLength'>[],
   chapterId: string,
   chapterProgress: number,
 ): number | undefined {

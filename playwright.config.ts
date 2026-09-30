@@ -42,12 +42,7 @@ export default defineConfig({
     trace: development ? 'retain-on-failure' : 'on-first-retry',
     screenshot: 'only-on-failure',
   },
-  projects: [
-    {
-      name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
-    },
-  ],
+  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   globalSetup: './tests/fixtures/setup.ts',
   globalTeardown: './tests/fixtures/teardown.ts',
   webServer: {

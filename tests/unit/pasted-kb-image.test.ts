@@ -1,3 +1,4 @@
+import { Effect } from 'effect'
 import { describe, expect, test } from 'bun:test'
 import {
   blobToBase64,
@@ -23,7 +24,7 @@ describe('formatObsidianPastedImageFileName', () => {
 describe('blobToBase64', () => {
   test('round-trips small binary payload', async () => {
     const bytes = new Uint8Array([0, 1, 2, 255])
-    const b64 = await blobToBase64(new Blob([bytes]))
+    const b64 = await Effect.runPromise(blobToBase64(new Blob([bytes])))
     expect(b64).toBe(btoa(String.fromCharCode(0, 1, 2, 255)))
   })
 })

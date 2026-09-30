@@ -26,13 +26,13 @@ export function homePage(items: object[], nextCursor: number | null = null) {
 }
 export async function mockAiHydration(page: Page) {
   await page.addInitScript(() => {
-    type State = { queries?: { queryKey?: unknown[] }[] }
+    type State = { entries?: { key?: unknown[] }[] }
     let cached: State | undefined
-    Object.defineProperty(window, '__DEHYDRATED_STATE__', {
+    Object.defineProperty(window, '__INITIAL_DATA__', {
       configurable: true,
       get: () => cached,
       set: (value: State) => {
-        value.queries = value.queries?.filter((query) => query.queryKey?.[0] !== 'media-ai')
+        value.entries = value.entries?.filter((query) => query.key?.[0] !== 'media-ai')
         cached = value
       },
     })

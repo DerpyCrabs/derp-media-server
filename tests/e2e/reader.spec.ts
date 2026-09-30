@@ -42,7 +42,7 @@ async function disableAutomaticSelectionAction(page: Page) {
   await page.getByRole('button', { name: 'none', exact: true }).click()
 }
 
-async function useContinuousReaderView(page: Page) {
+async function switchToContinuousReaderView(page: Page) {
   await page.getByTestId('reader-settings-button').click()
   await page.getByRole('button', { name: 'continuous', exact: true }).click()
 }
@@ -526,7 +526,7 @@ test.describe('Reader', () => {
       await page.goto('/')
       await page.locator('tr', { hasText: 'Images' }).click({ button: 'right' })
       await chooseReaderFromOpenWith(page)
-      await useContinuousReaderView(page)
+      await switchToContinuousReaderView(page)
       await expect(page.getByTestId('reader-image-page')).toHaveCount(2)
       await expect
         .poll(() =>
@@ -836,74 +836,167 @@ test.describe('Reader', () => {
     await expect(page.getByTestId('reader-ai-result').locator('p')).toHaveCount(0)
   })
 
-  test('ignores stale AI output when selection changes during a request', async ({ page }) => {
-    let turnRequests = 0
-    await page.route('**/api/hermes/capabilities', async (route) => {
-      await route.fulfill({ json: { compatible: true, readerAi: true } })
-    })
-    await page.addInitScript(() => {
-      class MockEventSource {
-        static instances: MockEventSource[] = []
-        onmessage: ((event: MessageEvent<string>) => void) | null = null
-        onerror: (() => void) | null = null
+  for (const automatic of [true, false]) {
+    test(`ignores stale AI output when selection changes during a ${automatic ? 'automatic' : 'manual'} request`, async ({
+      page,
+    }) => {
+      let turnRequests = 0
+      await page.route('**/api/hermes/capabilities', async (route) => {
+        await route.fulfill({ json: { compatible: true, readerAi: true } })
+      })
+      await page.addInitScript(() => {
+        class MockEventSource {
+          static instances: MockEventSource[] = []
+          onmessage: ((event: MessageEvent<string>) => void) | null = null
+          onerror: (() => void) | null = null
 
-        constructor() {
-          MockEventSource.instances.push(this)
+          constructor() {
+            MockEventSource.instances.push(this)
+          }
+
+          close() {}
         }
+        Object.defineProperty(window, 'EventSource', { configurable: true, value: MockEventSource })
+        const target = window as typeof window & {
+          __emitReaderAiAt?: (index: number, payload: unknown) => void
+        }
+        target.__emitReaderAiAt = (index, payload) =>
+          MockEventSource.instances[index]?.onmessage?.(
+            new MessageEvent('message', { data: JSON.stringify(payload) }),
+          )
+      })
+      await page.route('**/api/hermes/turn', async (route) => {
+        turnRequests += 1
+        await route.fulfill({ json: { sessionId: `reader-stale-${turnRequests}` } })
+      })
+      await page.route('**/api/hermes/archive', async (route) => {
+        await route.fulfill({ json: { archived: true } })
+      })
 
-        close() {}
+      await openSamplePdf(page)
+      await page.getByTestId('reader-settings-button').click()
+      await page.getByRole('button', { name: automatic ? 'define' : 'none', exact: true }).click()
+      await selectPdfLines(page, 'Selectable reader text')
+      if (!automatic) await page.getByTestId('reader-define').click()
+      await expect.poll(() => turnRequests).toBe(1)
+      await selectPdfLines(page, 'Second selected line')
+      if (automatic) await expect.poll(() => turnRequests).toBe(2)
+
+      await page.evaluate(() => {
+        const target = window as typeof window & {
+          __emitReaderAiAt?: (index: number, payload: unknown) => void
+        }
+        target.__emitReaderAiAt?.(0, {
+          params: {
+            durable_session_id: 'reader-stale-1',
+            type: 'message.complete',
+            payload: { text: 'stale definition' },
+          },
+        })
+      })
+      await expect(page.getByTestId('reader-selection-menu')).not.toContainText('stale definition')
+
+      if (!automatic) {
+        await expect(page.getByTestId('reader-ai-result')).toHaveCount(0)
+        await page.getByTestId('reader-define').click()
+        await expect.poll(() => turnRequests).toBe(2)
       }
-      Object.defineProperty(window, 'EventSource', { configurable: true, value: MockEventSource })
-      const target = window as typeof window & {
-        __emitReaderAiAt?: (index: number, payload: unknown) => void
-      }
-      target.__emitReaderAiAt = (index, payload) =>
-        MockEventSource.instances[index]?.onmessage?.(
-          new MessageEvent('message', { data: JSON.stringify(payload) }),
+      await page.evaluate(() => {
+        const target = window as typeof window & {
+          __emitReaderAiAt?: (index: number, payload: unknown) => void
+        }
+        target.__emitReaderAiAt?.(1, {
+          params: {
+            durable_session_id: 'reader-stale-2',
+            type: 'message.complete',
+            payload: { text: 'fresh definition' },
+          },
+        })
+      })
+      await expect(page.getByTestId('reader-ai-result')).toHaveText('fresh definition')
+    })
+  }
+})
+
+test('PDF viewer styles stay scoped while open and after closing', async ({ page }) => {
+  await page.goto('/')
+  await expect
+    .poll(() => page.evaluate(() => getComputedStyle(document.documentElement).colorScheme))
+    .toBe('normal')
+  await openSamplePdf(page)
+  await expect(page.locator('.pdf-content').first()).toHaveCSS('color-scheme', 'light dark')
+  await expect
+    .poll(() => page.evaluate(() => getComputedStyle(document.documentElement).colorScheme))
+    .toBe('normal')
+  await page.getByLabel('Close reader').click()
+  await expect(page.locator('.pdf-content')).toHaveCount(0)
+  await expect
+    .poll(() => page.evaluate(() => getComputedStyle(document.documentElement).colorScheme))
+    .toBe('normal')
+})
+
+test('invalid PDF preserves the document error message', async ({ page }) => {
+  await page.route('**/api/media/Documents/reader.pdf', (route) =>
+    route.fulfill({ body: 'not a pdf', contentType: 'application/pdf' }),
+  )
+  await page.goto('/?reader=Documents%2Freader.pdf')
+  await expect(page.getByText('Invalid PDF structure.', { exact: false })).toBeVisible()
+  await expect(page.getByText('UnknownError', { exact: false })).toHaveCount(0)
+  const close = await page.getByLabel('Close reader').boundingBox()
+  expect(close!.x).toBeGreaterThan(page.viewportSize()!.width - 60)
+})
+
+test('closing a rendered PDF releases its global text-selection listener', async ({ page }) => {
+  await page.addInitScript(() => {
+    const original = document.addEventListener.bind(document)
+    document.addEventListener = (
+      type: string,
+      listener: EventListenerOrEventListenerObject,
+      options?: boolean | AddEventListenerOptions,
+    ) => {
+      if (type === 'selectionchange' && typeof options === 'object' && options.signal) {
+        const root = document.documentElement
+        root.dataset.pdfSelectionListeners = String(
+          Number(root.dataset.pdfSelectionListeners ?? 0) + 1,
         )
-    })
-    await page.route('**/api/hermes/turn', async (route) => {
-      turnRequests += 1
-      await route.fulfill({ json: { sessionId: `reader-stale-${turnRequests}` } })
-    })
-    await page.route('**/api/hermes/archive', async (route) => {
-      await route.fulfill({ json: { archived: true } })
-    })
-
-    await openSamplePdf(page)
-    await page.getByTestId('reader-settings-button').click()
-    await page.getByRole('button', { name: 'define', exact: true }).click()
-    await selectPdfLines(page, 'Selectable reader text')
-    await expect.poll(() => turnRequests).toBe(1)
-    await selectPdfLines(page, 'Second selected line')
-    await expect.poll(() => turnRequests).toBe(2)
-
-    await page.evaluate(() => {
-      const target = window as typeof window & {
-        __emitReaderAiAt?: (index: number, payload: unknown) => void
+        options.signal.addEventListener(
+          'abort',
+          () => {
+            root.dataset.pdfSelectionListeners = String(
+              Number(root.dataset.pdfSelectionListeners) - 1,
+            )
+          },
+          { once: true },
+        )
       }
-      target.__emitReaderAiAt?.(0, {
-        params: {
-          durable_session_id: 'reader-stale-1',
-          type: 'message.complete',
-          payload: { text: 'stale definition' },
-        },
-      })
-    })
-    await expect(page.getByTestId('reader-selection-menu')).not.toContainText('stale definition')
-
-    await page.evaluate(() => {
-      const target = window as typeof window & {
-        __emitReaderAiAt?: (index: number, payload: unknown) => void
-      }
-      target.__emitReaderAiAt?.(1, {
-        params: {
-          durable_session_id: 'reader-stale-2',
-          type: 'message.complete',
-          payload: { text: 'fresh definition' },
-        },
-      })
-    })
-    await expect(page.getByTestId('reader-ai-result')).toHaveText('fresh definition')
+      original(type, listener, options)
+    }
   })
+  await openSamplePdf(page)
+  await expect
+    .poll(() => page.evaluate(() => Number(document.documentElement.dataset.pdfSelectionListeners)))
+    .toBeGreaterThan(0)
+  await page.getByLabel('Close reader').click()
+  await expect(page.getByTestId('pdf-text-layer')).toHaveCount(0)
+  await expect
+    .poll(() => page.evaluate(() => Number(document.documentElement.dataset.pdfSelectionListeners)))
+    .toBe(0)
+})
+
+test('a failed position flush keeps the reader open and allows close to retry', async ({
+  page,
+}) => {
+  await openSamplePdf(page)
+  await page.route('**/api/reader-state', async (route) => {
+    if (route.request().method() !== 'POST') return route.continue()
+    await route.fulfill({ status: 503, json: { error: 'Reading position could not be saved' } })
+  })
+  await page.getByLabel('Close reader').click()
+  await expect(page.getByRole('heading', { name: 'Could not save reading progress' })).toBeVisible()
+  await expect(page.getByText('Reading position could not be saved', { exact: true })).toBeVisible()
+  await expect(page.getByTestId('pdf-canvas').first()).toBeVisible()
+  await page.getByRole('button', { name: 'OK', exact: true }).click()
+  await page.unroute('**/api/reader-state')
+  await page.getByLabel('Close reader').click()
+  await expect(page.getByTestId('pdf-canvas')).toHaveCount(0)
 })

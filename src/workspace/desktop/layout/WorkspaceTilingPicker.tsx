@@ -5,10 +5,10 @@ import {
   narrowPickToAssistShape,
   pickAssistSlotFromPoint,
 } from '@/workspace/model/workspace-snap-pick'
-import { createEffect, onSettled, createMemo, createSignal } from 'solid-js'
-import X from 'lucide-solid/icons/x'
+import { localComponent, view, domBinding } from 'effectweb'
+import X from '@effectweb/lucide/icons/x'
 import { WorkspaceSnapAssistMasterGrid } from './WorkspaceSnapAssistMasterGrid'
-import { snapAssistSurfaceWidth } from '@/workspace/model/use-snap-zones'
+import { snapAssistSurfaceWidth } from '@/workspace/model/snap-zones'
 
 const MIN_TILE_WIDTH = 360
 const MIN_TILE_HEIGHT = 260
@@ -23,223 +23,189 @@ export type WorkspaceTilingPickerProps = {
   onHoverSpanChange?: (span: AssistGridSpan | null) => void
 }
 
-export function WorkspaceTilingPicker(props: WorkspaceTilingPickerProps) {
-  const [pickerRoot, setPickerRoot] = createSignal<HTMLDivElement | null>(null)
-  const [pointerPick, setPointerPick] = createSignal<AssistSlotPick | null>(null)
-  const [layoutVersion, setLayoutVersion] = createSignal(0)
-  const [measuredBox, setMeasuredBox] = createSignal<{
-    w: number
-    h: number
-  } | null>(null)
-
-  createEffect(
-    () => props.container,
-    (container) => {
-      if (!container) return undefined
-      const bump = () => setLayoutVersion((v) => v + 1)
-      const ro = new ResizeObserver(bump)
-      ro.observe(container)
-      const onWinResize = () => bump()
-      window.addEventListener('resize', onWinResize)
-      return () => {
-        ro.disconnect()
-        window.removeEventListener('resize', onWinResize)
+type Geometry = {
+  viewport: { w: number; h: number }
+  box: { w: number; h: number } | null
+  container: { width: number; height: number }
+}
+export const WorkspaceTilingPicker = localComponent<
+  WorkspaceTilingPickerProps,
+  { pointerPick: AssistSlotPick | null; geometry: Geometry }
+>({
+  init: () => ({
+    pointerPick: null,
+    geometry: {
+      viewport: layoutViewportClientSize(),
+      box: null,
+      container: { width: 0, height: 0 },
+    },
+  }),
+  view: view((local, patch) => {
+    const props = local.props
+    const pointerPick = () => local.pointerPick
+    const { viewport, box, container } = local.geometry
+    const aspect = () => (viewport.h > 0 ? viewport.w / viewport.h : 16 / 9)
+    const surfaceWidth = () => snapAssistSurfaceWidth(viewport.w, viewport.h)
+    const layout = () => {
+      const width = box?.w ?? surfaceWidth(),
+        height = box?.h ?? (viewport.w >= viewport.h ? 112 : 360),
+        anchor = props.anchorRect
+      return {
+        left: Math.max(0, Math.min(anchor.left, viewport.w - width)),
+        top: Math.max(
+          0,
+          Math.min(
+            anchor.bottom + 4 + height > viewport.h ? anchor.top - height - 4 : anchor.bottom + 4,
+            viewport.h - height,
+          ),
+        ),
       }
-    },
-  )
-
-  createEffect(
-    () => pickerRoot(),
-    (el) => {
-      if (!el) {
-        setMeasuredBox(null)
-        return undefined
-      }
-      const raf = requestAnimationFrame(() => {
-        const r = el.getBoundingClientRect()
-        if (r.width > 0 && r.height > 0) setMeasuredBox({ w: r.width, h: r.height })
-      })
-      // eslint-disable-next-line solid/reactivity
-      return () => cancelAnimationFrame(raf)
-    },
-  )
-
-  const layout = createMemo(() => {
-    void layoutVersion()
-    void measuredBox()
-    const a = props.anchorRect
-    const m = measuredBox()
-    const { w: vw, h: vh } = layoutViewportClientSize()
-    const pw = Math.max(1, m?.w ?? snapAssistSurfaceWidth(vw, vh))
-    const ph = Math.max(1, m?.h ?? (vw >= vh ? 112 : 360))
-    const vx0 = 0
-    const vy0 = 0
-    const vx1 = vw
-    const vy1 = vh
-
-    // Align with anchor's left edge; only nudge left the minimum amount to stay in the viewport.
-    let left = a.left
-    const maxLeft = vx1 - pw
-    if (left > maxLeft) left = maxLeft
-    if (left < vx0) left = vx0
-
-    let top = a.bottom + 4
-    if (top + ph > vy1) {
-      top = a.top - ph - 4
     }
-    if (top + ph > vy1) {
-      top = vy1 - ph
+    const spanUnavailable = (span: AssistGridSpan) =>
+      (container.width * (span.gc1 - span.gc0 + 1)) / span.gridCols < MIN_TILE_WIDTH ||
+      (container.height * (span.gr1 - span.gr0 + 1)) / span.gridRows < MIN_TILE_HEIGHT
+    const updatePointerPick = (pointerPick: AssistSlotPick | null) => {
+      patch({ pointerPick })
+      props.onHoverSpanChange?.(pointerPick?.span ?? null)
     }
-    if (top < vy0) top = vy0
-
-    return { left, top }
-  })
-
-  const aspect = createMemo(() => {
-    void layoutVersion()
-    const { w, h } = layoutViewportClientSize()
-    return h > 0 ? w / h : 16 / 9
-  })
-
-  const surfaceWidth = createMemo(() => {
-    void layoutVersion()
-    const { w, h } = layoutViewportClientSize()
-    return snapAssistSurfaceWidth(w, h)
-  })
-
-  const spanUnavailable = (span: AssistGridSpan) => {
-    const rect = props.container.getBoundingClientRect()
-    const width = (rect.width * (span.gc1 - span.gc0 + 1)) / span.gridCols
-    const height = (rect.height * (span.gr1 - span.gr0 + 1)) / span.gridRows
-    return width < MIN_TILE_WIDTH || height < MIN_TILE_HEIGHT
-  }
-
-  function updateHoverFromEvent(e: { clientX: number; clientY: number }) {
-    const el = pickerRoot()
-    if (!el) return
-    const r = el.getBoundingClientRect()
-    if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) {
-      updatePointerPick(null)
-      return
-    }
-    updatePointerPick(pickAssistSlotFromPoint(e.clientX, e.clientY, el))
-  }
-
-  function updatePointerPick(pick: AssistSlotPick | null) {
-    setPointerPick(pick)
-    props.onHoverSpanChange?.(pick?.span ?? null)
-  }
-
-  createEffect(
-    () => pickerRoot(),
-    (root) => {
-      if (!root) return undefined
-      const onWindow = (e: PointerEvent) => updateHoverFromEvent(e)
-      window.addEventListener('pointermove', onWindow, {
-        capture: true,
-        passive: true,
-      })
-      // eslint-disable-next-line solid/reactivity
-      return () => window.removeEventListener('pointermove', onWindow, { capture: true })
-    },
-  )
-
-  onSettled(() => {
-    const outside = (target: EventTarget | null) => {
-      const r = pickerRoot()
-      const n = target as Node | null
-      if (
-        !r ||
-        !n ||
-        r.contains(n) ||
-        (target instanceof Element && target.closest('[data-layout-picker-trigger]'))
-      )
-        return
-      props.onClose()
-    }
-    const onPointerDownCapture = (e: PointerEvent) => outside(e.target)
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') props.onClose()
-    }
-    document.addEventListener('pointerdown', onPointerDownCapture, true)
-    document.addEventListener('keydown', onKey)
-    // eslint-disable-next-line solid/reactivity
-    return () => {
-      document.removeEventListener('pointerdown', onPointerDownCapture, true)
-      document.removeEventListener('keydown', onKey)
-      props.onHoverSpanChange?.(null)
-    }
-  })
-
-  return (
-    <div
-      ref={(el) => setPickerRoot(el ?? null)}
-      data-tiling-picker
-      class='fixed z-[9999] max-w-[calc(100vw-16px)] overflow-hidden rounded-xl border border-border/80 bg-popover/95 shadow-2xl ring-1 ring-black/10 backdrop-blur-xl'
-      style={{
-        left: `${layout().left}px`,
-        top: `${layout().top}px`,
-        width: `${surfaceWidth()}px`,
-      }}
-      onPointerLeave={() => updatePointerPick(null)}
-      role='dialog'
-      aria-label='Choose window layout'
-    >
-      <div class='flex h-8 items-center justify-between border-b border-border/70 px-2'>
-        <div class='text-xs font-semibold text-foreground'>Choose window layout</div>
-        <button
-          type='button'
-          class='inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary'
-          aria-label='Close layout picker'
-          onClick={() => props.onClose()}
-        >
-          <X class='h-3.5 w-3.5' stroke-width={2} />
-        </button>
-      </div>
+    return (
       <div
-        class={`grid max-h-[calc(100vh-40px)] justify-items-center gap-1.5 overflow-y-auto p-1.5 ${aspect() >= 1 ? 'grid-cols-4' : 'grid-cols-2'}`}
+        use={domBinding(
+          {
+            container: props.container,
+            measure: (geometry: Geometry) => patch({ geometry }),
+            pick: updatePointerPick,
+            close: props.onClose,
+            clear: () => props.onHoverSpanChange?.(null),
+          },
+          tilingPickerEvents,
+        )}
+        data-tiling-picker
+        class='fixed z-[9999] max-w-[calc(100vw-16px)] overflow-hidden rounded-xl border border-border/80 bg-popover/95 shadow-2xl ring-1 ring-black/10 backdrop-blur-xl'
+        style={{
+          left: `${layout().left}px`,
+          top: `${layout().top}px`,
+          width: `${surfaceWidth()}px`,
+        }}
+        onPointerLeave={() => updatePointerPick(null)}
+        role='dialog'
+        aria-label='Choose window layout'
       >
-        <WorkspaceSnapAssistMasterGrid
-          shape='2x2'
-          getHoverPick={() => narrowPickToAssistShape(pointerPick(), '2x2')}
-          aspectRatio={aspect()}
-          layoutLabel={assistShapeLabel('2x2')}
-          pickMode
-          compact
-          onPickSpan={(span) => props.onSelectSpan(span)}
-          isSpanDisabled={spanUnavailable}
-        />
-        <WorkspaceSnapAssistMasterGrid
-          shape='3x2'
-          getHoverPick={() => narrowPickToAssistShape(pointerPick(), '3x2')}
-          aspectRatio={aspect()}
-          layoutLabel={assistShapeLabel('3x2')}
-          pickMode
-          compact
-          onPickSpan={(span) => props.onSelectSpan(span)}
-          isSpanDisabled={spanUnavailable}
-        />
-        <WorkspaceSnapAssistMasterGrid
-          shape='2x3'
-          getHoverPick={() => narrowPickToAssistShape(pointerPick(), '2x3')}
-          aspectRatio={aspect()}
-          layoutLabel={assistShapeLabel('2x3')}
-          pickMode
-          compact
-          onPickSpan={(span) => props.onSelectSpan(span)}
-          isSpanDisabled={spanUnavailable}
-        />
-        <WorkspaceSnapAssistMasterGrid
-          shape='3x3'
-          getHoverPick={() => narrowPickToAssistShape(pointerPick(), '3x3')}
-          aspectRatio={aspect()}
-          layoutLabel={assistShapeLabel('3x3')}
-          pickMode
-          compact
-          onPickSpan={(span) => props.onSelectSpan(span)}
-          isSpanDisabled={spanUnavailable}
-        />
+        <div class='flex h-8 items-center justify-between border-b border-border/70 px-2'>
+          <div class='text-xs font-semibold text-foreground'>Choose window layout</div>
+          <button
+            type='button'
+            class='inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary'
+            aria-label='Close layout picker'
+            onClick={() => props.onClose()}
+          >
+            <X class='h-3.5 w-3.5' stroke-width={2} />
+          </button>
+        </div>
+        <div
+          class={`grid max-h-[calc(100vh-40px)] justify-items-center gap-1.5 overflow-y-auto p-1.5 ${aspect() >= 1 ? 'grid-cols-4' : 'grid-cols-2'}`}
+        >
+          <WorkspaceSnapAssistMasterGrid
+            shape='2x2'
+            getHoverPick={() => narrowPickToAssistShape(pointerPick(), '2x2')}
+            aspectRatio={aspect()}
+            layoutLabel={assistShapeLabel('2x2')}
+            pickMode
+            compact
+            onPickSpan={(span) => props.onSelectSpan(span)}
+            isSpanDisabled={spanUnavailable}
+          />
+          <WorkspaceSnapAssistMasterGrid
+            shape='3x2'
+            getHoverPick={() => narrowPickToAssistShape(pointerPick(), '3x2')}
+            aspectRatio={aspect()}
+            layoutLabel={assistShapeLabel('3x2')}
+            pickMode
+            compact
+            onPickSpan={(span) => props.onSelectSpan(span)}
+            isSpanDisabled={spanUnavailable}
+          />
+          <WorkspaceSnapAssistMasterGrid
+            shape='2x3'
+            getHoverPick={() => narrowPickToAssistShape(pointerPick(), '2x3')}
+            aspectRatio={aspect()}
+            layoutLabel={assistShapeLabel('2x3')}
+            pickMode
+            compact
+            onPickSpan={(span) => props.onSelectSpan(span)}
+            isSpanDisabled={spanUnavailable}
+          />
+          <WorkspaceSnapAssistMasterGrid
+            shape='3x3'
+            getHoverPick={() => narrowPickToAssistShape(pointerPick(), '3x3')}
+            aspectRatio={aspect()}
+            layoutLabel={assistShapeLabel('3x3')}
+            pickMode
+            compact
+            onPickSpan={(span) => props.onSelectSpan(span)}
+            isSpanDisabled={spanUnavailable}
+          />
+        </div>
       </div>
-    </div>
-  )
+    )
+  }),
+})
+const tilingPickerEvents = (
+  element: HTMLDivElement,
+  current: () => {
+    container: HTMLElement
+    measure: (geometry: Geometry) => void
+    pick: (pick: AssistSlotPick | null) => void
+    close: () => void
+    clear: () => void
+  },
+) => {
+  const measure = () => {
+    const box = element.getBoundingClientRect(),
+      container = current().container.getBoundingClientRect()
+    current().measure({
+      viewport: layoutViewportClientSize(),
+      box: { w: box.width, h: box.height },
+      container: { width: container.width, height: container.height },
+    })
+  }
+  const move = (event: PointerEvent) => {
+    const box = element.getBoundingClientRect()
+    current().pick(
+      event.clientX < box.left ||
+        event.clientX > box.right ||
+        event.clientY < box.top ||
+        event.clientY > box.bottom
+        ? null
+        : pickAssistSlotFromPoint(event.clientX, event.clientY, element),
+    )
+  }
+  const outside = (event: PointerEvent) => {
+    const target = event.target
+    if (
+      target instanceof Node &&
+      !element.contains(target) &&
+      !(target instanceof Element && target.closest('[data-layout-picker-trigger]'))
+    )
+      current().close()
+  }
+  const key = (event: KeyboardEvent) => {
+    if (event.key === 'Escape') current().close()
+  }
+  const observer = new ResizeObserver(measure)
+  observer.observe(element)
+  observer.observe(current().container)
+  window.addEventListener('resize', measure)
+  window.addEventListener('pointermove', move, { capture: true, passive: true })
+  document.addEventListener('pointerdown', outside, true)
+  document.addEventListener('keydown', key)
+  measure()
+  return () => {
+    observer.disconnect()
+    window.removeEventListener('resize', measure)
+    window.removeEventListener('pointermove', move, true)
+    document.removeEventListener('pointerdown', outside, true)
+    document.removeEventListener('keydown', key)
+    current().clear()
+  }
 }

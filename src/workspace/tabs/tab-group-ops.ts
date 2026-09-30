@@ -5,15 +5,12 @@ import {
   maxWorkspaceWindowZ,
 } from '@/workspace/model/workspace-geometry'
 import { MediaType } from '@/lib/files/types'
-import type { PersistedWorkspaceState } from '@/workspace/model/use-workspace'
+import type { PersistedWorkspaceState } from '@/workspace/model/workspace'
 import type {
   TabGroupSplitState,
   WindowDefinition as WorkspaceWindowDefinition,
 } from '@/lib/models/window-model'
-import {
-  SPLIT_PANE_FRACTION_DEFAULT,
-  clampSplitPaneFraction,
-} from '@/workspace/model/use-workspace'
+import { SPLIT_PANE_FRACTION_DEFAULT, clampSplitPaneFraction } from '@/workspace/model/workspace'
 import {
   createWorkspaceWindowDefinition,
   workspaceWindowId,
@@ -24,7 +21,7 @@ export function groupIdForWindow(w: WorkspaceWindowDefinition): string {
 }
 
 /** Group ids in first-seen order (includes minimized), for taskbar rows. */
-export function orderedAllGroupIds(windows: WorkspaceWindowDefinition[]): string[] {
+export function orderedAllGroupIds(windows: readonly WorkspaceWindowDefinition[]): string[] {
   const seen = new Set<string>()
   const order: string[] = []
   for (const win of windows) {
@@ -37,9 +34,9 @@ export function orderedAllGroupIds(windows: WorkspaceWindowDefinition[]): string
 }
 
 export function tabsInGroup(
-  windows: WorkspaceWindowDefinition[],
+  windows: readonly WorkspaceWindowDefinition[],
   groupId: string,
-): WorkspaceWindowDefinition[] {
+): readonly WorkspaceWindowDefinition[] {
   return windows.filter((w) => groupIdForWindow(w) === groupId)
 }
 
@@ -48,7 +45,7 @@ export function tabsInGroup(
  * fall back to groupTabs[0] (often the split-left browser), which would duplicate the file browser on the right.
  */
 export function visibleTabIdAfterPlayerRemoved(
-  windows: WorkspaceWindowDefinition[],
+  windows: readonly WorkspaceWindowDefinition[],
   groupId: string,
   tabGroupSplits: PersistedWorkspaceState['tabGroupSplits'],
 ): string | null {
@@ -129,16 +126,10 @@ export function pruneTabGroupSplitsState(state: PersistedWorkspaceState): Persis
     const left = members.find((w) => w.id === sp.leftTabId)
     if (!left) continue
     if (members.filter((w) => w.id !== sp.leftTabId).length < 1) continue
-    next[gid] = {
-      ...sp,
-      leftPaneFraction: clampSplitPaneFraction(sp.leftPaneFraction),
-    }
+    next[gid] = { ...sp, leftPaneFraction: clampSplitPaneFraction(sp.leftPaneFraction) }
   }
   const keys = Object.keys(next)
-  let out: PersistedWorkspaceState = {
-    ...state,
-    tabGroupSplits: keys.length ? next : undefined,
-  }
+  let out: PersistedWorkspaceState = { ...state, tabGroupSplits: keys.length ? next : undefined }
   out = ensureSplitActiveNotLeft(out)
   return out
 }
@@ -165,7 +156,7 @@ export function ensureSplitActiveNotLeft(state: PersistedWorkspaceState): Persis
 }
 
 export function insertIndexAfterAllRightTabs(
-  groupMembers: WorkspaceWindowDefinition[],
+  groupMembers: readonly WorkspaceWindowDefinition[],
   leftTabId: string,
 ): number {
   let lastRight = -1
@@ -177,7 +168,7 @@ export function insertIndexAfterAllRightTabs(
 
 /** Map a right-strip-only tab index to a group-local insert index (for file drop / open). */
 export function rightStripIndexToGroupInsertIndex(
-  groupMembers: WorkspaceWindowDefinition[],
+  groupMembers: readonly WorkspaceWindowDefinition[],
   leftTabId: string | undefined,
   rightStripIndex: number,
 ): number {
@@ -193,7 +184,7 @@ export function rightStripIndexToGroupInsertIndex(
 
 /** Map a merge-target insert index (full group order) to a drop slot index in a right-only strip. */
 export function mergeInsertIndexToRightStripSlot(
-  groupMembers: WorkspaceWindowDefinition[],
+  groupMembers: readonly WorkspaceWindowDefinition[],
   leftTabId: string | undefined,
   fullGroupInsertIndex: number,
 ): number {
@@ -217,15 +208,9 @@ export function enterSplitViewState(
   if (members.filter((w) => w.id !== leftTabId).length < 1) return state
   const nextSplits = {
     ...(state.tabGroupSplits ?? {}),
-    [groupId]: {
-      leftTabId,
-      leftPaneFraction: clampSplitPaneFraction(leftPaneFraction),
-    },
+    [groupId]: { leftTabId, leftPaneFraction: clampSplitPaneFraction(leftPaneFraction) },
   }
-  let next: PersistedWorkspaceState = {
-    ...state,
-    tabGroupSplits: nextSplits,
-  }
+  let next: PersistedWorkspaceState = { ...state, tabGroupSplits: nextSplits }
   next = ensureSplitActiveNotLeft(next)
   return next
 }
@@ -286,12 +271,15 @@ export function openInSplitViewFromBrowserState(
   return enterSplitViewState(withOpen, groupId, browserWindowId)
 }
 
-export function pinnedCountInGroup(windows: WorkspaceWindowDefinition[], groupId: string): number {
+export function pinnedCountInGroup(
+  windows: readonly WorkspaceWindowDefinition[],
+  groupId: string,
+): number {
   return tabsInGroup(windows, groupId).filter((w) => w.tabPinned).length
 }
 
 /** Pinned tabs are contiguous at the start of the strip; count that prefix. */
-export function leadingPinnedTabCount(tabs: WorkspaceWindowDefinition[]): number {
+export function leadingPinnedTabCount(tabs: readonly WorkspaceWindowDefinition[]): number {
   let n = 0
   for (const t of tabs) {
     if (t.tabPinned) n++
@@ -302,7 +290,7 @@ export function leadingPinnedTabCount(tabs: WorkspaceWindowDefinition[]): number
 
 /** New tabs and merges cannot insert before the pinned block. */
 export function clampTabInsertIndex(
-  windows: WorkspaceWindowDefinition[],
+  windows: readonly WorkspaceWindowDefinition[],
   groupId: string,
   insertIndex: number,
 ): number {
@@ -310,10 +298,10 @@ export function clampTabInsertIndex(
 }
 
 export function replaceGroupMemberOrder(
-  fullWindows: WorkspaceWindowDefinition[],
+  fullWindows: readonly WorkspaceWindowDefinition[],
   groupId: string,
-  orderedMembers: WorkspaceWindowDefinition[],
-): WorkspaceWindowDefinition[] {
+  orderedMembers: readonly WorkspaceWindowDefinition[],
+): readonly WorkspaceWindowDefinition[] {
   const queue = [...orderedMembers]
   return fullWindows.map((w) => {
     if (groupIdForWindow(w) !== groupId) return w
@@ -336,10 +324,7 @@ export function setTabPinnedAndReorderState(
   const nextMembers = pinned
     ? [...pinnedExisting, { ...victim, tabPinned: true }, ...unpinned]
     : [...pinnedExisting, { ...victim, tabPinned: false }, ...unpinned]
-  return {
-    ...state,
-    windows: replaceGroupMemberOrder(state.windows, groupId, nextMembers),
-  }
+  return { ...state, windows: replaceGroupMemberOrder(state.windows, groupId, nextMembers) }
 }
 
 export function mergeWindowIntoGroupState(
@@ -375,7 +360,7 @@ export function mergeWindowIntoGroupState(
 
   const withoutSource = current.filter((w) => groupIdForWindow(w) !== sourceGid)
 
-  let work = withoutSource.map((w) => {
+  let work: readonly WorkspaceWindowDefinition[] = withoutSource.map((w) => {
     if (w.id === targetWindowId && !w.tabGroupId) {
       return { ...w, tabGroupId: destGid }
     }

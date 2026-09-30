@@ -1,6 +1,7 @@
+import { Effect } from 'effect'
 import { afterEach, describe, expect, test } from 'bun:test'
 import {
-  fetchFileBrowserListing,
+  fetchFileBrowserListingEffect,
   fileBrowserListingQueryKey,
   nextFileBrowserListingPage,
 } from '@/features/explorer/file-browser-listing-query'
@@ -29,7 +30,7 @@ describe('file browser listing query', () => {
       })
     }) as typeof fetch
 
-    await fetchFileBrowserListing('Hermes Sessions/project/a b', 200)
+    await Effect.runPromise(fetchFileBrowserListingEffect('Hermes Sessions/project/a b', 200))
 
     expect(requested).toBe(
       '/api/files?virtual_browser=true&dir=Hermes%20Sessions%2Fproject%2Fa%20b&offset=200',

@@ -19,6 +19,7 @@ function isTabVisible(): boolean {
 export function createReconnectScheduler(connect: () => void): {
   schedule: () => void
   cleanup: () => void
+  reset: () => void
 } {
   let retryCount = 0
   let timeoutId: ReturnType<typeof setTimeout> | null = null
@@ -66,5 +67,5 @@ export function createReconnectScheduler(connect: () => void): {
     }
   }
 
-  return { schedule, cleanup }
+  return { schedule, cleanup, reset }
 }

@@ -1,3 +1,8 @@
+import { type Snapshot, available, localComponent, observe, view } from 'effectweb'
+import { cn } from '@/lib/ui/cn'
+import { query, querySource } from '@effectweb/query'
+import { queryCache } from '@/lib/api/cache'
+import { Effect } from 'effect'
 import type { PasteData } from '@/lib/files/paste-data'
 import type { FileItem } from '@/lib/files/types'
 import { buildAdminMediaUrl } from '@/lib/media/build-media-url'
@@ -5,32 +10,20 @@ import type { ModalOverlayScope } from './modal-overlay-scope'
 import { modalDialogBackdropClass } from './modal-overlay-scope'
 import { formatFileSize } from '@/lib/media/media-utils'
 import { LazyMarkdownDocument } from '@/lib/markdown/LazyMarkdownDocument'
-import AlertCircle from 'lucide-solid/icons/alert-circle'
-import FileIcon from 'lucide-solid/icons/file'
-import HardDrive from 'lucide-solid/icons/hard-drive'
-import { Show, createEffect, createMemo, createSignal, type Accessor } from 'solid-js'
-
-const PASTE_TEXT_PREVIEW_MAX = 10_000
-
-function PasteTextPreview(props: { content: string; renderAsMarkdown: Accessor<boolean> }) {
-  const previewSlice = createMemo(() => {
+import AlertCircle from '@effectweb/lucide/icons/alert-circle'
+import FileIcon from '@effectweb/lucide/icons/file'
+import HardDrive from '@effectweb/lucide/icons/hard-drive'
+const PASTE_TEXT_PREVIEW_MAX = 10000
+const PasteTextPreview = view<{ content: string; renderAsMarkdown: boolean }>((props) => {
+  const previewSlice = () => {
     const c = props.content
     if (c.length <= PASTE_TEXT_PREVIEW_MAX) return c
     return c.slice(0, PASTE_TEXT_PREVIEW_MAX)
-  })
-
-  const truncated = createMemo(() => props.content.length > PASTE_TEXT_PREVIEW_MAX)
-
+  }
+  const truncated = () => props.content.length > PASTE_TEXT_PREVIEW_MAX
   return (
     <div class='bg-muted/30 rounded-lg border'>
-      <Show
-        when={props.renderAsMarkdown()}
-        fallback={
-          <pre class='max-h-96 overflow-auto p-4 font-mono text-xs whitespace-pre-wrap wrap-break-word'>
-            {previewSlice()}
-          </pre>
-        }
-      >
+      {props.renderAsMarkdown ? (
         <div class='h-64 max-h-96 overflow-hidden'>
           <LazyMarkdownDocument
             content={previewSlice()}
@@ -40,17 +33,20 @@ function PasteTextPreview(props: { content: string; renderAsMarkdown: Accessor<b
             compact
           />
         </div>
-      </Show>
-      <Show when={truncated()}>
+      ) : (
+        <pre class='max-h-96 overflow-auto p-4 font-mono text-xs whitespace-pre-wrap wrap-break-word'>
+          {previewSlice()}
+        </pre>
+      )}
+      {truncated() ? (
         <div class='text-muted-foreground border-t px-4 py-2 text-xs'>
           Showing first {PASTE_TEXT_PREVIEW_MAX.toLocaleString()} characters of{' '}
           {props.content.length.toLocaleString()} total
         </div>
-      </Show>
+      ) : null}
     </div>
   )
-}
-
+})
 type Props = {
   overlayScope?: ModalOverlayScope
   isOpen: boolean
@@ -61,79 +57,46 @@ type Props = {
   onPaste: (fileName: string, mode: 'create' | 'replace', expectedVersion?: number) => void
   onClose: () => void
 }
-
-export function PasteDialog(props: Props) {
-  const [fileName, setFileName] = createSignal('')
-  const [existingText, setExistingText] = createSignal<string | null>(null)
-
-  const displayName = createMemo(() => fileName() || props.pasteData?.suggestedName || '')
-
-  const existingItem = createMemo(() => {
-    const n = displayName().trim().toLowerCase()
-    if (!n) return undefined
-    return props.existingFiles.find((file) => file.name.toLowerCase() === n)
-  })
-  const fileExists = createMemo(() => !!existingItem())
-  const canReplace = createMemo(() => !!existingItem() && !existingItem()!.isDirectory)
-
-  const previewAsMarkdown = createMemo(() => displayName().trim().toLowerCase().endsWith('.md'))
-
-  function handlePaste(mode: 'create' | 'replace' = 'create') {
-    const n = displayName().trim()
-    if (n) props.onPaste(n, mode, mode === 'replace' ? existingItem()?.version : undefined)
-  }
-
-  createEffect(
-    () => {
-      const item = existingItem()
-      return {
-        path: item && !item.isDirectory ? item.path : undefined,
-        isTextContent: props.pasteData?.isTextContent === true,
-      }
-    },
-    ({ path, isTextContent }) => {
-      setExistingText(null)
-      if (!path || !isTextContent) return undefined
-      let cancelled = false
-      void fetch(buildAdminMediaUrl(path))
-        .then((response) => (response.ok ? response.text() : Promise.reject()))
-        .then((text) => {
-          if (!cancelled) setExistingText(text)
-        })
-        .catch(() => {
-          if (!cancelled) setExistingText('Unable to load existing text preview')
-        })
-      // eslint-disable-next-line solid/reactivity
-      return () => {
-        cancelled = true
-      }
-    },
-  )
-
-  function handleClose() {
-    if (!props.isPending) {
-      setFileName('')
-      props.onClose()
+export const PasteDialog = localComponent({
+  init: (_props: Snapshot<Props>) => ({ fileName: '' }),
+  view: view((local, patch) => {
+    const props = local.props
+    const fileName = () => local.fileName,
+      setFileName = (value: string) => patch({ fileName: value })
+    const displayName = () => fileName() || props.pasteData?.suggestedName || ''
+    const existingItem = () => {
+      const n = displayName().trim().toLowerCase()
+      if (!n) return undefined
+      return props.existingFiles.find((file) => file.name.toLowerCase() === n)
     }
-  }
-
-  function contentLabel() {
-    const pd = props.pasteData
-    if (!pd) return 'Content'
-    switch (pd.type) {
-      case 'image':
-        return 'Image'
-      case 'text':
-        return 'Text'
-      case 'file':
-        return 'File'
-      default:
-        return 'Content'
+    const fileExists = () => !!existingItem()
+    const canReplace = () => !!existingItem() && !existingItem()!.isDirectory
+    const previewAsMarkdown = () => displayName().trim().toLowerCase().endsWith('.md')
+    function handlePaste(mode: 'create' | 'replace' = 'create') {
+      const n = displayName().trim()
+      if (n) props.onPaste(n, mode, mode === 'replace' ? existingItem()?.version : undefined)
     }
-  }
-
-  return (
-    <Show when={props.isOpen}>
+    function handleClose() {
+      if (!props.isPending) {
+        setFileName('')
+        props.onClose()
+      }
+    }
+    function contentLabel() {
+      const pd = props.pasteData
+      if (!pd) return 'Content'
+      switch (pd.type) {
+        case 'image':
+          return 'Image'
+        case 'text':
+          return 'Text'
+        case 'file':
+          return 'File'
+        default:
+          return 'Content'
+      }
+    }
+    return props.isOpen ? (
       <div
         class={modalDialogBackdropClass(props.overlayScope)}
         role='presentation'
@@ -148,93 +111,69 @@ export function PasteDialog(props: Props) {
           <h2 class='text-lg font-semibold'>Paste {contentLabel()}</h2>
 
           <div class='mt-4 space-y-4'>
-            <Show when={props.pasteData?.showPreview && props.pasteData}>
-              {(pd) => (
+            {((pd) =>
+              pd ? (
                 <>
-                  <Show when={pd().type === 'image'}>
+                  {pd.type === 'image' ? (
                     <div class='space-y-2'>
                       <div class='bg-muted/30 flex max-h-64 items-center justify-center overflow-hidden rounded-lg border p-4'>
                         <img
-                          src={`data:${pd().fileType || 'image/png'};base64,${pd().content}`}
+                          src={`data:${pd.fileType || 'image/png'};base64,${pd.content}`}
                           alt='Preview'
                           class='max-h-56 max-w-full object-contain'
                         />
                       </div>
-                      <Show when={pd().fileSize}>
+                      {pd.fileSize ? (
                         <div class='text-muted-foreground flex items-center gap-2 px-2 text-xs'>
                           <HardDrive class='h-3 w-3' stroke-width={2} />
-                          <span>{formatFileSize(pd().fileSize!)}</span>
+                          <span>{formatFileSize(pd.fileSize!)}</span>
                         </div>
-                      </Show>
+                      ) : null}
                     </div>
-                  </Show>
+                  ) : null}
 
-                  <Show
-                    when={
-                      (pd().type === 'text' || pd().type === 'file') && pd().isTextContent === true
-                    }
-                  >
+                  {(pd.type === 'text' || pd.type === 'file') && pd.isTextContent === true ? (
                     <div class='space-y-2'>
-                      <Show
-                        when={fileExists() && existingText() !== null}
-                        fallback={
-                          <PasteTextPreview
-                            content={pd().content}
-                            renderAsMarkdown={previewAsMarkdown}
-                          />
-                        }
-                      >
-                        <div class='grid gap-3 sm:grid-cols-2' data-testid='paste-diff'>
-                          <div>
-                            <p class='mb-1 text-xs font-medium'>Existing</p>
-                            <PasteTextPreview
-                              content={existingText()!}
-                              renderAsMarkdown={() => false}
-                            />
-                          </div>
-                          <div>
-                            <p class='mb-1 text-xs font-medium'>Clipboard</p>
-                            <PasteTextPreview
-                              content={pd().content}
-                              renderAsMarkdown={() => false}
-                            />
-                          </div>
-                        </div>
-                      </Show>
-                      <Show when={pd().fileSize}>
+                      {fileExists() && canReplace() ? (
+                        <ExistingPastePreview path={existingItem()!.path} content={pd.content} />
+                      ) : (
+                        <PasteTextPreview
+                          content={pd.content}
+                          renderAsMarkdown={previewAsMarkdown()}
+                        />
+                      )}
+                      {pd.fileSize ? (
                         <div class='text-muted-foreground flex items-center gap-2 px-2 text-xs'>
                           <HardDrive class='h-3 w-3' stroke-width={2} />
-                          <span>{formatFileSize(pd().fileSize!)}</span>
+                          <span>{formatFileSize(pd.fileSize!)}</span>
                         </div>
-                      </Show>
+                      ) : null}
                     </div>
-                  </Show>
+                  ) : null}
 
-                  <Show when={pd().type === 'file' && !pd().isTextContent}>
+                  {pd.type === 'file' && !pd.isTextContent ? (
                     <div class='bg-muted/30 rounded-lg border p-6'>
                       <div class='flex flex-col items-center gap-4 text-center'>
                         <div class='bg-primary/10 rounded-full p-4'>
                           <FileIcon class='text-primary h-8 w-8' stroke-width={2} />
                         </div>
                         <div class='space-y-2'>
-                          <p class='text-sm font-medium'>{pd().suggestedName}</p>
+                          <p class='text-sm font-medium'>{pd.suggestedName}</p>
                           <div class='text-muted-foreground flex items-center justify-center gap-4 text-xs'>
-                            <Show when={pd().fileType}>
-                              <span class='font-mono'>{pd().fileType}</span>
-                            </Show>
-                            <Show when={pd().fileSize}>
+                            {pd.fileType ? <span class='font-mono'>{pd.fileType}</span> : null}
+                            {pd.fileSize ? (
                               <div class='flex items-center gap-1'>
                                 <HardDrive class='h-3 w-3' stroke-width={2} />
-                                <span>{formatFileSize(pd().fileSize!)}</span>
+                                <span>{formatFileSize(pd.fileSize!)}</span>
                               </div>
-                            </Show>
+                            ) : null}
                           </div>
                         </div>
                       </div>
                     </div>
-                  </Show>
+                  ) : null}
 
-                  <Show when={fileExists() && canReplace() && !pd().isTextContent}>
+                  {fileExists() && canReplace() && !pd.isTextContent ? (
                     <div
                       class='grid grid-cols-2 gap-3 text-sm'
                       data-testid='binary-replacement-info'
@@ -249,24 +188,23 @@ export function PasteDialog(props: Props) {
                       <div class='bg-muted/30 rounded-lg border p-3'>
                         <p class='font-medium'>Clipboard</p>
                         <p class='text-muted-foreground mt-1 text-xs'>
-                          {pd().fileType || 'binary file'} · {formatFileSize(pd().fileSize ?? 0)}
+                          {pd.fileType || 'binary file'} · {formatFileSize(pd.fileSize ?? 0)}
                         </p>
                       </div>
                     </div>
-                  </Show>
+                  ) : null}
                 </>
-              )}
-            </Show>
+              ) : null)(props.pasteData?.showPreview && props.pasteData)}
 
             <div class='space-y-2'>
               <label class='text-sm font-medium'>Filename</label>
               <input
                 type='text'
                 aria-label='Filename'
-                class={[
+                class={cn([
                   'border-input bg-background focus-visible:ring-ring h-9 w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:outline-none',
                   { 'border-yellow-500': fileExists() },
-                ]}
+                ])}
                 value={displayName()}
                 onInput={(e) => setFileName(e.currentTarget.value)}
                 placeholder={`e.g., ${props.pasteData?.suggestedName ?? 'file.txt'}`}
@@ -278,7 +216,7 @@ export function PasteDialog(props: Props) {
               />
             </div>
 
-            <Show when={fileExists()}>
+            {fileExists() ? (
               <div class='flex items-start gap-2 rounded-lg border border-yellow-500/50 bg-yellow-500/10 p-3'>
                 <AlertCircle class='mt-0.5 h-4 w-4 shrink-0 text-yellow-600 dark:text-yellow-500' />
                 <div class='text-sm text-yellow-800 dark:text-yellow-200'>
@@ -290,17 +228,17 @@ export function PasteDialog(props: Props) {
                   </p>
                 </div>
               </div>
-            </Show>
+            ) : null}
 
-            <Show when={props.error}>
+            {props.error ? (
               <div class='bg-destructive/10 text-destructive rounded-lg p-3 text-sm'>
                 {props.error?.message}
               </div>
-            </Show>
+            ) : null}
           </div>
 
           <div class='mt-6 flex justify-end gap-2'>
-            <Show when={fileExists()}>
+            {fileExists() ? (
               <button
                 type='button'
                 class='border-input bg-background hover:bg-accent h-9 rounded-md border px-4 text-sm font-medium'
@@ -311,7 +249,7 @@ export function PasteDialog(props: Props) {
               >
                 Save with another name
               </button>
-            </Show>
+            ) : null}
             <button
               type='button'
               class='border-input bg-background hover:bg-accent h-9 rounded-md border px-4 text-sm font-medium'
@@ -331,6 +269,40 @@ export function PasteDialog(props: Props) {
           </div>
         </div>
       </div>
-    </Show>
-  )
-}
+    ) : null
+  }),
+})
+const existingText = query({
+  name: 'paste-existing-text',
+  load: (path: string) =>
+    Effect.gen(function* () {
+      const response = yield* Effect.tryPromise({
+        try: (signal) => fetch(buildAdminMediaUrl(path), { signal }),
+        catch: () => new Error('Unable to load existing text preview'),
+      })
+      if (!response.ok) return yield* Effect.fail(new Error('Unable to load existing text preview'))
+      return yield* Effect.tryPromise({
+        try: () => response.text(),
+        catch: () => new Error('Unable to load existing text preview'),
+      })
+    }),
+})
+const ExistingPastePreview = view<{ path: string; content: string }>((props) =>
+  observe(querySource(queryCache, existingText, props.path), (result) => {
+    const text = available(result)
+    if (text === undefined)
+      return <PasteTextPreview content={props.content} renderAsMarkdown={false} />
+    return (
+      <div class='grid gap-3 sm:grid-cols-2' data-testid='paste-diff'>
+        <div>
+          <p class='mb-1 text-xs font-medium'>Existing</p>
+          <PasteTextPreview content={text} renderAsMarkdown={false} />
+        </div>
+        <div>
+          <p class='mb-1 text-xs font-medium'>Clipboard</p>
+          <PasteTextPreview content={props.content} renderAsMarkdown={false} />
+        </div>
+      </div>
+    )
+  }),
+)

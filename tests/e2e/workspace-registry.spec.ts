@@ -24,9 +24,7 @@ async function clearWorkspaceRegistry(request: APIRequestContext) {
       data: { id, clientId, takeover: true, snapshot: record.snapshot },
     })
     expect(opened.ok()).toBe(true)
-    const deleted = await request.post('/api/workspaces/delete', {
-      data: { id, clientId },
-    })
+    const deleted = await request.post('/api/workspaces/delete', { data: { id, clientId } })
     expect(deleted.ok()).toBe(true)
   }
 }
@@ -297,12 +295,7 @@ test.describe('workspace registry', () => {
         nextWindowId: record.snapshot.nextWindowId + 1,
       }
       const saved = await page.request.post('/api/workspaces/save', {
-        data: {
-          id: workspaceId,
-          clientId,
-          revision: record.revision,
-          snapshot,
-        },
+        data: { id: workspaceId, clientId, revision: record.revision, snapshot },
       })
       expect(saved.ok()).toBe(true)
       const savedRevision = (await saved.json()).revision
@@ -437,6 +430,8 @@ test.describe('workspace registry', () => {
       .getByTestId('workspace-switcher')
       .locator(`[data-workspace-id="${sourceId}"]`)
       .click()
+    await expect(page).toHaveURL(new RegExp(`ws=${sourceId}(?:&|$)`))
+    await expect(getWindowGroups(page)).toHaveCount(1)
     await page.getByRole('button', { name: 'Open workspaces' }).click()
 
     const handle = getDragHandle(getWindowGroups(page).first())

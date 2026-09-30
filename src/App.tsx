@@ -1,50 +1,34 @@
-import { Switch, Match, Show, Loading, createMemo, lazy } from 'solid-js'
-import { useBrowserHistory } from '@/lib/browser/browser-history'
-import { SolidThemeSync } from './SolidThemeSync'
+import { observe, view } from 'effectweb'
+import { browserHistory } from '@/lib/browser/browser-history'
 import { MediaCenterPage } from './media-center/MediaCenterPage'
 import { WorkspaceRoute } from './workspace/WorkspaceRoute'
 import { GlobalForbiddenToast } from './GlobalForbiddenToast'
 import { AppDialogHost } from './lib/ui/AppDialogHost'
 import { DesktopPage } from './desktop/DesktopPage'
+import { ReaderDialog } from './features/reader/ReaderDialog'
+import { PlaybackMediaHost } from './features/playback/PlaybackMediaHost'
+import { MusicDialogs } from './features/music/MusicDialogs'
 
-const ReaderDialog = lazy(() =>
-  import('./features/reader/ReaderDialog').then((module) => ({ default: module.ReaderDialog })),
-)
-
-export function App() {
-  const loc = useBrowserHistory()
-  const path = createMemo(() => loc().pathname)
-
-  return (
-    <>
-      <GlobalForbiddenToast />
-      <AppDialogHost />
-      <Switch
-        fallback={
-          <>
-            <SolidThemeSync />
-            <MediaCenterPage />
-          </>
-        }
-      >
-        <Match when={path() === '/desktop'}>
-          <SolidThemeSync />
-          <DesktopPage />
-        </Match>
-        <Match when={path() === '/workspace'}>
-          <>
-            <SolidThemeSync />
+export const App = view(() => (
+  <>
+    <PlaybackMediaHost />
+    <MusicDialogs />
+    <GlobalForbiddenToast />
+    <AppDialogHost />
+    {observe(browserHistory, (location) => {
+      const reader = new URLSearchParams(location.search).get('reader')
+      return (
+        <>
+          {location.pathname === '/desktop' ? (
+            <DesktopPage />
+          ) : location.pathname === '/workspace' ? (
             <WorkspaceRoute />
-          </>
-        </Match>
-      </Switch>
-      <Show when={new URLSearchParams(loc().search).get('reader')} keyed>
-        {(sourcePath) => (
-          <Loading>
-            <ReaderDialog sourcePath={sourcePath} />
-          </Loading>
-        )}
-      </Show>
-    </>
-  )
-}
+          ) : (
+            <MediaCenterPage />
+          )}
+          {reader ? <ReaderDialog sourcePath={reader} /> : null}
+        </>
+      )
+    })}
+  </>
+))

@@ -1,7 +1,4 @@
-export const WORKSPACE_TAB_ICON_SWATCHES: {
-  key: string
-  twBg: string
-}[] = [
+export const WORKSPACE_TAB_ICON_SWATCHES: { key: string; twBg: string }[] = [
   { key: 'slate-500', twBg: 'bg-slate-500' },
   { key: 'zinc-500', twBg: 'bg-zinc-500' },
   { key: 'neutral-500', twBg: 'bg-neutral-500' },

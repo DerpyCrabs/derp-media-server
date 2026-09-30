@@ -2,5 +2,6 @@
   "$schema": "./node_modules/oxfmt/configuration_schema.json",
   "semi": false,
   "singleQuote": true,
-  "jsxSingleQuote": true
+  "jsxSingleQuote": true,
+  "objectWrap": "collapse"
 }

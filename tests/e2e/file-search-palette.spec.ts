@@ -29,6 +29,28 @@ test.describe('File search palette', () => {
     await expect(page.getByText('sample.mp4')).toBeVisible()
   })
 
+  test('reports an index refresh failure and allows retry', async ({ page }) => {
+    let attempts = 0
+    await page.route('**/api/files/search/reindex', async (route) => {
+      attempts++
+      await route.fulfill({
+        status: attempts === 1 ? 503 : 200,
+        contentType: 'application/json',
+        body: JSON.stringify(
+          attempts === 1 ? { error: 'Index temporarily unavailable' } : { accepted: true },
+        ),
+      })
+    })
+    await page.goto('/')
+    await page.getByTestId('classic-file-search-trigger').click()
+    const palette = page.getByTestId('file-search-palette')
+    await palette.getByRole('button', { name: 'Refresh', exact: true }).click()
+    await expect(palette.getByRole('alert')).toHaveText('Index temporarily unavailable')
+    await palette.getByRole('button', { name: 'Refresh', exact: true }).click()
+    await expect(palette.getByRole('alert')).toHaveCount(0)
+    expect(attempts).toBe(2)
+  })
+
   test('uses only the global workspace entry point', async ({ page }) => {
     await page.goto(`/workspace?ws=e2e-${crypto.randomUUID()}`)
     await expect(page.locator(WORKSPACE_VISIBLE_WINDOW_GROUP).first()).toBeVisible()
@@ -52,6 +74,7 @@ test.describe('File search palette', () => {
     const status = () => ({
       state: 'ready',
       indexedEntries: 1,
+      scannedDirectories: 1,
       roots: [],
       watcherCount: 0,
       stale: false,
@@ -61,8 +84,20 @@ test.describe('File search palette', () => {
       route.fulfill({
         json: {
           status: status(),
+          truncated: false,
           results: indexed
-            ? [{ path: 'Notes', name: 'Notes', type: 'folder', isDirectory: true, parentPath: '' }]
+            ? [
+                {
+                  path: 'Notes',
+                  name: 'Notes',
+                  type: 'folder',
+                  isDirectory: true,
+                  parentPath: '',
+                  rootId: 'notes',
+                  rootName: 'Notes',
+                  extension: '',
+                },
+              ]
             : [],
         },
       }),

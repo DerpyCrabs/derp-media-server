@@ -64,7 +64,7 @@ async function openFileFromBrowser(page: Page, folder: string, fileName: string)
   return getWindowGroups(page).nth(1).locator('.workspace-window-content')
 }
 
-async function useContinuousReaderView(reader: Locator) {
+async function switchToContinuousReaderView(reader: Locator) {
   await reader.getByTestId('reader-settings-button').click()
   await reader.getByRole('button', { name: 'continuous', exact: true }).click()
 }
@@ -331,10 +331,7 @@ test.describe('Workspace Image Viewer', () => {
         const registry = await response.json()
         return (
           registry.records[workspaceId]?.snapshot.windows as
-            | Array<{
-                type: string
-                initialState: { viewing?: string; imageSeed?: string }
-              }>
+            | Array<{ type: string; initialState: { viewing?: string; imageSeed?: string } }>
             | undefined
         )?.find((window) => window.type === 'viewer')?.initialState
       }
@@ -580,7 +577,7 @@ test.describe('Workspace PDF Viewer', () => {
     await expect(readerWindow.getByTestId('reader-dialog')).toBeVisible()
     await expect(readerWindow.locator('svg.lucide-book-open').first()).toBeVisible()
     await expect(readerWindow.locator('svg.lucide-folder')).toHaveCount(0)
-    await useContinuousReaderView(readerWindow)
+    await switchToContinuousReaderView(readerWindow)
     await expect(readerWindow.getByTestId('reader-image-page')).toHaveCount(2)
     await expect(readerWindow.getByTestId('region-layer').first()).toHaveCSS(
       'pointer-events',
@@ -595,7 +592,7 @@ test.describe('Workspace PDF Viewer', () => {
     await expect(restoredReaderWindow.getByTestId('reader-dialog')).toBeVisible()
     await expect(restoredReaderWindow.locator('svg.lucide-book-open').first()).toBeVisible()
     await expect(restoredReaderWindow.locator('svg.lucide-folder')).toHaveCount(0)
-    await useContinuousReaderView(restoredReaderWindow)
+    await switchToContinuousReaderView(restoredReaderWindow)
     await expect(restoredReaderWindow.getByTestId('reader-image-page')).toHaveCount(2)
     await expect(restoredReaderWindow.getByText('This file type cannot be previewed.')).toHaveCount(
       0,
@@ -766,9 +763,7 @@ test.describe('Workspace Text Viewer', () => {
       await Promise.all([
         page.waitForResponse((response) => {
           if (!response.url().includes('/api/files/edit') || response.status() !== 200) return false
-          const body = response.request().postDataJSON() as {
-            path?: string
-          } | null
+          const body = response.request().postDataJSON() as { path?: string } | null
           return body?.path === filePath
         }),
         editor.press('Control+s'),
@@ -779,9 +774,7 @@ test.describe('Workspace Text Viewer', () => {
       expect(readResponse.ok()).toBe(true)
       expect(await readResponse.text()).toBe(updated)
     } finally {
-      await sharedContext.request.post(`${origin}/api/files/delete`, {
-        data: { path: filePath },
-      })
+      await sharedContext.request.post(`${origin}/api/files/delete`, { data: { path: filePath } })
     }
   })
 
@@ -792,10 +785,7 @@ test.describe('Workspace Text Viewer', () => {
     let popup: Page | undefined
     await createWorkspaceMarkdown(filePath, source)
     await sharedContext.route(externalUrl, async (route) => {
-      await route.fulfill({
-        contentType: 'text/html',
-        body: '<p>External target</p>',
-      })
+      await route.fulfill({ contentType: 'text/html', body: '<p>External target</p>' })
     })
 
     try {
@@ -914,9 +904,7 @@ test.describe('Workspace Text Viewer', () => {
     let completedTargetRequestCount = 0
     const onResponse = (response: Response) => {
       if (!response.url().includes('/api/files/edit') || response.status() !== 200) return
-      const body = response.request().postDataJSON() as {
-        path?: string
-      } | null
+      const body = response.request().postDataJSON() as { path?: string } | null
       if (body?.path === filePath) completedTargetRequestCount += 1
     }
 
@@ -994,9 +982,7 @@ test.describe('Workspace Text Viewer', () => {
       await viewer.getByRole('button', { name: 'Reload remote version' }).click()
       await expect.poll(() => copyMarkdownSource(page, editor)).toBe('# Remote edit\n')
     } finally {
-      await secondContext.request.post(`${origin}/api/files/delete`, {
-        data: { path: filePath },
-      })
+      await secondContext.request.post(`${origin}/api/files/delete`, { data: { path: filePath } })
       await secondContext.close()
     }
   })
@@ -1160,9 +1146,7 @@ test.describe('Workspace Text Viewer', () => {
     ]
 
     await page.evaluate((keys) => {
-      const state = window as typeof window & {
-        __markdownBubbledKeys?: string[]
-      }
+      const state = window as typeof window & { __markdownBubbledKeys?: string[] }
       state.__markdownBubbledKeys = []
       window.addEventListener('keydown', (event) => {
         if (keys.includes(event.key)) state.__markdownBubbledKeys?.push(event.key)

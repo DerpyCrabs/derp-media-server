@@ -1,265 +1,81 @@
-import { useThumbnailWarmup } from './use-thumbnail-warmup'
+import {
+  type Snapshot,
+  collection,
+  domBinding,
+  list,
+  localComponent,
+  view,
+  type JSX,
+} from 'effectweb'
 import type { FileItem } from '@/lib/files/types'
 import { cn } from '@/lib/ui/cn'
-import { createVirtualizer, createWindowVirtualizer, type VirtualItem } from '@/lib/virtualizer'
-import type { Accessor } from 'solid-js'
-import type { JSX } from '@solidjs/web'
-import { createEffect, createMemo, createSignal, For, onSettled, Show, untrack } from 'solid-js'
-import { registerVirtualFileScroller } from './virtual-directory-scroll'
-
-type ScrollTarget =
-  | { kind: 'window' }
-  | { kind: 'element'; getScrollElement: () => HTMLElement | undefined }
-
+import { directoryViewport } from './virtual-directory-binding'
 type VirtualDirectoryGridProps = {
-  files: Accessor<FileItem[]>
-  includeParent: Accessor<boolean>
-  scrollTarget: ScrollTarget
-  scrollScope?: Accessor<string | undefined>
+  files: readonly FileItem[]
+  includeParent: boolean
+  scrollTarget:
+    | { kind: 'window' }
+    | { kind: 'element'; getScrollElement: () => HTMLElement | undefined }
+  scrollScope?: string | undefined
   class?: string
   renderParentCard: () => JSX.Element
   renderFileCard: (file: FileItem) => JSX.Element
 }
-
-const VIRTUALIZE_THRESHOLD = 100
-const GRID_GAP_PX = 16
-const MIN_CARD_WIDTH_PX = 128
-const MAX_GRID_COLUMNS = 6
-const GRID_CARD_DETAILS_HEIGHT_PX = 64
-
-function calculateColumns(width: number) {
-  if (!Number.isFinite(width) || width <= 0) return 1
-  return Math.max(
-    1,
-    Math.min(
-      MAX_GRID_COLUMNS,
-      Math.floor((width + GRID_GAP_PX) / (MIN_CARD_WIDTH_PX + GRID_GAP_PX)),
-    ),
-  )
-}
-
-function fineTunePathIntoView(path: string) {
-  window.setTimeout(() => {
-    if (!path || typeof CSS === 'undefined' || typeof CSS.escape !== 'function') return
-    document
-      .querySelector<HTMLElement>(`[data-file-path="${CSS.escape(path)}"]`)
-      ?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' })
-  }, 0)
-}
-
-function makeVirtualizer(
-  props: VirtualDirectoryGridProps,
-  accessors: {
-    rowCount: Accessor<number>
-    rowHeight: Accessor<number>
-    scrollMargin: Accessor<number>
-  },
-) {
-  const initialScrollTarget = untrack(() => props.scrollTarget)
-  if (initialScrollTarget.kind === 'element') {
-    const getScrollElement = initialScrollTarget.getScrollElement
-    return createVirtualizer<HTMLElement, HTMLDivElement>({
-      get count() {
-        return accessors.rowCount()
-      },
-      getScrollElement: () => getScrollElement() ?? null,
-      get estimateSize() {
-        const size = accessors.rowHeight()
-        return () => size
-      },
-      gap: GRID_GAP_PX,
-      overscan: 4,
-    })
-  }
-
-  return createWindowVirtualizer<HTMLDivElement>({
-    get count() {
-      return accessors.rowCount()
-    },
-    get estimateSize() {
-      const size = accessors.rowHeight()
-      return () => size
-    },
-    gap: GRID_GAP_PX,
-    overscan: 4,
-    get scrollMargin() {
-      return accessors.scrollMargin()
-    },
-  })
-}
-
-function VirtualDirectoryGridItem(props: {
-  absoluteIndex: number
-  files: Accessor<FileItem[]>
-  parentCount: Accessor<number>
-  renderParentCard: () => JSX.Element
-  renderFileCard: (file: FileItem) => JSX.Element
-}) {
-  const isParent = () => props.parentCount() > 0 && props.absoluteIndex === 0
-  const file = () => props.files()[props.absoluteIndex - props.parentCount()]
-
-  return (
-    <Show when={!isParent()} fallback={props.renderParentCard()}>
-      <Show keyed when={file()}>
-        {(cardFile) => props.renderFileCard(cardFile)}
-      </Show>
-    </Show>
-  )
-}
-
-export function VirtualDirectoryGrid(props: VirtualDirectoryGridProps) {
-  const [warmupElement, setWarmupElement] = createSignal<HTMLDivElement>()
-  useThumbnailWarmup(() => props.files(), warmupElement)
-  let containerEl: HTMLDivElement | undefined
-  let resizeObserver: ResizeObserver | undefined
-  const [containerWidth, setContainerWidth] = createSignal(0)
-  const [scrollMargin, setScrollMargin] = createSignal(0)
-  const windowScroll = createMemo(() => props.scrollTarget.kind === 'window')
-  const totalItems = () => props.files().length + (props.includeParent() ? 1 : 0)
-  const columns = createMemo(() => calculateColumns(containerWidth()))
-  const rowCount = createMemo(() => Math.ceil(totalItems() / columns()))
-  const rowHeight = createMemo(() => {
-    const width = containerWidth()
-    const cols = columns()
-    const cardWidth =
-      width > 0 ? (width - GRID_GAP_PX * Math.max(0, cols - 1)) / cols : MIN_CARD_WIDTH_PX
-    return Math.ceil(cardWidth * (9 / 16) + GRID_CARD_DETAILS_HEIGHT_PX)
-  })
-  const virtualizer = makeVirtualizer(props, { rowCount, rowHeight, scrollMargin })
-
-  function updateMeasurements() {
-    if (containerEl) {
-      setContainerWidth(containerEl.getBoundingClientRect().width)
-    }
-
-    if (windowScroll() && containerEl) {
-      setScrollMargin(containerEl.getBoundingClientRect().top + window.scrollY)
-    } else {
-      setScrollMargin(0)
-    }
-  }
-
-  function rowOffset(item: VirtualItem) {
-    return Math.max(0, item.start - scrollMargin())
-  }
-
-  createEffect(
-    () => {
-      const scope = props.scrollScope?.()
-      return scope
-        ? {
-            scope,
-            files: props.files(),
-            parentCount: props.includeParent() ? 1 : 0,
-            cols: columns(),
-          }
-        : null
-    },
-    (state) => {
-      if (!state) return undefined
-
-      const unregister = registerVirtualFileScroller(state.scope, {
-        hasPath: (path) => state.files.some((file) => file.path === path),
-        scrollToPath: (path) => {
-          const index = state.files.findIndex((file) => file.path === path)
-          if (index === -1) return
-          virtualizer.scrollToIndex(Math.floor((index + state.parentCount) / state.cols), {
-            align: 'center',
-          })
-          fineTunePathIntoView(path)
-        },
-      })
-
-      // eslint-disable-next-line solid/reactivity
-      return unregister
-    },
-  )
-
-  onSettled(() => {
-    updateMeasurements()
-    if (containerEl) {
-      resizeObserver = new ResizeObserver(updateMeasurements)
-      resizeObserver.observe(containerEl)
-    }
-    window.addEventListener('resize', updateMeasurements)
-    if (windowScroll()) {
-      window.addEventListener('scroll', updateMeasurements, { passive: true })
-    }
-    // eslint-disable-next-line solid/reactivity
-    return () => {
-      resizeObserver?.disconnect()
-      window.removeEventListener('resize', updateMeasurements)
-      window.removeEventListener('scroll', updateMeasurements)
-    }
-  })
-
-  return (
-    <Show
-      when={totalItems() > VIRTUALIZE_THRESHOLD}
-      fallback={
-        <div ref={setWarmupElement} class={cn('file-browser-grid', props.class)}>
-          <Show when={props.includeParent()}>{props.renderParentCard()}</Show>
-          <For each={props.files()}>{(file) => props.renderFileCard(file)}</For>
-        </div>
-      }
-    >
+const byPath = collection<FileItem>((file) => file.path)
+export const VirtualDirectoryGrid = localComponent({
+  init: (_props: Snapshot<VirtualDirectoryGridProps>) => ({
+    start: 0,
+    end: 100,
+    columns: 1,
+    rowHeight: 224,
+  }),
+  view: view((model, patch) => {
+    const props = model.props
+    const files = props.files
+    const parent = props.includeParent
+    const count = files.length + (parent ? 1 : 0)
+    const virtual = count > 100
+    const start = virtual ? model.start * model.columns : 0
+    const end = virtual ? Math.min(count, model.end * model.columns) : count
+    const rows = files.slice(
+      Math.max(0, start - (parent ? 1 : 0)),
+      Math.max(0, end - (parent ? 1 : 0)),
+    )
+    const rowCount = Math.ceil(count / model.columns)
+    return (
       <div
-        ref={(el) => {
-          containerEl = el
-          setWarmupElement(el)
-          updateMeasurements()
-        }}
         class={cn('file-browser-grid', props.class)}
-        style={{
-          display: 'block',
-          position: 'relative',
-          height: `${virtualizer.getTotalSize()}px`,
-        }}
+        style={{ display: 'block' }}
+        use={domBinding(
+          {
+            files,
+            includeParent: parent,
+            target: props.scrollTarget,
+            scope: props.scrollScope,
+            grid: true,
+            range: model,
+            patch,
+          },
+          directoryViewport,
+        )}
       >
-        <For each={virtualizer.getVirtualItems()}>
-          {(row) => {
-            let element: HTMLDivElement | undefined
-            onSettled(() => {
-              if (element) virtualizer.measureElement(element)
-            })
-            return (
-              <div
-                ref={(el) => {
-                  element = el
-                }}
-                data-index={row.index}
-                style={{
-                  position: 'absolute',
-                  left: '0',
-                  top: '0',
-                  width: '100%',
-                  transform: `translateY(${rowOffset(row)}px)`,
-                  display: 'grid',
-                  'grid-template-columns': `repeat(${columns()}, minmax(0, 1fr))`,
-                  gap: `${GRID_GAP_PX}px`,
-                }}
-              >
-                <For
-                  each={Array.from(
-                    { length: columns() },
-                    (_, index) => row.index * columns() + index,
-                  )}
-                >
-                  {(absoluteIndex) => (
-                    <VirtualDirectoryGridItem
-                      absoluteIndex={absoluteIndex}
-                      files={props.files}
-                      parentCount={() => (props.includeParent() ? 1 : 0)}
-                      renderParentCard={props.renderParentCard}
-                      renderFileCard={props.renderFileCard}
-                    />
-                  )}
-                </For>
-              </div>
-            )
-          }}
-        </For>
+        {virtual && model.start > 0 ? (
+          <div aria-hidden='true' style={{ height: `${model.start * model.rowHeight}px` }} />
+        ) : null}
+        <div
+          class='grid gap-4'
+          style={{ 'grid-template-columns': `repeat(${model.columns}, minmax(0, 1fr))` }}
+        >
+          {parent && start === 0 ? props.renderParentCard() : null}
+          {list(byPath.from(rows), (file) => props.renderFileCard(file))}
+        </div>
+        {virtual && model.end < rowCount ? (
+          <div
+            aria-hidden='true'
+            style={{ height: `${(rowCount - model.end) * model.rowHeight}px` }}
+          />
+        ) : null}
       </div>
-    </Show>
-  )
-}
+    )
+  }),
+})

@@ -1,3 +1,4 @@
+import { Effect } from 'effect'
 import { describe, expect, test } from 'bun:test'
 import {
   applyPlaybackPathMutation,
@@ -16,17 +17,15 @@ function item(locator: string, media: 'audio' | 'video' = 'audio') {
 
 describe('playback path mutations', () => {
   test('moves the active item and preserves its queue position', () => {
-    const session = createPlaybackSession({ sourceResolver: { resolve } })
+    const session = createPlaybackSession({
+      sourceResolver: { resolve: (request) => Effect.sync(() => resolve(request)) },
+    })
     const current = item('Old/clip.mp4', 'video')
     const other = item('Old/song.mp3')
     session.dispatch({ type: 'load', item: current, queue: [current, other], mode: 'video' })
     session.dispatch({ type: 'mediaTime', generation: 1, position: 18, duration: 60 })
 
-    applyPlaybackPathMutation(session, {
-      type: 'path-moved',
-      oldPath: 'Old',
-      newPath: 'New',
-    })
+    applyPlaybackPathMutation(session, { type: 'path-moved', oldPath: 'Old', newPath: 'New' })
 
     expect(session.getSnapshot()).toMatchObject({
       currentItem: item('New/clip.mp4', 'video'),
@@ -36,7 +35,9 @@ describe('playback path mutations', () => {
   })
 
   test('stops when the current item is removed and filters removed queue items', () => {
-    const session = createPlaybackSession({ sourceResolver: { resolve } })
+    const session = createPlaybackSession({
+      sourceResolver: { resolve: (request) => Effect.sync(() => resolve(request)) },
+    })
     const current = item('Keep/song.mp3')
     const removed = item('Trash/old.mp3')
     session.dispatch({ type: 'load', item: current, queue: [current, removed] })

@@ -16,7 +16,7 @@ const pixel10ProLandscape = {
     'Mozilla/5.0 (Linux; Android 16; Google Pixel 10 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36',
 }
 
-async function useListView(page: Page) {
+async function switchToListView(page: Page) {
   await page.getByRole('button', { name: 'Display options' }).click()
   await page.getByRole('menuitem', { name: 'List view' }).click()
 }
@@ -46,7 +46,7 @@ test.describe('Pixel 10 Pro landscape media browser regressions', () => {
     await page.goto(
       `/?dir=${encodeURIComponent(folderName)}&playing=${encodeURIComponent(playingPath)}`,
     )
-    await useListView(page)
+    await switchToListView(page)
     await expect(page.getByTestId('audio-player-chrome')).toBeVisible()
 
     await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
@@ -73,7 +73,7 @@ test.describe('Pixel 10 Pro landscape media browser regressions', () => {
 
   test('keeps the file-list scroll extent stable during a touch gesture', async ({ page }) => {
     await page.goto(`/?dir=${encodeURIComponent(folderName)}`)
-    await useListView(page)
+    await switchToListView(page)
     await expect(page.locator(`[data-file-path="${folderName}/file-0000.txt"]`)).toBeVisible()
 
     const initialScrollHeight = await page.evaluate(() => document.documentElement.scrollHeight)

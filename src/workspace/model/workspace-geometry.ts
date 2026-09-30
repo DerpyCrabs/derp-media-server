@@ -25,32 +25,20 @@ export const SNAP_SIBLING_MAP: Record<SnapZone, Record<string, SnapZone[]>> = {
   'right-third': { left: ['center-third', 'left-two-thirds'] },
   'left-two-thirds': { right: ['right-third'] },
   'right-two-thirds': { left: ['left-third'] },
-  'top-left-third': {
-    right: ['top-center-third'],
-    bottom: ['bottom-left-third'],
-  },
+  'top-left-third': { right: ['top-center-third'], bottom: ['bottom-left-third'] },
   'top-center-third': {
     left: ['top-left-third'],
     right: ['top-right-third'],
     bottom: ['bottom-center-third'],
   },
-  'top-right-third': {
-    left: ['top-center-third'],
-    bottom: ['bottom-right-third'],
-  },
-  'bottom-left-third': {
-    right: ['bottom-center-third'],
-    top: ['top-left-third'],
-  },
+  'top-right-third': { left: ['top-center-third'], bottom: ['bottom-right-third'] },
+  'bottom-left-third': { right: ['bottom-center-third'], top: ['top-left-third'] },
   'bottom-center-third': {
     left: ['bottom-left-third'],
     right: ['bottom-right-third'],
     top: ['top-center-third'],
   },
-  'bottom-right-third': {
-    left: ['bottom-center-third'],
-    top: ['top-right-third'],
-  },
+  'bottom-right-third': { left: ['bottom-center-third'], top: ['top-right-third'] },
   'top-half': { bottom: ['bottom-half', 'bottom-left', 'bottom-right'] },
   'bottom-half': { top: ['top-half'] },
   'top-third': { bottom: ['middle-third'] },
@@ -70,10 +58,7 @@ export function getViewportSize() {
     return { width: 1280, height: 720 }
   }
 
-  return {
-    width: window.innerWidth,
-    height: Math.max(window.innerHeight - TASKBAR_HEIGHT, 480),
-  }
+  return { width: window.innerWidth, height: Math.max(window.innerHeight - TASKBAR_HEIGHT, 480) }
 }
 
 export type WorkspaceBounds = NonNullable<WindowLayout['bounds']>
@@ -99,7 +84,7 @@ export function tilingPlacementToBounds(
 }
 
 /** Highest z-index among workspace windows (minimum 1). */
-export function maxWorkspaceWindowZ(windows: WindowDefinition[]): number {
+export function maxWorkspaceWindowZ(windows: readonly WindowDefinition[]): number {
   let max = 1
   for (const w of windows) {
     const z = w.layout?.zIndex ?? 1
@@ -263,10 +248,7 @@ function snapZoneToBounds(
 
 export function snapZoneToBoundsWithOccupied(
   zone: SnapZone,
-  occupied: ReadonlyArray<{
-    bounds: NonNullable<WindowLayout['bounds']>
-    snapZone: SnapZone
-  }>,
+  occupied: ReadonlyArray<{ bounds: NonNullable<WindowLayout['bounds']>; snapZone: SnapZone }>,
   canvas?: WorkspaceCanvasSize | null,
 ): NonNullable<WindowLayout['bounds']> {
   const viewport = resolveCanvas(canvas)
@@ -284,23 +266,13 @@ export function snapZoneToBoundsWithOccupied(
       case 'left':
         return { x: 0, y: 0, width: halfW, height: viewport.height }
       case 'right':
-        return {
-          x: halfW,
-          y: 0,
-          width: viewport.width - halfW,
-          height: viewport.height,
-        }
+        return { x: halfW, y: 0, width: viewport.width - halfW, height: viewport.height }
       case 'top-left':
         return { x: 0, y: 0, width: halfW, height: halfH }
       case 'top-right':
         return { x: halfW, y: 0, width: viewport.width - halfW, height: halfH }
       case 'bottom-left':
-        return {
-          x: 0,
-          y: halfH,
-          width: halfW,
-          height: viewport.height - halfH,
-        }
+        return { x: 0, y: halfH, width: halfW, height: viewport.height - halfH }
       case 'bottom-right':
         return {
           x: halfW,
@@ -311,78 +283,33 @@ export function snapZoneToBoundsWithOccupied(
       case 'top-half':
         return { x: 0, y: 0, width: viewport.width, height: halfH }
       case 'bottom-half':
-        return {
-          x: 0,
-          y: halfH,
-          width: viewport.width,
-          height: viewport.height - halfH,
-        }
+        return { x: 0, y: halfH, width: viewport.width, height: viewport.height - halfH }
       case 'top-third':
         return { x: 0, y: 0, width: viewport.width, height: thirdH }
       case 'middle-third':
-        return {
-          x: 0,
-          y: thirdH,
-          width: viewport.width,
-          height: twoThirdH - thirdH,
-        }
+        return { x: 0, y: thirdH, width: viewport.width, height: twoThirdH - thirdH }
       case 'bottom-third':
-        return {
-          x: 0,
-          y: twoThirdH,
-          width: viewport.width,
-          height: viewport.height - twoThirdH,
-        }
+        return { x: 0, y: twoThirdH, width: viewport.width, height: viewport.height - twoThirdH }
       case 'left-third':
         return { x: 0, y: 0, width: thirdW, height: viewport.height }
       case 'center-third':
-        return {
-          x: thirdW,
-          y: 0,
-          width: twoThirdW - thirdW,
-          height: viewport.height,
-        }
+        return { x: thirdW, y: 0, width: twoThirdW - thirdW, height: viewport.height }
       case 'right-third':
-        return {
-          x: twoThirdW,
-          y: 0,
-          width: viewport.width - twoThirdW,
-          height: viewport.height,
-        }
+        return { x: twoThirdW, y: 0, width: viewport.width - twoThirdW, height: viewport.height }
       case 'left-two-thirds':
         return { x: 0, y: 0, width: twoThirdW, height: viewport.height }
       case 'right-two-thirds':
-        return {
-          x: thirdW,
-          y: 0,
-          width: viewport.width - thirdW,
-          height: viewport.height,
-        }
+        return { x: thirdW, y: 0, width: viewport.width - thirdW, height: viewport.height }
       case 'top-left-third':
         return { x: 0, y: 0, width: thirdW, height: halfH }
       case 'top-center-third':
         return { x: thirdW, y: 0, width: twoThirdW - thirdW, height: halfH }
       case 'top-right-third':
-        return {
-          x: twoThirdW,
-          y: 0,
-          width: viewport.width - twoThirdW,
-          height: halfH,
-        }
+        return { x: twoThirdW, y: 0, width: viewport.width - twoThirdW, height: halfH }
       case 'bottom-left-third':
-        return {
-          x: 0,
-          y: halfH,
-          width: thirdW,
-          height: viewport.height - halfH,
-        }
+        return { x: 0, y: halfH, width: thirdW, height: viewport.height - halfH }
       case 'bottom-center-third':
-        return {
-          x: thirdW,
-          y: halfH,
-          width: twoThirdW - thirdW,
-          height: viewport.height - halfH,
-        }
+        return { x: thirdW, y: halfH, width: twoThirdW - thirdW, height: viewport.height - halfH }
       case 'bottom-right-third':
         return {
           x: twoThirdW,
@@ -464,10 +391,10 @@ export function adaptFloatingBoundsForCanvasResize(
  * canvas width, preserving each floating window's aspect ratio.
  */
 export function scaleSnappedWindowsBoundsForCanvasResize(
-  windows: WindowDefinition[],
+  windows: readonly WindowDefinition[],
   prev: WorkspaceCanvasSize,
   next: WorkspaceCanvasSize,
-): WindowDefinition[] {
+): readonly WindowDefinition[] {
   if (prev.width <= 0 || prev.height <= 0) return windows
   const sx = next.width / prev.width
   const sy = next.height / prev.height
@@ -478,14 +405,7 @@ export function scaleSnappedWindowsBoundsForCanvasResize(
       ? adaptFloatingBoundsForCanvasResize(lz.restoreBounds, prev, next)
       : lz.restoreBounds
     if (lz?.fullscreen) {
-      return {
-        ...w,
-        layout: {
-          ...lz,
-          bounds: createFullscreenBounds(next),
-          restoreBounds,
-        },
-      }
+      return { ...w, layout: { ...lz, bounds: createFullscreenBounds(next), restoreBounds } }
     }
     if (!lz.bounds) return w
     if (!lz.tiling && !lz.snapZone) {
@@ -523,9 +443,9 @@ export function scaleSnappedWindowsBoundsForCanvasResize(
 }
 
 function nudgeSnappedBoundsToCanvasEdges(
-  windows: WindowDefinition[],
+  windows: readonly WindowDefinition[],
   canvas: WorkspaceCanvasSize,
-): WindowDefinition[] {
+): readonly WindowDefinition[] {
   const cw = Math.max(canvas.width, 1)
   const ch = Math.max(canvas.height, 1)
   return windows.map((w) => {
@@ -552,9 +472,9 @@ function layoutGroupKey(w: WindowDefinition): string {
  * without this, tiles look fine but shared-edge resize can miss neighbors.
  */
 export function reconcileLayoutBoundsFromSnapZones(
-  windows: WindowDefinition[],
+  windows: readonly WindowDefinition[],
   canvas?: WorkspaceCanvasSize | null,
-): WindowDefinition[] {
+): readonly WindowDefinition[] {
   if (windows.length === 0) return windows
 
   const resolvedCanvas = resolveCanvas(canvas)
@@ -562,10 +482,7 @@ export function reconcileLayoutBoundsFromSnapZones(
     w.layout?.tiling
       ? {
           ...w,
-          layout: {
-            ...w.layout,
-            bounds: tilingPlacementToBounds(w.layout.tiling, resolvedCanvas),
-          },
+          layout: { ...w.layout, bounds: tilingPlacementToBounds(w.layout.tiling, resolvedCanvas) },
         }
       : w,
   )
@@ -598,10 +515,7 @@ export function reconcileLayoutBoundsFromSnapZones(
     return za.localeCompare(zb)
   })
 
-  const occupied: {
-    bounds: NonNullable<WindowLayout['bounds']>
-    snapZone: SnapZone
-  }[] = []
+  const occupied: { bounds: NonNullable<WindowLayout['bounds']>; snapZone: SnapZone }[] = []
   const boundsByGroup = new Map<string, NonNullable<WindowLayout['bounds']>>()
 
   for (const w of sorted) {
@@ -616,13 +530,7 @@ export function reconcileLayoutBoundsFromSnapZones(
     if (!lz?.snapZone || lz.fullscreen || lz.minimized) return w
     const b = boundsByGroup.get(layoutGroupKey(w))
     if (!b) return w
-    return {
-      ...w,
-      layout: {
-        ...lz,
-        bounds: b,
-      },
-    }
+    return { ...w, layout: { ...lz, bounds: b } }
   })
 }
 
@@ -640,11 +548,11 @@ export function isVideoPath(path: string) {
 }
 
 export function insertWindowAtGroupIndex(
-  current: WindowDefinition[],
+  current: readonly WindowDefinition[],
   windowToInsert: WindowDefinition,
   groupId: string,
   insertIndex: number,
-): WindowDefinition[] {
+): readonly WindowDefinition[] {
   const groupIndices: number[] = []
   current.forEach((w, i) => {
     const gid = w.tabGroupId ?? w.id

@@ -1,3 +1,4 @@
+import { Effect } from 'effect'
 import { describe, expect, test } from 'bun:test'
 import { createPlaybackSession } from '../../src/features/playback/playback-session'
 import { trackPlayback, type ActivityEvent } from '../../src/features/media-ai/activity'
@@ -5,7 +6,9 @@ function setup() {
   let clock = 1_000_000
   const events: ActivityEvent[] = []
   const raw = createPlaybackSession({
-    sourceResolver: { resolve: () => ({ kind: 'resolved', url: 'http://localhost/test.mp3' }) },
+    sourceResolver: {
+      resolve: () => Effect.sync(() => ({ kind: 'resolved', url: 'http://localhost/test.mp3' })),
+    },
   })
   const session = trackPlayback(
     raw,

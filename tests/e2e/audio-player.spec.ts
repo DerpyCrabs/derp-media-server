@@ -82,25 +82,21 @@ test.describe('Audio Player', () => {
           },
         },
       })
-      type TestDehydratedState = {
-        queries?: Array<{ queryKey?: unknown[] }>
-      }
-      const removeAudioMetadata = (value: TestDehydratedState | undefined) => {
-        if (value?.queries) {
-          value.queries = value.queries.filter((query) => query.queryKey?.[0] !== 'audio-metadata')
+      type TestInitialData = { entries?: Array<{ key?: unknown[] }> }
+      const removeAudioMetadata = (value: TestInitialData | undefined) => {
+        if (value?.entries) {
+          value.entries = value.entries.filter((query) => query.key?.[0] !== 'audio-metadata')
         }
         return value
       }
-      const stateWindow = window as unknown as {
-        __DEHYDRATED_STATE__?: TestDehydratedState
-      }
-      let dehydrated: TestDehydratedState | undefined = stateWindow.__DEHYDRATED_STATE__
-      removeAudioMetadata(dehydrated)
-      Object.defineProperty(window, '__DEHYDRATED_STATE__', {
+      const stateWindow = window as unknown as { __INITIAL_DATA__?: TestInitialData }
+      let initialData: TestInitialData | undefined = stateWindow.__INITIAL_DATA__
+      removeAudioMetadata(initialData)
+      Object.defineProperty(window, '__INITIAL_DATA__', {
         configurable: true,
-        get: () => dehydrated,
-        set: (value: TestDehydratedState) => {
-          dehydrated = removeAudioMetadata(value)
+        get: () => initialData,
+        set: (value: TestInitialData) => {
+          initialData = removeAudioMetadata(value)
         },
       })
     })

@@ -1,4 +1,4 @@
-import type { PersistedWorkspaceState } from '../../model/use-workspace'
+import type { PersistedWorkspaceState } from '../../model/workspace'
 import {
   CANVAS_MAX_ZOOM,
   CANVAS_MIN_ZOOM,

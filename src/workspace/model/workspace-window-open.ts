@@ -8,7 +8,7 @@ import type {
   WindowLayout as WorkspaceWindowLayout,
   WindowSource as WorkspaceSource,
 } from '@/lib/models/window-model'
-import type { PersistedWorkspaceState } from './use-workspace'
+import type { PersistedWorkspaceState } from './workspace'
 
 type WorkspaceOpenIdentity = {
   source: WorkspaceSource
@@ -175,10 +175,7 @@ export function planWorkspaceWindowOpen(options: {
     if (existing) return { kind: 'existing', windowId: existing.id }
   }
 
-  return {
-    kind: 'create',
-    definition: createWorkspaceWindowDefinition(options),
-  }
+  return { kind: 'create', definition: createWorkspaceWindowDefinition(options) }
 }
 
 export function appendWorkspaceWindow(

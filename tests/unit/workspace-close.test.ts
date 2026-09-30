@@ -1,9 +1,10 @@
+import { Effect } from 'effect'
 import { describe, expect, test } from 'bun:test'
 import {
   closeWorkspaceWindows,
   confirmWorkspaceWindowsSequentially,
 } from '@/workspace/model/workspace-close'
-import type { PersistedWorkspaceState } from '@/workspace/model/use-workspace'
+import type { PersistedWorkspaceState } from '@/workspace/model/workspace'
 import type { WindowDefinition as WorkspaceWindowDefinition } from '@/lib/models/window-model'
 
 const window = (id: string, group: string | null = null): WorkspaceWindowDefinition => ({
@@ -58,10 +59,14 @@ describe('workspace close transaction', () => {
   test('stops confirmations after first cancellation', async () => {
     const calls: string[] = []
     const windows = [window('one'), window('two'), window('three')]
-    const allowed = await confirmWorkspaceWindowsSequentially(windows, async () => {
-      calls.push(windows[calls.length]!.id)
-      return calls.length < 2
-    })
+    const allowed = await Effect.runPromise(
+      confirmWorkspaceWindowsSequentially(windows, () =>
+        Effect.sync(() => {
+          calls.push(windows[calls.length]!.id)
+          return calls.length < 2
+        }),
+      ),
+    )
 
     expect(allowed).toBe(false)
     expect(calls).toEqual(['one', 'two'])

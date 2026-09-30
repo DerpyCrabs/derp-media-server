@@ -1,34 +1,39 @@
-import { createSignal } from 'solid-js'
+import { Schema } from 'effect'
+import { fileItemSchema } from '@/lib/files/file-schemas'
+import { modelOwner } from 'effectweb'
 import { MediaType, type FileItem } from '@/lib/files/types'
 function restore(key: string, image: boolean): FileItem[] {
   try {
     const saved: unknown = JSON.parse(sessionStorage.getItem(key) || '[]')
-    if (Array.isArray(saved))
-      return saved
-        .filter(
-          (v): v is FileItem =>
-            v &&
-            typeof v.path === 'string' &&
-            typeof v.name === 'string' &&
-            (image ? v.type === 'image' : ['audio', 'video'].includes(v.type)),
+    const result = Schema.decodeUnknownExit(Schema.Array(fileItemSchema))(saved)
+    if (result._tag === 'Success')
+      return result.value
+        .filter((item) =>
+          image
+            ? item.type === MediaType.IMAGE
+            : item.type === MediaType.AUDIO || item.type === MediaType.VIDEO,
         )
         .slice(0, 100)
   } catch {}
   return []
 }
-const [selection, setSelection] = createSignal(restore('media-ai-selection', false))
-const [imageSelection, setImageSelection] = createSignal(restore('media-ai-images', true))
-export { selection, imageSelection }
+const owner = modelOwner({
+  selection: restore('media-ai-selection', false),
+  images: restore('media-ai-images', true),
+})
+export const mediaSelectionSource = owner.source
+export const selection = () => owner.read().selection
+export const imageSelection = () => owner.read().images
 export function clearImageSelection() {
-  setImageSelection([])
+  owner.patch({ images: [] })
   try {
     sessionStorage.removeItem('media-ai-images')
   } catch {}
 }
-export function setMediaSelection(files: FileItem[]) {
+export function setMediaSelection(files: readonly FileItem[]) {
   const image = files.length > 0 && files.every((file) => file.type === MediaType.IMAGE)
-  if (image) setImageSelection(files)
-  else setSelection(files)
+  if (image) owner.patch({ images: files })
+  else owner.patch({ selection: files })
   try {
     sessionStorage.setItem(
       image ? 'media-ai-images' : 'media-ai-selection',

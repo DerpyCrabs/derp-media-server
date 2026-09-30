@@ -5,7 +5,7 @@ import {
   type WorkspaceCanvasSize,
 } from './workspace-geometry'
 import type { TilingPlacement, WindowDefinition } from '@/lib/models/window-model'
-import { SNAP_EDGE_THRESHOLD_PX } from './use-snap-zones'
+import { SNAP_EDGE_THRESHOLD_PX } from './snap-zones'
 
 export const ASSIST_GRID_SHAPES = ['3x2', '3x3', '2x2', '2x3'] as const
 export type AssistGridShape = (typeof ASSIST_GRID_SHAPES)[number]
@@ -14,10 +14,7 @@ export function isAssistGridShape(s: string): s is AssistGridShape {
   return (ASSIST_GRID_SHAPES as readonly string[]).includes(s)
 }
 
-export function assistShapeToDims(shape: AssistGridShape): {
-  cols: number
-  rows: number
-} {
+export function assistShapeToDims(shape: AssistGridShape): { cols: number; rows: number } {
   switch (shape) {
     case '3x2':
       return { cols: 3, rows: 2 }
@@ -113,24 +110,10 @@ export function detectEdgeAssistGridSpan(
     return { gridCols: cols, gridRows: rows, gc0: 0, gc1: 0, gr0: 0, gr1: 0 }
   }
   if (nearR && nearT) {
-    return {
-      gridCols: cols,
-      gridRows: rows,
-      gc0: cols - 1,
-      gc1: cols - 1,
-      gr0: 0,
-      gr1: 0,
-    }
+    return { gridCols: cols, gridRows: rows, gc0: cols - 1, gc1: cols - 1, gr0: 0, gr1: 0 }
   }
   if (nearL && nearB) {
-    return {
-      gridCols: cols,
-      gridRows: rows,
-      gc0: 0,
-      gc1: 0,
-      gr0: rows - 1,
-      gr1: rows - 1,
-    }
+    return { gridCols: cols, gridRows: rows, gc0: 0, gc1: 0, gr0: rows - 1, gr1: rows - 1 }
   }
   if (nearR && nearB) {
     return {
@@ -150,14 +133,7 @@ export function detectEdgeAssistGridSpan(
 
   if (nearB) {
     const { gc0, gc1 } = topBottomEdgeSlot(lx, cw, cols)
-    return {
-      gridCols: cols,
-      gridRows: rows,
-      gc0,
-      gc1,
-      gr0: rows - 1,
-      gr1: rows - 1,
-    }
+    return { gridCols: cols, gridRows: rows, gc0, gc1, gr0: rows - 1, gr1: rows - 1 }
   }
 
   if (nearL) {
@@ -167,14 +143,7 @@ export function detectEdgeAssistGridSpan(
 
   if (nearR) {
     const { gr0, gr1 } = leftRightEdgeSlot(ly, ch, rows)
-    return {
-      gridCols: cols,
-      gridRows: rows,
-      gc0: cols - 1,
-      gc1: cols - 1,
-      gr0,
-      gr1,
-    }
+    return { gridCols: cols, gridRows: rows, gc0: cols - 1, gc1: cols - 1, gr0, gr1 }
   }
 
   return null
@@ -205,7 +174,7 @@ export function assistSpanToTilingPlacement(
 
 /** Shared col/row lines from any window already on the same assist grid, if present. */
 export function findSharedAssistGridLines(
-  windows: WindowDefinition[],
+  windows: readonly WindowDefinition[],
   span: AssistGridSpan,
 ): Pick<TilingPlacement, 'colLines' | 'rowLines'> | null {
   const existing = windows.find(
@@ -219,7 +188,7 @@ export function findSharedAssistGridLines(
 
 /** Expand a full-height/full-width edge slot across empty grid tracks until an occupied tile. */
 export function expandEdgeAssistSpanToAvailableTracks(
-  windows: WindowDefinition[],
+  windows: readonly WindowDefinition[],
   span: AssistGridSpan,
 ): AssistGridSpan {
   const placements = windows
@@ -281,12 +250,12 @@ export function assistGridSpanToBounds(
  * Reuses resized grid lines from any peer already on the same cols×rows grid.
  */
 export function applyAssistCustomSnapToWindows(
-  windows: WindowDefinition[],
+  windows: readonly WindowDefinition[],
   windowId: string,
   span: AssistGridSpan,
   canvas: WorkspaceCanvasSize,
   options?: { zIndex?: number },
-): WindowDefinition[] {
+): readonly WindowDefinition[] {
   const target = windows.find((w) => w.id === windowId)
   if (!target) return windows
   const groupId = target.tabGroupId ?? target.id

@@ -24,10 +24,7 @@ test.describe('Folder Navigation', () => {
         await route.continue()
         return
       }
-      await route.fulfill({
-        status: 403,
-        json: { error: 'Permission denied (os error 13)' },
-      })
+      await route.fulfill({ status: 403, json: { error: 'Permission denied (os error 13)' } })
     })
     await page.goto('/')
     const folder = page.locator('table').getByText('EmptyFolder', { exact: true })

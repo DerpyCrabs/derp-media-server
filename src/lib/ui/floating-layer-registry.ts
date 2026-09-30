@@ -57,8 +57,8 @@ export function floatingPointerInsideSurface(
   for (const r of extraRoots) {
     if (nodeInConnectedRoot(e, r ?? undefined)) return true
   }
-  const useIgnore = ignoreActive === undefined || ignoreActive() !== false
-  if (useIgnore && ignoreSelector && connectedMatchInComposedPath(e, ignoreSelector)) return true
+  const ignored = ignoreActive === undefined || ignoreActive() !== false
+  if (ignored && ignoreSelector && connectedMatchInComposedPath(e, ignoreSelector)) return true
   return false
 }
 
@@ -79,7 +79,7 @@ function onDocumentPointerDownCapture(e: PointerEvent) {
     } catch {
       /* ignore */
     }
-    // Drop immediately so the next iteration sees the next layer. Solid may defer
+    // Drop immediately so the next iteration sees the next layer. Rendering may defer
     // unmount/cleanup; without this the same entry stays "top" until the loop cap.
     entries.delete(id)
     syncDocumentListener()

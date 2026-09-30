@@ -1,3 +1,4 @@
+import { domBinding, localComponent, Portal, view, type JSX, type Snapshot } from 'effectweb'
 import { getFloatingLayerMount } from '@/lib/ui/floating-layer-mount'
 import {
   floatingPointerInsideSurface,
@@ -10,170 +11,13 @@ import {
 } from '@/lib/ui/floating-z-index'
 import { clampFixedMenuPosition } from '@/lib/ui/clamp-fixed-menu'
 import { cn } from '@/lib/ui/cn'
-import type { Accessor } from 'solid-js'
-import type { JSX } from '@solidjs/web'
-import { Match, Show, Switch, createEffect, createMemo, createSignal } from 'solid-js'
-import { Portal } from '@solidjs/web'
-
-const MENU_ROOT_CLASS =
-  'fixed max-h-[calc(100dvh-16px)] min-w-36 overflow-y-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md'
-
-type Positioning =
-  | { kind: 'pointer'; left: number; top: number }
-  | {
-      kind: 'anchor'
-      anchorRef: Accessor<HTMLElement | null>
-      gap: number
-      minWidthMin: number
-    }
-
-type MenuSurfaceProps = {
-  mount?: HTMLElement
-  positioning: Positioning
-  trackScroll: boolean
-  zIndex: number
-  onDismiss: () => void
-  extraDismissRoots?: Accessor<Array<HTMLElement | null | undefined>>
-  dismissIgnoreInsideSelector?: string
-  dismissIgnoreSelectorActive?: () => boolean
-  'data-slot'?: string
-  'data-testid'?: string
-  class?: string
-  role?: 'menu' | 'presentation'
-  noWindowDrag?: boolean
-  pinContextMenuRoot?: boolean
-  breadcrumbFolderMenuSurface?: boolean
-  children: JSX.Element
-}
-
-function MenuSurface(props: MenuSurfaceProps) {
-  const [surfaceRef, setSurfaceRef] = createSignal<HTMLDivElement | null>(null)
-
-  createEffect(
-    () => {
-      const surface = surfaceRef()
-      if (!surface) return null
-      const positioning = props.positioning
-      const anchor = positioning.kind === 'anchor' ? positioning.anchorRef() : null
-      return { surface, positioning, anchor, trackScroll: props.trackScroll }
-    },
-    (state) => {
-      if (!state) return undefined
-      const { surface: el, positioning, anchor, trackScroll } = state
-      const apply = () => {
-        let preferredLeft: number
-        let flip: { anchorTop: number; anchorBottom: number; gap: number }
-        if (positioning.kind === 'pointer') {
-          preferredLeft = positioning.left
-          flip = { anchorTop: positioning.top, anchorBottom: positioning.top, gap: 0 }
-        } else {
-          if (!anchor) return
-          const ar = anchor.getBoundingClientRect()
-          el.style.minWidth = `${Math.max(positioning.minWidthMin, ar.width)}px`
-          preferredLeft = ar.left
-          flip = { anchorTop: ar.top, anchorBottom: ar.bottom, gap: positioning.gap }
-        }
-        const r = el.getBoundingClientRect()
-        const next = clampFixedMenuPosition({
-          preferredLeft,
-          width: Math.max(r.width, 1),
-          height: Math.max(r.height, 1),
-          flip,
-        })
-        el.style.left = `${next.left}px`
-        el.style.top = `${next.top}px`
-      }
-      apply()
-      const ro = new ResizeObserver(() => requestAnimationFrame(apply))
-      ro.observe(el)
-      const bump = () => requestAnimationFrame(apply)
-      window.addEventListener('resize', bump)
-      const vv = window.visualViewport
-      if (trackScroll) {
-        window.addEventListener('scroll', bump, true)
-        vv?.addEventListener('resize', bump)
-        vv?.addEventListener('scroll', bump)
-      }
-      // eslint-disable-next-line solid/reactivity
-      return () => {
-        ro.disconnect()
-        window.removeEventListener('resize', bump)
-        if (trackScroll) {
-          window.removeEventListener('scroll', bump, true)
-          vv?.removeEventListener('resize', bump)
-          vv?.removeEventListener('scroll', bump)
-        }
-      }
-    },
-  )
-
-  createEffect(
-    () => {
-      const surface = surfaceRef()
-      return surface ? { surface, zIndex: props.zIndex } : null
-    },
-    (state) => {
-      if (!state) return undefined
-      const unregister = registerFloatingDismissLayer({
-        zIndex: state.zIndex,
-        isInside: (e) => {
-          const el = surfaceRef()
-          if (!el) return false
-          return floatingPointerInsideSurface(
-            e,
-            el,
-            props.extraDismissRoots?.() ?? [],
-            props.dismissIgnoreInsideSelector,
-            props.dismissIgnoreSelectorActive,
-          )
-        },
-        dismiss: () => props.onDismiss(),
-      })
-      // eslint-disable-next-line solid/reactivity
-      return unregister
-    },
-  )
-
-  const initialPos = () => {
-    const pos = props.positioning
-    if (pos.kind === 'pointer') return { left: pos.left, top: pos.top }
-    return { left: 0, top: 0 }
-  }
-
-  const floatingMount = getFloatingLayerMount()
-
-  return (
-    <Portal mount={props.mount ?? floatingMount}>
-      <div
-        ref={(e) => setSurfaceRef(e ?? null)}
-        data-floating-surface
-        data-slot={props['data-slot']}
-        data-testid={props['data-testid']}
-        data-breadcrumb-folder-menu={props.breadcrumbFolderMenuSurface ? true : undefined}
-        data-pin-context-menu={props.pinContextMenuRoot ? true : undefined}
-        data-no-window-drag={props.noWindowDrag !== false ? true : undefined}
-        class={cn(MENU_ROOT_CLASS, props.class)}
-        style={{
-          left: `${initialPos().left}px`,
-          top: `${initialPos().top}px`,
-          'z-index': props.zIndex,
-        }}
-        role={props.role ?? 'menu'}
-        onPointerDown={(e) => e.stopPropagation()}
-      >
-        {props.children}
-      </div>
-    </Portal>
-  )
-}
-
 type CommonFloatingProps = {
   mount?: HTMLElement
   onDismiss: () => void
   zIndex?: number
-  extraDismissRoots?: Accessor<Array<HTMLElement | null | undefined>>
+  extraDismissRoots?: readonly (HTMLElement | null | undefined)[]
   dismissIgnoreInsideSelector?: string
-  dismissIgnoreSelectorActive?: () => boolean
+  dismissIgnoreSelectorActive?: boolean
   'data-slot'?: string
   'data-testid'?: string
   class?: string
@@ -182,102 +26,149 @@ type CommonFloatingProps = {
   pinContextMenuRoot?: boolean
   breadcrumbFolderMenuSurface?: boolean
 }
-
 export type FloatingContextMenuAnchorProps = CommonFloatingProps & {
-  open: Accessor<boolean>
-  anchorRef: Accessor<HTMLElement | null>
+  open: boolean
+  anchorRef: HTMLElement | null
   gap?: number
   minWidthMin?: number
   children: JSX.Element
 }
-
 export type FloatingContextMenuPointerProps<T> = CommonFloatingProps & {
-  state: Accessor<T | null | undefined>
+  state: T | null | undefined
   anchor: (value: T) => { x: number; y: number }
   children: (value: T) => JSX.Element
 }
-
 export type FloatingContextMenuProps<T> =
   | FloatingContextMenuPointerProps<T>
   | FloatingContextMenuAnchorProps
-
-function FloatingContextMenuAnchorBranch(props: FloatingContextMenuAnchorProps) {
-  const roots = () => [props.anchorRef(), ...(props.extraDismissRoots?.() ?? [])]
-  return (
-    <Show when={props.open()}>
+type SurfaceProps = CommonFloatingProps & {
+  anchorElement?: HTMLElement | null
+  position?: { x: number; y: number }
+  gap: number
+  minWidth: number
+  zIndex: number
+  children: JSX.Element
+}
+const surfaceBinding = (element: HTMLDivElement, current: () => SurfaceProps) => {
+  let frame = 0
+  const apply = () => {
+    const props = current()
+    const anchor = props.anchorElement
+    const rect = anchor?.getBoundingClientRect()
+    if (rect) element.style.minWidth = `${Math.max(props.minWidth, rect.width)}px`
+    element.style.left = '0px'
+    element.style.top = '0px'
+    const bounds = element.getBoundingClientRect()
+    const position = clampFixedMenuPosition({
+      preferredLeft: rect?.left ?? props.position?.x ?? 0,
+      width: Math.max(bounds.width, 1),
+      height: Math.max(bounds.height, 1),
+      flip: {
+        anchorTop: rect?.top ?? props.position?.y ?? 0,
+        anchorBottom: rect?.bottom ?? props.position?.y ?? 0,
+        gap: rect ? props.gap : 0,
+      },
+    })
+    element.style.left = `${position.left}px`
+    element.style.top = `${position.top}px`
+  }
+  const schedule = () => {
+    cancelAnimationFrame(frame)
+    frame = requestAnimationFrame(apply)
+  }
+  const resize = new ResizeObserver(schedule)
+  resize.observe(element)
+  window.addEventListener('resize', schedule)
+  window.addEventListener('scroll', schedule, true)
+  window.visualViewport?.addEventListener('resize', schedule)
+  window.visualViewport?.addEventListener('scroll', schedule)
+  const unregister = registerFloatingDismissLayer({
+    zIndex: current().zIndex,
+    isInside: (event) => {
+      const props = current()
+      return floatingPointerInsideSurface(
+        event,
+        element,
+        [props.anchorElement, ...(props.extraDismissRoots ?? [])],
+        props.dismissIgnoreInsideSelector,
+        () => props.dismissIgnoreSelectorActive ?? false,
+      )
+    },
+    dismiss: () => current().onDismiss(),
+  })
+  apply()
+  return {
+    update: schedule,
+    dispose: () => {
+      cancelAnimationFrame(frame)
+      resize.disconnect()
+      unregister()
+      window.removeEventListener('resize', schedule)
+      window.removeEventListener('scroll', schedule, true)
+      window.visualViewport?.removeEventListener('resize', schedule)
+      window.visualViewport?.removeEventListener('scroll', schedule)
+    },
+  }
+}
+const MenuSurface = localComponent({
+  init: (props: Snapshot<SurfaceProps>) => ({ mount: props.mount ?? getFloatingLayerMount() }),
+  view: view((model) => {
+    const props = model.props
+    return (
+      <Portal mount={props.mount ?? model.mount}>
+        <div
+          use={domBinding(props, surfaceBinding)}
+          data-floating-surface
+          data-slot={props['data-slot']}
+          data-testid={props['data-testid']}
+          data-breadcrumb-folder-menu={props.breadcrumbFolderMenuSurface ? true : undefined}
+          data-pin-context-menu={props.pinContextMenuRoot ? true : undefined}
+          data-no-window-drag={props.noWindowDrag !== false ? true : undefined}
+          class={cn(
+            'fixed max-h-[calc(100dvh-16px)] min-w-36 overflow-y-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md',
+            props.class,
+          )}
+          style={{ 'z-index': props.zIndex }}
+          role={props.role ?? 'menu'}
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          {props.children}
+        </div>
+      </Portal>
+    )
+  }),
+})
+type FloatingMenuView = JSX.ComponentType & {
+  <T>(this: never, props: FloatingContextMenuProps<T>): JSX.Element
+}
+export const FloatingContextMenu = view<FloatingContextMenuProps<unknown>>((props) => {
+  if ('anchorRef' in props)
+    return props.open ? (
       <MenuSurface
-        mount={props.mount}
-        positioning={{
-          kind: 'anchor',
-          anchorRef: props.anchorRef,
-          gap: props.gap ?? 4,
-          minWidthMin: props.minWidthMin ?? 192,
-        }}
-        trackScroll
+        {...props}
+        anchorElement={props.anchorRef}
+        gap={props.gap ?? 4}
+        minWidth={props.minWidthMin ?? 192}
         zIndex={props.zIndex ?? FLOATING_Z_PATH_MENU}
-        onDismiss={props.onDismiss}
-        extraDismissRoots={roots}
-        dismissIgnoreInsideSelector={props.dismissIgnoreInsideSelector}
-        dismissIgnoreSelectorActive={props.dismissIgnoreSelectorActive}
-        data-slot={props['data-slot']}
-        data-testid={props['data-testid']}
-        class={props.class}
-        role={props.role}
-        noWindowDrag={props.noWindowDrag}
-        pinContextMenuRoot={props.pinContextMenuRoot}
-        breadcrumbFolderMenuSurface={props.breadcrumbFolderMenuSurface}
       >
         {props.children}
       </MenuSurface>
-    </Show>
+    ) : null
+  const state = props.state
+  return state == null ? null : (
+    <MenuSurface
+      {...props}
+      position={props.anchor(state)}
+      gap={0}
+      minWidth={0}
+      zIndex={
+        props.zIndex ??
+        (props.breadcrumbFolderMenuSurface
+          ? FLOATING_Z_BREADCRUMB_FOLDER_MENU
+          : FLOATING_Z_CONTEXT_MENU)
+      }
+    >
+      {props.children(state)}
+    </MenuSurface>
   )
-}
-
-function FloatingContextMenuPointerBranch<T>(props: FloatingContextMenuPointerProps<T>) {
-  return (
-    <Show when={props.state()} keyed>
-      {(value) => {
-        const a = createMemo(() => props.anchor(value))
-        return (
-          <MenuSurface
-            mount={props.mount}
-            positioning={{ kind: 'pointer', left: a().x, top: a().y }}
-            trackScroll={false}
-            zIndex={
-              props.zIndex ??
-              (props.breadcrumbFolderMenuSurface
-                ? FLOATING_Z_BREADCRUMB_FOLDER_MENU
-                : FLOATING_Z_CONTEXT_MENU)
-            }
-            onDismiss={props.onDismiss}
-            extraDismissRoots={props.extraDismissRoots}
-            dismissIgnoreInsideSelector={props.dismissIgnoreInsideSelector}
-            dismissIgnoreSelectorActive={props.dismissIgnoreSelectorActive}
-            data-slot={props['data-slot']}
-            data-testid={props['data-testid']}
-            class={props.class}
-            role={props.role}
-            noWindowDrag={props.noWindowDrag}
-            pinContextMenuRoot={props.pinContextMenuRoot}
-            breadcrumbFolderMenuSurface={props.breadcrumbFolderMenuSurface}
-          >
-            {props.children(value)}
-          </MenuSurface>
-        )
-      }}
-    </Show>
-  )
-}
-
-export function FloatingContextMenu<T>(props: FloatingContextMenuProps<T>): JSX.Element {
-  return (
-    <Switch>
-      <Match when={'anchorRef' in props}>
-        <FloatingContextMenuAnchorBranch {...(props as FloatingContextMenuAnchorProps)} />
-      </Match>
-      <Match when={!('anchorRef' in props)}>
-        <FloatingContextMenuPointerBranch {...(props as FloatingContextMenuPointerProps<T>)} />
-      </Match>
-    </Switch>
-  )
-}
+}) as unknown as FloatingMenuView

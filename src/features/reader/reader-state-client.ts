@@ -1,4 +1,12 @@
-import { api, ApiError, post } from '@/lib/api/client'
+import {
+  readerStateEnvelopeSchema,
+  readerStateSavedSchema,
+  readerRevisionSchema,
+  readerPreferencesEnvelopeSchema,
+  legacyReaderPreferencesSchema,
+} from './reader-schemas'
+import { apiSchemaEffect, ApiError, postSchemaEffect } from '@/lib/api/client'
+import { Effect, Semaphore } from 'effect'
 import { normalizeReaderPosition } from './reader-position'
 
 export type BookAppearance = {
@@ -49,10 +57,7 @@ export type ReaderPreferences = {
   outlineOpen: boolean
 }
 
-export type ReaderPreferencesEnvelope = {
-  preferences: ReaderPreferences
-  revision: number
-}
+export type ReaderPreferencesEnvelope = { preferences: ReaderPreferences; revision: number }
 
 export const DEFAULT_READER_PREFERENCES: ReaderPreferences = {
   bookAppearance: DEFAULT_BOOK_APPEARANCE,
@@ -98,82 +103,100 @@ function parseSyncedState(value: unknown): ReaderSyncedState | null {
 const stateEndpoint = '/api/reader-state'
 
 type ReaderStateSaveResult = { revision: number; fingerprint: string } | null
-const readerStateSaveQueues = new Map<string, Promise<ReaderStateSaveResult>>()
+const readerStateSaveQueues = new Map<
+  string,
+  { gate: Semaphore.Semaphore; pending: number; previous: ReaderStateSaveResult }
+>()
 
-const retryTransient = async <T>(request: () => Promise<T>): Promise<T> => {
-  let failure: unknown
-  for (const delay of [0, 100, 300, 750]) {
-    if (delay) await new Promise((resolve) => setTimeout(resolve, delay))
-    try {
-      return await request()
-    } catch (error) {
-      failure = error
-      if (error instanceof ApiError && error.status < 500) throw error
-    }
-  }
-  throw failure
-}
-
-export async function loadSyncedReaderState(path: string): Promise<ReaderStateEnvelope> {
-  const result = await retryTransient(() =>
-    api<ReaderStateEnvelope>(`${stateEndpoint}?path=${encodeURIComponent(path)}`),
-  )
-  result.state = parseSyncedState(result.state)
-  return result
-}
-
-async function saveSyncedReaderStateNow(
-  path: string,
-  state: ReaderSyncedState,
-  revision: number,
-  fingerprint: string,
-): Promise<ReaderStateSaveResult> {
-  try {
-    const saved = await retryTransient(() =>
-      post<{ revision: number; fingerprint: string }>(stateEndpoint, {
-        path,
-        state,
-        baseRevision: revision,
-        fingerprint,
+const retryTransient = <T>(request: Effect.Effect<T, Error>) => {
+  const attempt = (index: number): Effect.Effect<T, Error> =>
+    request.pipe(
+      Effect.catch((error) => {
+        if (index >= 3 || (error instanceof ApiError && error.status < 500))
+          return Effect.fail(error)
+        return Effect.sleep([100, 300, 750][index]!).pipe(Effect.andThen(attempt(index + 1)))
       }),
     )
-    return saved
-  } catch (error) {
-    if (error instanceof ApiError && error.status === 409) return null
-    throw error
-  }
+  return attempt(0)
 }
 
-export function saveSyncedReaderState(
+export const loadSyncedReaderStateEffect = (path: string) =>
+  retryTransient(
+    apiSchemaEffect(readerStateEnvelopeSchema, `${stateEndpoint}?path=${encodeURIComponent(path)}`),
+  ).pipe(Effect.map((result) => ({ ...result, state: parseSyncedState(result.state) })))
+
+const saveSyncedReaderStateNow = (
   path: string,
   state: ReaderSyncedState,
   revision: number,
   fingerprint: string,
-): Promise<ReaderStateSaveResult> {
-  const key = path.replace(/\\/g, '/')
-  const previous = readerStateSaveQueues.get(key)
-  const queued = (async () => {
-    const prior = await previous?.catch(() => null)
-    const effectiveRevision = prior && prior.fingerprint === fingerprint ? prior.revision : revision
-    return saveSyncedReaderStateNow(path, state, effectiveRevision, fingerprint)
-  })()
-  readerStateSaveQueues.set(key, queued)
-  const cleanup = () => {
-    if (readerStateSaveQueues.get(key) === queued) readerStateSaveQueues.delete(key)
-  }
-  void queued.then(cleanup, cleanup)
-  return queued
-}
+): Effect.Effect<ReaderStateSaveResult, Error> =>
+  retryTransient(
+    postSchemaEffect(readerStateSavedSchema, stateEndpoint, {
+      path,
+      state,
+      baseRevision: revision,
+      fingerprint,
+    }),
+  ).pipe(
+    Effect.catch((error) =>
+      error instanceof ApiError && error.status === 409 ? Effect.succeed(null) : Effect.fail(error),
+    ),
+  )
 
-function parsePreferences(value: unknown): ReaderPreferences {
-  const input = (value && typeof value === 'object' ? value : {}) as Partial<ReaderPreferences>
+export const saveSyncedReaderStateEffect = (
+  path: string,
+  state: ReaderSyncedState,
+  revision: number,
+  fingerprint: string,
+) =>
+  Effect.suspend(() => {
+    const key = path.replace(/\\/g, '/')
+    let queue = readerStateSaveQueues.get(key)
+    if (!queue) {
+      queue = { gate: Semaphore.makeUnsafe(1), pending: 0, previous: null }
+      readerStateSaveQueues.set(key, queue)
+    }
+    const current = queue
+    current.pending++
+    return current.gate
+      .withPermits(1)(
+        Effect.suspend(() => {
+          const prior = current.previous
+          const effectiveRevision =
+            prior && prior.fingerprint === fingerprint ? prior.revision : revision
+          return saveSyncedReaderStateNow(path, state, effectiveRevision, fingerprint).pipe(
+            Effect.tap((saved) =>
+              Effect.sync(() => {
+                current.previous = saved
+              }),
+            ),
+            Effect.tapError(() =>
+              Effect.sync(() => {
+                current.previous = null
+              }),
+            ),
+          )
+        }),
+      )
+      .pipe(
+        Effect.ensuring(
+          Effect.sync(() => {
+            if (--current.pending === 0) readerStateSaveQueues.delete(key)
+          }),
+        ),
+      )
+  })
+
+function parsePreferences(input: typeof legacyReaderPreferencesSchema.Type): ReaderPreferences {
   const appearance = input.bookAppearance ?? DEFAULT_BOOK_APPEARANCE
-  const contentWidth = (appearance as { contentWidth?: unknown }).contentWidth
+  const contentWidth = appearance.contentWidth
   return {
     bookAppearance: {
-      fontFamily: ['publisher', 'serif', 'sans'].includes(appearance.fontFamily ?? '')
-        ? appearance.fontFamily!
-        : 'publisher',
+      fontFamily:
+        appearance.fontFamily === 'serif' || appearance.fontFamily === 'sans'
+          ? appearance.fontFamily
+          : 'publisher',
       fontScale:
         appearance.fontScale === null ? null : finiteInRange(appearance.fontScale, 0.5, 3, 1),
       lineHeight:
@@ -184,37 +207,36 @@ function parsePreferences(value: unknown): ReaderPreferences {
           : contentWidth === 'wide' || contentWidth === 64
             ? 'wide'
             : 'full',
-      theme: ['publisher', 'light', 'dark', 'sepia'].includes(appearance.theme ?? '')
-        ? appearance.theme!
-        : 'publisher',
+      theme:
+        appearance.theme === 'light' || appearance.theme === 'dark' || appearance.theme === 'sepia'
+          ? appearance.theme
+          : 'publisher',
     },
     selectionMode: input.selectionMode === 'image' ? 'image' : 'text',
-    defaultAction: ['define', 'translate', 'none'].includes(input.defaultAction ?? '')
-      ? input.defaultAction!
-      : 'define',
+    defaultAction:
+      input.defaultAction === 'translate' || input.defaultAction === 'none'
+        ? input.defaultAction
+        : 'define',
     aiDetail: input.aiDetail === 'detailed' ? 'detailed' : 'compact',
     outlineOpen: input.outlineOpen !== false,
   }
 }
 
-export async function loadReaderPreferences(): Promise<ReaderPreferencesEnvelope> {
-  const result = await api<{ preferences: unknown; revision: number }>('/api/reader-preferences')
-  return {
+export const loadReaderPreferencesEffect = apiSchemaEffect(
+  readerPreferencesEnvelopeSchema,
+  '/api/reader-preferences',
+).pipe(
+  Effect.map((result): ReaderPreferencesEnvelope => ({
     preferences: parsePreferences(result.preferences),
     revision: Number.isFinite(result.revision) ? result.revision : 0,
-  }
-}
+  })),
+)
 
-export async function saveReaderPreferences(
-  preferences: ReaderPreferences,
-  baseRevision: number,
-): Promise<number> {
-  const result = await post<{ revision: number }>('/api/reader-preferences', {
+export const saveReaderPreferencesEffect = (preferences: ReaderPreferences, baseRevision: number) =>
+  postSchemaEffect(readerRevisionSchema, '/api/reader-preferences', {
     preferences,
     baseRevision,
-  })
-  return result.revision
-}
+  }).pipe(Effect.map((result) => result.revision))
 
 export function mergeReaderPreferenceChanges(
   latest: ReaderPreferences,

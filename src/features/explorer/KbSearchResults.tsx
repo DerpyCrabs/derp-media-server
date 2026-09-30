@@ -1,9 +1,7 @@
-import Search from 'lucide-solid/icons/search'
-import { For, Show } from '@solidjs/web'
-import { createSignal } from 'solid-js'
-
+import { sequence, type Snapshot, list, localComponent, view } from 'effectweb'
+import { cn } from '@/lib/ui/cn'
+import Search from '@effectweb/lucide/icons/search'
 type SearchResult = { path: string; name: string; snippet: string }
-
 type Props = {
   results: SearchResult[]
   query: string
@@ -12,11 +10,9 @@ type Props = {
   currentPath: string
   onResultClick: (path: string) => void
 }
-
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
-
 function snippetSegments(snippet: string, query: string): { text: string; hl: boolean }[] {
   const q = query.trim()
   if (!q) return [{ text: snippet, hl: false }]
@@ -24,7 +20,6 @@ function snippetSegments(snippet: string, query: string): { text: string; hl: bo
   const parts = snippet.split(regex)
   return parts.map((text, i) => ({ text, hl: i % 2 === 1 }))
 }
-
 function pathRelativeTo(from: string, to: string): string {
   const fromParts = from ? from.split('/').filter(Boolean) : []
   const toParts = to.split('/').filter(Boolean)
@@ -34,64 +29,52 @@ function pathRelativeTo(from: string, to: string): string {
   const rest = toParts.slice(i)
   return [...Array(up).fill('..'), ...rest].join('/') || '.'
 }
-
-export function KbSearchResults(props: Props) {
-  const [selection, setSelection] = createSignal({ key: '', index: 0 })
-  const selectionKey = () =>
-    `${props.query}\0${props.results.map((result) => result.path).join('\0')}`
-  const selectedIndex = () => {
-    const current = selection()
-    if (current.key !== selectionKey()) return 0
-    return Math.min(current.index, Math.max(0, props.results.length - 1))
-  }
-  const setSelectedIndex = (update: (index: number) => number) =>
-    setSelection({ key: selectionKey(), index: update(selectedIndex()) })
-
-  const onKeyDown = (event: KeyboardEvent) => {
-    if (!props.results.length) return
-    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-      event.preventDefault()
-      const delta = event.key === 'ArrowDown' ? 1 : -1
-      const resultCount = props.results.length
-      setSelectedIndex((index) => (index + delta + resultCount) % resultCount)
-    } else if (event.key === 'Enter') {
-      event.preventDefault()
-      props.onResultClick(props.results[selectedIndex()]!.path)
+export const KbSearchResults = localComponent({
+  init: (_props: Snapshot<Props>) => ({
+    selection: { key: '', index: 0 } as { key: string; index: number },
+  }),
+  view: view((local, patch) => {
+    const props = local.props
+    const selection = () => local.selection
+    const setSelection = (value: { key: string; index: number }) => patch({ selection: value })
+    const selectionKey = () =>
+      `${props.query}\0${props.results.map((result) => result.path).join('\0')}`
+    const selectedIndex = () => {
+      const current = selection()
+      if (current.key !== selectionKey()) return 0
+      return Math.min(current.index, Math.max(0, props.results.length - 1))
     }
-  }
-
-  return (
-    <Show
-      when={!props.isLoading}
-      fallback={
-        <div class='flex flex-col items-center justify-center py-16 text-muted-foreground'>
-          <Search class='mb-4 h-10 w-10 animate-pulse opacity-50' stroke-width={2} />
-          <p class='text-sm'>Searching...</p>
-        </div>
+    const setSelectedIndex = (update: (index: number) => number) =>
+      setSelection({ key: selectionKey(), index: update(selectedIndex()) })
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!props.results.length) return
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault()
+        const delta = event.key === 'ArrowDown' ? 1 : -1
+        const resultCount = props.results.length
+        setSelectedIndex((index) => (index + delta + resultCount) % resultCount)
+      } else if (event.key === 'Enter') {
+        event.preventDefault()
+        props.onResultClick(props.results[selectedIndex()]!.path)
       }
-    >
-      <Show
-        when={props.results.length > 0 || !!props.error}
-        fallback={
-          <div class='flex flex-col items-center justify-center py-16 text-muted-foreground'>
-            <Search class='mb-4 h-10 w-10 opacity-50' stroke-width={2} />
-            <p class='text-sm'>No results for &quot;{props.query}&quot;</p>
-          </div>
-        }
-      >
+    }
+    return !props.isLoading ? (
+      props.results.length > 0 || !!props.error ? (
         <div
           role='region'
           aria-label='Note search results'
           class='divide-y divide-border overflow-auto'
           onKeyDown={onKeyDown}
         >
-          <Show when={props.error}>
+          {props.error ? (
             <p role='alert' class='p-4 text-sm text-destructive'>
               {props.error}
             </p>
-          </Show>
-          <For each={props.results}>
-            {(result, index) => {
+          ) : null}
+          {list(
+            props.results,
+            (result) => result.path,
+            (result, index) => {
               const dirPath = () =>
                 result.path.includes('/') ? result.path.split('/').slice(0, -1).join('/') : ''
               const displayPath = () => pathRelativeTo(props.currentPath, dirPath())
@@ -103,36 +86,46 @@ export function KbSearchResults(props: Props) {
                 <button
                   data-kb-search-result=''
                   type='button'
-                  class={[
+                  class={cn([
                     'w-full px-3 py-3 text-left transition-colors hover:bg-muted/50 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-inset',
-                    { 'bg-muted/50': index() === selectedIndex() },
-                  ]}
-                  tabindex={index() === selectedIndex() ? 0 : -1}
+                    { 'bg-muted/50': index === selectedIndex() },
+                  ])}
+                  tabindex={index === selectedIndex() ? 0 : -1}
                   onClick={() => props.onResultClick(result.path)}
                 >
                   <div class='truncate font-medium'>{result.name}</div>
-                  <Show when={showPath()}>
+                  {showPath() ? (
                     <div class='mt-0.5 truncate text-xs text-muted-foreground'>{displayPath()}</div>
-                  </Show>
-                  <Show when={result.snippet}>
+                  ) : null}
+                  {result.snippet ? (
                     <div class='mt-1 line-clamp-2 text-sm text-muted-foreground'>
-                      <For keyed={false} each={snippetSegments(result.snippet, props.query)}>
-                        {(seg) => (
-                          <Show when={seg().hl} fallback={seg().text}>
-                            <mark class='rounded bg-yellow-400/40 px-0.5 ring-1 ring-amber-500/60 dark:bg-amber-500/40 dark:ring-amber-400/50'>
-                              {seg().text}
-                            </mark>
-                          </Show>
-                        )}
-                      </For>
+                      {list(sequence(snippetSegments(result.snippet, props.query) ?? []), (seg) =>
+                        seg.hl ? (
+                          <mark class='rounded bg-yellow-400/40 px-0.5 ring-1 ring-amber-500/60 dark:bg-amber-500/40 dark:ring-amber-400/50'>
+                            {seg.text}
+                          </mark>
+                        ) : (
+                          seg.text
+                        ),
+                      )}
                     </div>
-                  </Show>
+                  ) : null}
                 </button>
               )
-            }}
-          </For>
+            },
+          )}
         </div>
-      </Show>
-    </Show>
-  )
-}
+      ) : (
+        <div class='flex flex-col items-center justify-center py-16 text-muted-foreground'>
+          <Search class='mb-4 h-10 w-10 opacity-50' stroke-width={2} />
+          <p class='text-sm'>No results for &quot;{props.query}&quot;</p>
+        </div>
+      )
+    ) : (
+      <div class='flex flex-col items-center justify-center py-16 text-muted-foreground'>
+        <Search class='mb-4 h-10 w-10 animate-pulse opacity-50' stroke-width={2} />
+        <p class='text-sm'>Searching...</p>
+      </div>
+    )
+  }),
+})

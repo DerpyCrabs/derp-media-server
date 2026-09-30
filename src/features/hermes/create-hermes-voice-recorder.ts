@@ -1,4 +1,5 @@
-import { createEffect, createSignal, onSettled, untrack, type Accessor } from 'solid-js'
+import { Effect } from 'effect'
+import { commandSlot, modelOwner } from 'effectweb'
 import { HermesVoiceTransport } from './hermes-session-store'
 
 type RecorderHandle = {
@@ -17,7 +18,7 @@ export type HermesVoiceRecorderDependencies = {
   ) => RecorderHandle
   schedule: (callback: () => void, delayMs: number) => number
   cancelSchedule: (timer: number) => void
-  transcribe: (sessionKey: string, blob: Blob) => Promise<void>
+  transcribe: (sessionKey: string, blob: Blob) => Effect.Effect<void, Error>
   reportError: (sessionKey: string, error: unknown) => void
 }
 
@@ -46,16 +47,24 @@ const browserDependencies: HermesVoiceRecorderDependencies = {
   reportError: HermesVoiceTransport.reportError,
 }
 
+const permissionSlot = commandSlot('microphone-permission')
+const transcriptionSlot = commandSlot('voice-transcription')
 type RecorderPhase = 'idle' | 'requesting' | 'recording' | 'stopping'
 
 export function createHermesVoiceRecorderEngine(
-  options: { sessionKey: Accessor<string>; maxSeconds: Accessor<number> },
+  options: { sessionKey: () => string; maxSeconds: () => number },
   dependencies: HermesVoiceRecorderDependencies,
 ) {
-  const [state, setState] = createSignal<{ phase: RecorderPhase; denied: boolean }>({
+  const owner = modelOwner<{ phase: RecorderPhase; denied: boolean }>({
     phase: 'idle',
     denied: false,
   })
+  const state = owner.read
+  const setState = (
+    next:
+      | { phase: RecorderPhase; denied: boolean }
+      | ((current: ReturnType<typeof state>) => { phase: RecorderPhase; denied: boolean }),
+  ) => owner.patch(typeof next === 'function' ? next(state()) : next)
   let recorder: RecorderHandle | undefined
   let stream: MediaStream | undefined
   let timer: number | undefined
@@ -78,6 +87,7 @@ export function createHermesVoiceRecorderEngine(
 
   function cancel() {
     requestRevision++
+    owner.cancel(permissionSlot)
     releaseMedia()
     if (!disposed) setState((current) => ({ phase: 'idle', denied: current.denied }))
   }
@@ -85,10 +95,12 @@ export function createHermesVoiceRecorderEngine(
   function dispose() {
     disposed = true
     requestRevision++
+    owner.cancel(permissionSlot)
     releaseMedia()
+    owner.dispose()
   }
 
-  async function toggle() {
+  function toggle() {
     const phase = state().phase
     if (phase === 'requesting') {
       cancel()
@@ -110,57 +122,96 @@ export function createHermesVoiceRecorderEngine(
     setState({ phase: 'requesting', denied: false })
     let requestedStream: MediaStream | undefined
     let requestedRecorder: RecorderHandle | undefined
-    try {
-      const nextStream = await dependencies.getUserMedia()
-      requestedStream = nextStream
-      if (disposed || request !== requestRevision) {
-        nextStream.getTracks().forEach((track) => track.stop())
-        return
-      }
-      stream = nextStream
-      const chunks: Blob[] = []
-      const nextRecorder = dependencies.createRecorder(nextStream, {
-        data: (blob) => chunks.push(blob),
-        stopped: () => {
-          if (recorder !== nextRecorder) return
-          clearTimer()
-          nextRecorder.detach()
-          recorder = undefined
-          nextStream.getTracks().forEach((track) => track.stop())
-          if (stream === nextStream) stream = undefined
-          if (disposed) return
-          setState((current) => ({ phase: 'idle', denied: current.denied }))
-          const blob = new Blob(chunks, { type: nextRecorder.mimeType() || 'audio/webm' })
-          if (blob.size) {
-            void dependencies
-              .transcribe(recordingKey, blob)
-              .catch((error) => dependencies.reportError(recordingKey, error))
+    owner.run(
+      permissionSlot,
+      Effect.gen(function* () {
+        const nextStream = yield* Effect.callback<MediaStream, unknown>((resume) => {
+          let interrupted = false
+          try {
+            void dependencies.getUserMedia().then(
+              (acquired) => {
+                if (interrupted) acquired.getTracks().forEach((track) => track.stop())
+                else resume(Effect.succeed(acquired))
+              },
+              (error) => resume(Effect.fail(error)),
+            )
+          } catch (error) {
+            resume(Effect.fail(error))
           }
-        },
-      })
-      requestedRecorder = nextRecorder
-      recorder = nextRecorder
-      nextRecorder.start()
-      setState({ phase: 'recording', denied: false })
-      timer = dependencies.schedule(() => {
-        if (recorder === nextRecorder && nextRecorder.state() !== 'inactive') {
-          setState((current) => ({ ...current, phase: 'stopping' }))
-          nextRecorder.stop()
+          return Effect.sync(() => {
+            interrupted = true
+          })
+        })
+        requestedStream = nextStream
+        if (disposed || request !== requestRevision) {
+          nextStream.getTracks().forEach((track) => track.stop())
+          return
         }
-      }, options.maxSeconds() * 1000)
-    } catch (error) {
-      if (recorder === requestedRecorder) recorder = undefined
-      requestedRecorder?.detach()
-      requestedStream?.getTracks().forEach((track) => track.stop())
-      if (stream === requestedStream) stream = undefined
-      if (disposed || request !== requestRevision) return
-      const denied = error instanceof DOMException && error.name === 'NotAllowedError'
-      setState({ phase: 'idle', denied })
-      dependencies.reportError(recordingKey, error)
-    }
+        stream = nextStream
+        const chunks: Blob[] = []
+        const nextRecorder: RecorderHandle = yield* Effect.try({
+          try: () =>
+            dependencies.createRecorder(nextStream, {
+              data: (blob) => chunks.push(blob),
+              stopped: () => {
+                if (recorder !== nextRecorder) return
+                clearTimer()
+                nextRecorder.detach()
+                recorder = undefined
+                nextStream.getTracks().forEach((track) => track.stop())
+                if (stream === nextStream) stream = undefined
+                if (disposed) return
+                setState((current) => ({ phase: 'idle', denied: current.denied }))
+                const blob = new Blob(chunks, { type: nextRecorder.mimeType() || 'audio/webm' })
+                if (blob.size) {
+                  owner.run(
+                    transcriptionSlot,
+                    dependencies
+                      .transcribe(recordingKey, blob)
+                      .pipe(
+                        Effect.catch((error) =>
+                          Effect.sync(() => dependencies.reportError(recordingKey, error)),
+                        ),
+                      ),
+                    'queue',
+                  )
+                }
+              },
+            }),
+          catch: (error) => error,
+        })
+        requestedRecorder = nextRecorder
+        recorder = nextRecorder
+        yield* Effect.try({ try: () => nextRecorder.start(), catch: (error) => error })
+        setState({ phase: 'recording', denied: false })
+        timer = dependencies.schedule(() => {
+          if (recorder === nextRecorder && nextRecorder.state() !== 'inactive') {
+            setState((current) => ({ ...current, phase: 'stopping' }))
+            nextRecorder.stop()
+          }
+        }, options.maxSeconds() * 1000)
+      }).pipe(
+        Effect.catch((error) =>
+          Effect.sync(() => {
+            if (recorder === requestedRecorder) recorder = undefined
+            requestedRecorder?.detach()
+            requestedStream?.getTracks().forEach((track) => track.stop())
+            if (stream === requestedStream) stream = undefined
+            if (disposed || request !== requestRevision) return
+            const denied = error instanceof DOMException && error.name === 'NotAllowedError'
+            setState({ phase: 'idle', denied })
+            dependencies.reportError(recordingKey, error)
+          }),
+        ),
+      ),
+      'replace',
+    )
   }
 
   return {
+    source: owner.source,
+    awaitIdle: owner.awaitIdle,
+    read: owner.read,
     recording: () => state().phase === 'recording' || state().phase === 'stopping',
     denied: () => state().denied,
     toggle,
@@ -170,23 +221,16 @@ export function createHermesVoiceRecorderEngine(
 }
 
 export function createHermesVoiceRecorder(options: {
-  sessionKey: Accessor<string>
-  visible: Accessor<boolean>
-  maxSeconds: Accessor<number>
+  sessionKey: () => string
+  visible: () => boolean
+  maxSeconds: () => number
 }) {
   const engine = createHermesVoiceRecorderEngine(options, browserDependencies)
 
-  createEffect(
-    () => options.visible(),
-    (visible) => {
-      if (!visible) untrack(engine.cancel)
-    },
-  )
-  onSettled(() => engine.dispose)
-
   return {
-    recording: engine.recording,
-    denied: engine.denied,
-    toggle: engine.toggle,
+    ...engine,
+    update: () => {
+      if (!options.visible()) engine.cancel()
+    },
   }
 }

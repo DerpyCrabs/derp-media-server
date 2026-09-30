@@ -1,32 +1,17 @@
-import type { Accessor } from 'solid-js'
-import type { JSX } from '@solidjs/web'
-import { createMemo } from 'solid-js'
-import { Dynamic } from '@solidjs/web'
-
+import { view, type JSX } from 'effectweb'
 export type PaneKind = 'browser' | 'viewer' | 'hermes'
-
 export type PaneSwitchProps = Readonly<{
-  kind: Accessor<PaneKind | undefined>
+  kind: PaneKind | undefined
   browser?: () => JSX.Element
   viewer?: () => JSX.Element
   hermes?: () => JSX.Element
 }>
-
-/** Selects the renderer for a workspace window definition. */
-export function PaneSwitch(props: PaneSwitchProps) {
-  const activeRenderer = createMemo(() => {
-    switch (props.kind()) {
-      case 'browser':
-        return props.browser
-      case 'viewer':
-        return props.viewer
-      case 'hermes':
-        return props.hermes
-      case undefined:
-        return undefined
-    }
-    return undefined
-  })
-
-  return <Dynamic component={activeRenderer()} />
-}
+export const PaneSwitch = view<PaneSwitchProps>((props) =>
+  props.kind === 'browser'
+    ? props.browser?.()
+    : props.kind === 'viewer'
+      ? props.viewer?.()
+      : props.kind === 'hermes'
+        ? props.hermes?.()
+        : null,
+)

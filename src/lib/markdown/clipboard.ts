@@ -1,3 +1,4 @@
+import { Effect } from 'effect'
 import { Annotation, StateEffect, StateField, type ChangeDesc } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
 
@@ -14,10 +15,7 @@ type PendingImagePaste = {
   originalRanges: readonly PendingImagePasteRange[]
 }
 
-type PendingImagePasteRange = {
-  from: number
-  to: number
-}
+type PendingImagePasteRange = { from: number; to: number }
 
 const addPendingImagePaste = StateEffect.define<PendingImagePaste>()
 const removePendingImagePaste = StateEffect.define<number>()
@@ -39,10 +37,7 @@ function mapOriginalRanges(
       const to = Math.min(range.to, oldTo)
       if (from >= to) continue
 
-      const next = {
-        from: newFrom + from - oldFrom,
-        to: newFrom + to - oldFrom,
-      }
+      const next = { from: newFrom + from - oldFrom, to: newFrom + to - oldFrom }
       const previous = mapped.at(-1)
       if (previous?.to === next.from) previous.to = next.to
       else mapped.push(next)
@@ -111,7 +106,10 @@ function hasClipboardImage(event: ClipboardEvent): boolean {
   return Array.from(event.clipboardData?.items ?? []).some((item) => item.type.startsWith('image/'))
 }
 
-export function markdownClipboardExtension(runtime: MarkdownEditorRuntime) {
+export function markdownClipboardExtension(
+  runtime: MarkdownEditorRuntime,
+  run: (work: Effect.Effect<void, unknown>) => void,
+) {
   return [
     pendingImagePastes,
     EditorView.domEventHandlers({
@@ -153,7 +151,7 @@ export function markdownClipboardExtension(runtime: MarkdownEditorRuntime) {
             { from: selection.from, to: selection.to },
             finish,
           )
-          const claimed = result === true || clipboardEvent.defaultPrevented
+          const claimed = Effect.isEffect(result) || clipboardEvent.defaultPrevented
           if (claimed) {
             clipboardEvent.preventDefault()
             view.dispatch({
@@ -169,17 +167,10 @@ export function markdownClipboardExtension(runtime: MarkdownEditorRuntime) {
             })
             active = true
             if (queuedMarkdown !== undefined) finish(queuedMarkdown)
-            if (result instanceof Promise) {
-              void result.then(
-                (handled) => {
-                  if (!handled) finish(null)
-                },
-                () => finish(null),
-              )
-            }
+            if (Effect.isEffect(result))
+              run(result.pipe(Effect.ensuring(Effect.sync(() => finish(null)))))
             return true
           }
-          if (result instanceof Promise) void result.catch(() => {})
         }
 
         const html = clipboardEvent.clipboardData?.getData('text/html') ?? ''

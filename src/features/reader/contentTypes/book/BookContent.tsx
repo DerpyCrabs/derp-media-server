@@ -1,127 +1,120 @@
-import { For, Show, createMemo, createSignal, onSettled } from 'solid-js'
+import { domBinding, entities, list, localComponent, view, type Snapshot } from 'effectweb'
 import type { RenderedBook } from './book-sanitize'
 import type { BookAppearance } from '../../reader-state-client'
-
-function Chapter(props: {
+type ChapterProps = {
   chapter: RenderedBook['chapters'][number]
   index: number
   currentIndex: number
   viewport: HTMLElement
   estimatedHeight: number
   onMeasure: (index: number, height: number) => void
-}) {
-  let host: HTMLElement | undefined
-  const [intersecting, setIntersecting] = createSignal(false)
-  const [height, setHeight] = createSignal<number>()
-
-  const isNear = () => Math.abs(props.index - props.currentIndex) <= 2
-  const near = () => isNear() || intersecting()
-
-  onSettled(() => {
-    if (!host) return undefined
-    const chapterHost = host
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (!entry) return
-        setIntersecting(entry.isIntersecting)
-      },
-      { root: props.viewport, rootMargin: '1200px 0px', threshold: 0.01 },
-    )
-    observer.observe(chapterHost)
-    let frame = 0
-    const resize = new ResizeObserver(() => {
-      cancelAnimationFrame(frame)
-      frame = requestAnimationFrame(() => {
-        if (near() && chapterHost.offsetHeight > 80) {
-          const nextHeight = chapterHost.offsetHeight
-          setHeight(nextHeight)
-          props.onMeasure(props.index, nextHeight)
-        }
-      })
-    })
-    resize.observe(host)
-    return () => {
-      observer.disconnect()
-      resize.disconnect()
-      cancelAnimationFrame(frame)
-    }
-  })
-
-  return (
-    <article
-      ref={(element) => {
-        host = element
-      }}
-      id={`reader-${props.chapter.id}`}
-      data-book-chapter={props.chapter.id}
-      aria-label={props.chapter.title}
-      class='book-chapter mx-auto w-full scroll-mt-3 px-5 py-8 sm:px-10'
-      style={{ 'min-height': near() ? undefined : `${height() ?? props.estimatedHeight}px` }}
-    >
-      <Show when={near()}>
-        <div
-          ref={(element) => {
-            const template = document.createElement('template')
-            template.innerHTML = props.chapter.html
-            element.replaceChildren(template.content.cloneNode(true))
-          }}
-        />
-      </Show>
-    </article>
-  )
 }
-
-export function BookContent(props: {
+const chapterObserver = (
+  element: HTMLElement,
+  current: () => {
+    props: Snapshot<ChapterProps>
+    near: boolean
+    changed: (visible: boolean) => void
+    measured: (height: number) => void
+  },
+) => {
+  const observer = new IntersectionObserver(
+    ([entry]) => current().changed(Boolean(entry?.isIntersecting)),
+    { root: current().props.viewport, rootMargin: '1200px 0px', threshold: 0.01 },
+  )
+  observer.observe(element)
+  let frame = 0
+  const resize = new ResizeObserver(() => {
+    cancelAnimationFrame(frame)
+    frame = requestAnimationFrame(() => {
+      const model = current()
+      if (model.near && element.offsetHeight > 80) {
+        model.measured(element.offsetHeight)
+        model.props.onMeasure(model.props.index, element.offsetHeight)
+      }
+    })
+  })
+  resize.observe(element)
+  return () => {
+    observer.disconnect()
+    resize.disconnect()
+    cancelAnimationFrame(frame)
+  }
+}
+const chapterHtml = (element: HTMLDivElement, current: () => string) => {
+  let previous: string | undefined
+  const update = () => {
+    const html = current()
+    if (previous === html) return
+    previous = html
+    const template = document.createElement('template')
+    template.innerHTML = html
+    element.replaceChildren(template.content.cloneNode(true))
+  }
+  update()
+  return { update, dispose: () => {} }
+}
+const Chapter = localComponent<ChapterProps, { intersecting: boolean; height: number | undefined }>(
+  {
+    init: () => ({ intersecting: false, height: undefined }),
+    identity: (props) => props.chapter.id,
+    view: view((model, patch) => {
+      const props = model.props
+      const near = Math.abs(props.index - props.currentIndex) <= 2 || model.intersecting
+      return (
+        <article
+          use={domBinding(
+            {
+              props,
+              near,
+              changed: (intersecting: boolean) => patch({ intersecting }),
+              measured: (height: number) => patch({ height }),
+            },
+            chapterObserver,
+          )}
+          id={`reader-${props.chapter.id}`}
+          data-book-chapter={props.chapter.id}
+          aria-label={props.chapter.title}
+          class='book-chapter mx-auto w-full scroll-mt-3 px-5 py-8 sm:px-10'
+          style={{ 'min-height': near ? undefined : `${model.height ?? props.estimatedHeight}px` }}
+        >
+          {near ? <div use={domBinding(props.chapter.html, chapterHtml)} /> : null}
+        </article>
+      )
+    }),
+  },
+)
+type Props = {
   document: RenderedBook
   appearance: BookAppearance
   currentChapterId: string
   positionReady: boolean
   viewport: HTMLElement
   onNavigate: (chapterId: string, anchor?: string, recordHistory?: boolean) => void
-}) {
-  const [measuredHeights, setMeasuredHeights] = createSignal<Record<number, number>>({})
-  const pixelsPerCharacter = createMemo(() => {
-    let height = 0
-    let characters = 0
-    for (const [rawIndex, measuredHeight] of Object.entries(measuredHeights())) {
+}
+export const BookContent = localComponent<Props, { measured: Record<number, number> }>({
+  init: () => ({ measured: {} }),
+  view: view((model, patch) => {
+    const props = model.props
+    let height = 0,
+      characters = 0
+    for (const [rawIndex, measuredHeight] of Object.entries(model.measured)) {
       const chapter = props.document.chapters[Number(rawIndex)]
-      if (!chapter || chapter.textLength < 100) continue
-      height += Math.max(0, measuredHeight - 64)
-      characters += chapter.textLength
+      if (chapter && chapter.textLength >= 100) {
+        height += Math.max(0, measuredHeight - 64)
+        characters += chapter.textLength
+      }
     }
-    if (characters > 0) return height / characters
-
-    const width = Math.min(
-      props.viewport.clientWidth,
-      props.appearance.contentWidth === 'narrow'
-        ? 768
-        : props.appearance.contentWidth === 'wide'
-          ? 1024
-          : props.viewport.clientWidth,
-    )
     const fontScale = props.appearance.fontScale ?? 1
-    const lineHeight = props.appearance.lineHeight ?? 1.65
-    const usableWidth = Math.max(240, width - 80)
-    return (16 * fontScale * lineHeight * 8 * fontScale) / usableWidth
-  })
-  const estimatedHeight = (index: number) => {
-    const measured = measuredHeights()[index]
-    if (measured !== undefined) return measured
-    const textLength = props.document.chapters[index]?.textLength ?? 0
-    return Math.max(680, Math.ceil(64 + textLength * pixelsPerCharacter()))
-  }
-  const recordHeight = (index: number, height: number) => {
-    setMeasuredHeights((current) =>
-      current[index] === height ? current : { ...current, [index]: height },
-    )
-  }
-  const currentIndex = () =>
-    Math.max(
+    const pixelsPerCharacter =
+      characters > 0
+        ? height / characters
+        : (16 * fontScale * (props.appearance.lineHeight ?? 1.65) * 8 * fontScale) / 688
+    const currentIndex = Math.max(
       0,
       props.document.chapters.findIndex((chapter) => chapter.id === props.currentChapterId),
     )
-  const documentClass = () =>
-    [
+    const className = [
       'book-document',
       `book-theme-${props.appearance.theme}`,
       'min-h-full',
@@ -133,38 +126,44 @@ export function BookContent(props: {
     ]
       .filter(Boolean)
       .join(' ')
-  return (
-    <div
-      data-testid='reader-book'
-      aria-busy={props.positionReady ? 'false' : 'true'}
-      class={documentClass()}
-      style={{
-        '--book-font-scale': String(props.appearance.fontScale ?? 1),
-        '--book-line-height': String(props.appearance.lineHeight ?? 1.65),
-        '--book-content-width': props.appearance.contentWidth === 'narrow' ? '48rem' : '64rem',
-      }}
-      onClick={(event) => {
-        const link = (event.target as Element).closest<HTMLAnchorElement>('a')
-        if (!link || link.dataset.external === 'true') return
-        const chapterId = link.dataset.chapterId
-        if (!chapterId) return
-        event.preventDefault()
-        props.onNavigate(chapterId, link.dataset.anchor, true)
-      }}
-    >
-      <style>{props.document.css}</style>
-      <For each={props.document.chapters}>
-        {(chapter, index) => (
-          <Chapter
-            chapter={chapter}
-            index={index()}
-            currentIndex={currentIndex()}
-            viewport={props.viewport}
-            estimatedHeight={estimatedHeight(index())}
-            onMeasure={recordHeight}
-          />
-        )}
-      </For>
-    </div>
-  )
-}
+    return (
+      <div
+        data-testid='reader-book'
+        aria-busy={props.positionReady ? 'false' : 'true'}
+        class={className}
+        style={{
+          '--book-font-scale': String(fontScale),
+          '--book-line-height': String(props.appearance.lineHeight ?? 1.65),
+          '--book-content-width': props.appearance.contentWidth === 'narrow' ? '48rem' : '64rem',
+        }}
+        onClick={(event) => {
+          const link = (event.target as Element).closest<HTMLAnchorElement>('a')
+          if (!link || link.dataset.external === 'true' || !link.dataset.chapterId) return
+          event.preventDefault()
+          props.onNavigate(link.dataset.chapterId, link.dataset.anchor, true)
+        }}
+      >
+        <style>{props.document.css}</style>
+        {list(entities(props.document.chapters), (chapter) => {
+          const index = props.document.chapters.indexOf(chapter)
+          return (
+            <Chapter
+              chapter={chapter}
+              index={index}
+              currentIndex={currentIndex}
+              viewport={props.viewport}
+              estimatedHeight={
+                model.measured[index] ??
+                Math.max(680, Math.ceil(64 + chapter.textLength * pixelsPerCharacter))
+              }
+              onMeasure={(index, height) => {
+                if (model.measured[index] !== height)
+                  patch({ measured: { ...model.measured, [index]: height } })
+              }}
+            />
+          )
+        })}
+      </div>
+    )
+  }),
+})

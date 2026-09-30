@@ -68,11 +68,7 @@ test.describe('Tab Merging and Splitting', () => {
       const bottomGap = titleBar
         ? titleBar.getBoundingClientRect().bottom - el.getBoundingClientRect().bottom
         : 0
-      return {
-        left: style.borderLeftWidth,
-        right: style.borderRightWidth,
-        bottomGap,
-      }
+      return { left: style.borderLeftWidth, right: style.borderRightWidth, bottomGap }
     })
 
     expect(borders.left).toBe('1px')

@@ -5,17 +5,9 @@ describe('playback media session metadata', () => {
   test('publishes track information and artwork for the active audio item', () => {
     expect(
       buildPlaybackMediaSessionMetadata({
-        item: {
-          locator: 'Music/Long Season.flac',
-          name: 'Long Season.flac',
-          media: 'audio',
-        },
+        item: { locator: 'Music/Long Season.flac', name: 'Long Season.flac', media: 'audio' },
         mode: 'audio',
-        metadata: {
-          title: 'Long Season',
-          artist: 'Fishmans',
-          album: 'Long Season',
-        },
+        metadata: { title: 'Long Season', artist: 'Fishmans', album: 'Long Season' },
         artworkUrl: '/api/media/Music/cover.jpg',
         artworkBaseUrl: 'http://localhost:3000',
       }),

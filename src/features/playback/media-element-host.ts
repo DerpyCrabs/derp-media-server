@@ -1,3 +1,8 @@
+import { Effect } from 'effect'
+import { commandSlot, lifetime } from 'effectweb'
+import { apiSchemaEffect } from '@/lib/api/client'
+import { playbackStatusSchema } from './playback-schemas'
+const statusSlot = commandSlot('playback-error-status')
 import type { PlaybackFallback, PlaybackMode, PlaybackSession } from './types'
 import { createStreamingMediaSource } from './streaming-media-source'
 
@@ -87,6 +92,7 @@ function sameUrl(left: string, right: string): boolean {
 }
 
 export function createMediaElementHost(session: PlaybackSession): MediaElementHost {
+  const scope = lifetime()
   let active: Attachment | null = null
   const inactive = new Set<Attachment>()
   let disposed = false
@@ -325,6 +331,7 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
   }
 
   function detach() {
+    scope.cancel(statusSlot)
     const attachment = active
     if (!attachment) return
     active = null
@@ -333,6 +340,7 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
 
   function attach(element: PlaybackMediaElement, mode: PlaybackMode): () => void {
     if (disposed) return () => undefined
+    scope.cancel(statusSlot)
     const previous = active
     if (previous) {
       active = null
@@ -552,20 +560,29 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
       const code = element.error?.code
       const requestId = session.getSnapshot().source?.requestId
       if (requestId) {
-        void fetch(`/api/playback/status?${new URLSearchParams({ id: requestId })}`)
-          .then((response) => response.json() as Promise<{ error?: string | null }>)
-          .catch(() => ({ error: null }))
-          .then((result) => {
-            if (!validEvent() || attachment.generation !== generation) return
-            if (!result.error && recover()) return
-            session.dispatch({
-              type: 'mediaError',
-              generation: attachment.generation,
-              message:
-                result.error ??
-                'Compatibility playback failed. This codec or resolution may not be supported.',
-            })
-          })
+        scope.run(
+          statusSlot,
+          apiSchemaEffect(
+            playbackStatusSchema,
+            `/api/playback/status?${new URLSearchParams({ id: requestId })}`,
+          ).pipe(
+            Effect.catch(() => Effect.succeed({ error: null })),
+            Effect.tap((result) =>
+              Effect.sync(() => {
+                if (!validEvent() || attachment.generation !== generation) return
+                if (!result.error && recover()) return
+                session.dispatch({
+                  type: 'mediaError',
+                  generation: attachment.generation,
+                  message:
+                    result.error ??
+                    'Compatibility playback failed. This codec or resolution may not be supported.',
+                })
+              }),
+            ),
+          ),
+          'replace',
+        )
         return
       }
       if (recover()) return
@@ -619,6 +636,7 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
       for (const attachment of inactive) clearElement(attachment)
       inactive.clear()
       disposed = true
+      scope.dispose()
       unsubscribe()
     },
   })

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { reconcileLayoutBoundsFromSnapZones } from '@/workspace/model/workspace-geometry'
 import type { WindowDefinition as WorkspaceWindowDefinition } from '@/lib/models/window-model'
-import { normalizePersistedWorkspaceState } from '@/workspace/model/use-workspace'
+import { normalizePersistedWorkspaceState } from '@/workspace/model/workspace'
 
 function win(
   id: string,
@@ -14,13 +14,7 @@ function win(
     title: id,
     source: { kind: 'local', rootPath: null },
     initialState: {},
-    layout: {
-      snapZone,
-      bounds,
-      fullscreen: false,
-      minimized: false,
-      zIndex: 1,
-    },
+    layout: { snapZone, bounds, fullscreen: false, minimized: false, zIndex: 1 },
   }
 }
 
@@ -72,12 +66,7 @@ describe('normalizePersistedWorkspaceState', () => {
     }
     const draft = normalizePersistedWorkspaceState(raw, { reconcileSnapZones: false })
     const presetStyle = normalizePersistedWorkspaceState(raw, { reconcileSnapZones: true })
-    expect(draft?.windows[0]?.layout?.bounds).toEqual({
-      x: 900,
-      y: 10,
-      width: 220,
-      height: 240,
-    })
+    expect(draft?.windows[0]?.layout?.bounds).toEqual({ x: 900, y: 10, width: 220, height: 240 })
     expect(presetStyle?.windows[0]?.layout?.bounds?.width).toBe(640)
     expect(presetStyle?.windows[0]?.layout?.bounds?.x).toBe(640)
     expect('tiling' in draft!.windows[0].layout!).toBe(false)
@@ -120,8 +109,6 @@ describe('normalizePersistedWorkspaceState', () => {
       { reconcileSnapZones: false },
     )
 
-    expect(normalized?.canvas?.windowSizeByType).toEqual({
-      browser: { width: 640, height: 480 },
-    })
+    expect(normalized?.canvas?.windowSizeByType).toEqual({ browser: { width: 640, height: 480 } })
   })
 })

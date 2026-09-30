@@ -1,6 +1,24 @@
 import { test, expect } from '@playwright/test'
 
 test.describe('PDF Viewer', () => {
+  test('loads reader code and PDF styles only when a PDF is opened', async ({ page }) => {
+    test.skip(process.env.E2E_DEV === '1', 'Checks production code splitting')
+    const assets: string[] = []
+    page.on('request', (request) => {
+      if (request.url().includes('/assets/')) assets.push(request.url())
+    })
+    await page.goto('/?dir=Documents')
+    const file = page.locator('table').getByText('sample.pdf')
+    await expect(file).toBeVisible()
+    expect(assets.some((url) => /\/(PdfReader|BookReader|MarkdownDocument)-/.test(url))).toBe(false)
+
+    await file.click()
+    await expect(page.getByTestId('pdf-canvas')).toBeVisible()
+    expect(assets.some((url) => /\/PdfReader-[^/]+\.js$/.test(url))).toBe(true)
+    expect(assets.some((url) => /\/PdfReader-[^/]+\.css$/.test(url))).toBe(true)
+    expect(assets.some((url) => /\/(BookReader|MarkdownDocument)-/.test(url))).toBe(false)
+  })
+
   test('opens PDF viewer when clicking a PDF file', async ({ page }) => {
     await page.goto('/?dir=Documents')
     await page.locator('table').getByText('sample.pdf').click()

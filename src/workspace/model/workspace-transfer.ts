@@ -1,6 +1,6 @@
 import { randomId } from '@/lib/random-id'
 import type { WindowDefinition as WorkspaceWindowDefinition } from '@/lib/models/window-model'
-import type { PersistedWorkspaceState } from './use-workspace'
+import type { PersistedWorkspaceState } from './workspace'
 import { cascadeWorkspaceBounds } from './workspace-placement'
 
 export type WorkspaceTransferPhase = 'idle' | 'dragging' | 'armed'

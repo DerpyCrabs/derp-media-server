@@ -1,3 +1,4 @@
+import { Effect } from 'effect'
 import { describe, expect, test } from 'bun:test'
 import {
   createHermesVoiceRecorderEngine,
@@ -13,9 +14,7 @@ function deferred<T>() {
 }
 
 function fakeStream(onStop: () => void): MediaStream {
-  return {
-    getTracks: () => [{ stop: onStop }],
-  } as unknown as MediaStream
+  return { getTracks: () => [{ stop: onStop }] } as unknown as MediaStream
 }
 
 function recorderDependencies(options: {
@@ -57,7 +56,7 @@ function recorderDependencies(options: {
     cancelSchedule: () => {
       scheduled = undefined
     },
-    transcribe: async (key, blob) => options.onTranscribe?.(key, blob),
+    transcribe: (key, blob) => Effect.sync(() => options.onTranscribe?.(key, blob)),
     reportError: (key, error) => options.onError?.(key, error),
   }
   return {
@@ -78,10 +77,11 @@ describe('Hermes voice recorder', () => {
       fake.dependencies,
     )
 
-    const starting = recorder.toggle()
+    recorder.toggle()
     recorder.cancel()
     permission.resolve(fakeStream(() => trackStops++))
-    await starting
+    await Promise.resolve()
+    await Effect.runPromise(recorder.awaitIdle())
 
     expect(recorder.recording()).toBe(false)
     expect(trackStops).toBe(1)
@@ -99,7 +99,8 @@ describe('Hermes voice recorder', () => {
       fake.dependencies,
     )
 
-    await recorder.toggle()
+    recorder.toggle()
+    await Effect.runPromise(recorder.awaitIdle())
     recorder.cancel()
     fake.emitStopped()
 
@@ -122,7 +123,8 @@ describe('Hermes voice recorder', () => {
       fake.dependencies,
     )
 
-    await recorder.toggle()
+    recorder.toggle()
+    await Effect.runPromise(recorder.awaitIdle())
     currentKey = 'session-b'
     fake.runTimer()
     await Promise.resolve()
@@ -142,12 +144,39 @@ describe('Hermes voice recorder', () => {
       fake.dependencies,
     )
 
-    await recorder.toggle()
-    await Promise.all([recorder.toggle(), recorder.toggle()])
+    recorder.toggle()
+    await Effect.runPromise(recorder.awaitIdle())
+    recorder.toggle()
+    recorder.toggle()
+    await Effect.runPromise(recorder.awaitIdle())
 
     expect(fake.stopCalls()).toBe(1)
     fake.emitStopped()
     expect(recorder.recording()).toBe(false)
+  })
+
+  test('disposal interrupts transcription owned by the recorder', async () => {
+    let transcribing = false
+    let released = false
+    const fake = recorderDependencies({ getUserMedia: async () => fakeStream(() => {}) })
+    fake.dependencies.transcribe = () =>
+      Effect.callback<void, Error>(() => {
+        transcribing = true
+        return Effect.sync(() => {
+          released = true
+        })
+      })
+    const recorder = createHermesVoiceRecorderEngine(
+      { sessionKey: () => 'session-a', maxSeconds: () => 120 },
+      fake.dependencies,
+    )
+    recorder.toggle()
+    await Effect.runPromise(recorder.awaitIdle())
+    recorder.toggle()
+    expect(transcribing).toBe(true)
+    recorder.dispose()
+    await Effect.runPromise(recorder.awaitIdle())
+    expect(released).toBe(true)
   })
 
   test('marks only permission rejection as microphone denial', async () => {
@@ -161,7 +190,8 @@ describe('Hermes voice recorder', () => {
       fake.dependencies,
     )
 
-    await recorder.toggle()
+    recorder.toggle()
+    await Effect.runPromise(recorder.awaitIdle())
 
     expect(recorder.denied()).toBe(true)
   })
@@ -183,7 +213,8 @@ describe('Hermes voice recorder', () => {
       dependencies,
     )
 
-    await recorder.toggle()
+    recorder.toggle()
+    await Effect.runPromise(recorder.awaitIdle())
 
     expect(trackStops).toBe(1)
     expect(recorder.denied()).toBe(false)

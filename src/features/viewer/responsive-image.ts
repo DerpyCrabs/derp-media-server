@@ -1,18 +1,16 @@
-import { createMediaVisibility, createMediaWarmup } from '@/lib/media/media-warmup'
-import { queryData } from '@/lib/api/query-data'
-import { useQuery } from '@tanstack/solid-query'
-import { queryKeys } from '@/lib/api/query-keys'
-import { api } from '@/lib/api/client'
-import type { Accessor } from 'solid-js'
-import { createEffect, createMemo, createSignal, untrack } from 'solid-js'
+import { Schema } from 'effect'
+import { Effect } from 'effect'
+import { available, commandSlot, modelOwner } from 'effectweb'
+import { createMediaWarmup, observeMediaVisibility } from '@/lib/media/media-warmup'
+import { queryCache } from '@/lib/api/cache'
+import { apiSchemaEffect } from '@/lib/api/client'
 import {
   buildImageConfigUrl,
   buildImageUrl,
   buildMediaUrl,
   type ResponsiveImageRequest,
 } from '@/lib/media/build-media-url'
-
-type Dimensions = { width: number; height: number }
+import { observeQuery, query } from '@effectweb/query'
 
 export type ImageLoadState = {
   displayed: { src: string; path: string } | null
@@ -34,250 +32,229 @@ export function reduceImageLoadState(state: ImageLoadState, event: ImageLoadEven
       ? { ...state, request: { kind: 'loading', spinner: true } }
       : state
   if (event.kind === 'display')
-    return {
-      displayed: { src: event.src, path: event.path },
-      request: { kind: 'idle' },
-    }
+    return { displayed: { src: event.src, path: event.path }, request: { kind: 'idle' } }
   return { ...state, request: { kind: 'error' } }
 }
 
 type Options = {
-  path: Accessor<string>
-  viewport: Accessor<HTMLElement | undefined>
-  zoom: Accessor<number | 'fit'>
-  prefetchPaths: Accessor<string[]>
+  path: string
+  zoom: number | 'fit'
+  prefetchPaths: readonly string[]
   onDisplayPath?: (path: string) => void
 }
-
-export function createResponsiveImage(options: Options) {
-  const visible = createMediaVisibility(options.viewport)
-  const [dimensions, setDimensions] = createSignal<Dimensions>({ width: 0, height: 0 })
-  const config = useQuery(() => ({
-    queryKey: queryKeys.imageConfig(),
-    queryFn: ({ signal }) => api<{ enabled?: boolean }>(buildImageConfigUrl(), { signal }),
-    retry: false,
-    throwOnError: false,
-  }))
-  const enabled = () => {
-    const value = queryData(config)
-    return value === undefined ? true : Boolean(value.enabled)
-  }
-  const [request, setRequest] = createSignal<ResponsiveImageRequest | null>(null)
-  const [forcedOriginal, setForcedOriginal] = createSignal(false)
-  const [loadState, setLoadState] = createSignal<ImageLoadState>({
-    displayed: null,
-    request: { kind: 'idle' },
-  })
-  const [retryNonce, setRetryNonce] = createSignal(0)
-  const loading = () => loadState().request.kind === 'loading'
-  const showSpinner = () => {
-    const request = loadState().request
-    return request.kind === 'loading' && request.spinner
-  }
-  const error = () => loadState().request.kind === 'error'
-  const loadedPath = () => loadState().displayed?.path ?? ''
-  const displayedSrc = () => loadState().displayed?.src ?? ''
-  let maximumDemand: ResponsiveImageRequest = {
+const configQuery = query({
+  name: 'image-config',
+  load: () =>
+    apiSchemaEffect(
+      Schema.Struct({ enabled: Schema.optional(Schema.Boolean) }),
+      buildImageConfigUrl(),
+    ),
+})
+const loadSlot = commandSlot('responsive-image-load')
+const spinnerSlot = commandSlot('responsive-image-spinner')
+const prefetchSlot = commandSlot('responsive-image-prefetch')
+export function createResponsiveImage(initial: Options) {
+  let options = initial
+  let demandPath = '',
+    requested = '',
+    prefetchKey = ''
+  let forcedOriginal = false,
+    enabled = true,
+    visible = false,
+    retryNonce = 0
+  let maximum: ResponsiveImageRequest = {
     width: 0,
     height: 0,
     dpr: 0,
     scale: 0,
     priority: 'active',
   }
-  let demandPath = ''
-
-  createEffect(
-    () => options.viewport(),
-    (viewport) => {
-      if (!viewport) return undefined
-      const update = () => {
-        const bounds = viewport.getBoundingClientRect()
-        const style = getComputedStyle(viewport)
-        setDimensions({
-          width: Math.max(
-            0,
-            bounds.width - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
-          ),
-          height: Math.max(
-            0,
-            bounds.height - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom),
-          ),
-        })
-      }
-      update()
-      const observer = new ResizeObserver(update)
-      observer.observe(viewport)
-      window.addEventListener('resize', update)
-      // eslint-disable-next-line solid/reactivity
-      return () => {
-        observer.disconnect()
-        window.removeEventListener('resize', update)
-      }
-    },
-  )
-
-  createEffect(
-    () => {
-      const { width, height } = dimensions()
-      return { path: options.path(), width, height, zoom: options.zoom(), enabled: enabled() }
-    },
-    ({ path, width, height, zoom, enabled: isEnabled }) => {
-      if (path !== demandPath) {
-        demandPath = path
-        maximumDemand = { width: 0, height: 0, dpr: 0, scale: 0, priority: 'active' }
-        setRequest(null)
-        setForcedOriginal(false)
-        setLoadState((state) => reduceImageLoadState(state, { kind: 'reset' }))
-      }
-      if (!path || width <= 0 || height <= 0 || !isEnabled) return undefined
-      const dpr = Math.min(window.devicePixelRatio || 1, 2)
-      const scale = zoom === 'fit' ? 1 : zoom / 100
-      const next = {
-        width: Math.max(maximumDemand.width, width),
-        height: Math.max(maximumDemand.height, height),
-        dpr: Math.max(maximumDemand.dpr, dpr),
-        scale: Math.max(maximumDemand.scale, scale),
-        priority: 'active' as const,
-      }
-      if (
-        next.width === maximumDemand.width &&
-        next.height === maximumDemand.height &&
-        next.dpr === maximumDemand.dpr &&
-        next.scale === maximumDemand.scale
-      ) {
-        return undefined
-      }
-      const frame = window.requestAnimationFrame(() => {
-        maximumDemand = next
-        setRequest(next)
-      })
-      // eslint-disable-next-line solid/reactivity
-      return () => window.cancelAnimationFrame(frame)
-    },
-  )
-
-  const originalUrl = createMemo(() => buildMediaUrl(options.path()))
-  const optimizedUrl = createMemo(() => {
-    const value = request()
-    return value ? buildImageUrl(options.path(), value) : ''
+  let unobserve: (() => void) | undefined
+  const owner = modelOwner({
+    load: { displayed: null, request: { kind: 'idle' } } as ImageLoadState,
+    dimensions: { width: 0, height: 0 },
   })
-  const desiredSrc = createMemo(() => {
-    const retry = retryNonce()
-    if (!options.path()) return ''
-    const url = !enabled() || forcedOriginal() ? originalUrl() : optimizedUrl()
-    if (!url || retry === 0) return url
-    return `${url}${url.includes('?') ? '&' : '?'}retry=${retry}`
-  })
-  createEffect(
-    () => desiredSrc(),
-    (value) => {
-      if (!value) {
-        setLoadState((state) => reduceImageLoadState(state, { kind: 'reset' }))
-        return undefined
-      }
-      let cancelled = false
-      setLoadState((state) => reduceImageLoadState(state, { kind: 'start' }))
-      const spinnerTimer = window.setTimeout(() => {
-        if (untrack(loading)) {
-          setLoadState((state) => reduceImageLoadState(state, { kind: 'show-spinner' }))
-        }
-      }, 1000)
-      const image = new Image()
-      image.decoding = 'async'
-      image.onload = () => {
-        void image
-          .decode()
-          .catch(() => undefined)
-          .then(() =>
-            untrack(() => {
-              if (cancelled) return
-              const path = options.path()
-              if (loadedPath() && loadedPath() !== path) options.onDisplayPath?.(path)
-              setLoadState((state) =>
-                reduceImageLoadState(state, { kind: 'display', src: value, path }),
-              )
-            }),
-          )
-      }
-      image.onerror = () => {
-        if (cancelled) return
-        if (!forcedOriginal() && enabled()) {
-          setForcedOriginal(true)
-          return
-        }
-        setLoadState((state) => reduceImageLoadState(state, { kind: 'error' }))
-      }
-      image.src = value
-      // eslint-disable-next-line solid/reactivity
-      return () => {
-        cancelled = true
-        window.clearTimeout(spinnerTimer)
-        image.onload = null
-        image.onerror = null
-      }
-    },
-  )
-
-  function retry() {
-    setLoadState((state) => reduceImageLoadState(state, { kind: 'reset' }))
-    setForcedOriginal(false)
-    setRetryNonce((value) => value + 1)
-  }
-
-  createEffect(
-    () => {
-      const path = options.path()
-      const activeRequest = request()
-      const paths = options.prefetchPaths().slice(0, 2)
-      return visible() &&
-        loadedPath() === path &&
-        activeRequest &&
-        enabled() &&
-        !forcedOriginal() &&
-        paths.length > 0
-        ? { activeRequest, paths }
-        : null
-    },
-    (prefetch) => {
-      if (!prefetch) return undefined
-      const controllers = prefetch.paths.map(() => new AbortController())
-      prefetch.paths.forEach((prefetchPath, index) => {
-        const priority = 'next'
-        const url = buildImageUrl(prefetchPath, { ...prefetch.activeRequest, priority })
-        void fetch(url, {
-          credentials: 'include',
-          signal: controllers[index]?.signal,
-        }).catch(() => undefined)
-      })
-      // eslint-disable-next-line solid/reactivity
-      return () => controllers.forEach((controller) => controller.abort())
-    },
-  )
-
-  createMediaWarmup(() => {
-    const { width, height } = dimensions()
-    if (
-      !visible() ||
-      loadedPath() !== options.path() ||
-      !enabled() ||
-      forcedOriginal() ||
-      width <= 0 ||
-      height <= 0
-    )
-      return []
-    return options
-      .prefetchPaths()
-      .slice(2, 30)
-      .map((path) =>
-        buildImageUrl(path, {
-          width,
-          height,
-          dpr: Math.min(window.devicePixelRatio || 1, 2),
-          scale: 1,
-          priority: 'prefetch',
-        }).replace('/api/image/', '/api/warm/image/'),
+  const warmup = owner.own(createMediaWarmup())
+  const dispatch = (event: ImageLoadEvent) =>
+    owner.patch({ load: reduceImageLoadState(owner.read().load, event) })
+  const prefetch = () => {
+    const model = owner.read()
+    const active =
+      visible &&
+      model.load.displayed?.path === options.path &&
+      enabled &&
+      !forcedOriginal &&
+      maximum.width > 0 &&
+      maximum.height > 0
+    const paths = active ? options.prefetchPaths : []
+    const nextKey = JSON.stringify([paths.slice(0, 2), maximum])
+    if (nextKey !== prefetchKey) {
+      prefetchKey = nextKey
+      owner.run(
+        prefetchSlot,
+        Effect.forEach(
+          paths.slice(0, 2),
+          (path) =>
+            Effect.tryPromise((signal) =>
+              fetch(buildImageUrl(path, { ...maximum, priority: 'next' }), {
+                credentials: 'include',
+                signal,
+              }),
+            ).pipe(Effect.ignore),
+          { concurrency: 2 },
+        ),
+        'replace',
       )
+    }
+    warmup.select(
+      paths
+        .slice(2, 30)
+        .map((path) =>
+          buildImageUrl(path, { ...maximum, scale: 1, priority: 'prefetch' }).replace(
+            '/api/image/',
+            '/api/warm/image/',
+          ),
+        ),
+    )
+  }
+  const update = () => {
+    const { width, height } = owner.read().dimensions
+    if (options.path !== demandPath) {
+      demandPath = options.path
+      maximum = { width: 0, height: 0, dpr: 0, scale: 0, priority: 'active' }
+      forcedOriginal = false
+      retryNonce = 0
+      dispatch({ kind: 'reset' })
+    }
+    if (enabled && width > 0 && height > 0)
+      maximum = {
+        width: Math.max(maximum.width, width),
+        height: Math.max(maximum.height, height),
+        dpr: Math.max(maximum.dpr, Math.min(window.devicePixelRatio || 1, 2)),
+        scale: Math.max(maximum.scale, options.zoom === 'fit' ? 1 : options.zoom / 100),
+        priority: 'active',
+      }
+    let src = !options.path
+      ? ''
+      : !enabled || forcedOriginal
+        ? buildMediaUrl(options.path)
+        : maximum.width > 0 && maximum.height > 0
+          ? buildImageUrl(options.path, maximum)
+          : ''
+    if (src && retryNonce) src += `${src.includes('?') ? '&' : '?'}retry=${retryNonce}`
+    prefetch()
+    if (src === requested) return
+    requested = src
+    owner.cancel(loadSlot)
+    owner.cancel(spinnerSlot)
+    if (!src) {
+      dispatch({ kind: 'reset' })
+      return
+    }
+    const path = options.path
+    dispatch({ kind: 'start' })
+    owner.run(
+      spinnerSlot,
+      Effect.sleep(1000).pipe(
+        Effect.andThen(Effect.sync(() => dispatch({ kind: 'show-spinner' }))),
+      ),
+      'replace',
+    )
+    owner.run(
+      loadSlot,
+      Effect.callback<HTMLImageElement, Error>((resume) => {
+        const image = new Image()
+        image.decoding = 'async'
+        let loaded = false
+        image.onload = () => {
+          loaded = true
+          resume(Effect.succeed(image))
+        }
+        image.onerror = () => resume(Effect.fail(new Error('Could not load image')))
+        image.src = src
+        return Effect.sync(() => {
+          image.onload = null
+          image.onerror = null
+          if (!loaded) image.src = ''
+        })
+      }).pipe(
+        Effect.flatMap((image) => Effect.tryPromise(() => image.decode()).pipe(Effect.ignore)),
+        Effect.tap(() =>
+          Effect.sync(() => {
+            owner.cancel(spinnerSlot)
+            const previous = owner.read().load.displayed?.path
+            dispatch({ kind: 'display', src, path })
+            if (previous && previous !== path) options.onDisplayPath?.(path)
+            prefetch()
+          }),
+        ),
+        Effect.catch(() =>
+          Effect.sync(() => {
+            owner.cancel(spinnerSlot)
+            if (!forcedOriginal && enabled) {
+              forcedOriginal = true
+              update()
+            } else dispatch({ kind: 'error' })
+          }),
+        ),
+      ),
+      'replace',
+    )
+  }
+  const config = observeQuery(owner, queryCache, configQuery, (result) => {
+    const value = available(result)
+    enabled = value === undefined ? true : Boolean(value.enabled)
+    update()
   })
-
-  return { src: displayedSrc, loading, showSpinner, error, retry, dimensions }
+  config.select(true)
+  return {
+    source: owner.source,
+    select: (next: Options) => {
+      options = next
+      update()
+    },
+    attach: (element: HTMLElement) => {
+      unobserve?.()
+      const measure = () => {
+        const bounds = element.getBoundingClientRect(),
+          style = getComputedStyle(element)
+        owner.patch({
+          dimensions: {
+            width: Math.max(
+              0,
+              bounds.width - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
+            ),
+            height: Math.max(
+              0,
+              bounds.height - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom),
+            ),
+          },
+        })
+        update()
+      }
+      const resize = new ResizeObserver(measure)
+      resize.observe(element)
+      const stopVisible = observeMediaVisibility(element, (next) => {
+        visible = next
+        prefetch()
+      })
+      window.addEventListener('resize', measure)
+      measure()
+      unobserve = () => {
+        resize.disconnect()
+        stopVisible()
+        window.removeEventListener('resize', measure)
+      }
+    },
+    retry: () => {
+      forcedOriginal = false
+      retryNonce++
+      requested = ''
+      update()
+    },
+    dispose: () => {
+      unobserve?.()
+      owner.dispose()
+    },
+  }
 }

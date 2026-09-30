@@ -1,350 +1,247 @@
-import { queryData } from '@/lib/api/query-data'
-import { useQuery } from '@tanstack/solid-query'
-import { queryKeys } from '@/lib/api/query-keys'
+import { available, domBinding, modelOwner, view, type Snapshot, controllerView } from 'effectweb'
+import { queryCache, groups } from '@/lib/api/cache'
+import { settingsQuery, statsQuery } from '@/lib/api/queries'
 import { fileDownloadHref } from '@/lib/files/download-urls'
-import { getMediaTypeFromPath } from '@/lib/media/media-utils'
-import { formatFileSize } from '@/lib/media/media-utils'
-import { fetchDirectoryFiles } from '@/lib/files/files-client'
+import { getMediaTypeFromPath, formatFileSize } from '@/lib/media/media-utils'
+import { fetchDirectoryFilesEffect } from '@/lib/files/files-client'
 import { MediaType, type FileItem } from '@/lib/files/types'
 import { createFileSortMetadata, sortFilesForPath } from '@/features/explorer/file-display-settings'
-import { useExplorerSettings } from '@/features/explorer/use-explorer-settings'
-import { useViewStats } from '@/features/explorer/use-view-stats'
-import FileQuestion from 'lucide-solid/icons/file-question-mark'
-import FileText from 'lucide-solid/icons/file-text'
-import type { Accessor } from 'solid-js'
-import { Show, Loading, createEffect, createMemo, lazy } from 'solid-js'
+import type { GlobalSettings } from '@/lib/models/settings-types'
+import FileQuestion from '@effectweb/lucide/icons/file-question-mark'
+import FileText from '@effectweb/lucide/icons/file-text'
 import { ImageViewerPane } from './ImageViewerPane'
 import { TextEditorPane } from './TextEditorPane'
 import { AudioViewerPane } from './AudioViewerPane'
 import { VideoViewerPane } from './VideoViewerPane'
-
-const Reader = lazy(() =>
-  import('@/features/reader/Reader').then((module) => ({ default: module.Reader })),
-)
-
-type Props = {
-  selection?: Accessor<FileItem[]>
-  viewingPath: Accessor<string>
-  directory?: Accessor<string>
-  contentVisible: Accessor<boolean>
-  active?: Accessor<boolean>
-  editableFolders: string[]
-  /** Same as main file browser — required for Obsidian-style images in knowledge bases. */
-  knowledgeBases?: string[]
+import { Reader } from '@/features/reader/Reader'
+import { observeQuery, query } from '@effectweb/query'
+export type ViewerPaneProps = {
+  selection?: readonly FileItem[]
+  viewingPath: string
+  directory?: string
+  contentVisible: boolean
+  active?: boolean
+  editableFolders: readonly string[]
+  knowledgeBases?: readonly string[]
   onNavigateViewing: (path: string) => void
-  onVideoMetadataLoaded?: (videoWidth: number, videoHeight: number) => void
+  onVideoMetadataLoaded?: (width: number, height: number) => void
   autoPlayVideo?: boolean
   showPlayback?: boolean
   presentation?: 'embedded' | 'modal'
-  readerKind?: Accessor<'pdf' | 'folder' | 'book' | null>
-  imageSeed?: Accessor<string | null | undefined>
+  readerKind?: 'pdf' | 'folder' | 'book' | null
+  imageSeed?: string | null
   onImageSeedChange?: (seed: string | null, path: string) => void
   onClose?: () => void
-  /** Close the viewer tab after switching to taskbar audio (playback keeps running). */
   onListenOnlyDismissViewer?: () => void
   showListenOnly?: boolean
   onAudioActivate?: () => void
 }
-
-export function ViewerPane(props: Props) {
-  const { settingsQuery } = useExplorerSettings()
-  const viewStats = useViewStats()
-
-  const viewingPath = createMemo(() => props.viewingPath())
-  const readerKind = createMemo(() => props.readerKind?.() ?? null)
-  const contentReaderKind = createMemo(() => {
-    const kind = readerKind()
-    return kind === 'folder' ? 'directory' : kind
-  })
-
-  createEffect(
-    () => props.presentation === 'modal' && Boolean(viewingPath()),
-    (active) => {
-      if (!active) return undefined
-      const html = document.documentElement
-      const body = document.body
+const directoryQuery = query({
+  name: 'viewer-directory',
+  groups: [groups.files],
+  load: (directory: string) => fetchDirectoryFilesEffect(directory),
+})
+const modalScroll = (_element: HTMLDivElement, current: () => boolean) => {
+  let restore: (() => void) | undefined
+  const update = () => {
+    if (current() && !restore) {
+      const html = document.documentElement,
+        body = document.body
       const previous = { html: html.style.overflow, body: body.style.overflow }
       html.style.overflow = 'hidden'
       body.style.overflow = 'hidden'
-      return () => {
+      restore = () => {
         html.style.overflow = previous.html
         body.style.overflow = previous.body
       }
-    },
-  )
-
-  const mediaType = createMemo(() => getMediaTypeFromPath(viewingPath()))
-
-  const downloadHref = createMemo(() => {
-    const path = viewingPath()
-    if (!path) return '#'
-    return fileDownloadHref(path)
-  })
-
-  const dirFromWindow = createMemo(() => props.directory?.() ?? '')
-  const contentActive = createMemo(() => props.active?.() ?? props.contentVisible())
-  const showPlayback = createMemo(() => props.showPlayback !== false)
-
-  const listDirForFiles = createMemo(() => dirFromWindow())
-
-  const filesQuery = useQuery(() => {
-    return {
-      queryKey: queryKeys.files(listDirForFiles()),
-      queryFn: ({ queryKey, signal }) => fetchDirectoryFiles(queryKey[1]!, signal),
-      enabled:
-        (mediaType() === MediaType.IMAGE ||
-          mediaType() === MediaType.AUDIO ||
-          mediaType() === MediaType.OTHER) &&
-        Boolean(viewingPath()),
+    } else if (!current()) {
+      restore?.()
+      restore = undefined
     }
+  }
+  update()
+  return { update, dispose: () => restore?.() }
+}
+function viewerController(props: Snapshot<ViewerPaneProps>) {
+  const owner = modelOwner({
+    props,
+    files: [] as FileItem[],
+    settings: undefined as GlobalSettings | undefined,
+    views: {} as Record<string, number>,
   })
-
-  const orderedFolderFiles = createMemo(() => {
-    const files = queryData(filesQuery)?.files ?? []
-    const directory = listDirForFiles()
-    return sortFilesForPath(
-      files,
-      directory,
-      settingsQuery.data?.sortOrders,
-      false,
-      createFileSortMetadata(settingsQuery.data?.favorites, viewStats.viewCounts()),
-    )
-  })
-
-  const unsupportedFile = createMemo(
-    () =>
-      queryData(filesQuery)?.files.find(
-        (file) => file.path === viewingPath() && file.type === MediaType.OTHER,
-      ) ?? null,
+  const files = observeQuery(owner, queryCache, directoryQuery, (result) =>
+    owner.patch({ files: available(result)?.files ?? [] }),
   )
-
-  const fileName = createMemo(() => viewingPath().split(/[/\\]/).pop() ?? 'file')
-
-  return (
-    <div
-      data-no-window-drag
-      class={
-        props.presentation === 'modal'
-          ? 'contents'
-          : 'absolute inset-0 flex min-h-0 flex-col overflow-hidden bg-background'
-      }
-    >
-      <Show when={readerKind() && viewingPath()} keyed>
-        {(sourcePath) => (
-          <div class='relative h-full min-h-0 overflow-hidden bg-neutral-900'>
-            <Loading fallback={<div class='absolute inset-0 bg-neutral-900' />}>
-              <Reader
-                sourcePath={sourcePath}
-                kind={contentReaderKind()!}
-                embedded={props.presentation !== 'modal'}
-                showClose={props.presentation === 'modal'}
-                onClose={props.onClose}
-              />
-            </Loading>
-          </div>
-        )}
-      </Show>
-
-      <Show when={!readerKind() && mediaType() === MediaType.IMAGE && viewingPath()}>
-        <ImageViewerPane
-          viewingPath={viewingPath()}
-          imageSeed={props.imageSeed}
-          onImageSeedChange={props.onImageSeedChange}
-          allFiles={() =>
-            props.selection?.().some((f) => f.path === viewingPath())
-              ? props.selection()
-              : orderedFolderFiles()
-          }
-          directory={dirFromWindow}
-          embedded={props.presentation !== 'modal'}
-          showClose={props.presentation === 'modal'}
-          active={contentActive}
-          onNavigate={props.onNavigateViewing}
-          onClose={props.onClose}
-        />
-      </Show>
-
-      <Show when={!readerKind() && mediaType() === MediaType.PDF && viewingPath()} keyed>
-        {(sourcePath) => (
-          <div class='relative h-full min-h-0 overflow-hidden bg-neutral-900'>
-            <Loading fallback={<div class='absolute inset-0 bg-neutral-900' />}>
-              <Reader
-                sourcePath={sourcePath}
-                kind='pdf'
-                embedded={props.presentation !== 'modal'}
-                showClose={props.presentation === 'modal'}
-                onClose={props.onClose}
-              />
-            </Loading>
-          </div>
-        )}
-      </Show>
-
-      <Show when={!readerKind() && mediaType() === MediaType.BOOK && viewingPath()} keyed>
-        {(sourcePath) => (
-          <div class='relative h-full min-h-0 overflow-hidden bg-neutral-900'>
-            <Loading fallback={<div class='absolute inset-0 bg-neutral-900' />}>
-              <Reader
-                sourcePath={sourcePath}
-                kind='book'
-                embedded={props.presentation !== 'modal'}
-                showClose={props.presentation === 'modal'}
-                onClose={props.onClose}
-              />
-            </Loading>
-          </div>
-        )}
-      </Show>
-
-      <Show
-        when={showPlayback() && !readerKind() && mediaType() === MediaType.VIDEO && viewingPath()}
+  const settings = observeQuery(owner, queryCache, settingsQuery, 'settings', available)
+  const stats = observeQuery(owner, queryCache, statsQuery, (result) =>
+    owner.patch({ views: available(result)?.views ?? {} }),
+  )
+  const select = (next: Snapshot<ViewerPaneProps>) => {
+    const type = getMediaTypeFromPath(next.viewingPath)
+    files.select(
+      next.viewingPath && [MediaType.IMAGE, MediaType.AUDIO, MediaType.OTHER].includes(type)
+        ? (next.directory ?? '')
+        : undefined,
+    )
+  }
+  settings.select(true)
+  stats.select(true)
+  select(props)
+  return {
+    source: owner.source,
+    receive: (next: Snapshot<ViewerPaneProps>) => {
+      owner.patch({ props: next })
+      select(next)
+    },
+    dispose: owner.dispose,
+  }
+}
+export const ViewerPane = controllerView({
+  create: viewerController,
+  view: view((model) => {
+    const props = model.props
+    const path = props.viewingPath,
+      type = getMediaTypeFromPath(path),
+      embedded = props.presentation !== 'modal'
+    const kind =
+      props.readerKind === 'folder'
+        ? 'directory'
+        : (props.readerKind ??
+          (type === MediaType.PDF ? 'pdf' : type === MediaType.BOOK ? 'book' : null))
+    const ordered = sortFilesForPath(
+      [...model.files],
+      props.directory ?? '',
+      model.settings?.sortOrders,
+      false,
+      createFileSortMetadata(model.settings?.favorites, model.views),
+    )
+    const unsupported = model.files.find((file) => file.path === path)
+    return (
+      <div
+        data-no-window-drag
+        use={domBinding(!embedded && !!path, modalScroll)}
+        class={
+          !embedded
+            ? 'contents'
+            : 'absolute inset-0 flex min-h-0 flex-col overflow-hidden bg-background'
+        }
       >
-        <VideoViewerPane
-          viewingPath={viewingPath}
-          contentVisible={props.contentVisible}
-          autoplay={props.autoPlayVideo !== false}
-          showListenOnly={props.showListenOnly !== false}
-          onMetadataLoaded={props.onVideoMetadataLoaded}
-          onListenOnly={props.onListenOnlyDismissViewer}
-        />
-      </Show>
-
-      <Show
-        when={showPlayback() && !readerKind() && mediaType() === MediaType.AUDIO && viewingPath()}
-      >
-        <AudioViewerPane
-          viewingPath={viewingPath}
-          directory={dirFromWindow}
-          files={orderedFolderFiles}
-          contentVisible={props.contentVisible}
-          autoLoadPaused={props.autoPlayVideo === false}
-          onNavigate={props.onNavigateViewing}
-          onActivate={props.onAudioActivate}
-        />
-      </Show>
-
-      <Show when={!readerKind() && mediaType() === MediaType.TEXT && viewingPath()} keyed>
-        {(sourcePath) => (
-          <Loading>
-            <TextEditorPane
-              viewingPath={sourcePath}
-              editableFolders={props.editableFolders}
-              knowledgeBases={props.knowledgeBases}
-              embedded={props.presentation !== 'modal'}
-              showClose={props.presentation === 'modal'}
+        {path && kind ? (
+          <div class='relative h-full min-h-0 overflow-hidden bg-neutral-900'>
+            <Reader
+              sourcePath={path}
+              kind={kind}
+              embedded={embedded}
+              showClose={!embedded}
               onClose={props.onClose}
             />
-          </Loading>
-        )}
-      </Show>
-
-      <Show when={!readerKind() && mediaType() === MediaType.OTHER && viewingPath()}>
-        <Show when={props.presentation === 'modal' && unsupportedFile()} keyed>
-          {(file) => (
+          </div>
+        ) : null}
+        {path && !kind && type === MediaType.IMAGE ? (
+          <ImageViewerPane
+            viewingPath={path}
+            imageSeed={props.imageSeed}
+            onImageSeedChange={props.onImageSeedChange}
+            allFiles={
+              props.selection?.some((file) => file.path === path) ? props.selection : ordered
+            }
+            directory={props.directory ?? ''}
+            embedded={embedded}
+            showClose={!embedded}
+            active={props.active ?? props.contentVisible}
+            onNavigate={props.onNavigateViewing}
+            onClose={props.onClose}
+          />
+        ) : null}
+        {path && !kind && props.showPlayback !== false && type === MediaType.VIDEO ? (
+          <VideoViewerPane
+            viewingPath={path}
+            contentVisible={props.contentVisible}
+            autoplay={props.autoPlayVideo !== false}
+            showListenOnly={props.showListenOnly !== false}
+            onMetadataLoaded={props.onVideoMetadataLoaded}
+            onListenOnly={props.onListenOnlyDismissViewer}
+          />
+        ) : null}
+        {path && !kind && props.showPlayback !== false && type === MediaType.AUDIO ? (
+          <AudioViewerPane
+            viewingPath={path}
+            directory={props.directory ?? ''}
+            files={ordered}
+            contentVisible={props.contentVisible}
+            autoLoadPaused={props.autoPlayVideo === false}
+            onNavigate={props.onNavigateViewing}
+            onActivate={props.onAudioActivate}
+          />
+        ) : null}
+        {path && !kind && type === MediaType.TEXT ? (
+          <TextEditorPane
+            viewingPath={path}
+            editableFolders={[...props.editableFolders]}
+            knowledgeBases={props.knowledgeBases ? [...props.knowledgeBases] : undefined}
+            embedded={embedded}
+            showClose={!embedded}
+            onClose={props.onClose}
+          />
+        ) : null}
+        {path && !kind && type === MediaType.OTHER ? (
+          <div
+            role={!embedded ? 'dialog' : undefined}
+            aria-modal={!embedded ? 'true' : undefined}
+            aria-labelledby='unsupported-file-title'
+            class={
+              !embedded
+                ? 'fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4'
+                : 'flex flex-1 flex-col items-center justify-center gap-4 p-6'
+            }
+            onClick={(event) => {
+              if (!embedded && event.target === event.currentTarget) props.onClose?.()
+            }}
+          >
             <div
-              role='dialog'
-              aria-modal='true'
-              aria-labelledby='unsupported-file-title'
-              class='fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4'
-              onClick={(event) => {
-                if (event.target === event.currentTarget) props.onClose?.()
-              }}
+              class={
+                !embedded
+                  ? 'bg-card text-card-foreground relative max-h-[90vh] w-full max-w-md overflow-auto rounded-xl border border-border p-6 shadow-lg'
+                  : 'contents'
+              }
             >
-              <div
-                class='bg-card text-card-foreground max-h-[90vh] w-full max-w-md overflow-auto rounded-xl border border-border shadow-lg'
-                onClick={(event) => event.stopPropagation()}
-              >
-                <div class='flex items-start justify-between gap-2 border-b border-border p-4'>
-                  <div class='flex min-w-0 flex-1 items-start gap-3'>
-                    <FileQuestion class='h-8 w-8 shrink-0 text-yellow-500' stroke-width={2} />
-                    <div class='min-w-0'>
-                      <h2 id='unsupported-file-title' class='truncate text-lg font-semibold'>
-                        {file.name}
-                      </h2>
-                      <p class='text-muted-foreground text-xs'>
-                        {file.extension ? `.${file.extension.toUpperCase()}` : 'Unknown'} file •{' '}
-                        {formatFileSize(file.size)}
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    type='button'
-                    title='Close'
-                    aria-label='Close'
-                    class='hover:bg-muted inline-flex size-8 shrink-0 items-center justify-center rounded-md'
-                    onClick={() => props.onClose?.()}
-                  >
-                    <span aria-hidden='true'>×</span>
-                  </button>
-                </div>
-                <div class='bg-muted/50 flex flex-col items-center space-y-4 rounded-b-xl p-8 text-center'>
-                  <FileText class='text-muted-foreground h-16 w-16 opacity-50' stroke-width={1.5} />
-                  <div>
-                    <h3 class='mb-2 text-lg font-medium'>Unsupported File Type</h3>
-                    <p class='text-muted-foreground text-sm'>
-                      This file type is not supported for preview. The media server currently
-                      supports video, audio, and image files.
-                    </p>
-                  </div>
-                  <div class='pt-2'>
-                    <a
-                      href={downloadHref()}
-                      download={file.name}
-                      class='bg-primary text-primary-foreground hover:bg-primary/90 inline-flex h-9 items-center justify-center rounded-md px-4 text-sm font-medium shadow-sm'
-                    >
-                      Download File
-                    </a>
-                  </div>
-                </div>
+              {!embedded ? (
+                <button
+                  type='button'
+                  title='Close'
+                  aria-label='Close'
+                  class='hover:bg-muted absolute top-2 right-2 inline-flex h-8 w-8 items-center justify-center rounded-md'
+                  onClick={() => props.onClose?.()}
+                >
+                  ×
+                </button>
+              ) : null}
+              <FileQuestion class='h-8 w-8 shrink-0 text-yellow-500' />
+              <h2 id='unsupported-file-title' class='truncate text-lg font-semibold'>
+                {unsupported?.name ?? path.split(/[/\\]/).pop()}
+              </h2>
+              {unsupported ? (
+                <p class='text-muted-foreground text-xs'>
+                  {unsupported.extension ? `.${unsupported.extension.toUpperCase()}` : 'Unknown'}{' '}
+                  file • {formatFileSize(unsupported.size)}
+                </p>
+              ) : null}
+              <div class='flex flex-col items-center gap-4 py-6 text-center'>
+                <FileText class='text-muted-foreground h-16 w-16 opacity-50' />
+                <h3 class='text-lg font-medium'>Unsupported File Type</h3>
+                <p class='text-muted-foreground text-sm'>This file type cannot be previewed.</p>
+                <a
+                  href={fileDownloadHref(path)}
+                  download={unsupported?.name ?? path.split(/[/\\]/).pop()}
+                  class='bg-primary text-primary-foreground hover:bg-primary/90 inline-flex h-9 items-center justify-center rounded-md px-4 text-sm font-medium shadow-sm'
+                >
+                  Download File
+                </a>
               </div>
             </div>
-          )}
-        </Show>
-        <div
-          role={props.presentation === 'modal' ? 'dialog' : undefined}
-          aria-modal={props.presentation === 'modal' ? 'true' : undefined}
-          aria-labelledby='unsupported-file-title'
-          class={[
-            props.presentation === 'modal'
-              ? 'fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4'
-              : 'flex flex-1 flex-col items-center justify-center gap-4 p-6',
-            { hidden: props.presentation === 'modal' && !!unsupportedFile() },
-          ]}
-        >
-          <div
-            class={
-              props.presentation === 'modal'
-                ? 'bg-card text-card-foreground w-full max-w-md rounded-xl border border-border p-6 shadow-lg'
-                : 'contents'
-            }
-          >
-            <h2 id='unsupported-file-title' class='text-center text-lg font-semibold'>
-              Unsupported File Type
-            </h2>
-            <Show when={props.presentation === 'modal'}>
-              <button
-                type='button'
-                title='Close'
-                aria-label='Close'
-                class='hover:bg-muted absolute top-2 right-2 inline-flex h-8 w-8 items-center justify-center rounded-md'
-                onClick={() => props.onClose?.()}
-              >
-                ×
-              </button>
-            </Show>
-            <p class='text-muted-foreground text-center text-sm'>
-              This file type cannot be previewed.
-            </p>
-            <a
-              href={downloadHref()}
-              download={fileName()}
-              class='bg-primary text-primary-foreground hover:bg-primary/90 inline-flex h-9 items-center justify-center rounded-md px-4 text-sm font-medium shadow-sm'
-            >
-              Download File
-            </a>
           </div>
-        </div>
-      </Show>
-    </div>
-  )
-}
+        ) : null}
+      </div>
+    )
+  }),
+})

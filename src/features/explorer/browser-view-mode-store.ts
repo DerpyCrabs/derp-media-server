@@ -1,51 +1,20 @@
-import { createStore } from 'solid-js'
-import {
-  createStoreListeners,
-  readPersistedState,
-  writePersistedState,
-} from '@/lib/state/client-store-utils'
-
+import { Schema } from 'effect'
+import { modelOwner } from 'effectweb'
+import { readPersistedState, writePersistedState } from '@/lib/state/client-store-utils'
 type BrowserViewMode = 'list' | 'grid'
-
 const STORAGE_KEY = 'browser-view-mode'
-
-type Persisted = { byKey: Record<string, BrowserViewMode> }
-
-const listeners = createStoreListeners()
-
-const loaded = readPersistedState<Persisted>(STORAGE_KEY)
-const initialByKey = loaded?.byKey && typeof loaded.byKey === 'object' ? loaded.byKey : {}
-
-const [store, setStore] = createStore<{ byKey: Record<string, BrowserViewMode> }>({
-  byKey: { ...initialByKey },
+export const browserViewModesSchema = Schema.Struct({
+  byKey: Schema.Record(Schema.String, Schema.Literals(['list', 'grid'])),
 })
-
+const loaded = readPersistedState(STORAGE_KEY, browserViewModesSchema)
+const initialByKey = loaded?.byKey ?? {}
+const owner = modelOwner<{ byKey: Record<string, BrowserViewMode> }>({ byKey: { ...initialByKey } })
 function persist(byKey: Record<string, BrowserViewMode>) {
   writePersistedState(STORAGE_KEY, { byKey: { ...byKey } })
 }
-
-function getViewMode(storageKey: string, fallback: BrowserViewMode): BrowserViewMode {
-  return store.byKey[storageKey] ?? fallback
-}
-
 function setViewMode(storageKey: string, mode: BrowserViewMode) {
-  const byKey = { ...store.byKey, [storageKey]: mode }
-  setStore((state) => {
-    state.byKey[storageKey] = mode
-  })
+  const byKey = { ...owner.read().byKey, [storageKey]: mode }
+  owner.patch({ byKey })
   persist(byKey)
-  listeners.notify()
 }
-
-const api = {
-  get byKey() {
-    return { ...store.byKey }
-  },
-  getViewMode,
-  setViewMode,
-}
-
-export const useBrowserViewModeStore = {
-  getState: () => api,
-  subscribe: (fn: () => void) => listeners.subscribe(fn),
-}
+export const browserViewModes = { source: owner.source, read: () => owner.read(), setViewMode }

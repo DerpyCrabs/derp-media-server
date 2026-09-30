@@ -10,11 +10,7 @@ export type ClampFixedMenuArgs = {
    * Vertical placement relative to an anchor segment (viewport coords).
    * Tries below `anchorBottom + gap`, then above `anchorTop - gap`, then clamps to the viewport.
    */
-  flip: {
-    anchorTop: number
-    anchorBottom: number
-    gap: number
-  }
+  flip: { anchorTop: number; anchorBottom: number; gap: number }
 }
 
 /** Clamp top-left for a `position: fixed` menu so it stays inside the layout viewport. */

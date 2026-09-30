@@ -6,7 +6,7 @@ export type MergeTarget = { groupId: string; insertIndex: number }
 
 /** Full-group order index of tabs; used by merge / drop logic. */
 export function workspaceWindowsByGroupId(
-  windows: WorkspaceWindowDefinition[],
+  windows: readonly WorkspaceWindowDefinition[],
 ): Map<string, WorkspaceWindowDefinition[]> {
   const m = new Map<string, WorkspaceWindowDefinition[]>()
   for (const w of windows) {
@@ -104,7 +104,7 @@ export function mergeTargetHitTest(
 }
 
 /** Stable while tab membership does not change (e.g. bounds-only updates while dragging). */
-export function mergeTargetGroupSignature(windows: WorkspaceWindowDefinition[]): string {
+export function mergeTargetGroupSignature(windows: readonly WorkspaceWindowDefinition[]): string {
   let sig = ''
   for (const w of windows) {
     sig += w.id
@@ -116,7 +116,7 @@ export function mergeTargetGroupSignature(windows: WorkspaceWindowDefinition[]):
 }
 
 export function findMergeTarget(
-  windows: WorkspaceWindowDefinition[],
+  windows: readonly WorkspaceWindowDefinition[],
   draggedWindowId: string,
   clientX: number,
   clientY: number,

@@ -1,11 +1,6 @@
 export type BookFormat = 'epub' | 'fb2'
 
-export type BookMetadata = {
-  title: string
-  authors: string[]
-  language?: string
-  series?: string
-}
+export type BookMetadata = { title: string; authors: string[]; language?: string; series?: string }
 
 export type BookOutlineItem = {
   id: string
@@ -23,11 +18,7 @@ export type BookChapter = {
   textLength: number
 }
 
-export type BookResource = {
-  path: string
-  mediaType: string
-  bytes: Uint8Array
-}
+export type BookResource = { path: string; mediaType: string; bytes: Uint8Array }
 
 export type BookDocument = {
   format: BookFormat
@@ -38,9 +29,6 @@ export type BookDocument = {
   styles: Array<{ path: string; css: string }>
 }
 
-export type BookWorkerRequest = {
-  bytes: ArrayBuffer
-  fileName: string
-}
+export type BookWorkerRequest = { bytes: ArrayBuffer; fileName: string }
 
 export type BookWorkerResponse = { ok: true; document: BookDocument } | { ok: false; error: string }

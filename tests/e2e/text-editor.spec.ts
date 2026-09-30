@@ -16,16 +16,12 @@ function markdownEditor(page: Page) {
 }
 
 async function writeFile(request: APIRequestContext, path: string, content: string) {
-  const response = await request.post('/api/files/edit', {
-    data: { path, content },
-  })
+  const response = await request.post('/api/files/edit', { data: { path, content } })
   expect(response.ok()).toBe(true)
 }
 
 async function createFile(request: APIRequestContext, path: string, content: string) {
-  const response = await request.post('/api/files/create', {
-    data: { path, content },
-  })
+  const response = await request.post('/api/files/create', { data: { path, content } })
   expect(response.ok()).toBe(true)
 }
 
@@ -57,11 +53,7 @@ async function dispatchPaste(page: Page, data: { html?: string; plain?: string }
     if (clipboard.html !== undefined) transfer.setData('text/html', clipboard.html)
     if (clipboard.plain !== undefined) transfer.setData('text/plain', clipboard.plain)
     element.dispatchEvent(
-      new ClipboardEvent('paste', {
-        bubbles: true,
-        cancelable: true,
-        clipboardData: transfer,
-      }),
+      new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: transfer }),
     )
   }, data)
 }
@@ -73,14 +65,27 @@ test.describe('Text Editor', () => {
 
     for (const filePath of [TODO_PATH, AUTOSAVE_PATH]) {
       const response = await request.post('/api/settings/autoSave', {
-        data: {
-          filePath,
-          enabled: filePath === AUTOSAVE_PATH,
-          readOnly: false,
-        },
+        data: { filePath, enabled: filePath === AUTOSAVE_PATH, readOnly: false },
       })
       expect(response.ok()).toBe(true)
     }
+  })
+
+  test('flushes pending autosave when SPA navigation replaces the editor', async ({
+    page,
+    request,
+  }) => {
+    await page.goto(`/?dir=Notes&viewing=${encodeURIComponent(AUTOSAVE_PATH)}`)
+    await expect(page.locator('textarea')).toBeVisible()
+    const draft = 'Saved while switching editor before the debounce expires.\n'
+    await page.locator('textarea').fill(draft)
+    await page.evaluate((path) => {
+      const url = new URL(location.href)
+      url.searchParams.set('viewing', path)
+      history.pushState(null, '', url)
+    }, TODO_PATH)
+    await expect(markdownEditor(page)).toBeVisible()
+    await expect.poll(() => readFile(request, AUTOSAVE_PATH)).toBe(draft)
   })
 
   test('opens text viewer when clicking a text file', async ({ page }) => {
@@ -245,11 +250,7 @@ test.describe('Text Editor', () => {
     const copied = await reader.evaluate((element) => {
       const transfer = new DataTransfer()
       element.dispatchEvent(
-        new ClipboardEvent('copy', {
-          bubbles: true,
-          cancelable: true,
-          clipboardData: transfer,
-        }),
+        new ClipboardEvent('copy', { bubbles: true, cancelable: true, clipboardData: transfer }),
       )
       return transfer.getData('text/plain')
     })
@@ -485,9 +486,9 @@ test.describe('Text Editor', () => {
         await markdownEditor(page).focus()
         await page.keyboard.press('Control+End')
         await page.keyboard.insertText(' END_EDIT')
-        const end = markdownDocument(page, 'edit').locator('.cm-line').filter({
-          hasText: 'END_MARKER END_EDIT',
-        })
+        const end = markdownDocument(page, 'edit')
+          .locator('.cm-line')
+          .filter({ hasText: 'END_MARKER END_EDIT' })
         await expect(end).toBeVisible()
         const scrollPosition = await scroll.evaluate((element) => element.scrollTop)
         expect(scrollPosition).toBeGreaterThan(0)
@@ -825,20 +826,12 @@ test.describe('Text Editor', () => {
     const base = (await loaded.json()) as { content: string; version: string }
     const remote = 'remote CAS winner\n'
     const first = await request.post('/api/files/edit', {
-      data: {
-        path: AUTOSAVE_PATH,
-        content: remote,
-        expectedHash: base.version,
-      },
+      data: { path: AUTOSAVE_PATH, content: remote, expectedHash: base.version },
     })
     expect(first.ok()).toBe(true)
 
     const stale = await request.post('/api/files/edit', {
-      data: {
-        path: AUTOSAVE_PATH,
-        content: 'stale loser\n',
-        expectedHash: base.version,
-      },
+      data: { path: AUTOSAVE_PATH, content: 'stale loser\n', expectedHash: base.version },
     })
 
     expect(stale.status()).toBe(409)

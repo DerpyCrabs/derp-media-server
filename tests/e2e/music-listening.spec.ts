@@ -364,8 +364,8 @@ test('starting and exhausting prepared radio makes no recommendation requests', 
     await page.goto('/?view=for-you')
     const initial = await page.evaluate(
       () =>
-        window.__DEHYDRATED_STATE__?.queries.find((query) => query.queryKey[0] === 'music')?.state
-          .data as MusicHomeData,
+        window.__INITIAL_DATA__?.entries.find((query) => query.key[0] === 'music')
+          ?.data as MusicHomeData,
     )
     expect(initial.radio.stations.length).toBeGreaterThan(0)
     await page
@@ -507,9 +507,9 @@ test('music is hydrated without genre filters and cached results stay stable on 
   await expect(music).toBeVisible()
   const initial = await page.evaluate(
     () =>
-      window.__DEHYDRATED_STATE__?.queries.find(
-        (query) => query.queryKey[0] === 'music' && query.queryKey[1] === 'home',
-      )?.state.data as MusicHomeData,
+      window.__INITIAL_DATA__?.entries.find(
+        (query) => query.key[0] === 'music' && query.key[1] === 'home',
+      )?.data as MusicHomeData,
   )
   expect(initial.rows.length).toBeGreaterThan(0)
   await page

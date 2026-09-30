@@ -66,10 +66,7 @@ describe('Hermes chat parity helpers', () => {
   test('lifts Hermes image directives and screenshot placeholders out of message text', () => {
     expect(
       extractHermesMessageImages('@image:C:\\Hermes Images\\shot.png\nquestion\n[screenshot]'),
-    ).toEqual({
-      text: 'question',
-      images: ['C:\\Hermes Images\\shot.png'],
-    })
+    ).toEqual({ text: 'question', images: ['C:\\Hermes Images\\shot.png'] })
     expect(extractHermesMessageImages('@image:`/tmp/my shot.png`\nlook')).toEqual({
       text: 'look',
       images: ['/tmp/my shot.png'],

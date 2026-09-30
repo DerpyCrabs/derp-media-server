@@ -1,83 +1,59 @@
 import { randomId } from '@/lib/random-id'
-import {
-  createUrlSearchParamsMemo,
-  navigateSearchParams,
-  useBrowserHistory,
-} from '@/lib/browser/browser-history'
-import { DEFAULT_WORKSPACE_SOURCE } from '@/workspace/model/use-workspace'
+import { browserHistory, navigateSearchParams } from '@/lib/browser/browser-history'
+import { DEFAULT_WORKSPACE_SOURCE } from '@/workspace/model/workspace'
 import { CanvasWorkspace } from './canvas/CanvasWorkspace'
-import { For, Match, Switch, createEffect } from 'solid-js'
+import { view, modelOwner, commandSlot, list, collection, controllerView } from 'effectweb'
+import { Effect } from 'effect'
 import { DesktopWorkspace } from './desktop/DesktopWorkspace'
 import { buildWorkspaceFromDirParam } from './desktop/workspace-bootstrap'
 import { defaultPersistedState } from './shared/workspace-page-persistence'
-import { useWorkspaceDocumentChrome } from './shared/use-workspace-document-chrome'
-import { useThemeStore } from '@/lib/state/theme-store'
-import { useStoreSync } from '@/lib/state/solid-store-sync'
-import { WorkspaceSessionProvider, useWorkspaceSession } from './shared/WorkspaceSession'
+import { createWorkspaceDocumentChrome } from './shared/workspace-document-chrome'
+import { themeStore } from '@/lib/state/theme-store'
+import { createWorkspaceSession } from './shared/WorkspaceSession'
 import {
   createLinkedWorkspaceSnapshot,
   parseWorkspaceCreationLink,
 } from './model/workspace-creation-link'
-
-export function WorkspaceRoute() {
-  const history = useBrowserHistory()
-  const params = createUrlSearchParamsMemo(history)
+function routeController() {
+  const params = () => new URLSearchParams(browserHistory.model().search)
   const workspaceId = () => params().get('ws') ?? ''
-
-  return (
-    <WorkspaceSessionProvider workspaceId={workspaceId}>
-      <WorkspaceRenderer workspaceId={workspaceId} />
-    </WorkspaceSessionProvider>
-  )
-}
-
-function WorkspaceRenderer(props: { workspaceId: () => string }) {
-  const session = useWorkspaceSession()
-  const history = useBrowserHistory()
-  const params = createUrlSearchParamsMemo(history)
-  const themeTick = useStoreSync(useThemeStore)
-  useWorkspaceDocumentChrome(() => session.catalog.value().records[props.workspaceId()], themeTick)
-
-  createEffect(
-    () => {
-      const id = props.workspaceId()
-      const registry = session.catalog.value()
-      const creation = parseWorkspaceCreationLink(params())
-      return {
-        id,
-        dir: params().get('dir'),
-        creation,
-        ready: session.state.ready(),
-        active: session.state.active(),
-        deleted: id ? session.state.deleted(id) : false,
-        records: Object.values(registry.records),
-        record: registry.records[id],
-      }
-    },
-    ({ id, dir, creation, ready, active, deleted, records, record }) => {
-      if (!ready) return
-      if (!id) {
-        if (dir) {
-          navigateSearchParams({ ws: randomId() }, 'replace')
-          return
-        }
-        const last = records.sort((left, right) => right.lastOpenedAt - left.lastOpenedAt)[0]
-        navigateSearchParams({ ws: last?.id ?? randomId() }, 'replace')
-        return
-      }
-      if (deleted) {
-        const next = records
-          .filter((record) => record.id !== id)
-          .sort((left, right) => right.lastOpenedAt - left.lastOpenedAt)[0]
-        navigateSearchParams({ ws: next?.id ?? randomId() }, 'replace')
-        return
-      }
-      if (creation && record) {
-        navigateSearchParams({ new: null, name: null }, 'replace')
-        return
-      }
-      if (active.id === id && active.phase !== 'idle') return
-      void session.lifecycle
+  const session = createWorkspaceSession(workspaceId)
+  const chrome = createWorkspaceDocumentChrome()
+  const owner = modelOwner({ session, id: '', type: '' })
+  const slot = commandSlot('activate-workspace')
+  const synchronize = () => {
+    const id = workspaceId()
+    const registry = session.catalog.value()
+    const creation = parseWorkspaceCreationLink(params())
+    const dir = params().get('dir')
+    const record = registry.records[id]
+    const records = Object.values(registry.records).sort(
+      (left, right) => right.lastOpenedAt - left.lastOpenedAt,
+    )
+    chrome.update(record)
+    const active = session.state.active()
+    const document = session.document.value()
+    owner.patch({ id: document ? active.id : '', type: document?.workspaceType ?? '' })
+    if (!session.state.ready()) return
+    if (!id) {
+      navigateSearchParams({ ws: dir ? randomId() : (records[0]?.id ?? randomId()) }, 'replace')
+      return
+    }
+    if (session.state.deleted(id)) {
+      navigateSearchParams(
+        { ws: records.find((record) => record.id !== id)?.id ?? randomId() },
+        'replace',
+      )
+      return
+    }
+    if (creation && record) {
+      navigateSearchParams({ new: null, name: null }, 'replace')
+      return
+    }
+    if (active.id === id && active.phase !== 'idle') return
+    owner.run(
+      slot,
+      session.lifecycle
         .activate(
           id,
           record?.snapshot ??
@@ -89,29 +65,52 @@ function WorkspaceRenderer(props: { workspaceId: () => string }) {
           false,
           !record && creation?.name ? { name: creation.name } : undefined,
         )
-        .then((result) => {
-          if (creation && result && new URLSearchParams(window.location.search).get('ws') === id) {
-            navigateSearchParams({ new: null, name: null }, 'replace')
-          }
-        })
+        .pipe(
+          Effect.tap((result) =>
+            Effect.sync(() => {
+              if (creation && result && workspaceId() === id)
+                navigateSearchParams({ new: null, name: null }, 'replace')
+            }),
+          ),
+        ),
+      'replace',
+    )
+  }
+  const stops = [
+    browserHistory.subscribe(synchronize),
+    session.source.subscribe(synchronize),
+    themeStore.source.subscribe(synchronize),
+  ]
+  synchronize()
+  return {
+    source: owner.source,
+    close: () =>
+      Effect.sync(() => {
+        stops.forEach((stop) => stop())
+        chrome.dispose()
+      }).pipe(Effect.andThen(session.close()), Effect.ensuring(owner.close().pipe(Effect.orDie))),
+    dispose() {
+      stops.forEach((stop) => stop())
+      chrome.dispose()
+      session.dispose()
+      owner.dispose()
     },
-  )
-
-  return (
-    <For
-      each={session.document.value() ? [session.state.active().id] : []}
-      fallback={<div class='fixed inset-0 bg-background' />}
-    >
-      {() => (
-        <Switch>
-          <Match when={session.document.value()?.workspaceType === 'canvas'}>
-            <CanvasWorkspace />
-          </Match>
-          <Match when={session.document.value()}>
-            <DesktopWorkspace />
-          </Match>
-        </Switch>
-      )}
-    </For>
-  )
+  }
 }
+const routeIds = collection<string>((id) => id)
+export const WorkspaceRoute = controllerView({
+  create: routeController,
+  view: view((model) =>
+    model.id ? (
+      list(routeIds.from([model.id]), () =>
+        model.type === 'canvas' ? (
+          <CanvasWorkspace session={model.session} />
+        ) : (
+          <DesktopWorkspace session={model.session} />
+        ),
+      )
+    ) : (
+      <div class='fixed inset-0 bg-background' />
+    ),
+  ),
+})

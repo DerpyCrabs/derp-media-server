@@ -91,9 +91,7 @@ test.describe('activity over plain HTTP', () => {
     const queue = page.getByRole('dialog', { name: 'Up next' })
     await expect(queue).toBeVisible()
     await expect(queue.getByRole('button', { name: 'Continue with radio' })).toHaveCount(0)
-    const response = await page.request.post(`${library.url}/api/music/radio`, {
-      data: {},
-    })
+    const response = await page.request.post(`${library.url}/api/music/radio`, { data: {} })
     expect(response.status()).toBe(400)
     expect(library.providerRequests).toEqual([])
   })
@@ -149,9 +147,7 @@ test.describe('activity over plain HTTP', () => {
         await route.abort()
         return
       }
-      await route.continue({
-        url: `${library.url}${url.pathname}${url.search}`,
-      })
+      await route.continue({ url: `${library.url}${url.pathname}${url.search}` })
     })
     const errors: string[] = []
     page.on('pageerror', (error) => errors.push(error.message))
@@ -210,9 +206,7 @@ test('hiding cached picks still allows the next recommendation page to generate'
   const first = (await firstResponse.json()) as Home
   expect(first.rows.flatMap((row) => row.items)).toHaveLength(23)
   expect(first.warming).toBe(true)
-  await request.post(`${library.url}/api/media-ai/refresh`, {
-    data: { hour: 12 },
-  })
+  await request.post(`${library.url}/api/media-ai/refresh`, { data: { hour: 12 } })
   let nextItems: Home['rows'][number]['items'] = []
   await expect
     .poll(async () => {
@@ -238,9 +232,7 @@ test('a fresh single-root library can recommend files directly in its root', asy
   expect(response.ok()).toBe(true)
   const result = (await response.json()) as Home
   expect(result.warming).toBe(true)
-  await request.post(`${library.url}/api/media-ai/refresh`, {
-    data: { hour: 12 },
-  })
+  await request.post(`${library.url}/api/media-ai/refresh`, { data: { hour: 12 } })
   let picks: Home['rows'][number]['items'] = []
   await expect
     .poll(async () => {
@@ -262,9 +254,7 @@ test('real refresh and pagination stay responsive while the provider is blocked'
   const release = library.pauseProvider()
   try {
     const first = (await (await request.get(`${library.url}/api/media-ai/home`)).json()) as Home
-    await request.post(`${library.url}/api/media-ai/refresh`, {
-      data: { hour: 12 },
-    })
+    await request.post(`${library.url}/api/media-ai/refresh`, { data: { hour: 12 } })
     await expect.poll(() => library.providerRequests.length).toBeGreaterThan(0)
     const refreshedResponse = await request.post(`${library.url}/api/media-ai/refresh`, {
       data: { hour: 9 },
@@ -294,9 +284,7 @@ test('background ranking advances beyond the first truncated collection inventor
 }) => {
   test.setTimeout(30000)
   await library.seed(300)
-  await request.post(`${library.url}/api/media-ai/refresh`, {
-    data: { hour: 12 },
-  })
+  await request.post(`${library.url}/api/media-ai/refresh`, { data: { hour: 12 } })
   await expect
     .poll(
       () => {
@@ -406,9 +394,7 @@ test('AI search returns books without requiring a thumbnail', async ({ page, lib
   fs.writeFileSync(path.join(library.mediaDirectory, 'book.fb2'), '<FictionBook/>')
   expect(
     (
-      await page.request.post(`${library.url}/api/files/search/reindex`, {
-        data: { mode: 'full' },
-      })
+      await page.request.post(`${library.url}/api/files/search/reindex`, { data: { mode: 'full' } })
     ).ok(),
   ).toBe(true)
   await expect
@@ -424,11 +410,7 @@ test('AI search returns books without requiring a thumbnail', async ({ page, lib
   expect(result.ok()).toBe(true)
   const answer = await result.json()
   expect(answer.items).toEqual([
-    expect.objectContaining({
-      path: 'book.fb2',
-      type: 'book',
-      previewKind: 'text',
-    }),
+    expect.objectContaining({ path: 'book.fb2', type: 'book', previewKind: 'text' }),
   ])
   await page.goto(`${library.url}/?view=for-you`)
   await page.getByRole('button', { name: 'Search library', exact: true }).click()
@@ -447,13 +429,7 @@ test('book feeds paginate only books while More for you still includes music', a
   const books = Array.from({ length: 30 }, (_, index) => {
     const name = `book-${index}.fb2`
     fs.writeFileSync(path.join(library.mediaDirectory, name), '<FictionBook/>')
-    return {
-      id: 100 + index,
-      path: name,
-      name,
-      type: 'book',
-      previewReady: true,
-    }
+    return { id: 100 + index, path: name, name, type: 'book', previewReady: true }
   })
   library.cache([...songs, ...books])
   const first = (await (
@@ -549,18 +525,13 @@ test.describe('book recommendations', () => {
     const release = library.pauseProvider()
     try {
       fs.writeFileSync(path.join(library.mediaDirectory, 'Unread book.fb2'), '<FictionBook/>')
-      await page.request.post(`${library.url}/api/files/search/reindex`, {
-        data: { mode: 'full' },
-      })
+      await page.request.post(`${library.url}/api/files/search/reindex`, { data: { mode: 'full' } })
       await page.goto(`${library.url}/?view=for-you`)
       await expect(page.getByTestId('for-you')).toBeVisible()
       release()
       const shelf = page.getByRole('region', { name: 'Books', exact: true })
       await expect(
-        shelf.getByRole('button', {
-          name: 'Read Unread book.fb2',
-          exact: true,
-        }),
+        shelf.getByRole('button', { name: 'Read Unread book.fb2', exact: true }),
       ).toBeVisible({ timeout: 30000 })
       await shelf.getByRole('button', { name: 'See all' }).click()
       await expect(shelf.getByText('Matching fixture media')).toBeVisible()
