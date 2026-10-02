@@ -1,5 +1,5 @@
 import { Deferred, Effect, Exit, Semaphore } from 'effect'
-import { commandSlot, lifetime } from 'effectweb'
+import { modelOwner } from 'effectweb'
 
 export type PendingWorkspaceSave<T> = { id: string; state: T; revision: number }
 export type WorkspaceSaveResult = { revision?: number }
@@ -56,9 +56,8 @@ type Queue<T> = {
 export function createWorkspaceSaveCoordinator<T>(options: {
   save: (pending: PendingWorkspaceSave<T>) => Effect.Effect<WorkspaceSaveResult, unknown>
 }): WorkspaceSaveCoordinator<T> {
-  const scope = lifetime()
+  const scope = modelOwner({})
   const queues = new Map<string, Queue<T>>()
-  const slots = new Map<string, ReturnType<typeof commandSlot>>()
   function queueFor(id: string) {
     let queue = queues.get(id)
     if (!queue) {
@@ -72,10 +71,8 @@ export function createWorkspaceSaveCoordinator<T>(options: {
     if (!queue || queue.completion || queue.failure || !queue.pending) return
     const completion = Deferred.makeUnsafe<void, unknown>()
     queue.completion = completion
-    const slot = slots.get(id) ?? commandSlot(`workspace-save:${id}`)
-    slots.set(id, slot)
-    scope.run(
-      slot,
+    void scope.run(
+      ['workspace-save', id],
       Effect.gen(function* () {
         yield* Effect.yieldNow
         while (queue.pending) {
@@ -98,7 +95,6 @@ export function createWorkspaceSaveCoordinator<T>(options: {
         }
         queue.completion = null
         queues.delete(id)
-        slots.delete(id)
         yield* Deferred.succeed(completion, undefined)
       }),
       'drop',

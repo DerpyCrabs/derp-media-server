@@ -1,7 +1,7 @@
-import { createReconnectScheduler } from '@/lib/api/sse-reconnect'
+import { createAdminStream } from '@/lib/api/sse-reconnect'
 
 import { Schema } from 'effect'
-import { sseEventSchema, workerEventSchema, type SseEventPayload } from './sse-protocol'
+import { workerEventSchema, type SseEventPayload } from './sse-protocol'
 export type { SseEventPayload } from './sse-protocol'
 
 const sharedWorkerAvailable = typeof SharedWorker !== 'undefined'
@@ -35,52 +35,15 @@ function ensureSharedWorkerPort(): MessagePort {
   return sharedWorker.port
 }
 
-let fallbackAdminEs: EventSource | null = null
 let fallbackAdminRef = 0
-let fallbackAdminSchedule = () => {}
-let fallbackAdminReset = () => {}
-let fallbackAdminReconnectCleanup: (() => void) | null = null
+const fallbackStream = createAdminStream(dispatchAdmin)
 
 function isTabVisible(): boolean {
   return typeof document !== 'undefined' && !document.hidden
 }
 
 function connectFallbackAdmin() {
-  if (!isTabVisible() || fallbackAdminEs) return
-  if (!fallbackAdminReconnectCleanup) {
-    const reconnect = createReconnectScheduler(() => {
-      if (fallbackAdminRef > 0) connectFallbackAdmin()
-    })
-    fallbackAdminReconnectCleanup = reconnect.cleanup
-    fallbackAdminSchedule = reconnect.schedule
-    fallbackAdminReset = reconnect.reset
-  }
-
-  fallbackAdminEs = new EventSource('/api/events/stream')
-  fallbackAdminEs.onmessage = (event) => {
-    try {
-      const decoded = Schema.decodeUnknownExit(sseEventSchema)(JSON.parse(event.data))
-      if (decoded._tag === 'Success') {
-        fallbackAdminReset()
-        dispatchAdmin(decoded.value)
-      }
-    } catch {
-      // Ignore malformed events.
-    }
-  }
-  fallbackAdminEs.onerror = () => {
-    fallbackAdminEs?.close()
-    fallbackAdminEs = null
-    if (fallbackAdminRef > 0) fallbackAdminSchedule()
-  }
-}
-
-function disconnectFallbackAdminIfIdle() {
-  if (fallbackAdminRef > 0) return
-  fallbackAdminReconnectCleanup?.()
-  fallbackAdminReconnectCleanup = null
-  fallbackAdminEs?.close()
-  fallbackAdminEs = null
+  if (isTabVisible() && fallbackAdminRef > 0) fallbackStream.start()
 }
 
 let fallbackVisibilityAttached = false
@@ -124,10 +87,7 @@ function notifyOnline() {
 
 function updateFallbackVisibility() {
   if (!isTabVisible()) {
-    fallbackAdminReconnectCleanup?.()
-    fallbackAdminReconnectCleanup = null
-    fallbackAdminEs?.close()
-    fallbackAdminEs = null
+    fallbackStream.stop()
   } else if (fallbackAdminRef > 0) {
     connectFallbackAdmin()
   }
@@ -164,8 +124,8 @@ export function subscribeSseAdmin(onData: (data: SseEventPayload) => void): () =
     active = false
     adminListeners.delete(onData)
     fallbackAdminRef = Math.max(0, fallbackAdminRef - 1)
-    disconnectFallbackAdminIfIdle()
     if (fallbackAdminRef === 0) {
+      fallbackStream.stop()
       document.removeEventListener('visibilitychange', updateFallbackVisibility)
       fallbackVisibilityAttached = false
     }

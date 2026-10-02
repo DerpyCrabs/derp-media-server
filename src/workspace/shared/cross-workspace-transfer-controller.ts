@@ -4,7 +4,7 @@ import { workspaceValueEquals } from '@/workspace/model/workspace-equality'
 import type { PersistedWorkspaceState } from '@/workspace/model/workspace'
 import type { WorkspaceSessionTransferInput } from './workspace-registry'
 import { Deferred, Effect } from 'effect'
-import { commandSlot, modelOwner } from 'effectweb'
+import { modelOwner } from 'effectweb'
 type Accessor<T> = () => T
 export type WorkspaceTransferSession = {
   state: { editable: Accessor<boolean> }
@@ -60,9 +60,9 @@ export function createCrossWorkspaceTransferController(
     owner.patch({ machineState })
   const setCommitting = (committing: boolean) => owner.patch({ committing })
   let start: TransferStart | null = null
-  const hoverSlot = commandSlot('workspace-transfer-hover')
+  const hoverSlot = 'workspace-transfer-hover'
   let completion: Deferred.Deferred<boolean> | null = null
-  const commitSlot = commandSlot('workspace-transfer-commit')
+  const commitSlot = 'workspace-transfer-commit'
   const publishMachine = () => setMachineState(machine.getState())
   const clearHoverTimer = () => owner.cancel(hoverSlot)
 

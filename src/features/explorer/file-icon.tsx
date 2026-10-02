@@ -1,4 +1,4 @@
-import { type Snapshot, domBinding, localComponent, view, type JSX } from 'effectweb'
+import { type Snapshot, domBinding, component, view, type JSX } from 'effectweb'
 import { buildThumbnailUrl } from '@/lib/media/build-media-url'
 import { thumbnailBinding } from './thumbnail-binding'
 import { VIRTUAL_FOLDERS } from '@/lib/files/constants'
@@ -210,14 +210,16 @@ export function fileIcon(file: FileItem): JSX.Element {
 function gridHeroIconScaleWrap(inner: JSX.Element): JSX.Element {
   return <div class='scale-[2.5] [&_svg]:h-6 [&_svg]:w-6'>{inner}</div>
 }
-const GridMediaThumbnail = localComponent({
-  init: (_props: Snapshot<{ file: FileItem; ctx: FileIconContext }>) => ({
-    queuedSrc: undefined as string | undefined,
-    failed: false,
-    attempt: 0,
-  }),
-  identity: (props) => `${props.file.path}:${props.file.version ?? ''}`,
-  view: view((model, patch) => {
+const GridMediaThumbnail = component(
+  {
+    init: (_props: Snapshot<{ file: FileItem; ctx: FileIconContext }>) => ({
+      queuedSrc: undefined as string | undefined,
+      failed: false,
+      attempt: 0,
+    }),
+    identity: (props) => `${props.file.path}:${props.file.version ?? ''}`,
+  },
+  view((model, patch) => {
     const file = model.props.file
     const base = buildThumbnailUrl(file.path, file.version)
     const url = `${base}${model.attempt ? `${base.includes('?') ? '&' : '?'}retry=${model.attempt}` : ''}`
@@ -249,7 +251,7 @@ const GridMediaThumbnail = localComponent({
       </div>
     )
   }),
-})
+)
 export function gridHeroIcon(
   file: FileItem,
   ctx: FileIconContext = EMPTY_FILE_ICON_CONTEXT,

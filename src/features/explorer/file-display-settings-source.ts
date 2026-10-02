@@ -25,14 +25,14 @@ export function fileDisplaySettings(
         ...current,
         sortOrders: { ...current.sortOrders, [path]: next },
       }))
-      operations.sort.run({ path, sortOrder: next })
+      void operations.sort.run({ path, sortOrder: next })
     },
     setFileColumns: (next: FileColumnVisibility) => {
       queryCache.updateQueryData(settingsQuery, true, (current) => ({
         ...current,
         fileColumns: { ...current.fileColumns, [scope]: next },
       }))
-      operations.columns.run({ scope, columns: next })
+      void operations.columns.run({ scope, columns: next })
     },
   }
 }

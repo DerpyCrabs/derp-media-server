@@ -2,11 +2,10 @@ import { nextAnimationFrame } from '@/lib/browser/animation-frame'
 import { cn } from '@/lib/ui/cn'
 import { Effect, Semaphore } from 'effect'
 import {
-  commandSlot,
   domMount,
   entities,
   list,
-  localComponent,
+  component,
   modelOwner,
   view,
   type JSX,
@@ -60,20 +59,20 @@ const pageFromScroll = (pages: readonly ReaderPage[], scrollTop: number, zoom: n
   }
   return Math.max(0, pages.length - 1)
 }
-const loadSlot = commandSlot('reader-document-load')
-const saveSlot = commandSlot('reader-position-save')
-const debounceSlot = commandSlot('reader-position-debounce')
-const restoreSlot = commandSlot('reader-position-restore')
+const loadSlot = 'reader-document-load'
+const saveSlot = 'reader-position-save'
+const debounceSlot = 'reader-position-debounce'
+const restoreSlot = 'reader-position-restore'
 const focusPageInput = domMount((element: HTMLInputElement) => {
   element.focus()
   element.select()
 })
-const PageIndicator = localComponent<
+const PageIndicator = component<
   { page: number; count: number; onNavigate: (page: number) => void },
   { open: boolean; draft: string }
->({
-  init: () => ({ open: false, draft: '' }),
-  view: view((model, patch) => (
+>(
+  { init: () => ({ open: false, draft: '' }) },
+  view((model, patch) => (
     <div class='relative'>
       <button
         type='button'
@@ -113,7 +112,7 @@ const PageIndicator = localComponent<
       ) : null}
     </div>
   )),
-})
+)
 function createPagedReader(props: Snapshot<Props<PagedDocument>>) {
   const saveGate = Semaphore.makeUnsafe(1)
   let viewport: HTMLDivElement | undefined
@@ -274,7 +273,7 @@ function createPagedReader(props: Snapshot<Props<PagedDocument>>) {
   )
   return {
     source: owner.source,
-    actions,
+    ...actions,
     receive: (next: Snapshot<Props<PagedDocument>>) => owner.patch({ props: next }),
     beforeDispose: () => {
       const current = owner.read().position
@@ -471,8 +470,7 @@ const PagedReaderView = view<ControllerModel<typeof createPagedReader>>((model) 
     />
   )
 })
-export const PagedReader = controllerView({
-  create: createPagedReader,
-  identity: (props) => props.sourcePath,
-  view: PagedReaderView,
-})
+export const PagedReader = controllerView(
+  { controller: createPagedReader, identity: (props) => props.sourcePath },
+  PagedReaderView,
+)

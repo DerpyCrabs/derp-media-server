@@ -1,5 +1,5 @@
 import { available, modelOwner, view, list, resourceError, controllerView } from 'effectweb'
-import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult'
+import * as AsyncResult from 'effect/reactivity/AsyncResult'
 import { queryCache } from '@/lib/api/cache'
 import { musicHomeQuery } from './queries'
 import Play from '@effectweb/lucide/icons/play'
@@ -10,20 +10,22 @@ import { CollectionActions } from './CollectionActions'
 import { playMusic, setMusicDialog, startRadio } from './actions'
 import type { MusicHomeData } from './types'
 import { observeQuery } from '@effectweb/query'
-export const MusicHome = controllerView({
-  create: (_props: Record<string, never>) => {
-    const owner = modelOwner({
-      result: AsyncResult.initial<MusicHomeData, Error>() as AsyncResult.AsyncResult<
-        MusicHomeData,
-        Error
-      >,
-      refresh: () => resource.refresh(),
-    })
-    const resource = observeQuery(owner, queryCache, musicHomeQuery, 'result')
-    resource.select('')
-    return { source: owner.source, dispose: owner.dispose, close: owner.close }
+export const MusicHome = controllerView(
+  {
+    controller: (_props: Record<string, never>) => {
+      const owner = modelOwner({
+        result: AsyncResult.initial<MusicHomeData, Error>() as AsyncResult.AsyncResult<
+          MusicHomeData,
+          Error
+        >,
+        refresh: () => resource.refresh(),
+      })
+      const resource = observeQuery(owner, queryCache, musicHomeQuery, 'result')
+      resource.select('')
+      return { source: owner.source, dispose: owner.dispose, close: owner.close }
+    },
   },
-  view: view((model) => {
+  view((model) => {
     const content = () => available(model.result)
     return (
       <div data-testid='music-home' class='w-full space-y-8 py-2'>
@@ -199,4 +201,4 @@ export const MusicHome = controllerView({
       </div>
     )
   }),
-})
+)

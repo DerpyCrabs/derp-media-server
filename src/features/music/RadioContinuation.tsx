@@ -1,5 +1,5 @@
 import { Effect, Schema } from 'effect'
-import { commandSlot, modelOwner } from 'effectweb'
+import { modelOwner } from 'effectweb'
 import { musicStatusSource } from './enabled'
 import { queryCache } from '@/lib/api/cache'
 import { musicHomeQuery } from './queries'
@@ -11,7 +11,7 @@ import { radioTracks, recordingKey } from './radio'
 const radioOwner = modelOwner({ id: '', exhausted: false })
 export const radioStatusSource = radioOwner.source
 const setRadioStatus = radioOwner.patch
-const skipSlot = commandSlot('music-skip')
+const skipSlot = 'music-skip'
 type EarlySkip = { id: string; path: string }
 const skipListeners = new Set<(event: EarlySkip) => void>()
 export function reportEarlySkip(event: EarlySkip) {

@@ -1,4 +1,4 @@
-import { type Snapshot, localComponent, view, list, type JSX } from 'effectweb'
+import { type Snapshot, component, view, list, type JSX } from 'effectweb'
 import { getIconComponent, AVAILABLE_ICONS } from '@/lib/ui/available-icons'
 import X from '@effectweb/lucide/icons/x'
 import type { ModalOverlayScope } from './modal-overlay-scope'
@@ -12,11 +12,13 @@ type Props = {
   onSave: (iconName: string | null) => void
   isPending?: boolean
 }
-export const IconEditorDialog = localComponent({
-  init: (_props: Snapshot<Props>) => ({
-    selection: { key: '', icon: null } as { key: string; icon: string | null },
-  }),
-  view: view((local, patch) => {
+export const IconEditorDialog = component(
+  {
+    init: (_props: Snapshot<Props>) => ({
+      selection: { key: '', icon: null } as { key: string; icon: string | null },
+    }),
+  },
+  view((local, patch) => {
     const props = local.props
     const selection = () => local.selection,
       setSelection = (value: { key: string; icon: string | null }) => patch({ selection: value })
@@ -130,4 +132,4 @@ export const IconEditorDialog = localComponent({
       </div>
     ) : null
   }),
-})
+)

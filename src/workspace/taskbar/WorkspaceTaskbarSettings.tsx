@@ -1,4 +1,4 @@
-import { list, localComponent, view, observe, domBinding } from 'effectweb'
+import { list, component, view, observe, domBinding } from 'effectweb'
 import { applyTheme, resolveTheme } from '@/lib/state/theme-dom'
 import { themeStore, type ThemeMode, type ThemePalette } from '@/lib/state/theme-store'
 import { fileOpenTargetStore, type FileOpenTarget } from '@/workspace/shared/file-open-target'
@@ -55,12 +55,9 @@ function setTheme(p: ThemePalette, m: ThemeMode) {
   themeStore.setTheme(p, m)
   applyTheme(resolveTheme(p, m))
 }
-export const WorkspaceTaskbarSettings = localComponent<
-  WorkspaceTaskbarSettingsProps,
-  { open: boolean }
->({
-  init: () => ({ open: false }),
-  view: view((local, patch) =>
+export const WorkspaceTaskbarSettings = component<WorkspaceTaskbarSettingsProps, { open: boolean }>(
+  { init: () => ({ open: false }) },
+  view((local, patch) =>
     observe(themeStore.source, (theme) =>
       observe(clientPreferencesStore.source, (preferences) => {
         const props = local.props
@@ -166,7 +163,7 @@ export const WorkspaceTaskbarSettings = localComponent<
                         Workspace transition
                       </div>
                       <div class='flex gap-2'>
-                        {(['instant', 'fade'] as const).map((transition) => (
+                        {list(['instant', 'fade'] as const, (transition) => (
                           <button
                             type='button'
                             class={cn(
@@ -287,4 +284,4 @@ export const WorkspaceTaskbarSettings = localComponent<
       }),
     ),
   ),
-})
+)

@@ -2,8 +2,8 @@ import { desktopOperations } from './desktop/operations'
 import '@fontsource-variable/geist'
 import '@fontsource-variable/geist-mono'
 import './globals.css'
-import { Effect, Fiber } from 'effect'
-import { makeModelOwner, mount } from 'effectweb'
+import { Effect } from 'effect'
+import { makeMount, modelOwner } from 'effectweb'
 import { App } from './App'
 import { createPlaybackPathMutationLifetime } from './features/playback/path-mutation-lifetime'
 import { initializePlayback } from './features/playback/PlaybackProvider'
@@ -40,15 +40,11 @@ const application = Effect.scoped(
     yield* own(() => musicUiLifetime)
     yield* own(initializeMusicStatus)
     yield* own(createRadioContinuation)
-    const owner = yield* makeModelOwner({})
+    const owner = yield* own(() => modelOwner({}))
     const root = document.getElementById('root')
     if (!root) return
-    yield* mount(root, App, owner.source)
+    yield* makeMount(root, App, owner.source)
     yield* Effect.never
   }),
 )
-const fiber = Effect.runFork(application)
-if (import.meta.hot)
-  import.meta.hot.dispose(() => {
-    Effect.runFork(Fiber.interrupt(fiber))
-  })
+Effect.runFork(application)

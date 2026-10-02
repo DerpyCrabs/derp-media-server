@@ -57,7 +57,7 @@ export function createFileBrowserController(options: FileBrowserControllerOption
   )
   const moveFile = (sourcePath: string, destinationDir: string) => {
     const name = sourcePath.split(/[/\\]/).pop()!
-    operations.rename.run({
+    void operations.rename.run({
       oldPath: sourcePath,
       newPath: destinationDir ? `${destinationDir}/${name}` : name,
     })

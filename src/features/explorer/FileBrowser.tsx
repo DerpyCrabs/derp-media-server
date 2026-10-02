@@ -1,4 +1,4 @@
-import { available, commandSlots, modelOwner, view, controllerView, type JSX } from 'effectweb'
+import { available, modelOwner, view, controllerView, type JSX } from 'effectweb'
 import { Effect } from 'effect'
 import { breadcrumbFloating } from './breadcrumb-floating-store'
 import { createVirtualDirectoryFeature } from './virtual-directory-feature'
@@ -95,172 +95,174 @@ function downloadLocalFile(file: FileItem) {
   link.click()
   document.body.removeChild(link)
 }
-const hoverSlots = commandSlots('folder-hover')
-export const FileBrowser = controllerView({
-  identity: (props: { host: FileBrowserHost }) => props.host.currentPath,
-  create: (props: { host: FileBrowserHost }) => {
-    let currentHost = props.host
-    let scrollElement: HTMLDivElement | undefined
-    const path = currentHost.currentPath
-    const listing = createFileBrowserListing(path)
-    const currentListing = () => fileListingSnapshot(listing.read())
-    const editable = () =>
-      !(Object.values(VIRTUAL_FOLDERS) as string[]).includes(path) &&
-      !currentListing().virtualDirectory &&
-      isPathEditable(path, currentHost.editableFolders, currentHost.mediaRoots)
-    const stats = createViewStats()
-    const presentCreated = (filePath: string, displayName?: string) => {
-      const file = fileItemFromPath(filePath, displayName)
-      const settings = browser.current().settings
-      const ordered = sortFilesForPath(
-        currentListing().files,
-        path,
-        settings?.sortOrders,
-        false,
-        createFileSortMetadata(settings?.favorites, available(stats.read().result)?.views ?? {}),
-      )
-      stats.incrementView(file.path)
-      currentHost.present({ kind: 'default', file, sourceDir: path, orderedFiles: ordered })
-    }
-    const browser = createFileBrowserController({
-      currentPath: () => path,
-      layout: currentHost.layout,
-      files: () => currentListing().files,
-      editable,
-      editableFolders: () => currentHost.editableFolders,
-      isActive: () => currentHost.active ?? true,
-      virtualEntry: (file) => currentListing().virtualEntry(file),
-      onFileCreated: presentCreated,
-      onFileSaved: presentCreated,
-      onInlineFileCreated: presentCreated,
-      onInlineFolderCreated: (path) => currentHost.navigate(path),
-    })
-    const actions = createFileBrowserActions()
-    const chrome = createFileBrowserChrome()
-    const virtual = createVirtualDirectoryFeature({
-      currentPath: () => path,
-      files: () => currentListing().files,
-      directory: () => currentListing().virtualDirectory,
-      entry: (file) => currentListing().virtualEntry(file),
-      setError: browser.setError,
-      openTarget: (file, target) =>
-        currentHost.present({
-          kind: 'virtual',
-          file,
-          target,
-          sourceDir: path,
-          orderedFiles: currentListing().files,
+const hoverSlots = (key: string | number) => ['folder-hover', key] as const
+export const FileBrowser = controllerView(
+  {
+    identity: (props: { host: FileBrowserHost }) => props.host.currentPath,
+    controller: (props: { host: FileBrowserHost }) => {
+      let currentHost = props.host
+      let scrollElement: HTMLDivElement | undefined
+      const path = currentHost.currentPath
+      const listing = createFileBrowserListing(path)
+      const currentListing = () => fileListingSnapshot(listing.read())
+      const editable = () =>
+        !(Object.values(VIRTUAL_FOLDERS) as string[]).includes(path) &&
+        !currentListing().virtualDirectory &&
+        isPathEditable(path, currentHost.editableFolders, currentHost.mediaRoots)
+      const stats = createViewStats()
+      const presentCreated = (filePath: string, displayName?: string) => {
+        const file = fileItemFromPath(filePath, displayName)
+        const settings = browser.current().settings
+        const ordered = sortFilesForPath(
+          currentListing().files,
+          path,
+          settings?.sortOrders,
+          false,
+          createFileSortMetadata(settings?.favorites, available(stats.read().result)?.views ?? {}),
+        )
+        void stats.incrementView(file.path)
+        currentHost.present({ kind: 'default', file, sourceDir: path, orderedFiles: ordered })
+      }
+      const browser = createFileBrowserController({
+        currentPath: () => path,
+        layout: currentHost.layout,
+        files: () => currentListing().files,
+        editable,
+        editableFolders: () => currentHost.editableFolders,
+        isActive: () => currentHost.active ?? true,
+        virtualEntry: (file) => currentListing().virtualEntry(file),
+        onFileCreated: presentCreated,
+        onFileSaved: presentCreated,
+        onInlineFileCreated: presentCreated,
+        onInlineFolderCreated: (path) => currentHost.navigate(path),
+      })
+      const actions = createFileBrowserActions()
+      const chrome = createFileBrowserChrome()
+      const virtual = createVirtualDirectoryFeature({
+        currentPath: () => path,
+        files: () => currentListing().files,
+        directory: () => currentListing().virtualDirectory,
+        entry: (file) => currentListing().virtualEntry(file),
+        setError: browser.setError,
+        openTarget: (file, target) =>
+          currentHost.present({
+            kind: 'virtual',
+            file,
+            target,
+            sourceDir: path,
+            orderedFiles: currentListing().files,
+          }),
+      })
+      let presentationInputs: readonly unknown[] = []
+      let previousPresentation:
+        | (FileBrowserListingContext & { metadata: ReturnType<typeof createFileSortMetadata> })
+        | undefined
+      const presentation = () => {
+        const settings = browser.current().settings
+        const views = available(stats.read().result)?.views
+        const inputs = [
+          available(listing.read().result)?.pages,
+          settings?.sortOrders?.[path],
+          settings?.favorites,
+          views,
+          currentHost.selection?.visible,
+        ]
+        if (
+          previousPresentation &&
+          inputs.every((value, index) => value === presentationInputs[index])
+        )
+          return previousPresentation
+        const data = currentListing()
+        const metadata = createFileSortMetadata(settings?.favorites, views)
+        const sortingDisabled =
+          (Object.values(VIRTUAL_FOLDERS) as string[]).includes(path) || !!data.virtualDirectory
+        const files = data.files
+        const orderedFiles = sortFilesForPath(
+          files.filter((file) => currentHost.selection?.visible(file) ?? true),
+          path,
+          settings?.sortOrders,
+          sortingDisabled,
+          metadata,
+        )
+        presentationInputs = inputs
+        return (previousPresentation = { files, orderedFiles, metadata })
+      }
+      const owner = modelOwner({
+        host: props.host,
+        listing: listing.read(),
+        presentation: presentation(),
+        browser: browser.read(),
+        actions: actions.read(),
+        chrome: chrome.read(),
+        virtual: virtual.read(),
+        stats: stats.read(),
+        viewModes: browserViewModes.source.model(),
+        breadcrumbs: breadcrumbFloating.read(),
+        projectBrowser: browser.snapshot,
+        projectActions: actions.snapshot,
+        projectChrome: chrome.snapshot,
+        projectVirtual: virtual.snapshot,
+        incrementView: stats.incrementView,
+        loadNextPage: listing.loadNextPage,
+        refresh: listing.refresh,
+        getScrollElement: () => scrollElement,
+        setScrollElement: (element: HTMLDivElement | undefined) => {
+          scrollElement = element
+        },
+        prefetch: (path: string, effect: Effect.Effect<unknown, Error>) =>
+          owner.run(hoverSlots(path), effect.pipe(Effect.catch(() => Effect.void)), 'drop'),
+      })
+      for (const child of [listing, browser, actions, chrome, virtual, stats]) owner.own(child)
+      const publishPresentation = () => {
+        const next = presentation()
+        owner.patch({ presentation: next })
+        currentHost.onListingChange?.(next)
+      }
+      owner.own(
+        listing.source.subscribe((listing) => {
+          owner.transaction(() => {
+            owner.patch({ listing })
+            publishPresentation()
+          })
         }),
-    })
-    let presentationInputs: readonly unknown[] = []
-    let previousPresentation:
-      | (FileBrowserListingContext & { metadata: ReturnType<typeof createFileSortMetadata> })
-      | undefined
-    const presentation = () => {
-      const settings = browser.current().settings
-      const views = available(stats.read().result)?.views
-      const inputs = [
-        available(listing.read().result)?.pages,
-        settings?.sortOrders?.[path],
-        settings?.favorites,
-        views,
-        currentHost.selection?.visible,
-      ]
-      if (
-        previousPresentation &&
-        inputs.every((value, index) => value === presentationInputs[index])
       )
-        return previousPresentation
-      const data = currentListing()
-      const metadata = createFileSortMetadata(settings?.favorites, views)
-      const sortingDisabled =
-        (Object.values(VIRTUAL_FOLDERS) as string[]).includes(path) || !!data.virtualDirectory
-      const files = data.files
-      const orderedFiles = sortFilesForPath(
-        files.filter((file) => currentHost.selection?.visible(file) ?? true),
-        path,
-        settings?.sortOrders,
-        sortingDisabled,
-        metadata,
+      owner.own(
+        browser.source.subscribe((browser) => {
+          owner.transaction(() => {
+            owner.patch({ browser })
+            publishPresentation()
+          })
+        }),
       )
-      presentationInputs = inputs
-      return (previousPresentation = { files, orderedFiles, metadata })
-    }
-    const owner = modelOwner({
-      host: props.host,
-      listing: listing.read(),
-      presentation: presentation(),
-      browser: browser.read(),
-      actions: actions.read(),
-      chrome: chrome.read(),
-      virtual: virtual.read(),
-      stats: stats.read(),
-      viewModes: browserViewModes.source.model(),
-      breadcrumbs: breadcrumbFloating.read(),
-      projectBrowser: browser.snapshot,
-      projectActions: actions.snapshot,
-      projectChrome: chrome.snapshot,
-      projectVirtual: virtual.snapshot,
-      incrementView: stats.incrementView,
-      loadNextPage: listing.loadNextPage,
-      refresh: listing.refresh,
-      getScrollElement: () => scrollElement,
-      setScrollElement: (element: HTMLDivElement | undefined) => {
-        scrollElement = element
-      },
-      prefetch: (path: string, effect: Effect.Effect<unknown, Error>) =>
-        owner.run(hoverSlots(path), effect.pipe(Effect.catch(() => Effect.void)), 'drop'),
-    })
-    for (const child of [listing, browser, actions, chrome, virtual, stats]) owner.own(child)
-    const publishPresentation = () => {
-      const next = presentation()
-      owner.patch({ presentation: next })
-      currentHost.onListingChange?.(next)
-    }
-    owner.own(
-      listing.source.subscribe((listing) => {
-        owner.transaction(() => {
-          owner.patch({ listing })
-          publishPresentation()
-        })
-      }),
-    )
-    owner.own(
-      browser.source.subscribe((browser) => {
-        owner.transaction(() => {
-          owner.patch({ browser })
-          publishPresentation()
-        })
-      }),
-    )
-    owner.own(actions.source.subscribe((actions) => owner.patch({ actions })))
-    owner.own(chrome.source.subscribe((chrome) => owner.patch({ chrome })))
-    owner.own(virtual.source.subscribe((virtual) => owner.patch({ virtual })))
-    owner.own(
-      stats.source.subscribe((stats) => {
-        owner.transaction(() => {
-          owner.patch({ stats })
-          publishPresentation()
-        })
-      }),
-    )
-    owner.own(browserViewModes.source.subscribe((viewModes) => owner.patch({ viewModes })))
-    owner.own(breadcrumbFloating.source.subscribe((breadcrumbs) => owner.patch({ breadcrumbs })))
-    currentHost.onListingChange?.(owner.read().presentation)
-    return {
-      source: owner.source,
-      receive: (next: { host: FileBrowserHost }) => {
-        currentHost = next.host
-        owner.transaction(() => {
-          owner.patch({ host: next.host })
-          publishPresentation()
-        })
-      },
-      dispose: owner.dispose,
-      close: owner.close,
-    }
+      owner.own(actions.source.subscribe((actions) => owner.patch({ actions })))
+      owner.own(chrome.source.subscribe((chrome) => owner.patch({ chrome })))
+      owner.own(virtual.source.subscribe((virtual) => owner.patch({ virtual })))
+      owner.own(
+        stats.source.subscribe((stats) => {
+          owner.transaction(() => {
+            owner.patch({ stats })
+            publishPresentation()
+          })
+        }),
+      )
+      owner.own(browserViewModes.source.subscribe((viewModes) => owner.patch({ viewModes })))
+      owner.own(breadcrumbFloating.source.subscribe((breadcrumbs) => owner.patch({ breadcrumbs })))
+      currentHost.onListingChange?.(owner.read().presentation)
+      return {
+        source: owner.source,
+        receive: (next: { host: FileBrowserHost }) => {
+          currentHost = next.host
+          owner.transaction(() => {
+            owner.patch({ host: next.host })
+            publishPresentation()
+          })
+        },
+        dispose: owner.dispose,
+        close: owner.close,
+      }
+    },
   },
-  view: view((model) => {
+  view((model) => {
     const host = model.host
     const currentPath = () => host.currentPath
     const data = fileListingSnapshot(model.listing)
@@ -287,7 +289,7 @@ export const FileBrowser = controllerView({
       }
       if (fileActions.virtual?.open(file)) return
       if (![MediaType.AUDIO, MediaType.VIDEO, MediaType.IMAGE].includes(file.type))
-        model.incrementView(file.path)
+        void model.incrementView(file.path)
       host.present({ kind: 'default', file, sourceDir, orderedFiles: displayedFiles() })
     }
     function openPath(path: string, displayName?: string) {
@@ -339,7 +341,7 @@ export const FileBrowser = controllerView({
       file.isDirectory && browser.knowledgeBases.includes(file.path.replace(/\\/g, '/'))
     function setViewMode(mode: 'list' | 'grid') {
       browserViewModes.setViewMode(`file-browser-viewmode-${currentPath()}`, mode)
-      browser.mutations.viewModeMutation.run({ path: currentPath(), viewMode: mode })
+      void browser.mutations.viewModeMutation.run({ path: currentPath(), viewMode: mode })
     }
     function download(file: FileItem) {
       if (fileActions.virtual?.download(file)) return
@@ -519,4 +521,4 @@ export const FileBrowser = controllerView({
       </>
     )
   }),
-})
+)

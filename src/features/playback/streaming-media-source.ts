@@ -1,10 +1,10 @@
 import { playbackStatusSchema } from './playback-schemas'
 import { Effect, Schema, Option, Cause } from 'effect'
-import { commandSlot, lifetime } from 'effectweb'
+import { modelOwner } from 'effectweb'
 import type { PlaybackMediaElement } from './media-element-host'
 import type { PlaybackSource } from './types'
 
-const streamSlot = commandSlot('media-stream')
+const streamSlot = 'media-stream'
 class StreamResponseError extends Error {}
 
 function waitForEvent(
@@ -57,7 +57,7 @@ export function createStreamingMediaSource(
   onError: (message?: string) => void,
 ) {
   const media = new MediaSource()
-  const owner = lifetime()
+  const owner = modelOwner({})
   const url = URL.createObjectURL(media)
   let finalDuration: number | undefined
   const closed = () => owner.cancel(streamSlot)

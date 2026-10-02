@@ -56,7 +56,7 @@ export function createInlineCreate(
       input.currentPath ? `${input.currentPath}/${name}` : name,
       input.inKnowledgeBase,
     )
-    operations.createFile.run({ path, content: '' }, () => {
+    void operations.createFile.run({ path, content: '' }, () => {
       reset()
       onFileCreated?.(path)
     })
@@ -68,7 +68,7 @@ export function createInlineCreate(
       name = state.name.trim()
     if (!name || projected.folderExists || !projected.visible) return
     const path = input.currentPath ? `${input.currentPath}/${name}` : name
-    operations.createFolder.run({ path }, () => {
+    void operations.createFolder.run({ path }, () => {
       reset()
       onFolderCreated?.(path)
     })

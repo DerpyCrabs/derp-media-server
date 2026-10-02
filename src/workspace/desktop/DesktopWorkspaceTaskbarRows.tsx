@@ -1,4 +1,4 @@
-import { localComponent, view, observe } from 'effectweb'
+import { component, view, observe } from 'effectweb'
 import { memoView } from 'effectweb/advanced'
 import { workspaceValueEquals } from '../model/workspace-equality'
 import type { TaskbarGroupModel } from './taskbar-group-model'
@@ -9,7 +9,7 @@ import { taskbarWindowIcon } from '@/features/explorer/file-icon'
 import { FloatingContextMenu } from '@/features/explorer/FloatingContextMenu'
 import { hermesSessionsSource } from '@/features/hermes/hermes-session-store'
 export const TaskbarGroupRow = memoView(
-  localComponent<
+  component<
     {
       group: TaskbarGroupModel
       playingPath: string | null
@@ -19,9 +19,9 @@ export const TaskbarGroupRow = memoView(
       closeWindow: (id: string) => void
     },
     { menu: { x: number; y: number } | null; mouseHandled: boolean }
-  >({
-    init: () => ({ menu: null, mouseHandled: false }),
-    view: view((local, patch) =>
+  >(
+    { init: () => ({ menu: null, mouseHandled: false }) },
+    view((local, patch) =>
       observe(hermesSessionsSource, (hermes) => {
         const props = local.props
         const menu = (): { x: number; y: number } | null =>
@@ -202,6 +202,6 @@ export const TaskbarGroupRow = memoView(
         ) : null
       }),
     ),
-  }),
+  ),
   workspaceValueEquals,
 )

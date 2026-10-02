@@ -1,4 +1,4 @@
-import { localComponent, view, domBinding, list } from 'effectweb'
+import { component, view, domBinding, list } from 'effectweb'
 import { getIconComponent, AVAILABLE_ICONS } from '@/lib/ui/available-icons'
 import { cn } from '@/lib/ui/cn'
 import type { WorkspaceRegistry } from '@/workspace/model/workspace-registry'
@@ -53,7 +53,7 @@ export const WorkspaceSwitcher = view<WorkspaceSwitcherProps>((props) => {
     </>
   )
 })
-const WorkspaceSwitcherPanel = localComponent<
+const WorkspaceSwitcherPanel = component<
   WorkspaceSwitcherProps,
   {
     editing: string | null
@@ -62,15 +62,17 @@ const WorkspaceSwitcherPanel = localComponent<
     draggedId: string
     panelPointerInside: boolean
   }
->({
-  init: () => ({
-    editing: null,
-    menu: null,
-    appearanceOpen: false,
-    draggedId: '',
-    panelPointerInside: false,
-  }),
-  view: view((local, patch) => {
+>(
+  {
+    init: () => ({
+      editing: null,
+      menu: null,
+      appearanceOpen: false,
+      draggedId: '',
+      panelPointerInside: false,
+    }),
+  },
+  view((local, patch) => {
     const props = local.props
     const editing = (): string | null => local.editing as string | null
     const setEditing = (value: string | null | ((current: string | null) => string | null)) => {
@@ -386,7 +388,7 @@ const WorkspaceSwitcherPanel = localComponent<
       </>
     )
   }),
-})
+)
 
 const switcherEvents = (
   _element: HTMLElement,

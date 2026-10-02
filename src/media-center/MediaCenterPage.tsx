@@ -1,14 +1,6 @@
 import { Effect } from 'effect'
-import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult'
-import {
-  available,
-  commandSlot,
-  domBinding,
-  modelOwner,
-  observe,
-  view,
-  controllerView,
-} from 'effectweb'
+import * as AsyncResult from 'effect/reactivity/AsyncResult'
+import { available, domBinding, modelOwner, observe, view, controllerView } from 'effectweb'
 import { queryCache } from '@/lib/api/cache'
 import { configQuery, settingsQuery, type ServerConfig } from '@/lib/api/queries'
 import type { WorkspaceSettings } from '@/workspace/model/workspace-settings-types'
@@ -24,7 +16,7 @@ import Search from '@effectweb/lucide/icons/search'
 import LoaderCircle from '@effectweb/lucide/icons/loader-circle'
 import { cn } from '@/lib/ui/cn'
 import { observeQuery } from '@effectweb/query'
-const statusPoll = commandSlot('indexing-status')
+const statusPoll = 'indexing-status'
 const feedTarget = (
   element: HTMLDivElement,
   read: () => { set: (element: HTMLDivElement | undefined) => void },
@@ -32,59 +24,61 @@ const feedTarget = (
   read().set(element)
   return () => read().set(undefined)
 }
-export const MediaCenterPage = controllerView({
-  create: (_props: Record<string, never>) => {
-    const owner = modelOwner({
-      searchOpen: false,
-      audioPlayerVisible:
-        !!playbackSource.model().currentItem && playbackSource.model().mode === 'audio',
-      feedActions: undefined as HTMLDivElement | undefined,
-      ai: AsyncResult.initial<IndexingStatus, Error>() as AsyncResult.AsyncResult<
-        IndexingStatus,
-        Error
-      >,
-      config: AsyncResult.initial<ServerConfig, Error>() as AsyncResult.AsyncResult<
-        ServerConfig,
-        Error
-      >,
-      settings: AsyncResult.initial<WorkspaceSettings, Error>() as AsyncResult.AsyncResult<
-        WorkspaceSettings,
-        Error
-      >,
-    })
-    const actions = {
-      setSearchOpen: (searchOpen: boolean) => owner.patch({ searchOpen }),
-      setFeedActions: (feedActions: HTMLDivElement | undefined) => owner.patch({ feedActions }),
-    }
-    owner.own(
-      playbackSource.subscribe((state) => {
-        const audioPlayerVisible = !!state.currentItem && state.mode === 'audio'
-        if (owner.read().audioPlayerVisible !== audioPlayerVisible)
-          owner.patch({ audioPlayerVisible })
-      }),
-    )
-    const ai = observeQuery(owner, queryCache, mediaAiStatusQuery, 'ai')
-    const config = observeQuery(owner, queryCache, configQuery, 'config')
-    const settings = observeQuery(owner, queryCache, settingsQuery, 'settings')
-    ai.select(true)
-    config.select(true)
-    settings.select(true)
-    owner.run(
-      statusPoll,
-      Effect.forever(
-        Effect.sleep(10000).pipe(
-          Effect.andThen(
-            Effect.sync(() => {
-              if (available(owner.read().ai)?.enabled) ai.refresh()
-            }),
+export const MediaCenterPage = controllerView(
+  {
+    controller: (_props: Record<string, never>) => {
+      const owner = modelOwner({
+        searchOpen: false,
+        audioPlayerVisible:
+          !!playbackSource.model().currentItem && playbackSource.model().mode === 'audio',
+        feedActions: undefined as HTMLDivElement | undefined,
+        ai: AsyncResult.initial<IndexingStatus, Error>() as AsyncResult.AsyncResult<
+          IndexingStatus,
+          Error
+        >,
+        config: AsyncResult.initial<ServerConfig, Error>() as AsyncResult.AsyncResult<
+          ServerConfig,
+          Error
+        >,
+        settings: AsyncResult.initial<WorkspaceSettings, Error>() as AsyncResult.AsyncResult<
+          WorkspaceSettings,
+          Error
+        >,
+      })
+      const actions = {
+        setSearchOpen: (searchOpen: boolean) => owner.patch({ searchOpen }),
+        setFeedActions: (feedActions: HTMLDivElement | undefined) => owner.patch({ feedActions }),
+      }
+      owner.own(
+        playbackSource.subscribe((state) => {
+          const audioPlayerVisible = !!state.currentItem && state.mode === 'audio'
+          if (owner.read().audioPlayerVisible !== audioPlayerVisible)
+            owner.patch({ audioPlayerVisible })
+        }),
+      )
+      const ai = observeQuery(owner, queryCache, mediaAiStatusQuery, 'ai')
+      const config = observeQuery(owner, queryCache, configQuery, 'config')
+      const settings = observeQuery(owner, queryCache, settingsQuery, 'settings')
+      ai.select(true)
+      config.select(true)
+      settings.select(true)
+      owner.run(
+        statusPoll,
+        Effect.forever(
+          Effect.sleep(10000).pipe(
+            Effect.andThen(
+              Effect.sync(() => {
+                if (available(owner.read().ai)?.enabled) ai.refresh()
+              }),
+            ),
           ),
         ),
-      ),
-      'replace',
-    )
-    return { source: owner.source, actions, dispose: owner.dispose, close: owner.close }
+        'replace',
+      )
+      return { source: owner.source, ...actions, dispose: owner.dispose, close: owner.close }
+    },
   },
-  view: view((model) =>
+  view((model) =>
     observe(browserHistory, (location) => {
       const params = () => new URLSearchParams(location.search)
       const searchOpen = () => model.searchOpen
@@ -207,4 +201,4 @@ export const MediaCenterPage = controllerView({
       )
     }),
   ),
-})
+)

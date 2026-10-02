@@ -133,22 +133,24 @@ function audioController(props: Snapshot<Props>) {
   }
 }
 type AudioModel = ReturnType<ReturnType<typeof audioController>['source']['model']>
-export const WorkspaceTaskbarAudio = controllerView({
-  create: (props: Snapshot<Props>) => {
-    const controller = audioController(props)
-    const owner = modelOwner({ ...controller.source.model(), setDetailsOpen: controller.details })
-    const stop = controller.source.subscribe((model) => owner.patch(model))
-    return {
-      source: owner.source,
-      receive: (props) => controller.receive(props),
-      dispose() {
-        stop()
-        controller.dispose()
-        owner.dispose()
-      },
-    }
+export const WorkspaceTaskbarAudio = controllerView(
+  {
+    controller: (props: Snapshot<Props>) => {
+      const controller = audioController(props)
+      const owner = modelOwner({ ...controller.source.model(), setDetailsOpen: controller.details })
+      const stop = controller.source.subscribe((model) => owner.patch(model))
+      return {
+        source: owner.source,
+        receive: (props) => controller.receive(props),
+        dispose() {
+          stop()
+          controller.dispose()
+          owner.dispose()
+        },
+      }
+    },
   },
-  view: view<AudioModel & { setDetailsOpen: (open: boolean) => void }>((model) => {
+  view<AudioModel & { setDetailsOpen: (open: boolean) => void }>((model) => {
     const props = model.props,
       session = model.session,
       setDetailsOpen = model.setDetailsOpen
@@ -384,7 +386,7 @@ export const WorkspaceTaskbarAudio = controllerView({
       </div>
     ) : null
   }),
-})
+)
 const audioDetailsEvents = (
   element: HTMLElement,
   current: () => { open: boolean; close: () => void },

@@ -675,16 +675,15 @@ test('places workspace button and pins before canvas zoom', async ({ page, reque
   await page.reload()
   const taskbar = page.locator('header')
   await expect(taskbar.getByTestId('canvas-zoom-control')).toBeVisible()
-  const order = await taskbar
-    .locator(
-      '[data-testid="workspace-taskbar-workspaces"], [data-testid="workspace-taskbar-pin"], [data-testid="canvas-zoom-control"]',
+  await expect
+    .poll(() =>
+      taskbar
+        .locator(
+          '[data-testid="workspace-taskbar-workspaces"], [data-testid="workspace-taskbar-pin"], [data-testid="canvas-zoom-control"]',
+        )
+        .evaluateAll((elements) => elements.map((element) => element.getAttribute('data-testid'))),
     )
-    .evaluateAll((elements) => elements.map((element) => element.getAttribute('data-testid')))
-  expect(order).toEqual([
-    'workspace-taskbar-workspaces',
-    'workspace-taskbar-pin',
-    'canvas-zoom-control',
-  ])
+    .toEqual(['workspace-taskbar-workspaces', 'workspace-taskbar-pin', 'canvas-zoom-control'])
 })
 
 test('renaming a file updates its canvas card and pin through SSE', async ({ page, request }) => {

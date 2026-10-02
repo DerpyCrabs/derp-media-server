@@ -52,7 +52,7 @@ function imageController(props: Snapshot<ImageViewerPaneProps>) {
   })
   const actions = {
     attach: (element: HTMLDivElement) => responsive.attach(element),
-    close: () => {
+    dismiss: () => {
       const current = owner.read()
       if (current.props.onClose) current.props.onClose()
       else closeViewer()
@@ -117,7 +117,7 @@ function imageController(props: Snapshot<ImageViewerPaneProps>) {
   select()
   return {
     source: owner.source,
-    actions,
+    ...actions,
     receive: (next: Snapshot<ImageViewerPaneProps>) => {
       owner.patch({ props: next })
       select()
@@ -278,9 +278,9 @@ const viewerBehavior = (element: HTMLDivElement, current: () => ImageModel) => {
     },
   }
 }
-export const ImageViewerPane = controllerView({
-  create: imageController,
-  view: view((model) => {
+export const ImageViewerPane = controllerView(
+  { controller: imageController },
+  view((model) => {
     const props = model.props,
       actions = model.actions
     const images = orderedImages(props),
@@ -290,7 +290,7 @@ export const ImageViewerPane = controllerView({
     const currentImageNumber = () => (index < 0 ? 1 : index + 1)
     const imageSeed = () => props.imageSeed
     const zoom = () => model.zoom
-    const handleClose = actions.close,
+    const handleClose = actions.dismiss,
       reshuffleImages = actions.shuffle,
       handleZoomOut = () => actions.zoom(-25),
       handleZoomIn = () => actions.zoom(25),
@@ -564,4 +564,4 @@ export const ImageViewerPane = controllerView({
       </div>
     )
   }),
-})
+)

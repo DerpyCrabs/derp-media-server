@@ -1,11 +1,13 @@
-import { localComponent, view } from 'effectweb'
+import { component, view } from 'effectweb'
 import Music2 from '@effectweb/lucide/icons/music-2'
 const unavailableArtwork = new Set<string>()
 type Props = { path?: string; hasArtwork?: boolean; class?: string }
-export const MusicArtwork = localComponent<Props, { failed: boolean }>({
-  identity: (props) => props.path,
-  init: (props) => ({ failed: !!props.path && unavailableArtwork.has(props.path) }),
-  view: view(({ props, failed }, patch) => (
+export const MusicArtwork = component<Props, { failed: boolean }>(
+  {
+    identity: (props) => props.path,
+    init: (props) => ({ failed: !!props.path && unavailableArtwork.has(props.path) }),
+  },
+  view(({ props, failed }, patch) => (
     <div
       class={`relative grid shrink-0 place-items-center overflow-hidden rounded-lg bg-secondary/70 ${props.class ?? 'size-11'}`}
     >
@@ -24,4 +26,4 @@ export const MusicArtwork = localComponent<Props, { failed: boolean }>({
       ) : null}
     </div>
   )),
-})
+)

@@ -1,5 +1,5 @@
 import { themeStore } from '@/lib/state/theme-store'
-import { commandSlot, lifetime } from 'effectweb'
+import { modelOwner } from 'effectweb'
 import { Effect } from 'effect'
 import {
   DEFAULT_FAVICON_DATA_URL,
@@ -13,9 +13,9 @@ export type FaviconInput = {
   nav: DynamicFaviconNavState
   rootName?: string
 }
-const renderFavicon = commandSlot('render-favicon')
+const renderFavicon = 'render-favicon'
 export function createDynamicFavicon() {
-  const owner = lifetime()
+  const owner = modelOwner({})
   const originalTitle = document.title
   const originalHref =
     document.querySelector<HTMLLinkElement>("link[rel*='icon']")?.href ?? DEFAULT_FAVICON_DATA_URL

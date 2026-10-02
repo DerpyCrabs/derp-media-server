@@ -1,4 +1,4 @@
-import { domBinding, localComponent, Portal, view, type JSX, type Snapshot } from 'effectweb'
+import { domBinding, component, Portal, view, type JSX, type Snapshot } from 'effectweb'
 import { getFloatingLayerMount } from '@/lib/ui/floating-layer-mount'
 import {
   floatingPointerInsideSurface,
@@ -110,9 +110,9 @@ const surfaceBinding = (element: HTMLDivElement, current: () => SurfaceProps) =>
     },
   }
 }
-const MenuSurface = localComponent({
-  init: (props: Snapshot<SurfaceProps>) => ({ mount: props.mount ?? getFloatingLayerMount() }),
-  view: view((model) => {
+const MenuSurface = component(
+  { init: (props: Snapshot<SurfaceProps>) => ({ mount: props.mount ?? getFloatingLayerMount() }) },
+  view((model) => {
     const props = model.props
     return (
       <Portal mount={props.mount ?? model.mount}>
@@ -137,7 +137,7 @@ const MenuSurface = localComponent({
       </Portal>
     )
   }),
-})
+)
 type FloatingMenuView = JSX.ComponentType & {
   <T>(this: never, props: FloatingContextMenuProps<T>): JSX.Element
 }

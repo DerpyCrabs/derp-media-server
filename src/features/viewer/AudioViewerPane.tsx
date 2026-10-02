@@ -147,7 +147,7 @@ function audioController(props: Snapshot<Props>) {
   sync()
   return {
     source: owner.source,
-    actions,
+    ...actions,
     receive: (next: Snapshot<Props>) => {
       owner.patch({ props: next })
       metadata.select(next.viewingPath || undefined)
@@ -259,21 +259,23 @@ const Transport = view<{ model: Model; active: boolean }>((props) => {
   )
 })
 type RowProps = { file: FileItem; selected: boolean; onSelect: (path: string) => void }
-const PlaylistRow = controllerView({
-  create: (props: Snapshot<RowProps>) => {
-    const owner = modelOwner({ props, metadata: undefined as AudioMetadata | undefined })
-    const metadata = observeQuery(owner, queryCache, metadataQuery, 'metadata', available)
-    metadata.select(props.file.path)
-    return {
-      source: owner.source,
-      receive: (next: Snapshot<RowProps>) => {
-        owner.patch({ props: next })
-        metadata.select(next.file.path)
-      },
-      dispose: owner.dispose,
-    }
+const PlaylistRow = controllerView(
+  {
+    controller: (props: Snapshot<RowProps>) => {
+      const owner = modelOwner({ props, metadata: undefined as AudioMetadata | undefined })
+      const metadata = observeQuery(owner, queryCache, metadataQuery, 'metadata', available)
+      metadata.select(props.file.path)
+      return {
+        source: owner.source,
+        receive: (next: Snapshot<RowProps>) => {
+          owner.patch({ props: next })
+          metadata.select(next.file.path)
+        },
+        dispose: owner.dispose,
+      }
+    },
   },
-  view: view((model) => {
+  view((model) => {
     const title = model.metadata?.title?.trim() || model.props.file.name
     const label = model.metadata?.artist?.trim() ? `${model.metadata.artist} — ${title}` : title
     return (
@@ -290,11 +292,11 @@ const PlaylistRow = controllerView({
       </button>
     )
   }),
-})
+)
 const fileRows = collection<FileItem>((file) => file.path)
-export const AudioViewerPane = controllerView({
-  create: audioController,
-  view: view((model) => {
+export const AudioViewerPane = controllerView(
+  { controller: audioController },
+  view((model) => {
     const props = model.props
     const layout =
       model.size.width >= 640 && model.size.height >= 236
@@ -410,4 +412,4 @@ export const AudioViewerPane = controllerView({
       </div>
     )
   }),
-})
+)

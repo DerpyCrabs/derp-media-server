@@ -12,7 +12,7 @@ import {
   controllerView,
 } from 'effectweb'
 
-import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult'
+import * as AsyncResult from 'effect/reactivity/AsyncResult'
 import { queryCache } from '@/lib/api/cache'
 import { query, querySource } from '@effectweb/query'
 import { MusicHome } from '@/features/music/MusicHome'
@@ -83,9 +83,9 @@ const watchSentinel = (
   observer.observe(element)
   return { update: check, dispose: () => observer.disconnect() }
 }
-export const ForYou = controllerView({
-  create: createForYou,
-  view: view((model) => {
+export const ForYou = controllerView(
+  { controller: createForYou },
+  view((model) => {
     const props = model.props
     const session = {
       dispatch: (command: Parameters<ReturnType<typeof getPlaybackSession>['dispatch']>[0]) =>
@@ -106,28 +106,28 @@ export const ForYou = controllerView({
     const home = {
       isPending: AsyncResult.isInitial(model.home),
       isFetching: model.home.waiting,
-      isFetchingNextPage: model.tasks.page.waiting,
-      isFetchNextPageError: !!resourceError(model.tasks.page),
-      isError: AsyncResult.isFailure(model.home) || !!resourceError(model.tasks.page),
-      error: resourceError(model.home) || resourceError(model.tasks.page),
+      isFetchingNextPage: model.pageResult.waiting,
+      isFetchNextPageError: !!resourceError(model.pageResult),
+      isError: AsyncResult.isFailure(model.home) || !!resourceError(model.pageResult),
+      error: resourceError(model.home) || resourceError(model.pageResult),
       hasNextPage: !!available(model.home)?.next,
       fetchNextPage: model.actions.loadNext,
       refetch: () => queryCache.invalidateQuery(homeQuery.query, model.category),
     }
     const reading = { error: resourceError(model.reading), refetch: model.actions.refreshReading }
     const refresh = {
-      isPending: model.tasks.refresh.waiting,
-      error: resourceError(model.tasks.refresh),
+      isPending: model.refreshResult.waiting,
+      error: resourceError(model.refreshResult),
       mutate: model.actions.refresh,
     }
     const ask = {
-      isPending: model.tasks.ask.waiting,
-      error: resourceError(model.tasks.ask),
+      isPending: model.askResult.waiting,
+      error: resourceError(model.askResult),
       mutate: model.actions.ask,
     }
     const feedback = {
-      isPending: model.tasks.feedback.waiting,
-      error: resourceError(model.tasks.feedback),
+      isPending: model.feedbackResult.waiting,
+      error: resourceError(model.feedbackResult),
       mutate: model.actions.feedback,
     }
     const feed = () => {
@@ -736,7 +736,7 @@ export const ForYou = controllerView({
       </main>
     )
   }),
-})
+)
 const librarySearch = query({
   name: 'library-matches',
   load: (text: string) =>

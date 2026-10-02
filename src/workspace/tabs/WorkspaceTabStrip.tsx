@@ -1,4 +1,4 @@
-import { localComponent, view, domBinding, list } from 'effectweb'
+import { component, view, domBinding, list } from 'effectweb'
 import type { FileDragData } from '@/lib/files/file-drag-data'
 import { getFileDragData, hasFileDragData } from '@/lib/files/file-drag-data'
 import type { WindowDefinition as WorkspaceWindowDefinition } from '@/lib/models/window-model'
@@ -72,7 +72,7 @@ export type WorkspaceTabStripProps = {
   onUseAsSplitLeftTab?: (tabId: string) => void
 }
 type TabContextTarget = { x: number; y: number; tabId: string }
-export const WorkspaceTabStrip = localComponent<
+export const WorkspaceTabStrip = component<
   WorkspaceTabStripProps,
   {
     scrollElement: HTMLDivElement | null
@@ -81,15 +81,17 @@ export const WorkspaceTabStrip = localComponent<
     fileDragOver: boolean
     tabMenu: TabContextTarget | null
   }
->({
-  init: () => ({
-    scrollElement: null,
-    overflow: { left: false, right: false },
-    dropSlotIndex: null,
-    fileDragOver: false,
-    tabMenu: null,
-  }),
-  view: view((local, patch) => {
+>(
+  {
+    init: () => ({
+      scrollElement: null,
+      overflow: { left: false, right: false },
+      dropSlotIndex: null,
+      fileDragOver: false,
+      tabMenu: null,
+    }),
+  },
+  view((local, patch) => {
     const props = local.props
     const scrollElement = (): HTMLDivElement | null => local.scrollElement as HTMLDivElement | null
     const setScrollElement = (
@@ -632,7 +634,7 @@ export const WorkspaceTabStrip = localComponent<
       </div>
     )
   }),
-})
+)
 
 const tabScrollBinding = (
   element: HTMLDivElement,

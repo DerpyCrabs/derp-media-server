@@ -1,15 +1,8 @@
 /// <reference lib="webworker" />
 
 import { Schema } from 'effect'
-import { sseEventSchema, workerCommandSchema } from './sse-protocol'
-
-const INITIAL_DELAY_MS = 5000
-const MAX_DELAY_MS = 60000
-const BACKOFF_MULTIPLIER = 2
-
-function getDelayMs(retryCount: number): number {
-  return Math.min(INITIAL_DELAY_MS * BACKOFF_MULTIPLIER ** retryCount, MAX_DELAY_MS)
-}
+import { workerCommandSchema } from './sse-protocol'
+import { createAdminStream } from './sse-reconnect'
 
 type PortState = { admin: number }
 const portStates = new Map<MessagePort, PortState>()
@@ -24,17 +17,8 @@ function portState(port: MessagePort): PortState {
 }
 
 let adminRefTotal = 0
-let adminSource: EventSource | null = null
-let adminConnected = false
-let adminRetry = 0
-let adminReconnectTimer: ReturnType<typeof setTimeout> | null = null
-
-function cancelAdminReconnect() {
-  if (adminReconnectTimer) {
-    clearTimeout(adminReconnectTimer)
-    adminReconnectTimer = null
-  }
-}
+const adminStream = createAdminStream(broadcastAdmin)
+let online = true
 
 function broadcastAdmin(data: unknown) {
   for (const [port, state] of portStates) {
@@ -52,43 +36,11 @@ function sendAdmin(port: MessagePort, data: unknown) {
 }
 
 function openAdminStream() {
-  cancelAdminReconnect()
-  if (adminSource || adminRefTotal <= 0) return
-
-  adminConnected = false
-  adminSource = new EventSource('/api/events/stream')
-  adminSource.onmessage = (event) => {
-    try {
-      const decoded = Schema.decodeUnknownExit(sseEventSchema)(JSON.parse(event.data))
-      if (decoded._tag === 'Failure') return
-      const data = decoded.value
-      if (data.type === 'connected') adminConnected = true
-      adminRetry = 0
-      broadcastAdmin(data)
-    } catch {
-      // Ignore malformed events.
-    }
-  }
-  adminSource.onerror = () => {
-    adminConnected = false
-    adminSource?.close()
-    adminSource = null
-    if (adminRefTotal <= 0) return
-    const delay = getDelayMs(adminRetry++)
-    adminReconnectTimer = setTimeout(() => {
-      adminReconnectTimer = null
-      openAdminStream()
-    }, delay)
-  }
+  if (online && adminRefTotal > 0) adminStream.start()
 }
 
 function closeAdminStreamIfIdle() {
-  if (adminRefTotal > 0) return
-  cancelAdminReconnect()
-  adminRetry = 0
-  adminConnected = false
-  adminSource?.close()
-  adminSource = null
+  if (adminRefTotal <= 0) adminStream.stop()
 }
 
 function onPortMessage(port: MessagePort, raw: unknown) {
@@ -103,14 +55,12 @@ function onPortMessage(port: MessagePort, raw: unknown) {
     return
   }
   if (message.type === 'network-offline') {
-    cancelAdminReconnect()
-    adminConnected = false
-    adminSource?.close()
-    adminSource = null
+    online = false
+    adminStream.stop()
     return
   }
   if (message.type === 'network-online') {
-    adminRetry = 0
+    online = true
     openAdminStream()
     return
   }
@@ -119,7 +69,7 @@ function onPortMessage(port: MessagePort, raw: unknown) {
     state.admin++
     adminRefTotal++
     if (adminRefTotal === 1) openAdminStream()
-    else if (adminConnected) sendAdmin(port, { type: 'connected' })
+    else if (adminStream.connected) sendAdmin(port, { type: 'connected' })
     return
   }
   if (message.type === 'unsubscribe-admin') {

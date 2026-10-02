@@ -308,6 +308,7 @@ test.describe('Reader', () => {
     await page.getByRole('button', { name: 'Reset appearance' }).click()
     await page.getByRole('button', { name: 'compact', exact: true }).click()
     await page.getByLabel('Close reader').click()
+    await expect(page.getByTestId('reader-dialog')).toBeHidden()
   })
 
   test('saves old book position when mounted reader switches files', async ({ page }) => {

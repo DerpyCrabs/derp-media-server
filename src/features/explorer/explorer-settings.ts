@@ -1,5 +1,5 @@
 import { type Snapshot, available, modelOwner } from 'effectweb'
-import { AsyncResult } from 'effect/unstable/reactivity'
+import { AsyncResult } from 'effect/reactivity'
 import { settingsQuery } from '@/lib/api/queries'
 import { queryCache } from '@/lib/api/cache'
 import type { GlobalSettings } from '@/lib/models/settings-types'

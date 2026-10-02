@@ -146,14 +146,14 @@ function createMediaBrowser(props: Props) {
   updateFavicon()
   return {
     source: owner.source,
-    actions,
+    ...actions,
     receive: (props: Props) => owner.patch({ props }),
     dispose: owner.dispose,
   }
 }
-export const MediaCenterFileBrowser = controllerView({
-  create: createMediaBrowser,
-  view: view((model) => {
+export const MediaCenterFileBrowser = controllerView(
+  { controller: createMediaBrowser },
+  view((model) => {
     const props = model.props
     const params = new URLSearchParams(model.history.search)
     const currentPath = params.get('dir') ?? ''
@@ -266,4 +266,4 @@ export const MediaCenterFileBrowser = controllerView({
     }
     return <FileBrowser host={host} />
   }),
-})
+)

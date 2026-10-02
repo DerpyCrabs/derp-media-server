@@ -1,4 +1,4 @@
-import { type Snapshot, localComponent, view, domBinding, observe, list } from 'effectweb'
+import { type Snapshot, component, view, domBinding, observe, list } from 'effectweb'
 import {
   breadcrumbFloating,
   clearCompactPathOpenOnly,
@@ -125,21 +125,23 @@ const breadcrumbLayout = (element: HTMLDivElement, current: () => LayoutBinding)
     },
   }
 }
-const BreadcrumbsContent = localComponent({
-  init: (
-    _props: Snapshot<
-      BreadcrumbsProps & { floating: { compactPathOpen: boolean; folderMenu: unknown } }
-    >,
-  ) => ({
-    visibleIndices: new Set() as Set<number>,
-    pathEllipsisVisible: false,
-    ellipsisSkipsParent: false,
-    compactPathOnly: false,
-    pathPickerButtonEl: null as HTMLButtonElement | null,
-    inlinePathMenuOpen: false,
-    ellipsisMenuAnchorEl: null as HTMLButtonElement | null,
-  }),
-  view: view((local, patch) => {
+const BreadcrumbsContent = component(
+  {
+    init: (
+      _props: Snapshot<
+        BreadcrumbsProps & { floating: { compactPathOpen: boolean; folderMenu: unknown } }
+      >,
+    ) => ({
+      visibleIndices: new Set() as Set<number>,
+      pathEllipsisVisible: false,
+      ellipsisSkipsParent: false,
+      compactPathOnly: false,
+      pathPickerButtonEl: null as HTMLButtonElement | null,
+      inlinePathMenuOpen: false,
+      ellipsisMenuAnchorEl: null as HTMLButtonElement | null,
+    }),
+  },
+  view((local, patch) => {
     const props = local.props
     const visibleIndices = () => local.visibleIndices,
       setVisibleIndices = (value: Set<number>) => patch({ visibleIndices: value })
@@ -504,7 +506,7 @@ const BreadcrumbsContent = localComponent({
       </div>
     )
   }),
-})
+)
 export const Breadcrumbs = view<BreadcrumbsProps>((props) =>
   observe(breadcrumbFloating.source, (floating) => (
     <BreadcrumbsContent {...props} floating={floating} />

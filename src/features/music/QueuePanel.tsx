@@ -1,4 +1,4 @@
-import { localComponent, view, observe, list, Portal } from 'effectweb'
+import { component, view, observe, list, Portal } from 'effectweb'
 import ArrowDown from '@effectweb/lucide/icons/arrow-down'
 import ArrowUp from '@effectweb/lucide/icons/arrow-up'
 import ListMusic from '@effectweb/lucide/icons/list-music'
@@ -14,12 +14,12 @@ import { MusicArtwork } from './MusicArtwork'
 import { continueRadio } from './actions'
 import { radioStatusSource } from './RadioContinuation'
 import { musicStatusSource } from './enabled'
-export const QueuePanel = localComponent<
+export const QueuePanel = component<
   Record<string, never>,
   { open: boolean; showHistory: boolean; limit: number }
->({
-  init: () => ({ open: false, showHistory: false, limit: 100 }),
-  view: view((model, patch) =>
+>(
+  { init: () => ({ open: false, showHistory: false, limit: 100 }) },
+  view((model, patch) =>
     observe(playbackSource, (snapshot) => {
       const { open, showHistory, limit } = model
       const setOpen = (open: boolean) => patch({ open })
@@ -198,7 +198,7 @@ export const QueuePanel = localComponent<
       )
     }),
   ),
-})
+)
 const QueueRadioControls = view(() =>
   observe(playbackSource, (snapshot) =>
     observe(musicStatusSource, ({ enabled: aiEnabled }) =>

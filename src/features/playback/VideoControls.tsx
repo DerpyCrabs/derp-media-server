@@ -1,11 +1,11 @@
+import { list } from 'effectweb'
 import { playbackStatusSchema } from './playback-schemas'
 import { Schema, Option } from 'effect'
 import { videoPreferencesSchema } from './playback-schemas'
 import { Effect } from 'effect'
-import { AsyncResult } from 'effect/unstable/reactivity'
+import { AsyncResult } from 'effect/reactivity'
 import {
   available,
-  commandSlot,
   domBinding,
   modelOwner,
   resourceError,
@@ -13,7 +13,6 @@ import {
   type Snapshot,
   controllerView,
   type ControllerModel,
-  ownedTasks,
 } from 'effectweb'
 import { queryCache, groups } from '@/lib/api/cache'
 import { postSchemaEffect } from '@/lib/api/client'
@@ -66,9 +65,8 @@ function trackLabel(track: VideoTrack): string {
     .filter(Boolean)
     .join(' · ')
 }
-const hideSlot = commandSlot('video-controls-hide')
-const saveSlot = commandSlot('video-preferences-save')
-const fullscreenSlot = commandSlot('video-fullscreen')
+const hideSlot = 'video-controls-hide'
+const fullscreenSlot = 'video-fullscreen'
 function controlsController(props: Snapshot<Props>) {
   const session = getPlaybackSession()
   let previousPath = '',
@@ -91,28 +89,25 @@ function controlsController(props: Snapshot<Props>) {
     infoError: false,
     saved: AsyncResult.initial() as AsyncResult.AsyncResult<unknown, unknown>,
   })
-  const { save } = ownedTasks(owner, {
-    save: {
-      policy: 'queue',
-      slot: saveSlot,
-      result: 'saved',
-      run: (video: VideoPreferences['video'], global?: VideoPreferences['global']) => {
-        const path = owner.read().props.path
-        return postSchemaEffect(videoPreferencesSchema, '/api/playback/preferences', {
-          path,
-          video,
-          global,
-        }).pipe(
-          Effect.tap((preferences) =>
-            Effect.sync(() => {
-              queryCache.setQueryData(videoPreferencesQuery, path, preferences)
-              queryCache.invalidateGroup(groups.playback)
-            }),
-          ),
-        )
-      },
-    },
-  })
+  const save = (video: VideoPreferences['video'], global?: VideoPreferences['global']) => {
+    const path = owner.read().props.path
+    return owner.task(
+      'saved',
+      postSchemaEffect(videoPreferencesSchema, '/api/playback/preferences', {
+        path,
+        video,
+        global,
+      }).pipe(
+        Effect.tap((preferences) =>
+          Effect.sync(() => {
+            queryCache.setQueryData(videoPreferencesQuery, path, preferences)
+            queryCache.invalidateGroup(groups.playback)
+          }),
+        ),
+      ),
+      'queue',
+    )
+  }
   const actions = {
     reveal: () => reveal(),
     toggle: () => {
@@ -194,7 +189,7 @@ function controlsController(props: Snapshot<Props>) {
     },
     speed: (speed: number) => {
       if (owner.read().props.active) session.dispatch({ type: 'setPlaybackRate', rate: speed })
-      save({ speed })
+      void save({ speed })
     },
     track: (kind: 'audioTrack' | 'subtitleTrack' | 'secondarySubtitleTrack', value: string) => {
       const current = owner.read(),
@@ -206,7 +201,7 @@ function controlsController(props: Snapshot<Props>) {
           : kind === 'subtitleTrack'
             ? 'subtitleLanguage'
             : 'secondarySubtitleLanguage'
-      save(
+      void save(
         { [kind]: value || null },
         { [languageKey]: selected?.language === 'und' ? '' : (selected?.language ?? '') },
       )
@@ -273,7 +268,7 @@ function controlsController(props: Snapshot<Props>) {
   syncHide()
   return {
     source: owner.source,
-    actions,
+    ...actions,
     receive: (next: Snapshot<Props>) => {
       owner.patch({ props: next })
       info.select(next.path || undefined)
@@ -323,7 +318,7 @@ const controlsBehavior = (_element: HTMLSpanElement, current: () => ControlsMode
       } else model.actions.toggle()
     }
     const doubleClick = (event: MouseEvent) => {
-      if (event.target === video) current().actions.fullscreen()
+      if (event.target === video) void current().actions.fullscreen()
     }
     const keydown = (event: KeyboardEvent) => {
       const model = current(),
@@ -365,7 +360,7 @@ const controlsBehavior = (_element: HTMLSpanElement, current: () => ControlsMode
           model.actions.seek(position + 10)
           break
         case 'f':
-          model.actions.fullscreen()
+          void model.actions.fullscreen()
           break
         case 'm':
           model.actions.mute()
@@ -423,9 +418,9 @@ const controlsBehavior = (_element: HTMLSpanElement, current: () => ControlsMode
   attach()
   return { update: attach, dispose: () => cleanup?.() }
 }
-export const VideoControls = controllerView({
-  create: controlsController,
-  view: view((model) => {
+export const VideoControls = controllerView(
+  { controller: controlsController },
+  view((model) => {
     const props = model.props
     const audio = () =>
       preferredTrack(
@@ -590,7 +585,7 @@ export const VideoControls = controllerView({
                     onChange={(value) => chooseTrack('audioTrack', value)}
                   />
                 </label>
-                {(['subtitleTrack', 'secondarySubtitleTrack'] as const).map((kind) => (
+                {list(['subtitleTrack', 'secondarySubtitleTrack'] as const, (kind) => (
                   <label class='block space-y-1 text-xs'>
                     <span>{kind === 'subtitleTrack' ? 'Subtitles' : 'Second subtitles'}</span>
                     <PlaybackSetting
@@ -711,7 +706,7 @@ export const VideoControls = controllerView({
       </>
     )
   }),
-})
+)
 type SubtitleProps = {
   path: string
   track: VideoTrack
@@ -745,25 +740,27 @@ const subtitlesQuery = query({
       return parseSubtitles(text)
     }),
 })
-const VideoSubtitleLine = controllerView({
-  create: (props: Snapshot<SubtitleProps>) => {
-    const owner = modelOwner({ props, cues: [] as ReturnType<typeof parseSubtitles>, error: '' })
-    const resource = observeQuery(owner, queryCache, subtitlesQuery, (result) =>
-      owner.patch({ cues: available(result) ?? [], error: resourceError(result) }),
-    )
-    const select = (next: Snapshot<SubtitleProps>) =>
-      resource.select({ path: next.path, fingerprint: next.fingerprint, track: next.track.id })
-    select(props)
-    return {
-      source: owner.source,
-      receive: (next: Snapshot<SubtitleProps>) => {
-        owner.patch({ props: next })
-        select(next)
-      },
-      dispose: owner.dispose,
-    }
+const VideoSubtitleLine = controllerView(
+  {
+    controller: (props: Snapshot<SubtitleProps>) => {
+      const owner = modelOwner({ props, cues: [] as ReturnType<typeof parseSubtitles>, error: '' })
+      const resource = observeQuery(owner, queryCache, subtitlesQuery, (result) =>
+        owner.patch({ cues: available(result) ?? [], error: resourceError(result) }),
+      )
+      const select = (next: Snapshot<SubtitleProps>) =>
+        resource.select({ path: next.path, fingerprint: next.fingerprint, track: next.track.id })
+      select(props)
+      return {
+        source: owner.source,
+        receive: (next: Snapshot<SubtitleProps>) => {
+          owner.patch({ props: next })
+          select(next)
+        },
+        dispose: owner.dispose,
+      }
+    },
   },
-  view: view((model) => {
+  view((model) => {
     const text = subtitleText([...model.cues], model.props.position)
     return (
       <>
@@ -788,4 +785,4 @@ const VideoSubtitleLine = controllerView({
       </>
     )
   }),
-})
+)

@@ -1,5 +1,5 @@
 import { Effect } from 'effect'
-import { commandSlot, modelOwner } from 'effectweb'
+import { modelOwner } from 'effectweb'
 import { HermesVoiceTransport } from './hermes-session-store'
 
 type RecorderHandle = {
@@ -47,8 +47,8 @@ const browserDependencies: HermesVoiceRecorderDependencies = {
   reportError: HermesVoiceTransport.reportError,
 }
 
-const permissionSlot = commandSlot('microphone-permission')
-const transcriptionSlot = commandSlot('voice-transcription')
+const permissionSlot = 'microphone-permission'
+const transcriptionSlot = 'voice-transcription'
 type RecorderPhase = 'idle' | 'requesting' | 'recording' | 'stopping'
 
 export function createHermesVoiceRecorderEngine(

@@ -1,7 +1,7 @@
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import * as pdfjs from 'pdfjs-dist'
 import { Effect } from 'effect'
-import { commandSlot, domBinding, localComponent, lifetime, view, type Snapshot } from 'effectweb'
+import { domBinding, component, modelOwner, view, type Snapshot } from 'effectweb'
 import { TextLayerBuilder } from 'pdfjs-dist/web/pdf_viewer.mjs'
 import type { ReaderPage, ReaderSelectionMode } from '../../reader-position'
 import type { ReaderSelection } from '../../ReaderSelectionMenu'
@@ -17,12 +17,12 @@ interface Props {
   selectionMode: ReaderSelectionMode
   onRegion: (selection: Omit<ReaderSelection, 'id'>) => void
 }
-const renderSlot = commandSlot('pdf-page-render')
+const renderSlot = 'pdf-page-render'
 const renderPage = (
   host: HTMLDivElement,
   current: () => Snapshot<Props> & { onError: (error: string) => void },
 ) => {
-  const owner = lifetime()
+  const owner = modelOwner({})
   let near = false
   let signature = ''
   const draw = () => {
@@ -103,10 +103,9 @@ const renderPage = (
     },
   }
 }
-export const PdfContent = localComponent<Props, { error: string }>({
-  init: () => ({ error: '' }),
-  identity: (props) => props.page.id,
-  view: view((model, patch) => {
+export const PdfContent = component<Props, { error: string }>(
+  { init: () => ({ error: '' }), identity: (props) => props.page.id },
+  view((model, patch) => {
     const props = model.props
     return (
       <div
@@ -140,4 +139,4 @@ export const PdfContent = localComponent<Props, { error: string }>({
       </div>
     )
   }),
-})
+)

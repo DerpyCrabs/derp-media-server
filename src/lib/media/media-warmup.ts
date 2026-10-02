@@ -1,8 +1,8 @@
 import { Effect } from 'effect'
-import { commandSlot, lifetime } from 'effectweb'
-const warmSlot = commandSlot('media-warmup')
+import { modelOwner } from 'effectweb'
+const warmSlot = 'media-warmup'
 export function createMediaWarmup() {
-  const owner = lifetime()
+  const owner = modelOwner({})
   const completed = new Set<string>()
   let selected = ''
   const select = (urls: readonly string[]) => {

@@ -1,4 +1,4 @@
-import { localComponent, view } from 'effectweb'
+import { component, view } from 'effectweb'
 import type { ReaderSelection } from './ReaderSelectionMenu'
 import { menuPositionForRect } from './reader-geometry'
 type Box = { left: number; top: number; width: number; height: number }
@@ -17,12 +17,9 @@ const point = (event: PointerEvent) => {
     y: Math.max(0, Math.min(rect.height, event.clientY - rect.top)),
   }
 }
-export const RegionLayer = localComponent<
-  RegionProps,
-  { drag: Drag | null; committed: Box | null }
->({
-  init: () => ({ drag: null, committed: null }),
-  view: view((model, patch) => {
+export const RegionLayer = component<RegionProps, { drag: Drag | null; committed: Box | null }>(
+  { init: () => ({ drag: null, committed: null }) },
+  view((model, patch) => {
     const visible = model.drag ? box(model.drag) : model.committed
     return (
       <div
@@ -113,4 +110,4 @@ export const RegionLayer = localComponent<
       </div>
     )
   }),
-})
+)

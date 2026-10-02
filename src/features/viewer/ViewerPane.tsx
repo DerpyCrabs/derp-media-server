@@ -1,3 +1,4 @@
+import { modalScroll } from './modal-scroll'
 import { available, domBinding, modelOwner, view, type Snapshot, controllerView } from 'effectweb'
 import { queryCache, groups } from '@/lib/api/cache'
 import { settingsQuery, statsQuery } from '@/lib/api/queries'
@@ -41,27 +42,7 @@ const directoryQuery = query({
   groups: [groups.files],
   load: (directory: string) => fetchDirectoryFilesEffect(directory),
 })
-const modalScroll = (_element: HTMLDivElement, current: () => boolean) => {
-  let restore: (() => void) | undefined
-  const update = () => {
-    if (current() && !restore) {
-      const html = document.documentElement,
-        body = document.body
-      const previous = { html: html.style.overflow, body: body.style.overflow }
-      html.style.overflow = 'hidden'
-      body.style.overflow = 'hidden'
-      restore = () => {
-        html.style.overflow = previous.html
-        body.style.overflow = previous.body
-      }
-    } else if (!current()) {
-      restore?.()
-      restore = undefined
-    }
-  }
-  update()
-  return { update, dispose: () => restore?.() }
-}
+
 function viewerController(props: Snapshot<ViewerPaneProps>) {
   const owner = modelOwner({
     props,
@@ -96,9 +77,9 @@ function viewerController(props: Snapshot<ViewerPaneProps>) {
     dispose: owner.dispose,
   }
 }
-export const ViewerPane = controllerView({
-  create: viewerController,
-  view: view((model) => {
+export const ViewerPane = controllerView(
+  { controller: viewerController },
+  view((model) => {
     const props = model.props
     const path = props.viewingPath,
       type = getMediaTypeFromPath(path),
@@ -244,4 +225,4 @@ export const ViewerPane = controllerView({
       </div>
     )
   }),
-})
+)

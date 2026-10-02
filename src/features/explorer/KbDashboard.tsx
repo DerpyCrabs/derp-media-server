@@ -9,7 +9,7 @@ import {
   view,
   controllerView,
 } from 'effectweb'
-import { AsyncResult } from 'effect/unstable/reactivity'
+import { AsyncResult } from 'effect/reactivity'
 import { groups, queryCache } from '@/lib/api/cache'
 import { setFileDragData } from '@/lib/files/file-drag-data'
 import {
@@ -59,31 +59,33 @@ const wheelBinding = domMount((element: HTMLDivElement) => {
   element.addEventListener('wheel', handler, { passive: false })
   return () => element.removeEventListener('wheel', handler)
 })
-export const KbDashboard = controllerView({
-  create: (props: Props) => {
-    const owner = modelOwner({
-      props,
-      result: AsyncResult.initial<{ results: RecentFile[] }, Error>() as AsyncResult.AsyncResult<
-        Snapshot<{ results: RecentFile[] }>,
-        Error
-      >,
-      enableDrag: finePointerDragEnabled(),
-      now: Date.now(),
-    })
-    owner.own(subscribeFinePointerDragEnabled((enableDrag) => owner.patch({ enableDrag })))
-    owner.own(minute.subscribe((now) => owner.patch({ now })))
-    const recent = observeQuery(owner, queryCache, recentQuery, 'result')
-    recent.select(props.scopePath || undefined)
-    return {
-      source: owner.source,
-      receive: (next: Props) => {
-        owner.patch({ props: next })
-        recent.select(next.scopePath || undefined)
-      },
-      dispose: owner.dispose,
-    }
+export const KbDashboard = controllerView(
+  {
+    controller: (props: Props) => {
+      const owner = modelOwner({
+        props,
+        result: AsyncResult.initial<{ results: RecentFile[] }, Error>() as AsyncResult.AsyncResult<
+          Snapshot<{ results: RecentFile[] }>,
+          Error
+        >,
+        enableDrag: finePointerDragEnabled(),
+        now: Date.now(),
+      })
+      owner.own(subscribeFinePointerDragEnabled((enableDrag) => owner.patch({ enableDrag })))
+      owner.own(minute.subscribe((now) => owner.patch({ now })))
+      const recent = observeQuery(owner, queryCache, recentQuery, 'result')
+      recent.select(props.scopePath || undefined)
+      return {
+        source: owner.source,
+        receive: (next: Props) => {
+          owner.patch({ props: next })
+          recent.select(next.scopePath || undefined)
+        },
+        dispose: owner.dispose,
+      }
+    },
   },
-  view: view((model) => {
+  view((model) => {
     const props = model.props
     const compact = () => props.compact === true || props.mode === 'Workspace'
     const recent = () => available(model.result)?.results ?? []
@@ -164,4 +166,4 @@ export const KbDashboard = controllerView({
       </div>
     ) : null
   }),
-})
+)

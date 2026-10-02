@@ -1,6 +1,7 @@
+import { sequence } from 'effectweb'
 import { Effect } from 'effect'
 import { showAppAlertEffect } from '@/lib/ui/app-dialog'
-import { localComponent, view, domMount, errorBoundary, list } from 'effectweb'
+import { component, view, domMount, errorBoundary, list } from 'effectweb'
 import type { HermesMessage, HermesToolCall } from '@/features/hermes/hermes-session-store'
 import Bot from '@effectweb/lucide/icons/bot'
 import Braces from '@effectweb/lucide/icons/braces'
@@ -57,12 +58,12 @@ function downloadText(name: string, content: string) {
   anchor.click()
   URL.revokeObjectURL(url)
 }
-const ToolCard = localComponent<
+const ToolCard = component<
   { call?: HermesToolCall; message?: HermesMessage; onOpenImage?: (src: string) => void },
   { expanded: boolean }
->({
-  init: () => ({ expanded: false }),
-  view: view((local, patch) => {
+>(
+  { init: () => ({ expanded: false }) },
+  view((local, patch) => {
     const props = local.props
     const expanded = (): boolean => local.expanded as boolean
     const setExpanded = (value: boolean | ((current: boolean) => boolean)) => {
@@ -232,7 +233,7 @@ const ToolCard = localComponent<
           ) : null}
           {taskItems().length ? (
             <div class='mb-2 space-y-1'>
-              {taskItems().map((item) => {
+              {list(sequence(taskItems()), (item) => {
                 const row: Record<string, unknown> =
                   item && typeof item === 'object'
                     ? (item as Record<string, unknown>)
@@ -252,7 +253,7 @@ const ToolCard = localComponent<
           ) : null}
           {searchItems().length ? (
             <div class='mb-2 space-y-1'>
-              {searchItems().map((item) => {
+              {list(sequence(searchItems()), (item) => {
                 const row: Record<string, unknown> =
                   item && typeof item === 'object'
                     ? (item as Record<string, unknown>)
@@ -302,7 +303,7 @@ const ToolCard = localComponent<
       </details>
     )
   }),
-})
+)
 const MessageMarkdown = view<{ text: string; label: string; onOpenImage?: (src: string) => void }>(
   (props) => {
     const needsMarkdown = () =>

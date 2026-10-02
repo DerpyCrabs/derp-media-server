@@ -8,7 +8,7 @@ import {
   controllerView,
 } from 'effectweb'
 import { cn } from '@/lib/ui/cn'
-import { AsyncResult } from 'effect/unstable/reactivity'
+import { AsyncResult } from 'effect/reactivity'
 import { groups, queryCache } from '@/lib/api/cache'
 import { fetchDirectoryFilesEffect } from '@/lib/files/files-client'
 import type { FileItem } from '@/lib/files/types'
@@ -51,38 +51,40 @@ const destinationQuery = query({
   groups: [groups.files],
   load: (path: string) => fetchDirectoryFilesEffect(path),
 })
-export const MoveToDialog = controllerView({
-  create: (props: MoveToDialogProps) => {
-    const owner = modelOwner({
-      props,
-      selectedRoot: computeSourceRoot(props.filePath, props.editableFolders),
-      browsePath: computeInitialBrowse(props.filePath, props.editableFolders),
-      result: AsyncResult.initial<{ files: FileItem[] }, Error>() as AsyncResult.AsyncResult<
-        Snapshot<{ files: FileItem[] }>,
-        Error
-      >,
-    })
-    const observer = observeQuery(owner, queryCache, destinationQuery, 'result')
-    const browse = (path: string) => {
-      owner.patch({ browsePath: path })
-      observer.select(path)
-    }
-    const actions = {
-      browse,
-      chooseRoot: (path: string) => {
-        owner.patch({ selectedRoot: path })
-        browse(path)
-      },
-    }
-    observer.select(owner.read().browsePath)
-    return {
-      source: owner.source,
-      actions,
-      receive: (next: MoveToDialogProps) => owner.patch({ props: next }),
-      dispose: owner.dispose,
-    }
+export const MoveToDialog = controllerView(
+  {
+    controller: (props: MoveToDialogProps) => {
+      const owner = modelOwner({
+        props,
+        selectedRoot: computeSourceRoot(props.filePath, props.editableFolders),
+        browsePath: computeInitialBrowse(props.filePath, props.editableFolders),
+        result: AsyncResult.initial<{ files: FileItem[] }, Error>() as AsyncResult.AsyncResult<
+          Snapshot<{ files: FileItem[] }>,
+          Error
+        >,
+      })
+      const observer = observeQuery(owner, queryCache, destinationQuery, 'result')
+      const browse = (path: string) => {
+        owner.patch({ browsePath: path })
+        observer.select(path)
+      }
+      const actions = {
+        browse,
+        chooseRoot: (path: string) => {
+          owner.patch({ selectedRoot: path })
+          browse(path)
+        },
+      }
+      observer.select(owner.read().browsePath)
+      return {
+        source: owner.source,
+        ...actions,
+        receive: (next: MoveToDialogProps) => owner.patch({ props: next }),
+        dispose: owner.dispose,
+      }
+    },
   },
-  view: view((model) => {
+  view((model) => {
     const props = model.props
     const selectedRoot = () => model.selectedRoot
     const browsePath = () => model.browsePath
@@ -266,4 +268,4 @@ export const MoveToDialog = controllerView({
       </div>
     )
   }),
-})
+)

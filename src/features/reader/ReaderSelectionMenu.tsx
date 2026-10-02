@@ -2,9 +2,8 @@ import Languages from '@effectweb/lucide/icons/languages'
 import RefreshCw from '@effectweb/lucide/icons/refresh-cw'
 import Sparkles from '@effectweb/lucide/icons/sparkles'
 import { Effect } from 'effect'
-import { AsyncResult } from 'effect/unstable/reactivity'
+import { AsyncResult } from 'effect/reactivity'
 import {
-  commandSlot,
   domBinding,
   modelOwner,
   view,
@@ -12,7 +11,6 @@ import {
   controllerView,
   available,
   resourceError,
-  ownedTasks,
 } from 'effectweb'
 import type { ReaderDefaultAction } from './reader-position'
 import { MarkdownContent } from './MarkdownContent'
@@ -36,8 +34,7 @@ type Props = {
   aiDetail: ReaderAiDetail
   onTextChange: (text: string) => void
 }
-const taskSlot = commandSlot('reader-ai')
-const capabilitySlot = commandSlot('reader-ai-capability')
+const capabilitySlot = 'reader-ai-capability'
 const editableText = (element: HTMLDivElement, current: () => string) => {
   const update = () => {
     if (document.activeElement !== element && element.textContent !== current())
@@ -53,32 +50,30 @@ function menuController(props: Snapshot<Props>) {
     answer: AsyncResult.AsyncResult<string, unknown>
     enabled: boolean | undefined
   }>({ props, task: null, answer: AsyncResult.initial(), enabled: undefined })
-  const actions = ownedTasks(owner, {
-    run: {
-      policy: 'replace',
-      slot: taskSlot,
-      result: 'answer',
-      run: (task: 'define' | 'translate') => {
-        const current = owner.read().props
-        owner.patch({ task, answer: AsyncResult.initial() })
-        return runReaderAiEffect({
-          task,
-          kind: current.selection.kind,
-          text: current.selection.text,
-          imageData: current.selection.imageData,
-          detail: current.aiDetail,
-        })
-      },
-    },
-  })
-  const run = actions.run
+  // Clear the previous answer, then start: the new run's `waiting` state is published after it.
+  const run = (task: 'define' | 'translate') => {
+    const current = owner.read().props
+    owner.patch({ task, answer: AsyncResult.initial() })
+    return owner.task(
+      'answer',
+      runReaderAiEffect({
+        task,
+        kind: current.selection.kind,
+        text: current.selection.text,
+        imageData: current.selection.imageData,
+        detail: current.aiDetail,
+      }),
+      'replace',
+    )
+  }
+  const actions = { run }
   let automaticKey = ''
   const automatic = () => {
     const current = owner.read()
     const key = `${current.props.selection.id}:${current.props.defaultAction}:${current.props.aiDetail}`
     if (!current.enabled || current.props.defaultAction === 'none' || key === automaticKey) return
     automaticKey = key
-    run(current.props.defaultAction)
+    void run(current.props.defaultAction)
   }
   owner.run(
     capabilitySlot,
@@ -94,7 +89,7 @@ function menuController(props: Snapshot<Props>) {
   )
   return {
     source: owner.source,
-    actions,
+    ...actions,
     receive: (next: Snapshot<Props>) => {
       owner.patch({ props: next })
       automatic()
@@ -102,10 +97,9 @@ function menuController(props: Snapshot<Props>) {
     dispose: owner.dispose,
   }
 }
-export const ReaderSelectionMenu = controllerView({
-  create: menuController,
-  identity: (props) => props.selection.id,
-  view: view((model) => {
+export const ReaderSelectionMenu = controllerView(
+  { controller: menuController, identity: (props) => props.selection.id },
+  view((model) => {
     const props = model.props
     const { run } = model.actions
     const busy = model.answer.waiting
@@ -125,7 +119,7 @@ export const ReaderSelectionMenu = controllerView({
     const runAction = (event: Event, nextTask: 'define' | 'translate') => {
       event.preventDefault()
       event.stopPropagation()
-      run(nextTask)
+      void run(nextTask)
     }
     const runActionFromKey = (event: KeyboardEvent, nextTask: 'define' | 'translate') => {
       if (event.key === 'Enter' || event.key === ' ') runAction(event, nextTask)
@@ -237,7 +231,7 @@ export const ReaderSelectionMenu = controllerView({
       </div>
     )
   }),
-})
+)
 const SelectionActionButton = view<{
   kind: 'define' | 'translate'
   busy: boolean

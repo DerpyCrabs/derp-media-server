@@ -1,6 +1,6 @@
 import { Effect, Cause } from 'effect'
-import { commandSlot, lifetime } from 'effectweb'
-const resolutionSlot = commandSlot('playback-source')
+import { modelOwner } from 'effectweb'
+const resolutionSlot = 'playback-source'
 import type {
   CreatePlaybackSessionOptions,
   PersistedPlaybackState,
@@ -239,7 +239,7 @@ export function createPlaybackSession(options: CreatePlaybackSessionOptions): Pl
   let generation = 0
   let seekId = 0
   let rateRevision = 0
-  const owner = lifetime()
+  const owner = modelOwner({})
   let fallback: PlaybackFallback = 'original'
   let lastCheckpointPosition = playbackPosition(state)
   let notifying = false

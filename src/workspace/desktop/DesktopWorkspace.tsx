@@ -8,9 +8,9 @@ import { WorkspaceSwitcher } from '../shared/WorkspaceSwitcher'
 import { taskbarGroupModel } from './taskbar-group-model'
 import { TaskbarGroupRow } from './DesktopWorkspaceTaskbarRows'
 import { createDesktopController } from './desktop-workspace-controller'
-export const DesktopWorkspace = controllerView({
-  create: createDesktopController,
-  view: view((model) => {
+export const DesktopWorkspace = controllerView(
+  { controller: createDesktopController },
+  view((model) => {
     const {
       editableOpenBrowser,
       setEditableWorkspace,
@@ -190,7 +190,7 @@ export const DesktopWorkspace = controllerView({
           onToggle={() => setWorkspacePanelOpen((open) => !open)}
           onDismiss={dismissWorkspacePanel}
           onSelect={(id) => {
-            leaveForWorkspace(id)
+            void leaveForWorkspace(id)
           }}
           onOpenNewTab={(id) => {
             if (id === workspaceId()) return
@@ -198,7 +198,7 @@ export const DesktopWorkspace = controllerView({
           }}
           onCreate={() => {
             const id = randomId()
-            registryCommands.transition(() => {
+            void registryCommands.transition(() => {
               setWorkspacePanelOpen(false)
               navigateSearchParams({ ws: id, dir: null, preset: null }, 'push')
             })
@@ -217,7 +217,7 @@ export const DesktopWorkspace = controllerView({
       </div>
     )
   }),
-})
+)
 const desktopGroupIds = collection<string>((id) => id)
 const mountDesktopArea = (
   element: HTMLDivElement,

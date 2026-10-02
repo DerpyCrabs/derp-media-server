@@ -1,7 +1,7 @@
 import { virtualDetailSchema, virtualActionSchema } from './hermes-api'
 import { Effect } from 'effect'
-import { AsyncResult } from 'effect/unstable/reactivity'
-import { available, commandSlot, modelOwner, resourceError } from 'effectweb'
+import { AsyncResult } from 'effect/reactivity'
+import { available, modelOwner, resourceError } from 'effectweb'
 import { apiSchemaEffect, postSchemaEffect } from '@/lib/api/client'
 import { groups, queryCache } from '@/lib/api/cache'
 import { fileBrowserQuery } from '@/features/explorer/file-browser-listing'
@@ -51,8 +51,8 @@ const detailDefinition = query({
       `/api/virtual-directory/open?path=${encodeURIComponent(path)}`,
     ),
 })
-const actionSlot = commandSlot('hermes-directory-action')
-const clipboardSlot = commandSlot('hermes-copy-id')
+const actionSlot = 'hermes-directory-action'
+const clipboardSlot = 'hermes-copy-id'
 export function createHermesVirtualDirectory(options: HermesVirtualDirectoryOptions) {
   const owner = modelOwner({
     projectCreateOpen: false,
@@ -214,7 +214,7 @@ export function createHermesVirtualDirectory(options: HermesVirtualDirectoryOpti
   }
   function openCreateFile() {
     if (!hasVirtualCapability(options.directory(), 'createFile')) return false
-    runAction(
+    void runAction(
       { action: 'createFile', path: options.currentPath() },
       (result) => {
         openActionTarget(
@@ -255,7 +255,7 @@ export function createHermesVirtualDirectory(options: HermesVirtualDirectoryOpti
       primaryPath,
       ...draft.additionalPaths.map((value) => value.trim()).filter(Boolean),
     ]
-    runAction(
+    void runAction(
       {
         action: 'createFolder',
         path: options.currentPath(),
@@ -282,7 +282,7 @@ export function createHermesVirtualDirectory(options: HermesVirtualDirectoryOpti
   function rename(target: FileItem, name: string, close: () => void) {
     const virtualEntry = options.entry(target)
     if (!virtualEntry || !hasVirtualCapability(virtualEntry, 'rename')) return false
-    runAction({ action: 'rename', path: target.path, name }, close, () => {})
+    void runAction({ action: 'rename', path: target.path, name }, close, () => {})
     return true
   }
   function renameExists(target: FileItem, name: string) {
@@ -302,7 +302,7 @@ export function createHermesVirtualDirectory(options: HermesVirtualDirectoryOpti
   function remove(target: FileItem, close: () => void) {
     const action = deleteAction()
     if (!action) return false
-    runAction({ action, path: target.path }, close, () => {})
+    void runAction({ action, path: target.path }, close, () => {})
     return true
   }
   const actionOverrides: FileBrowserActionOverrides = {
@@ -362,7 +362,7 @@ export function createHermesVirtualDirectory(options: HermesVirtualDirectoryOpti
       return
     }
     if (action === 'branch') {
-      runAction(
+      void runAction(
         { action, path: file.path },
         (result) =>
           openActionTarget(
@@ -378,7 +378,7 @@ export function createHermesVirtualDirectory(options: HermesVirtualDirectoryOpti
       actions.remove(file)
       return
     }
-    runAction({ action, path: file.path }, undefined, reportActionError)
+    void runAction({ action, path: file.path }, undefined, reportActionError)
   }
   function submitActionDialog() {
     const dialog = actionDialog()
@@ -397,7 +397,7 @@ export function createHermesVirtualDirectory(options: HermesVirtualDirectoryOpti
             metadata: { icon: appearanceIcon(), color: appearanceColor() },
           }
         : { action: dialog.action, path: dialog.file.path, name: value }
-    runAction(
+    void runAction(
       body,
       () => setActionDialog(null),
       () => {},

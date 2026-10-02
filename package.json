@@ -37,11 +37,10 @@
     "@lezer/markdown": "^1.7.2",
     "@xmldom/xmldom": "^0.9.12",
     "clsx": "^2.1.1",
-    "effect": "4.0.0-rc.112",
+    "effect": "4.0.0",
     "effectweb": "file:../EffectWeb/packages/runtime",
     "entities": "^8.1.0",
     "fflate": "^0.8.3",
-    "lucide-static": "^1.45.0",
     "pdfjs-dist": "^6.3.289",
     "tailwind-merge": "^3.6.0",
     "turndown": "^7.2.4"

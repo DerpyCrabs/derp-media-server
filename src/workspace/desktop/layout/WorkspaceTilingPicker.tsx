@@ -5,7 +5,7 @@ import {
   narrowPickToAssistShape,
   pickAssistSlotFromPoint,
 } from '@/workspace/model/workspace-snap-pick'
-import { localComponent, view, domBinding } from 'effectweb'
+import { component, view, domBinding } from 'effectweb'
 import X from '@effectweb/lucide/icons/x'
 import { WorkspaceSnapAssistMasterGrid } from './WorkspaceSnapAssistMasterGrid'
 import { snapAssistSurfaceWidth } from '@/workspace/model/snap-zones'
@@ -28,19 +28,21 @@ type Geometry = {
   box: { w: number; h: number } | null
   container: { width: number; height: number }
 }
-export const WorkspaceTilingPicker = localComponent<
+export const WorkspaceTilingPicker = component<
   WorkspaceTilingPickerProps,
   { pointerPick: AssistSlotPick | null; geometry: Geometry }
->({
-  init: () => ({
-    pointerPick: null,
-    geometry: {
-      viewport: layoutViewportClientSize(),
-      box: null,
-      container: { width: 0, height: 0 },
-    },
-  }),
-  view: view((local, patch) => {
+>(
+  {
+    init: () => ({
+      pointerPick: null,
+      geometry: {
+        viewport: layoutViewportClientSize(),
+        box: null,
+        container: { width: 0, height: 0 },
+      },
+    }),
+  },
+  view((local, patch) => {
     const props = local.props
     const pointerPick = () => local.pointerPick
     const { viewport, box, container } = local.geometry
@@ -149,7 +151,7 @@ export const WorkspaceTilingPicker = localComponent<
       </div>
     )
   }),
-})
+)
 const tilingPickerEvents = (
   element: HTMLDivElement,
   current: () => {

@@ -1,4 +1,4 @@
-import { domBinding, entities, list, localComponent, view, type Snapshot } from 'effectweb'
+import { domBinding, entities, list, component, view, type Snapshot } from 'effectweb'
 import type { RenderedBook } from './book-sanitize'
 import type { BookAppearance } from '../../reader-state-client'
 type ChapterProps = {
@@ -54,35 +54,35 @@ const chapterHtml = (element: HTMLDivElement, current: () => string) => {
   update()
   return { update, dispose: () => {} }
 }
-const Chapter = localComponent<ChapterProps, { intersecting: boolean; height: number | undefined }>(
+const Chapter = component<ChapterProps, { intersecting: boolean; height: number | undefined }>(
   {
     init: () => ({ intersecting: false, height: undefined }),
     identity: (props) => props.chapter.id,
-    view: view((model, patch) => {
-      const props = model.props
-      const near = Math.abs(props.index - props.currentIndex) <= 2 || model.intersecting
-      return (
-        <article
-          use={domBinding(
-            {
-              props,
-              near,
-              changed: (intersecting: boolean) => patch({ intersecting }),
-              measured: (height: number) => patch({ height }),
-            },
-            chapterObserver,
-          )}
-          id={`reader-${props.chapter.id}`}
-          data-book-chapter={props.chapter.id}
-          aria-label={props.chapter.title}
-          class='book-chapter mx-auto w-full scroll-mt-3 px-5 py-8 sm:px-10'
-          style={{ 'min-height': near ? undefined : `${model.height ?? props.estimatedHeight}px` }}
-        >
-          {near ? <div use={domBinding(props.chapter.html, chapterHtml)} /> : null}
-        </article>
-      )
-    }),
   },
+  view((model, patch) => {
+    const props = model.props
+    const near = Math.abs(props.index - props.currentIndex) <= 2 || model.intersecting
+    return (
+      <article
+        use={domBinding(
+          {
+            props,
+            near,
+            changed: (intersecting: boolean) => patch({ intersecting }),
+            measured: (height: number) => patch({ height }),
+          },
+          chapterObserver,
+        )}
+        id={`reader-${props.chapter.id}`}
+        data-book-chapter={props.chapter.id}
+        aria-label={props.chapter.title}
+        class='book-chapter mx-auto w-full scroll-mt-3 px-5 py-8 sm:px-10'
+        style={{ 'min-height': near ? undefined : `${model.height ?? props.estimatedHeight}px` }}
+      >
+        {near ? <div use={domBinding(props.chapter.html, chapterHtml)} /> : null}
+      </article>
+    )
+  }),
 )
 type Props = {
   document: RenderedBook
@@ -92,9 +92,9 @@ type Props = {
   viewport: HTMLElement
   onNavigate: (chapterId: string, anchor?: string, recordHistory?: boolean) => void
 }
-export const BookContent = localComponent<Props, { measured: Record<number, number> }>({
-  init: () => ({ measured: {} }),
-  view: view((model, patch) => {
+export const BookContent = component<Props, { measured: Record<number, number> }>(
+  { init: () => ({ measured: {} }) },
+  view((model, patch) => {
     const props = model.props
     let height = 0,
       characters = 0
@@ -166,4 +166,4 @@ export const BookContent = localComponent<Props, { measured: Record<number, numb
       </div>
     )
   }),
-})
+)

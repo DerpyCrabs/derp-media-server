@@ -1,7 +1,7 @@
 import { knowledgeBaseSearchSchema } from '@/lib/files/file-schemas'
 import { Effect } from 'effect'
-import { AsyncResult } from 'effect/unstable/reactivity'
-import { available, commandSlot, modelOwner, resourceError } from 'effectweb'
+import { AsyncResult } from 'effect/reactivity'
+import { available, modelOwner, resourceError } from 'effectweb'
 import { apiSchemaEffect } from '@/lib/api/client'
 import { queryCache } from '@/lib/api/cache'
 import { getKnowledgeBaseRoot } from '@/lib/files/path-utils'
@@ -16,8 +16,8 @@ const searchQuery = query({
       `/api/kb/search?root=${encodeURIComponent(args.root)}&q=${encodeURIComponent(args.text)}`,
     ),
 })
-const debounceSlot = commandSlot('kb-search-debounce')
-const focusSlot = commandSlot('kb-search-focus')
+const debounceSlot = 'kb-search-debounce'
+const focusSlot = 'kb-search-focus'
 type Context = { currentPath: string; knowledgeBases: readonly string[]; active: boolean }
 export function createKnowledgeBaseSearch(context: () => Context) {
   const owner = modelOwner({
@@ -46,7 +46,7 @@ export function createKnowledgeBaseSearch(context: () => Context) {
     if (!open) clear()
     else {
       owner.patch({ open })
-      focus()
+      void focus()
     }
   }
   const setQuery = (text: string) => {
@@ -93,7 +93,7 @@ export function createKnowledgeBaseSearch(context: () => Context) {
         setOpen,
         setInputElement: (element: HTMLInputElement | undefined) => {
           input = element
-          if (element && owner.read().open) focus()
+          if (element && owner.read().open) void focus()
         },
         onClear: clear,
         results: [...(available(state.result)?.results ?? [])],

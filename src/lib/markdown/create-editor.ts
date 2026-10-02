@@ -1,4 +1,4 @@
-import { commandSlot, lifetime } from 'effectweb'
+import { modelOwner } from 'effectweb'
 import { history, historyKeymap, invertedEffects, standardKeymap } from '@codemirror/commands'
 import {
   Annotation,
@@ -239,9 +239,9 @@ function selectionText(
 export function createMarkdownEditor(
   options: CreateMarkdownEditorOptions,
 ): MarkdownEditorController {
-  const commands = lifetime()
-  const saveSlot = commandSlot('markdown-save')
-  const pasteSlot = commandSlot('markdown-paste-image')
+  const commands = modelOwner({})
+  const saveSlot = 'markdown-save'
+  const pasteSlot = 'markdown-paste-image'
 
   const modeCompartment = new Compartment()
   const historyCompartment = new Compartment()
@@ -337,7 +337,7 @@ export function createMarkdownEditor(
           preventDefault: true,
           run: (view) => {
             if (view.state.readOnly) return false
-            if (runtime.onSave) commands.run(saveSlot, runtime.onSave(), 'latest-queued')
+            if (runtime.onSave) void commands.run(saveSlot, runtime.onSave(), 'latest-queued')
             return true
           },
         },

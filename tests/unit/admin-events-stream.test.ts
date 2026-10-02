@@ -6,7 +6,7 @@ import {
   createAdminEventInvalidationGuard,
   handleAdminEvent,
 } from '../../src/lib/api/admin-events-stream'
-import { makeQueryCache, observeQuery, query } from '@effectweb/query'
+import { queryCache, observeQuery, query } from '@effectweb/query'
 
 describe('admin event routing', () => {
   test('invalidates shared query state once when several subscribers receive one event', () => {
@@ -92,7 +92,7 @@ describe('admin event routing', () => {
 })
 
 test('book recommendation events refetch an observed infinitely fresh recommendation query', async () => {
-  const cache = makeQueryCache()
+  const cache = queryCache()
   const owner = modelOwner({})
   let loads = 0
   const feed = query({

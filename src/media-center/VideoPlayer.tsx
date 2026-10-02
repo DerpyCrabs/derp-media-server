@@ -48,77 +48,79 @@ const containFloating = (element: HTMLDivElement, data: () => { minimized: boole
     },
   }
 }
-export const VideoPlayer = controllerView({
-  create: (_props: Record<string, never>) => {
-    const owner = modelOwner({
-      snapshot: playbackSource.model(),
-      position: floatingVideoPosition.source.model().position,
-      minimized: false,
-      video: undefined as HTMLVideoElement | undefined,
-    })
-    const actions = {
-      toggleMinimize,
-      handleAudioOnly,
-      handleClose,
-      setVideo: (video: HTMLVideoElement | undefined): void => owner.patch({ video }),
-    }
-    const session = getPlaybackSession()
-    let lastPath: string | null = null
-    let scrollFrame = 0
-    function update() {
-      const state = playbackSource.model()
-      owner.patch({ snapshot: state })
-      const path = state.currentItem?.locator ?? null
-      if (path && state.mode === 'video' && !owner.read().minimized && path !== lastPath) {
-        lastPath = path
-        cancelAnimationFrame(scrollFrame)
-        scrollFrame = requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }))
+export const VideoPlayer = controllerView(
+  {
+    controller: (_props: Record<string, never>) => {
+      const owner = modelOwner({
+        snapshot: playbackSource.model(),
+        position: floatingVideoPosition.source.model().position,
+        minimized: false,
+        video: undefined as HTMLVideoElement | undefined,
+      })
+      const actions = {
+        toggleMinimize,
+        handleAudioOnly,
+        handleClose,
+        setVideo: (video: HTMLVideoElement | undefined): void => owner.patch({ video }),
       }
-    }
-    owner.own(playbackSource.subscribe(update))
-    owner.own(floatingVideoPosition.source.subscribe(({ position }) => owner.patch({ position })))
-    owner.own(() => cancelAnimationFrame(scrollFrame))
-    function toggleMinimize() {
-      const next = !owner.read().minimized
-      owner.patch({ minimized: next })
-      if (next) {
-        const store = floatingVideoPosition.read()
-        const current = store.position
-        const validated = validatePosition(current)
-        if (current.x === 0 && current.y === 0)
-          floatingVideoPosition.setPosition(getDefaultPosition())
-        else if (validated.x !== current.x || validated.y !== current.y)
-          floatingVideoPosition.setPosition(validated)
-      } else {
-        cancelAnimationFrame(scrollFrame)
-        scrollFrame = requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }))
+      const session = getPlaybackSession()
+      let lastPath: string | null = null
+      let scrollFrame = 0
+      function update() {
+        const state = playbackSource.model()
+        owner.patch({ snapshot: state })
+        const path = state.currentItem?.locator ?? null
+        if (path && state.mode === 'video' && !owner.read().minimized && path !== lastPath) {
+          lastPath = path
+          cancelAnimationFrame(scrollFrame)
+          scrollFrame = requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }))
+        }
       }
-    }
-    function handleAudioOnly() {
-      const element = owner.read().video
-      const state = session.getSnapshot()
-      if (element && state.source && state.mode === 'video') {
-        session.dispatch({
-          type: 'mediaTime',
-          generation: state.source.generation,
-          position: element.currentTime,
-          ...(Number.isFinite(state.duration) ? { duration: state.duration } : {}),
-        })
-        session.dispatch({ type: 'checkpoint' })
+      owner.own(playbackSource.subscribe(update))
+      owner.own(floatingVideoPosition.source.subscribe(({ position }) => owner.patch({ position })))
+      owner.own(() => cancelAnimationFrame(scrollFrame))
+      function toggleMinimize() {
+        const next = !owner.read().minimized
+        owner.patch({ minimized: next })
+        if (next) {
+          const store = floatingVideoPosition.read()
+          const current = store.position
+          const validated = validatePosition(current)
+          if (current.x === 0 && current.y === 0)
+            floatingVideoPosition.setPosition(getDefaultPosition())
+          else if (validated.x !== current.x || validated.y !== current.y)
+            floatingVideoPosition.setPosition(validated)
+        } else {
+          cancelAnimationFrame(scrollFrame)
+          scrollFrame = requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }))
+        }
       }
-      session.dispatch({ type: 'setMode', mode: 'audio' })
-      session.dispatch({ type: 'play' })
-      setAudioOnly(true)
-    }
-    function handleClose() {
-      session.dispatch({ type: 'stop' })
-      closePlayer()
-      owner.patch({ minimized: false })
-    }
-    update()
-    return { source: owner.source, actions, dispose: owner.dispose, close: owner.close }
+      function handleAudioOnly() {
+        const element = owner.read().video
+        const state = session.getSnapshot()
+        if (element && state.source && state.mode === 'video') {
+          session.dispatch({
+            type: 'mediaTime',
+            generation: state.source.generation,
+            position: element.currentTime,
+            ...(Number.isFinite(state.duration) ? { duration: state.duration } : {}),
+          })
+          session.dispatch({ type: 'checkpoint' })
+        }
+        session.dispatch({ type: 'setMode', mode: 'audio' })
+        session.dispatch({ type: 'play' })
+        setAudioOnly(true)
+      }
+      function handleClose() {
+        session.dispatch({ type: 'stop' })
+        closePlayer()
+        owner.patch({ minimized: false })
+      }
+      update()
+      return { source: owner.source, ...actions, dispose: owner.dispose, close: owner.close }
+    },
   },
-  view: view((model) => {
+  view((model) => {
     const snapshot = () => model.snapshot
     const currentItem = () => model.snapshot.currentItem
     const isVideoFile = () => currentItem()?.media === 'video' && model.snapshot.mode === 'video'
@@ -227,4 +229,4 @@ export const VideoPlayer = controllerView({
       </div>
     ) : null
   }),
-})
+)

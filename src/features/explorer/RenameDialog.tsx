@@ -1,4 +1,4 @@
-import { type Snapshot, localComponent, view } from 'effectweb'
+import { type Snapshot, component, view } from 'effectweb'
 import { cn } from '@/lib/ui/cn'
 import type { ModalOverlayScope } from './modal-overlay-scope'
 import { modalDialogBackdropClass } from './modal-overlay-scope'
@@ -13,9 +13,9 @@ type RenameDialogProps = {
   nameExists: (name: string) => boolean
   isDirectory: boolean
 }
-const RenameDialogContent = localComponent({
-  init: (props: Snapshot<RenameDialogProps>) => ({ newName: props.itemName }),
-  view: view((local, patch) => {
+const RenameDialogContent = component(
+  { init: (props: Snapshot<RenameDialogProps>) => ({ newName: props.itemName }) },
+  view((local, patch) => {
     const props = local.props
     const newName = () => local.newName,
       setNewName = (value: string) => patch({ newName: value })
@@ -83,7 +83,7 @@ const RenameDialogContent = localComponent({
       </div>
     )
   }),
-})
+)
 export const RenameDialog = view<RenameDialogProps>((props) => {
   return props.isOpen ? (
     <RenameDialogContent

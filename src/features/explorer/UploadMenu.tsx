@@ -1,4 +1,4 @@
-import { type Snapshot, domBinding, domMount, localComponent, view } from 'effectweb'
+import { type Snapshot, domBinding, domMount, component, view } from 'effectweb'
 import { cn } from '@/lib/ui/cn'
 import FileIcon from '@effectweb/lucide/icons/file'
 import Folder from '@effectweb/lucide/icons/folder'
@@ -17,9 +17,9 @@ const dismissUploadMenu = (
 const folderInputBinding = domMount((element: HTMLInputElement) => {
   element.setAttribute('webkitdirectory', '')
 })
-export const UploadMenu = localComponent({
-  init: (_props: Snapshot<UploadMenuProps>) => ({ open: false }),
-  view: view((local, patch) => {
+export const UploadMenu = component(
+  { init: (_props: Snapshot<UploadMenuProps>) => ({ open: false }) },
+  view((local, patch) => {
     const props = local.props
     const open = () => local.open,
       setOpen = (value: boolean) => patch({ open: value })
@@ -117,4 +117,4 @@ export const UploadMenu = localComponent({
       </div>
     )
   }),
-})
+)

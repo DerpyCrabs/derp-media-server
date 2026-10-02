@@ -1,13 +1,13 @@
 import { Effect } from 'effect'
 import { apiEffect } from '@/lib/api/client'
-import { commandSlot, modelOwner } from 'effectweb'
+import { modelOwner } from 'effectweb'
 import { groups, queryCache } from '@/lib/api/cache'
 import { collectDroppedUploadFiles } from '@/lib/files/collect-dropped-upload-files'
 import { hasFileDragData } from '@/lib/files/file-drag-data'
 import type { UploadToastState } from './types'
-const uploadSlot = commandSlot('upload')
-const toastSlot = commandSlot('upload-toast')
-const dropSlot = commandSlot('collect-drop')
+const uploadSlot = 'upload'
+const toastSlot = 'upload-toast'
+const dropSlot = 'collect-drop'
 export function createUploadDrop(context: () => { currentPath: string; editable: boolean }) {
   const owner = modelOwner({ toast: { kind: 'hidden' } as UploadToastState, dragOver: false })
   let dragDepth = 0

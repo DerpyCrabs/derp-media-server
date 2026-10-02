@@ -2,7 +2,7 @@ import { nextAnimationFrame } from '@/lib/browser/animation-frame'
 import ChevronLeft from '@effectweb/lucide/icons/chevron-left'
 import ChevronRight from '@effectweb/lucide/icons/chevron-right'
 import { Effect, Semaphore } from 'effect'
-import { commandSlot, modelOwner, view, type Snapshot, controllerView } from 'effectweb'
+import { modelOwner, view, type Snapshot, controllerView } from 'effectweb'
 
 import { buildMediaUrl } from '@/lib/media/build-media-url'
 import { ReaderFrame } from '../../ReaderFrame'
@@ -59,11 +59,11 @@ function loadBook(path: string): Effect.Effect<LoadedBook, unknown> {
   })
 }
 
-const loadSlot = commandSlot('book-load')
-const positionSlot = commandSlot('book-position-load')
-const saveSlot = commandSlot('book-save')
-const debounceSlot = commandSlot('book-save-debounce')
-const navigateSlot = commandSlot('book-navigate')
+const loadSlot = 'book-load'
+const positionSlot = 'book-position-load'
+const saveSlot = 'book-save'
+const debounceSlot = 'book-save-debounce'
+const navigateSlot = 'book-navigate'
 function bookController(props: Snapshot<ReaderContentProps>) {
   const saveGate = Semaphore.makeUnsafe(1)
   let released: (() => void) | undefined
@@ -339,7 +339,7 @@ function bookController(props: Snapshot<ReaderContentProps>) {
   )
   return {
     source: owner.source,
-    actions,
+    ...actions,
     receive: (next: Snapshot<ReaderContentProps>) => owner.patch({ props: next }),
     beforeDispose: () => {
       finalPosition = capture()
@@ -363,10 +363,9 @@ function bookController(props: Snapshot<ReaderContentProps>) {
     },
   }
 }
-const BookReader = controllerView({
-  create: bookController,
-  identity: (props) => props.sourcePath,
-  view: view((model) => {
+const BookReader = controllerView(
+  { controller: bookController, identity: (props) => props.sourcePath },
+  view((model) => {
     const props = model.props,
       actions = model.actions,
       state = model.position
@@ -475,5 +474,5 @@ const BookReader = controllerView({
       />
     )
   }),
-})
+)
 export default BookReader

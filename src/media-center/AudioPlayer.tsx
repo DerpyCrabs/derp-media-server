@@ -17,7 +17,7 @@ import { buildMediaUrl, buildThumbnailUrl } from '@/lib/media/build-media-url'
 import { setAudioOnly } from '@/lib/browser/url-state-actions'
 import { parentPath } from '@/lib/files/path-utils'
 import { createFileSortMetadata, sortFilesForPath } from '@/features/explorer/file-display-settings'
-import { AsyncResult } from 'effect/unstable/reactivity'
+import { AsyncResult } from 'effect/reactivity'
 import { available, modelOwner, view, type Snapshot, controllerView } from 'effectweb'
 import { queryCache } from '@/lib/api/cache'
 import { settingsQuery, statsQuery } from '@/lib/api/queries'
@@ -105,9 +105,9 @@ function createAudioPlayer() {
   update()
   return { source: owner.source, dispose: owner.dispose }
 }
-export const AudioPlayer = controllerView({
-  create: createAudioPlayer,
-  view: view((model) => {
+export const AudioPlayer = controllerView(
+  { controller: createAudioPlayer },
+  view((model) => {
     const session = {
       dispatch: (command: Parameters<ReturnType<typeof getPlaybackSession>['dispatch']>[0]) => {
         getPlaybackSession().dispatch(command)
@@ -311,4 +311,4 @@ export const AudioPlayer = controllerView({
       </div>
     ) : null
   }),
-})
+)

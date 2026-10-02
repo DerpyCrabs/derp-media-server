@@ -109,9 +109,9 @@ const mountCanvasElement = (
   current()(element)
   return () => current()(undefined)
 }
-export const CanvasWorkspace = controllerView({
-  create: createCanvasController,
-  view: view((model) => {
+export const CanvasWorkspace = controllerView(
+  { controller: createCanvasController },
+  view((model) => {
     const {
       setOutlineOpen,
       toggleWorkspacePanel,
@@ -1128,7 +1128,7 @@ export const CanvasWorkspace = controllerView({
       </div>
     )
   }),
-})
+)
 const startCanvas = (_element: HTMLElement, current: () => () => void) => {
   let disposed = false
   queueMicrotask(() => {

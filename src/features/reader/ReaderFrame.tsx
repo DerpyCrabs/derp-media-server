@@ -2,7 +2,6 @@ import { showAppAlertEffect } from '@/lib/ui/app-dialog'
 import { cn } from '@/lib/ui/cn'
 import { Effect } from 'effect'
 import {
-  commandSlot,
   domBinding,
   modelOwner,
   Portal,
@@ -47,7 +46,7 @@ type Props = ReaderPresentation & {
   onEscape?: () => boolean
   beforeClose?: () => Effect.Effect<void, unknown>
 }
-const closeSlot = commandSlot('reader-close')
+const closeSlot = 'reader-close'
 function frameController(props: Snapshot<Props>) {
   let viewport: HTMLDivElement | undefined
   let root: HTMLDivElement | undefined
@@ -95,7 +94,7 @@ function frameController(props: Snapshot<Props>) {
           await root.requestFullscreen()
         }
       }),
-    close: () =>
+    dismiss: () =>
       owner.run(
         closeSlot,
         Effect.gen(function* () {
@@ -225,7 +224,7 @@ function frameController(props: Snapshot<Props>) {
         if (current.props.onEscape?.()) return
         if (current.settingsOpen) owner.patch({ settingsOpen: false })
         else if (current.selection) actions.clearSelection()
-        else if (!current.props.embedded || current.props.onClose) actions.close()
+        else if (!current.props.embedded || current.props.onClose) void actions.dismiss()
         return
       }
       if (
@@ -261,7 +260,7 @@ function frameController(props: Snapshot<Props>) {
   )
   return {
     source: owner.source,
-    actions,
+    ...actions,
     receive: (next: Snapshot<Props>) => owner.patch({ props: next }),
     dispose: () => {
       menuHost.remove()
@@ -282,9 +281,9 @@ const viewportBinding = (
 }
 const buttonClass =
   'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[#3a3a3a] bg-[#202020] hover:border-[#777]'
-export const ReaderFrame = controllerView({
-  create: frameController,
-  view: view((model) => {
+export const ReaderFrame = controllerView(
+  { controller: frameController },
+  view((model) => {
     const props = model.props,
       actions = model.actions,
       preferences = model.preferences
@@ -391,7 +390,7 @@ export const ReaderFrame = controllerView({
               title='Close'
               aria-label='Close reader'
               class={`${buttonClass} col-start-3 row-start-1`}
-              onClick={actions.close}
+              onClick={actions.dismiss}
             >
               <X size={20} />
             </button>
@@ -432,4 +431,4 @@ export const ReaderFrame = controllerView({
       </div>
     )
   }),
-})
+)

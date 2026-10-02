@@ -35,7 +35,7 @@ import {
   createWorkspaceSaveCoordinator,
   type PendingWorkspaceSave,
 } from './workspace-persistence'
-import { commandSlot, modelOwner, type Snapshot } from 'effectweb'
+import { modelOwner, type Snapshot } from 'effectweb'
 import { Effect, Exit, Semaphore, Schema } from 'effect'
 type Accessor<T> = () => T
 type Setter<T> = (value: T | ((current: Snapshot<T>) => T)) => T
@@ -654,8 +654,8 @@ export function createWorkspaceRegistry(options: WorkspaceRegistryOptions) {
       ),
     )
   })
-  const refreshSlot = commandSlot('workspace-registry-refresh')
-  const heartbeatSlot = commandSlot('workspace-registry-heartbeat')
+  const refreshSlot = 'workspace-registry-refresh'
+  const heartbeatSlot = 'workspace-registry-heartbeat'
   const start = () => {
     owner.run(
       refreshSlot,

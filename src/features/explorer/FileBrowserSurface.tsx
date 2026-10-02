@@ -1,6 +1,6 @@
-import { type Snapshot, localComponent, view, domBinding, type JSX } from 'effectweb'
+import { type Snapshot, component, view, domBinding, type JSX } from 'effectweb'
 import { operationError } from './file-browser-mutations'
-import { AsyncResult } from 'effect/unstable/reactivity'
+import { AsyncResult } from 'effect/reactivity'
 import { runDesktopOperation } from '@/desktop/operations'
 import BookOpenText from '@effectweb/lucide/icons/book-open-text'
 import Ellipsis from '@effectweb/lucide/icons/ellipsis'
@@ -125,11 +125,13 @@ const searchInputBinding = (
   current()(element)
   return () => current()(undefined)
 }
-export const FileBrowserView = localComponent({
-  init: (_props: Snapshot<FileBrowserViewProps>) => ({
-    directoryBackgroundMenu: null as { x: number; y: number } | null,
-  }),
-  view: view((local, patch) => {
+export const FileBrowserView = component(
+  {
+    init: (_props: Snapshot<FileBrowserViewProps>) => ({
+      directoryBackgroundMenu: null as { x: number; y: number } | null,
+    }),
+  },
+  view((local, patch) => {
     const props = local.props
     const directoryBackgroundMenu = () => local.directoryBackgroundMenu,
       setDirectoryBackgroundMenu = (value: { x: number; y: number } | null) =>
@@ -794,4 +796,4 @@ export const FileBrowserView = localComponent({
       </div>
     )
   }),
-})
+)

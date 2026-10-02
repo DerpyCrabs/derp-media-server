@@ -1,5 +1,5 @@
 import { gatewayDirectoriesSchema } from './hermes-api'
-import { list, localComponent, available, observe, resourceError, view } from 'effectweb'
+import { list, component, available, observe, resourceError, view } from 'effectweb'
 import { queryCache } from '@/lib/api/cache'
 import { apiSchemaEffect } from '@/lib/api/client'
 import { cn } from '@/lib/ui/cn'
@@ -8,12 +8,14 @@ import type { ModalOverlayScope } from '@/features/explorer/modal-overlay-scope'
 import { modalDialogBackdropClass } from '@/features/explorer/modal-overlay-scope'
 import type { HermesVirtualDirectoryModal } from './hermes-virtual-directory'
 import { query, querySource } from '@effectweb/query'
-const HermesCreateProjectDialog = localComponent({
-  init: (_props: {
-    model: HermesVirtualDirectoryModal['createProject']
-    overlayScope?: ModalOverlayScope
-  }) => ({ draft: { name: '', primaryPath: '', additionalPaths: '', gatewayPath: '' } }),
-  view: view((local, patch) => {
+const HermesCreateProjectDialog = component(
+  {
+    init: (_props: {
+      model: HermesVirtualDirectoryModal['createProject']
+      overlayScope?: ModalOverlayScope
+    }) => ({ draft: { name: '', primaryPath: '', additionalPaths: '', gatewayPath: '' } }),
+  },
+  view((local, patch) => {
     const props = local.props
     const draft = () => local.draft,
       setDraft = (
@@ -149,7 +151,7 @@ const HermesCreateProjectDialog = localComponent({
       </div>
     )
   }),
-})
+)
 export const HermesVirtualDirectoryModalLayer = view<{
   model: HermesVirtualDirectoryModal
   overlayScope?: ModalOverlayScope

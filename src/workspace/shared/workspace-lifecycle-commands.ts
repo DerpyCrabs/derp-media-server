@@ -1,14 +1,14 @@
 import { Effect } from 'effect'
-import { commandSlot, type lifetime } from 'effectweb'
-const deleteSlot = commandSlot('delete-workspace')
-const convertSlot = commandSlot('convert-workspace')
+import { type ModelOwner } from 'effectweb'
+const deleteSlot = 'delete-workspace'
+const convertSlot = 'convert-workspace'
 import { randomId } from '@/lib/random-id'
 import { showAppConfirmEffect } from '@/lib/ui/app-dialog'
 import type { WorkspaceSession } from './WorkspaceSession'
 type Accessor<T> = () => T
 type WorkspaceLifecycleSession = Pick<WorkspaceSession, 'catalog' | 'lifecycle'>
 export function createWorkspaceLifecycleCommands(options: {
-  owner: Pick<ReturnType<typeof lifetime>, 'run'>
+  owner: Pick<ModelOwner<{}>, 'run'>
   session: WorkspaceLifecycleSession
   activeId: Accessor<string>
   navigate: (id: string, mode: 'push' | 'replace') => void

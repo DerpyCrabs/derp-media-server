@@ -1,4 +1,4 @@
-import { type Snapshot, localComponent, view } from 'effectweb'
+import { type Snapshot, component, view } from 'effectweb'
 import type { FileItem } from '@/lib/files/types'
 import { FloatingContextMenu } from './FloatingContextMenu'
 import AppWindow from '@effectweb/lucide/icons/app-window'
@@ -15,11 +15,13 @@ import Star from '@effectweb/lucide/icons/star'
 import type { VirtualCapability } from '@/lib/files/virtual-directory'
 import type { ExplorerRowMenu } from './explorer-row-menu'
 type MenuState = { x: number; y: number; file: FileItem }
-export const FileRowContextMenu = localComponent({
-  init: (_props: Snapshot<{ model: ExplorerRowMenu }>) => ({
-    openWithState: { menu: null, open: false } as { menu: MenuState | null; open: boolean },
-  }),
-  view: view((local, patch) => {
+export const FileRowContextMenu = component(
+  {
+    init: (_props: Snapshot<{ model: ExplorerRowMenu }>) => ({
+      openWithState: { menu: null, open: false } as { menu: MenuState | null; open: boolean },
+    }),
+  },
+  view((local, patch) => {
     const props = local.props
     const openWithState = () => local.openWithState
     const setOpenWithState = (value: { menu: MenuState | null; open: boolean }) =>
@@ -406,4 +408,4 @@ export const FileRowContextMenu = localComponent({
       </FloatingContextMenu>
     )
   }),
-})
+)

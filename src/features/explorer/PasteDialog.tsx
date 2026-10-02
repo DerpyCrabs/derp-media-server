@@ -1,4 +1,4 @@
-import { type Snapshot, available, localComponent, observe, view } from 'effectweb'
+import { type Snapshot, available, component, observe, view } from 'effectweb'
 import { cn } from '@/lib/ui/cn'
 import { query, querySource } from '@effectweb/query'
 import { queryCache } from '@/lib/api/cache'
@@ -57,9 +57,9 @@ type Props = {
   onPaste: (fileName: string, mode: 'create' | 'replace', expectedVersion?: number) => void
   onClose: () => void
 }
-export const PasteDialog = localComponent({
-  init: (_props: Snapshot<Props>) => ({ fileName: '' }),
-  view: view((local, patch) => {
+export const PasteDialog = component(
+  { init: (_props: Snapshot<Props>) => ({ fileName: '' }) },
+  view((local, patch) => {
     const props = local.props
     const fileName = () => local.fileName,
       setFileName = (value: string) => patch({ fileName: value })
@@ -271,7 +271,7 @@ export const PasteDialog = localComponent({
       </div>
     ) : null
   }),
-})
+)
 const existingText = query({
   name: 'paste-existing-text',
   load: (path: string) =>

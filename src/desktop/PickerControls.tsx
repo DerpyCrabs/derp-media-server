@@ -1,10 +1,10 @@
-import { localComponent, view, domBinding, list, observe } from 'effectweb'
+import { component, view, domBinding, list, observe } from 'effectweb'
 import ChevronDown from '@effectweb/lucide/icons/chevron-down'
 import Check from '@effectweb/lucide/icons/check'
 import { FloatingContextMenu } from '@/features/explorer/FloatingContextMenu'
 import type { PickerRequest } from './bridge'
 import type { Picker } from './picker-controller'
-const PickerChoice = localComponent<
+const PickerChoice = component<
   {
     label: string
     value: string
@@ -12,9 +12,9 @@ const PickerChoice = localComponent<
     onChange: (value: string) => void
   },
   { open: boolean; anchor: HTMLDivElement | null }
->({
-  init: () => ({ open: false, anchor: null }),
-  view: view((local, patch) => {
+>(
+  { init: () => ({ open: false, anchor: null }) },
+  view((local, patch) => {
     const props = local.props
     const open = (): boolean => local.open as boolean
     const setOpen = (value: boolean | ((current: boolean) => boolean)) => {
@@ -70,7 +70,7 @@ const PickerChoice = localComponent<
       </div>
     )
   }),
-})
+)
 export const PickerControls = view<{ request: PickerRequest; picker: Picker; cancel: () => void }>(
   (props) =>
     observe(props.picker.source, (state) => {

@@ -1,6 +1,6 @@
 import { Schema } from 'effect'
 import { Effect } from 'effect'
-import { available, commandSlot, modelOwner } from 'effectweb'
+import { available, modelOwner } from 'effectweb'
 import { createMediaWarmup, observeMediaVisibility } from '@/lib/media/media-warmup'
 import { queryCache } from '@/lib/api/cache'
 import { apiSchemaEffect } from '@/lib/api/client'
@@ -50,9 +50,9 @@ const configQuery = query({
       buildImageConfigUrl(),
     ),
 })
-const loadSlot = commandSlot('responsive-image-load')
-const spinnerSlot = commandSlot('responsive-image-spinner')
-const prefetchSlot = commandSlot('responsive-image-prefetch')
+const loadSlot = 'responsive-image-load'
+const spinnerSlot = 'responsive-image-spinner'
+const prefetchSlot = 'responsive-image-prefetch'
 export function createResponsiveImage(initial: Options) {
   let options = initial
   let demandPath = '',

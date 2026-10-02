@@ -1,5 +1,5 @@
 import { Effect } from 'effect'
-import { commandSlot, modelOwner } from 'effectweb'
+import { modelOwner } from 'effectweb'
 import { extractPasteDataFromClipboardData } from '@/lib/files/extract-paste-data'
 import type { PasteData } from '@/lib/files/paste-data'
 import type { FileItem } from '@/lib/files/types'
@@ -15,7 +15,7 @@ export function createLatestPasteRequestGuard() {
     isCurrent: (request: number) => request === latest,
   }
 }
-const clipboardSlot = commandSlot('clipboard-paste')
+const clipboardSlot = 'clipboard-paste'
 type Context = {
   currentPath: string
   files: readonly FileItem[]
@@ -79,7 +79,7 @@ export function createPasteSession(
     if (data.type === 'image' || (data.type === 'file' && !data.isTextContent))
       variables.base64Content = data.content
     else variables.content = data.content
-    operations.paste.run(variables, () => {
+    void operations.paste.run(variables, () => {
       close()
       onSaved?.(path)
     })

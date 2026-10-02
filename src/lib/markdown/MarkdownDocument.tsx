@@ -1,6 +1,6 @@
 import { Effect } from 'effect'
 import { cn } from '@/lib/ui/cn'
-import { domBinding, domMount, localComponent, view } from 'effectweb'
+import { domBinding, domMount, component, view } from 'effectweb'
 import { createMarkdownEditor } from './create-editor'
 import type { MarkdownDocumentProps, MarkdownEditorRuntime } from './types'
 type EditorBinding = MarkdownDocumentProps & { openImage: (src: string, alt?: string) => void }
@@ -47,12 +47,12 @@ const focusDialog = domMount((element: HTMLDivElement) => {
     if (previous instanceof HTMLElement && previous.isConnected) previous.focus()
   }
 })
-const MarkdownDocument = localComponent<
+const MarkdownDocument = component<
   MarkdownDocumentProps,
   { expandedImage: { src: string; alt: string } | null }
->({
-  init: () => ({ expandedImage: null }),
-  view: view((model, patch) => {
+>(
+  { init: () => ({ expandedImage: null }) },
+  view((model, patch) => {
     const props = model.props
     const close = () => patch({ expandedImage: null })
     return (
@@ -110,5 +110,5 @@ const MarkdownDocument = localComponent<
       </div>
     )
   }),
-})
+)
 export default MarkdownDocument

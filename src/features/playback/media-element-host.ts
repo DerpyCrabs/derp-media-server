@@ -1,8 +1,8 @@
 import { Effect } from 'effect'
-import { commandSlot, lifetime } from 'effectweb'
+import { modelOwner } from 'effectweb'
 import { apiSchemaEffect } from '@/lib/api/client'
 import { playbackStatusSchema } from './playback-schemas'
-const statusSlot = commandSlot('playback-error-status')
+const statusSlot = 'playback-error-status'
 import type { PlaybackFallback, PlaybackMode, PlaybackSession } from './types'
 import { createStreamingMediaSource } from './streaming-media-source'
 
@@ -92,7 +92,7 @@ function sameUrl(left: string, right: string): boolean {
 }
 
 export function createMediaElementHost(session: PlaybackSession): MediaElementHost {
-  const scope = lifetime()
+  const scope = modelOwner({})
   let active: Attachment | null = null
   const inactive = new Set<Attachment>()
   let disposed = false
@@ -560,7 +560,7 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
       const code = element.error?.code
       const requestId = session.getSnapshot().source?.requestId
       if (requestId) {
-        scope.run(
+        void scope.run(
           statusSlot,
           apiSchemaEffect(
             playbackStatusSchema,

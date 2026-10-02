@@ -1,5 +1,5 @@
 import { Effect, Semaphore } from 'effect'
-import { commandSlot, modelOwner, observe, view, type JSX } from 'effectweb'
+import { modelOwner, observe, view, type JSX } from 'effectweb'
 import { ApiError } from '@/lib/api/client'
 import {
   DEFAULT_READER_PREFERENCES,
@@ -8,9 +8,9 @@ import {
   saveReaderPreferencesEffect,
   type ReaderPreferences,
 } from './reader-state-client'
-const loadSlot = commandSlot('reader-preferences-load')
-const saveSlot = commandSlot('reader-preferences-save')
-const debounceSlot = commandSlot('reader-preferences-debounce')
+const loadSlot = 'reader-preferences-load'
+const saveSlot = 'reader-preferences-save'
+const debounceSlot = 'reader-preferences-debounce'
 const owner = modelOwner({ ready: false, preferences: DEFAULT_READER_PREFERENCES })
 let revision = 0
 let base: ReaderPreferences = DEFAULT_READER_PREFERENCES

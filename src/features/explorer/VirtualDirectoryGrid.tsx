@@ -1,12 +1,4 @@
-import {
-  type Snapshot,
-  collection,
-  domBinding,
-  list,
-  localComponent,
-  view,
-  type JSX,
-} from 'effectweb'
+import { type Snapshot, collection, domBinding, list, component, view, type JSX } from 'effectweb'
 import type { FileItem } from '@/lib/files/types'
 import { cn } from '@/lib/ui/cn'
 import { directoryViewport } from './virtual-directory-binding'
@@ -22,14 +14,16 @@ type VirtualDirectoryGridProps = {
   renderFileCard: (file: FileItem) => JSX.Element
 }
 const byPath = collection<FileItem>((file) => file.path)
-export const VirtualDirectoryGrid = localComponent({
-  init: (_props: Snapshot<VirtualDirectoryGridProps>) => ({
-    start: 0,
-    end: 100,
-    columns: 1,
-    rowHeight: 224,
-  }),
-  view: view((model, patch) => {
+export const VirtualDirectoryGrid = component(
+  {
+    init: (_props: Snapshot<VirtualDirectoryGridProps>) => ({
+      start: 0,
+      end: 100,
+      columns: 1,
+      rowHeight: 224,
+    }),
+  },
+  view((model, patch) => {
     const props = model.props
     const files = props.files
     const parent = props.includeParent
@@ -78,4 +72,4 @@ export const VirtualDirectoryGrid = localComponent({
       </div>
     )
   }),
-})
+)

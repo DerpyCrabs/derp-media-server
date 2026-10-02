@@ -1,4 +1,5 @@
-import { defineTasks, view, observe, list, type Snapshot } from 'effectweb'
+import { view, observe, list, type Snapshot, component, ownerOf } from 'effectweb'
+import * as AsyncResult from 'effect/reactivity/AsyncResult'
 import { Effect, Schema } from 'effect'
 import EllipsisVertical from '@effectweb/lucide/icons/ellipsis-vertical'
 import Heart from '@effectweb/lucide/icons/heart'
@@ -23,41 +24,41 @@ type Props = {
   onPlay?: (index: number) => void
 }
 type Feedback = { path: string; kind: string }
-const trackTasks = defineTasks({
-  init: (_props: Snapshot<Props>) => ({
-    menu: undefined as { item: Snapshot<MusicTrack>; x: number; y: number } | undefined,
-  }),
-}).tasks({
-  feedback: {
-    policy: 'drop',
-    run: (_model, input: Feedback) =>
-      postSchemaEffect(Schema.Struct({ ok: Schema.Boolean }), '/api/media-ai/feedback', input).pipe(
-        Effect.tap(() =>
-          Effect.sync(() => {
-            updateMusicFeedback(input)
-            notifyMusic(
-              input.kind === 'later'
-                ? 'Set aside for today'
-                : input.kind === 'hide'
-                  ? 'Removed from recommendations'
-                  : input.kind === 'more'
-                    ? 'Liked'
-                    : 'Like removed',
-            )
-          }),
-        ),
-        Effect.tapError((error) => Effect.sync(() => musicError(error))),
-      ),
+
+const sendFeedback = (input: Feedback) =>
+  postSchemaEffect(Schema.Struct({ ok: Schema.Boolean }), '/api/media-ai/feedback', input).pipe(
+    Effect.tap(() =>
+      Effect.sync(() => {
+        updateMusicFeedback(input)
+        notifyMusic(
+          input.kind === 'later'
+            ? 'Set aside for today'
+            : input.kind === 'hide'
+              ? 'Removed from recommendations'
+              : input.kind === 'more'
+                ? 'Liked'
+                : 'Like removed',
+        )
+      }),
+    ),
+    Effect.tapError((error) => Effect.sync(() => musicError(error))),
+  )
+
+export const TrackList = component(
+  {
+    init: (_props: Snapshot<Props>) => ({
+      menu: undefined as { item: Snapshot<MusicTrack>; x: number; y: number } | undefined,
+      // One request per track: liking one track leaves the others usable.
+      feedback: {} as Partial<Record<string, AsyncResult.AsyncResult<unknown, unknown>>>,
+    }),
   },
-})
-export const TrackList = trackTasks.view(
-  view((model, send) => {
+  view((model, patch) => {
     const { props, menu } = model
-    const controls = trackTasks.controls(send)
-    const setMenu = (menu: typeof model.menu) => controls.patch({ menu })
+    const setMenu = (menu: typeof model.menu) => patch({ menu })
     const feedback = {
-      isPending: model.tasks.feedback.waiting,
-      mutate: (input: Feedback) => controls.run('feedback', input),
+      isPending: (path: string) => model.feedback[path]?.waiting ?? false,
+      mutate: (input: Feedback) =>
+        ownerOf(patch).task(['feedback', input.path], sendFeedback(input), 'drop'),
     }
     const action =
       'flex min-h-11 w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm hover:bg-secondary'
@@ -113,7 +114,7 @@ export const TrackList = trackTasks.view(
                   <button
                     aria-label={`Like music ${track.title}`}
                     aria-pressed={track.liked ? 'true' : 'false'}
-                    disabled={feedback.isPending}
+                    disabled={feedback.isPending(track.path)}
                     class={`grid size-11 shrink-0 place-items-center rounded-full hover:bg-secondary ${track.liked ? 'text-primary' : 'text-muted-foreground'}`}
                     onClick={() =>
                       feedback.mutate({ path: track.path, kind: track.liked ? 'clear' : 'more' })

@@ -5,7 +5,7 @@ import { settingsQuery, configQuery } from '@/lib/api/queries'
 import type { WorkspaceSettings } from '@/workspace/model/workspace-settings-types'
 import type { WorkspaceTransition } from '@/lib/models/settings-types'
 import type { TaskbarPin as PinnedTaskbarItem } from '@/lib/models/taskbar-pins'
-import { available, commandSlot, modelOwner } from 'effectweb'
+import { available, modelOwner } from 'effectweb'
 import { Effect, Schema } from 'effect'
 import { observeQuery } from '@effectweb/query'
 
@@ -70,8 +70,8 @@ export function createWorkspacePageServerData() {
   })
   settings.select(true)
   config.select(true)
-  const pinsSlot = commandSlot('workspace-taskbar-pin')
-  const transitionSlot = commandSlot('workspace-transition')
+  const pinsSlot = 'workspace-taskbar-pin'
+  const transitionSlot = 'workspace-transition'
   const pinCommand = (command: TaskbarPinCommand) => {
     queryCache.updateQueryData(settingsQuery, true, (current) =>
       current

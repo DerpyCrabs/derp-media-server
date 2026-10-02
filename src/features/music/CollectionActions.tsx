@@ -1,15 +1,12 @@
-import { localComponent, view } from 'effectweb'
+import { component, view } from 'effectweb'
 import Ellipsis from '@effectweb/lucide/icons/ellipsis'
 import Radio from '@effectweb/lucide/icons/radio'
 import { FloatingContextMenu } from '@/features/explorer/FloatingContextMenu'
 
 type Props = { label: string; disabled?: boolean; onRadio: () => void }
-export const CollectionActions = localComponent<
-  Props,
-  { menu: { x: number; y: number } | undefined }
->({
-  init: () => ({ menu: undefined }),
-  view: view(({ props, menu }, patch) => {
+export const CollectionActions = component<Props, { menu: { x: number; y: number } | undefined }>(
+  { init: () => ({ menu: undefined }) },
+  view(({ props, menu }, patch) => {
     const setMenu = (menu: { x: number; y: number } | undefined) => patch({ menu })
     const action =
       'flex min-h-11 w-full items-center gap-3 rounded-md px-3 text-left text-sm hover:bg-secondary'
@@ -51,4 +48,4 @@ export const CollectionActions = localComponent<
       </>
     )
   }),
-})
+)

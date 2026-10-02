@@ -20,6 +20,6 @@
 - Use EffectWeb query definitions and the shared [`queryCache`](src/lib/api/cache.ts), `observeQuery`, and query groups for server data. Seed queries through the bootstrap helpers.
 - Use `modelOwner` for immutable state and owned Effect commands for asynchronous work. Scope resources to their controller or app lifetime and dispose them explicitly.
 - Keep view functions pure. Use `domBinding`/`domMount` for DOM resources and stable module-level acquisition functions; close subscriptions, timers, and media resources on disposal.
-- The local EffectWeb checkout is `../EffectWeb`; its `packages/runtime/AUTHORING.md` and examples document the supported APIs.
+- The local EffectWeb checkout is `../EffectWeb`; `node_modules/effectweb/docs/README.md` (generated from its `website/content`) documents the supported APIs.
 - Don't write useless comments.
 - Keep at most **6** e2e batches in `run-batches.ts` when extending CI.

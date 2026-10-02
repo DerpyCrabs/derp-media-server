@@ -1,50 +1,49 @@
 import { randomId } from '@/lib/random-id'
-import { defineTasks, view, type Snapshot } from 'effectweb'
+import { view, type Snapshot, component, ownerOf } from 'effectweb'
 import { Effect } from 'effect'
 import X from '@effectweb/lucide/icons/x'
 import type { FileItem } from '@/lib/files/types'
 import type { HermesOpenTarget } from './hermes-open-target'
 import { modalFocus } from '@/lib/ui/modal-focus'
-import { HermesChatPane } from './HermesChatPane'
+import { HermesChatPane } from './LazyHermesChatPane'
 import { HermesSessions } from './hermes-session-store'
 
 type Props = { file: FileItem; target: HermesOpenTarget; onClose: () => void }
-const dialog = defineTasks({
-  init: (props: Snapshot<Props>) => {
-    const initialTarget = props.target
-    const draftId = initialTarget.type === 'hermesDraft' ? randomId() : undefined
-    return {
-      initialTarget,
-      draftId,
-      ownerId: `media-hermes-${initialTarget.sessionId ?? draftId}`,
-      sessionId: initialTarget.type === 'hermesSession' ? initialTarget.sessionId : undefined,
-      title: props.file.name || 'Hermes session',
-      titleId: randomId(),
-    }
-  },
-  identity: (props) => props.file.path,
-}).tasks({
-  close: {
-    policy: 'drop',
-    run: (model) => {
-      const target = { draftId: model.draftId, sessionId: model.sessionId }
-      return HermesSessions.canClose(target).pipe(
-        Effect.tap((allowed) =>
-          Effect.sync(() => {
-            if (allowed) {
-              HermesSessions.discardDraft(target)
-              model.props.onClose()
-            }
-          }),
-        ),
-      )
+
+export const HermesChatDialog = component(
+  {
+    init: (props: Snapshot<Props>) => {
+      const initialTarget = props.target
+      const draftId = initialTarget.type === 'hermesDraft' ? randomId() : undefined
+      return {
+        initialTarget,
+        draftId,
+        ownerId: `media-hermes-${initialTarget.sessionId ?? draftId}`,
+        sessionId: initialTarget.type === 'hermesSession' ? initialTarget.sessionId : undefined,
+        title: props.file.name || 'Hermes session',
+        titleId: randomId(),
+      }
     },
+    identity: (props) => props.file.path,
   },
-})
-export const HermesChatDialog = dialog.view(
-  view((model, send) => {
-    const controls = dialog.controls(send)
-    const close = () => controls.run('close')
+  view((model, patch) => {
+    const close = () => {
+      const target = { draftId: model.draftId, sessionId: model.sessionId }
+      ownerOf(patch).run(
+        'close',
+        HermesSessions.canClose(target).pipe(
+          Effect.tap((allowed) =>
+            Effect.sync(() => {
+              if (allowed) {
+                HermesSessions.discardDraft(target)
+                model.props.onClose()
+              }
+            }),
+          ),
+        ),
+        'drop',
+      )
+    }
     return (
       <div
         use={modalFocus({
@@ -87,8 +86,8 @@ export const HermesChatDialog = dialog.view(
             title={model.title}
             contentVisible
             active
-            onSessionCreated={(sessionId) => controls.patch({ sessionId })}
-            onTitleChanged={(title) => controls.patch({ title })}
+            onSessionCreated={(sessionId) => patch({ sessionId })}
+            onTitleChanged={(title) => patch({ title })}
           />
         </div>
       </div>

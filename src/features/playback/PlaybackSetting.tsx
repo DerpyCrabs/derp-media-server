@@ -1,4 +1,4 @@
-import { collection, domMount, list, localComponent, view } from 'effectweb'
+import { collection, domMount, list, component, view } from 'effectweb'
 import Check from '@effectweb/lucide/icons/check'
 import ChevronDown from '@effectweb/lucide/icons/chevron-down'
 import { FloatingContextMenu } from '@/features/explorer/FloatingContextMenu'
@@ -19,12 +19,12 @@ const focusSelected = domMount((element: HTMLDivElement) => {
   )?.focus()
 })
 const options = collection<Option>((option) => option.value)
-export const PlaybackSetting = localComponent<
+export const PlaybackSetting = component<
   Props,
   { open: boolean; anchor: HTMLButtonElement | null }
->({
-  init: () => ({ open: false, anchor: null }),
-  view: view((model, patch) => {
+>(
+  { init: () => ({ open: false, anchor: null }) },
+  view((model, patch) => {
     const props = model.props
     const close = () => {
       patch({ open: false })
@@ -112,4 +112,4 @@ export const PlaybackSetting = localComponent<
       </>
     )
   }),
-})
+)

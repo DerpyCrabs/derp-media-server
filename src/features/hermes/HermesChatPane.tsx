@@ -1,15 +1,7 @@
 import { Effect } from 'effect'
-import {
-  commandSlots,
-  modelOwner,
-  domHandle,
-  view,
-  list,
-  type Snapshot,
-  controllerView,
-} from 'effectweb'
+import { modelOwner, domHandle, view, list, type Snapshot, controllerView } from 'effectweb'
 import type { HermesSessionTarget } from './hermes-session-store'
-type Props = {
+export type HermesChatPaneProps = {
   target: HermesSessionTarget | undefined
   ownerId?: string
   title?: string
@@ -35,8 +27,8 @@ import { getFileDragData, hasFileDragData } from '@/lib/files/file-drag-data'
 import { unsupportedHermesCommand, voiceControlGates } from '@/features/hermes/hermes-chat-parity'
 import { createHermesChatUiState } from './hermes-chat-ui-state'
 import { createHermesVoiceRecorder } from './create-hermes-voice-recorder'
-const chatCommands = commandSlots('hermes-chat')
-function createChatPane(props: Snapshot<Props>) {
+const chatCommands = (key: string | number) => ['hermes-chat', key] as const
+function createChatPane(props: Snapshot<HermesChatPaneProps>) {
   const session = createHermesSession(props.target ?? {})
   const key = session.key
   const state = session.state
@@ -145,7 +137,7 @@ function createChatPane(props: Snapshot<Props>) {
   window.addEventListener('keydown', handleFind, true)
   window.addEventListener('pointerdown', handlePointer)
   function submit(takeover = false) {
-    model.run(
+    void model.run(
       chatCommands('submit'),
       Effect.gen(function* () {
         if (!(yield* claimCurrentEditor())) return
@@ -331,7 +323,7 @@ function createChatPane(props: Snapshot<Props>) {
     },
     loadOlder: () => {
       const before = transcriptEl.element()?.scrollHeight ?? 0
-      model.run(
+      void model.run(
         chatCommands('older'),
         session.history.loadOlder().pipe(
           Effect.andThen(
@@ -402,7 +394,11 @@ function createChatPane(props: Snapshot<Props>) {
         queueMicrotask(editor.release)
       }
       if (editor.owned())
-        model.run(chatCommands('editor'), editor.claim().pipe(Effect.catch(reportError)), 'replace')
+        void model.run(
+          chatCommands('editor'),
+          editor.claim().pipe(Effect.catch(reportError)),
+          'replace',
+        )
     }
     if ((props.contentVisible ?? true) && state()?.unread) session.lifecycle.markRead()
     const id = state()?.sessionId,
@@ -427,7 +423,7 @@ function createChatPane(props: Snapshot<Props>) {
   publish()
   return {
     source: model.source,
-    receive: (next: Snapshot<Props>) => {
+    receive: (next: Snapshot<HermesChatPaneProps>) => {
       props = next
       session.receive(props.target ?? {})
       voiceRecorder.update()
@@ -447,9 +443,9 @@ function createChatPane(props: Snapshot<Props>) {
     },
   }
 }
-export const HermesChatPane = controllerView({
-  create: createChatPane,
-  view: view((model) => {
+export const HermesChatPane = controllerView(
+  { controller: createChatPane },
+  view((model) => {
     const { props, ui, actions } = model
     const {
       closeFind,
@@ -604,7 +600,7 @@ export const HermesChatPane = controllerView({
                               (state()?.messages.findIndex(
                                 (candidate) => candidate.id === item.id,
                               ) ?? -1) + 1
-                            actions.branch(count)
+                            void actions.branch(count)
                           }
                     }
                     onSpeak={
@@ -693,7 +689,7 @@ export const HermesChatPane = controllerView({
                         const answer = decisionAnswer()
                         if (!answer) return
                         setDecisionAnswer('')
-                        actions.answer(answer)
+                        void actions.answer(answer)
                       }}
                     >
                       Answer
@@ -718,17 +714,17 @@ export const HermesChatPane = controllerView({
               const dragged = event.dataTransfer && getFileDragData(event.dataTransfer)
               if (dragged) {
                 event.preventDefault()
-                actions.addDraggedPath(dragged)
+                void actions.addDraggedPath(dragged)
                 return
               }
               if (!event.dataTransfer?.files.length) return
               event.preventDefault()
-              actions.addFiles(event.dataTransfer.files)
+              void actions.addFiles(event.dataTransfer.files)
             }}
             onPaste={(event) => {
               const files = event.clipboardData?.files
               if (!files?.length) return
-              actions.addFiles(files)
+              void actions.addFiles(files)
             }}
           >
             <input
@@ -737,7 +733,7 @@ export const HermesChatPane = controllerView({
               type='file'
               multiple
               onChange={(event) => {
-                if (event.currentTarget.files) actions.addFiles(event.currentTarget.files)
+                if (event.currentTarget.files) void actions.addFiles(event.currentTarget.files)
                 event.currentTarget.value = ''
               }}
             />
@@ -1086,7 +1082,7 @@ export const HermesChatPane = controllerView({
                   event.preventDefault()
                   const text = ui.dialogs.editValue().trim()
                   if (!text) return
-                  actions.rewind(target.id, text)
+                  void actions.rewind(target.id, text)
                 }}
               >
                 <h2 id='hermes-edit-title' class='text-sm font-semibold'>
@@ -1142,7 +1138,7 @@ export const HermesChatPane = controllerView({
                 event.preventDefault()
                 const title = ui.dialogs.renameValue().trim()
                 if (!title) return
-                actions.rename(title)
+                void actions.rename(title)
               }}
             >
               <h2 id='hermes-rename-title' class='text-sm font-semibold'>
@@ -1251,4 +1247,4 @@ export const HermesChatPane = controllerView({
       </div>
     )
   }),
-})
+)

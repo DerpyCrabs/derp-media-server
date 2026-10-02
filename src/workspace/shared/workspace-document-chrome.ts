@@ -6,14 +6,14 @@ import {
   setFaviconHref,
 } from '@/lib/ui/dynamic-favicon-core'
 import type { WorkspaceRecord } from '@/workspace/model/workspace-registry'
-import { commandSlot, lifetime, type Snapshot } from 'effectweb'
+import { modelOwner, type Snapshot } from 'effectweb'
 import { Effect } from 'effect'
 export function createWorkspaceDocumentChrome() {
   const previousTitle = document.title
   const previousHref =
     document.querySelector<HTMLLinkElement>("link[rel*='icon']")?.href ?? DEFAULT_FAVICON_DATA_URL
-  const owner = lifetime()
-  const slot = commandSlot('workspace-favicon')
+  const owner = modelOwner({})
+  const slot = 'workspace-favicon'
   return {
     update(record: Snapshot<WorkspaceRecord> | undefined) {
       const title = record?.name?.trim()

@@ -1,7 +1,7 @@
 import { directoryListingSchema } from '@/lib/files/file-schemas'
 import { Cause, Effect, Schema } from 'effect'
-import { AsyncResult } from 'effect/unstable/reactivity'
-import { available, commandSlot, modelOwner, resourceError, type Snapshot } from 'effectweb'
+import { AsyncResult } from 'effect/reactivity'
+import { available, modelOwner, resourceError, type Snapshot } from 'effectweb'
 import { isApiError } from '@/lib/api/client'
 import { pushForbiddenNotice } from '@/lib/state/forbidden-notify'
 import { groups, initialData, queryCache } from '@/lib/api/cache'
@@ -25,9 +25,9 @@ const directoryListingBootstrapSchema = Schema.Struct({
   pages: Schema.mutable(Schema.Array(directoryListingSchema)),
   pageParams: Schema.mutable(Schema.Array(Schema.Number)),
 })
-const pageSlot = commandSlot('directory-next-page')
-const pollSlot = commandSlot('directory-poll')
-const loadingSlot = commandSlot('directory-deferred-loading')
+const pageSlot = 'directory-next-page'
+const pollSlot = 'directory-poll'
+const loadingSlot = 'directory-deferred-loading'
 export function createFileBrowserListing(path: string) {
   const owner = modelOwner({
     result: AsyncResult.initial<
@@ -90,7 +90,7 @@ export function createFileBrowserListing(path: string) {
     owner.run(
       pageSlot,
       Effect.sync(() => owner.patch({ loadingMore: true })).pipe(
-        Effect.andThen(resource.loadNext()),
+        Effect.andThen(resource.fetchNextPage()),
         Effect.catch(() => Effect.void),
         Effect.ensuring(Effect.sync(() => owner.patch({ loadingMore: false }))),
       ),

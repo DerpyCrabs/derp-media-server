@@ -1,4 +1,4 @@
-import { type Snapshot, localComponent, view, list } from 'effectweb'
+import { type Snapshot, component, view, list } from 'effectweb'
 import { cn } from '@/lib/ui/cn'
 import type {
   FileColumnVisibility,
@@ -31,12 +31,14 @@ const fields: { field: FileSortField; label: string }[] = [
   { field: 'favorite', label: 'Favorites' },
   { field: 'views', label: 'Views' },
 ]
-export const ExplorerDisplayOptions = localComponent({
-  init: (_props: Snapshot<ExplorerDisplayOptionsProps>) => ({
-    open: false,
-    anchor: null as HTMLDivElement | null,
-  }),
-  view: view((local, patch) => {
+export const ExplorerDisplayOptions = component(
+  {
+    init: (_props: Snapshot<ExplorerDisplayOptionsProps>) => ({
+      open: false,
+      anchor: null as HTMLDivElement | null,
+    }),
+  },
+  view((local, patch) => {
     const props = local.props
     const open = () => local.open,
       setOpen = (value: boolean) => patch({ open: value })
@@ -192,4 +194,4 @@ export const ExplorerDisplayOptions = localComponent({
       </div>
     )
   }),
-})
+)

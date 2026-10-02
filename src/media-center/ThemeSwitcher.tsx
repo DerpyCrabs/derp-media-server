@@ -1,6 +1,6 @@
 import { cn } from '@/lib/ui/cn'
 import Settings from '@effectweb/lucide/icons/settings'
-import { domBinding, localComponent, Portal, view } from 'effectweb'
+import { domBinding, component, Portal, view } from 'effectweb'
 import { ThemeSwitcherMenuContent } from './ThemeSwitcherMenuContent'
 type Props = { variant?: 'header' | 'floating'; compact?: boolean }
 const positionMenu = (
@@ -41,12 +41,9 @@ const positionMenu = (
     },
   }
 }
-export const ThemeSwitcher = localComponent<
-  Props,
-  { open: boolean; anchor: HTMLButtonElement | null }
->({
-  init: () => ({ open: false, anchor: null }),
-  view: view(({ props, open, anchor }, patch) => {
+export const ThemeSwitcher = component<Props, { open: boolean; anchor: HTMLButtonElement | null }>(
+  { init: () => ({ open: false, anchor: null }) },
+  view(({ props, open, anchor }, patch) => {
     const variant = props.variant ?? 'header'
     return (
       <div class={cn('relative', variant === 'floating' && 'fixed bottom-4 right-4 z-10002')}>
@@ -92,4 +89,4 @@ export const ThemeSwitcher = localComponent<
       </div>
     )
   }),
-})
+)

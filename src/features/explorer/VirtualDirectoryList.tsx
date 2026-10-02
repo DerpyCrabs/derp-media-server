@@ -1,12 +1,5 @@
-import {
-  type Snapshot,
-  collection,
-  domBinding,
-  list,
-  localComponent,
-  view,
-  type JSX,
-} from 'effectweb'
+import { sequence } from 'effectweb'
+import { type Snapshot, collection, domBinding, list, component, view, type JSX } from 'effectweb'
 import type { FileItem } from '@/lib/files/types'
 import { directoryViewport } from './virtual-directory-binding'
 type VirtualDirectoryListProps = {
@@ -28,14 +21,16 @@ type VirtualDirectoryListProps = {
   class?: string
 }
 const byPath = collection<FileItem>((file) => file.path)
-export const VirtualDirectoryList = localComponent({
-  init: (_props: Snapshot<VirtualDirectoryListProps>) => ({
-    start: 0,
-    end: 100,
-    columns: 1,
-    rowHeight: 48,
-  }),
-  view: view((model, patch) => {
+export const VirtualDirectoryList = component(
+  {
+    init: (_props: Snapshot<VirtualDirectoryListProps>) => ({
+      start: 0,
+      end: 100,
+      columns: 1,
+      rowHeight: 48,
+    }),
+  },
+  view((model, patch) => {
     const props = model.props
     const files = props.files
     const parent = props.includeParent
@@ -70,7 +65,7 @@ export const VirtualDirectoryList = localComponent({
         <table class={`w-full table-fixed caption-bottom text-sm ${tableClass ?? ''}`}>
           <colgroup>
             {props.columns ? (
-              props.columns.map((column) => <col class={column.class} />)
+              list(sequence(props.columns), (column) => <col class={column.class} />)
             ) : (
               <>
                 <col class='w-[40px]' />
@@ -105,4 +100,4 @@ export const VirtualDirectoryList = localComponent({
       </div>
     )
   }),
-})
+)

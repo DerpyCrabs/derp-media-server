@@ -1,13 +1,13 @@
 import { Effect } from 'effect'
-import { commandSlot, lifetime } from 'effectweb'
+import { modelOwner } from 'effectweb'
 
-export const desktopOperations = lifetime()
-const operationSlot = commandSlot('desktop-operation')
+export const desktopOperations = modelOwner({})
+const operationSlot = 'desktop-operation'
 
 export function runDesktopOperation(operation: () => Promise<unknown>) {
   const publish = (detail: { pending: boolean; error?: string }) =>
     Effect.sync(() => window.dispatchEvent(new CustomEvent('desktop-operation', { detail })))
-  desktopOperations.run(
+  void desktopOperations.run(
     operationSlot,
     Effect.gen(function* () {
       yield* publish({ pending: true })

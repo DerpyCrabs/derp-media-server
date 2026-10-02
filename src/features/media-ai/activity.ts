@@ -1,5 +1,5 @@
 import { Effect } from 'effect'
-import { commandSlot, lifetime } from 'effectweb'
+import { modelOwner } from 'effectweb'
 import type { PlaybackCommand, PlaybackSession } from '@/features/playback/types'
 
 export function createActivityId() {
@@ -42,11 +42,11 @@ function persist() {
     sessionStorage.setItem('media-activity-pending', JSON.stringify(pending.slice(-100)))
   } catch {}
 }
-const drainSlot = commandSlot('activity-drain')
-const retrySlot = commandSlot('activity-retry')
-let activityLifetime = lifetime()
+const drainSlot = 'activity-drain'
+const retrySlot = 'activity-retry'
+let activityLifetime = modelOwner({})
 function drain() {
-  activityLifetime.run(
+  void activityLifetime.run(
     drainSlot,
     Effect.gen(function* () {
       while (pending.length) {
@@ -78,7 +78,7 @@ export function sendActivity(event: ActivityEvent) {
   drain()
 }
 export function restoreActivityQueue() {
-  if (activityLifetime.disposed) activityLifetime = lifetime()
+  if (activityLifetime.disposed) activityLifetime = modelOwner({})
   if (!queue.restored) {
     queue.restored = true
     try {
@@ -100,7 +100,7 @@ export function restoreActivityQueue() {
     } catch {}
   }
   drain()
-  activityLifetime.run(
+  void activityLifetime.run(
     retrySlot,
     Effect.forever(Effect.sleep(10_000).pipe(Effect.andThen(Effect.sync(drain)))),
     'replace',

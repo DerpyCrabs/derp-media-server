@@ -1,4 +1,4 @@
-import { domBinding, view, controllerView } from 'effectweb'
+import { domBinding, view, controllerView, resourceError } from 'effectweb'
 import { buildResolveMarkdownImageUrl } from '@/lib/markdown/resolve-markdown-image-url'
 import { tryPasteKnowledgeBaseImage } from './handle-kb-image-paste'
 import { isPathEditable } from '@/lib/files/path-utils'
@@ -11,10 +11,9 @@ import { fileDownloadHref } from '@/lib/files/download-urls'
 import { LazyMarkdownDocument } from '@/lib/markdown/LazyMarkdownDocument'
 import { completeMarkdownImagePaste } from '@/lib/markdown/paste-completion'
 import { dirtyGuard, textController } from './text-editor-controller'
-export const TextEditorPane = controllerView({
-  create: textController,
-  identity: (props) => props.viewingPath,
-  view: view((model) => {
+export const TextEditorPane = controllerView(
+  { controller: textController, identity: (props) => props.viewingPath },
+  view((model) => {
     const props = model.props
     const { actions } = model
     const fileEditable = () => isPathEditable(props.viewingPath, [...props.editableFolders])
@@ -37,7 +36,7 @@ export const TextEditorPane = controllerView({
     const toggleReadOnlyFromEditor = () => actions.readOnly(true)
     const enterEditMode = () => actions.readOnly(false)
     const handleCopy = actions.copy
-    const handleClose = actions.close
+    const handleClose = actions.dismiss
     const setEditContent = actions.edit
     const currentTextTargetKey = () => props.viewingPath
     const kbList = () => [...(props.knowledgeBases ?? [])]
@@ -140,11 +139,11 @@ export const TextEditorPane = controllerView({
                         </span>
                       </button>
                     ) : null}
-                    {model.error ? (
+                    {resourceError(model.saved) && !model.saved.waiting ? (
                       <button
                         type='button'
                         class='text-destructive inline-flex items-center gap-1 text-xs hover:underline'
-                        title={model.error ?? ''}
+                        title={resourceError(model.saved)}
                         onClick={() => saveInternal(true)}
                       >
                         <AlertCircle class='h-4 w-4 shrink-0' stroke-width={2} />
@@ -160,7 +159,7 @@ export const TextEditorPane = controllerView({
                       ? 'hover:bg-muted rounded-md px-2 py-1 text-xs disabled:opacity-50'
                       : 'hover:bg-muted rounded-md px-2 py-1 text-sm disabled:opacity-50'
                   }
-                  disabled={model.saving}
+                  disabled={model.saved.waiting}
                   onClick={() => toggleReadOnlyFromEditor()}
                   title='Switch to read-only mode'
                 >
@@ -170,12 +169,12 @@ export const TextEditorPane = controllerView({
                   <button
                     type='button'
                     class='bg-primary text-primary-foreground hover:bg-primary/90 inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-sm disabled:opacity-50'
-                    disabled={model.saving}
+                    disabled={model.saved.waiting}
                     onClick={() => saveInternal(false)}
                     title='Save changes'
                   >
                     <Save class='h-4 w-4' stroke-width={2} />
-                    {model.saving ? 'Saving…' : 'Save'}
+                    {model.saved.waiting ? 'Saving…' : 'Save'}
                   </button>
                 ) : null}
               </>
@@ -337,5 +336,5 @@ export const TextEditorPane = controllerView({
       </div>
     )
   }),
-})
+)
 export type { TextEditorPaneProps } from './text-editor-controller'

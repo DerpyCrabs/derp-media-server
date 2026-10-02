@@ -1,4 +1,4 @@
-import { localComponent, view, domBinding, observe } from 'effectweb'
+import { component, view, domBinding, observe } from 'effectweb'
 import { assistShapeLabel } from '@/workspace/model/workspace-assist-grid'
 import type { AssistSlotPick } from '@/workspace/model/workspace-snap-pick'
 import { narrowPickToAssistShape } from '@/workspace/model/workspace-snap-pick'
@@ -18,12 +18,12 @@ export type WorkspaceSnapAssistBarProps = {
   hoverPick: AssistSlotPick | null
   rootRef: (el: HTMLDivElement | undefined) => void
 }
-export const WorkspaceSnapAssistBar = localComponent<
+export const WorkspaceSnapAssistBar = component<
   WorkspaceSnapAssistBarProps,
   { viewportSize: { w: number; h: number } }
->({
-  init: () => ({ viewportSize: layoutViewportClientSize() }),
-  view: view((local, patch) =>
+>(
+  { init: () => ({ viewportSize: layoutViewportClientSize() }) },
+  view((local, patch) =>
     observe(workspaceLayoutPreferences.source, (preferences) => {
       const props = local.props
       const viewportSize = (): { w: number; h: number } =>
@@ -108,7 +108,7 @@ export const WorkspaceSnapAssistBar = localComponent<
       )
     }),
   ),
-})
+)
 const snapViewport = (
   _element: HTMLElement,
   current: () => (size: { w: number; h: number }) => void,

@@ -1,6 +1,6 @@
 import { randomId } from '@/lib/random-id'
 import { Effect } from 'effect'
-import { commandSlot, modelOwner, type Snapshot } from 'effectweb'
+import { modelOwner, type Snapshot } from 'effectweb'
 import { queryCache } from '@/lib/api/cache'
 import { musicHomeQuery } from './queries'
 import { radioTracks, recordingKey } from './radio'
@@ -11,7 +11,7 @@ import type { MusicTrack } from './types'
 export type MusicDialog = { kind: 'collection'; title: string; items: MusicTrack[] }
 
 const owner = modelOwner({ dialog: null as MusicDialog | null, notice: '' })
-const noticeSlot = commandSlot('music-notice')
+const noticeSlot = 'music-notice'
 export const musicUiSource = owner.source
 export const musicUiLifetime = { dispose: owner.dispose, close: owner.close }
 export const setMusicDialog = (dialog: MusicDialog | Snapshot<MusicDialog> | null) =>

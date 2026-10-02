@@ -1,6 +1,6 @@
 import { directoryFilesSchema } from '@/lib/files/file-schemas'
 import { audioMetadataSchema } from './playback-schemas'
-import { available, domMount, lifetime, observe, view, type Snapshot } from 'effectweb'
+import { available, domMount, modelOwner, observe, view, type Snapshot } from 'effectweb'
 import { queryCache, groups, seedQuery } from '@/lib/api/cache'
 import { fetchDirectoryFilesEffect } from '@/lib/files/files-client'
 import { MediaType } from '@/lib/files/types'
@@ -41,7 +41,7 @@ const actions = [
 const audioHost = domMount((element: HTMLAudioElement) => {
   const session = getPlaybackSession()
   const host = getPlaybackMediaHost()
-  const owner = lifetime()
+  const owner = modelOwner({})
   let detached: (() => void) | undefined
   let selectedPath = ''
   let observedItem = ''

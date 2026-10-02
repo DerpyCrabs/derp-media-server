@@ -7,7 +7,7 @@ import { settingsQuery, configQuery, type ServerConfig } from '@/lib/api/queries
 import type { WorkspaceSettings } from '@/workspace/model/workspace-settings-types'
 import { FileBrowser, type FileBrowserHost } from '@/features/explorer/FileBrowser'
 import { EMPTY_FILE_ICON_CONTEXT } from '@/features/explorer/file-icon'
-import { ViewerPane } from '@/features/viewer/ViewerPane'
+import { ViewerPane } from '@/features/viewer/LazyViewerPane'
 import { subscribeAdminEvents } from '@/lib/api/admin-events-stream'
 import { navigateSearchParams, browserHistory } from '@/lib/browser/browser-history'
 import { applyPathMutationToUrl } from '@/lib/browser/url-state-actions'
@@ -100,7 +100,7 @@ function desktopController() {
   ]
   return {
     source: presentation.source,
-    actions,
+    ...actions,
     dispose() {
       stops.forEach((stop) => stop())
       stopPicker?.()
@@ -116,9 +116,9 @@ function desktopController() {
     },
   }
 }
-export const DesktopPage = controllerView({
-  create: desktopController,
-  view: view((model) => {
+export const DesktopPage = controllerView(
+  { controller: desktopController },
+  view((model) => {
     const { bridge } = model
     const { picker, setStatus } = model.actions
     const params = () => new URLSearchParams(model.location.search),
@@ -289,4 +289,4 @@ export const DesktopPage = controllerView({
       <p class='p-6'>Open this page using derp-media-client.</p>
     )
   }),
-})
+)

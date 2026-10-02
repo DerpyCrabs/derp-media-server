@@ -160,13 +160,13 @@ export function createFileBrowserActions() {
         if (!name || fileExists(name)) return
         const base = options.currentPath ? `${options.currentPath}/${name}` : name
         const path = normalizeNewFilePath(base, options.inKnowledgeBase)
-        controller.mutations.createFileMutation.run({ path, content: '' }, closeCreateFile)
+        void controller.mutations.createFileMutation.run({ path, content: '' }, closeCreateFile)
       }
       function submitCreateFolder(value: string) {
         const name = value.trim()
         if (!name || folderExists(name)) return
         const path = options.currentPath ? `${options.currentPath}/${name}` : name
-        controller.mutations.createFolderMutation.run({ path }, closeCreateFolder)
+        void controller.mutations.createFolderMutation.run({ path }, closeCreateFolder)
       }
       function submitRename(value: string) {
         const target = renameTarget()
@@ -176,7 +176,10 @@ export function createFileBrowserActions() {
         const normalizedPath = target.path.replace(/\\/g, '/')
         const parent = normalizedPath.split('/').slice(0, -1).join('/')
         const newPath = parent ? `${parent}/${name}` : name
-        controller.mutations.renameMutation.run({ oldPath: normalizedPath, newPath }, closeRename)
+        void controller.mutations.renameMutation.run(
+          { oldPath: normalizedPath, newPath },
+          closeRename,
+        )
       }
       function confirmMove(destination: string) {
         const target = moveTarget()
@@ -184,7 +187,7 @@ export function createFileBrowserActions() {
         const name = target.path.split(/[/\\]/).pop()!
         const normalizedDestination = destination.replace(/\\/g, '/').replace(/\/+$/, '')
         const newPath = normalizedDestination ? `${normalizedDestination}/${name}` : name
-        controller.mutations.moveMutation.run(
+        void controller.mutations.moveMutation.run(
           { oldPath: target.path.replace(/\\/g, '/'), newPath },
           closeMove,
         )
@@ -192,7 +195,7 @@ export function createFileBrowserActions() {
       function confirmCopy(destination: string) {
         const target = copyTarget()
         if (!target) return
-        controller.mutations.copyMutation.run(
+        void controller.mutations.copyMutation.run(
           { sourcePath: target.path, destinationDir: destination },
           closeCopy,
         )
@@ -202,7 +205,7 @@ export function createFileBrowserActions() {
         if (!target) return
         const close = () => updateDeleteTarget(null)
         if (overrides?.remove?.(target, close) === true) return
-        controller.mutations.deleteMutation.run(target.path, close)
+        void controller.mutations.deleteMutation.run(target.path, close)
       }
       const rename: ExplorerRenameDialog = {
         open: renameTarget() !== null,

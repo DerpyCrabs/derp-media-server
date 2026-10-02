@@ -2,7 +2,7 @@ import { randomId } from '@/lib/random-id'
 import { browserHistory, navigateSearchParams } from '@/lib/browser/browser-history'
 import { DEFAULT_WORKSPACE_SOURCE } from '@/workspace/model/workspace'
 import { CanvasWorkspace } from './canvas/CanvasWorkspace'
-import { view, modelOwner, commandSlot, list, collection, controllerView } from 'effectweb'
+import { view, modelOwner, list, collection, controllerView } from 'effectweb'
 import { Effect } from 'effect'
 import { DesktopWorkspace } from './desktop/DesktopWorkspace'
 import { buildWorkspaceFromDirParam } from './desktop/workspace-bootstrap'
@@ -20,7 +20,7 @@ function routeController() {
   const session = createWorkspaceSession(workspaceId)
   const chrome = createWorkspaceDocumentChrome()
   const owner = modelOwner({ session, id: '', type: '' })
-  const slot = commandSlot('activate-workspace')
+  const slot = 'activate-workspace'
   const synchronize = () => {
     const id = workspaceId()
     const registry = session.catalog.value()
@@ -98,9 +98,9 @@ function routeController() {
   }
 }
 const routeIds = collection<string>((id) => id)
-export const WorkspaceRoute = controllerView({
-  create: routeController,
-  view: view((model) =>
+export const WorkspaceRoute = controllerView(
+  { controller: routeController },
+  view((model) =>
     model.id ? (
       list(routeIds.from([model.id]), () =>
         model.type === 'canvas' ? (
@@ -113,4 +113,4 @@ export const WorkspaceRoute = controllerView({
       <div class='fixed inset-0 bg-background' />
     ),
   ),
-})
+)

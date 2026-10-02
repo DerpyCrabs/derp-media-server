@@ -1,4 +1,4 @@
-import { sequence, type Snapshot, list, localComponent, view } from 'effectweb'
+import { sequence, type Snapshot, list, component, view } from 'effectweb'
 import { cn } from '@/lib/ui/cn'
 import Search from '@effectweb/lucide/icons/search'
 type SearchResult = { path: string; name: string; snippet: string }
@@ -29,11 +29,13 @@ function pathRelativeTo(from: string, to: string): string {
   const rest = toParts.slice(i)
   return [...Array(up).fill('..'), ...rest].join('/') || '.'
 }
-export const KbSearchResults = localComponent({
-  init: (_props: Snapshot<Props>) => ({
-    selection: { key: '', index: 0 } as { key: string; index: number },
-  }),
-  view: view((local, patch) => {
+export const KbSearchResults = component(
+  {
+    init: (_props: Snapshot<Props>) => ({
+      selection: { key: '', index: 0 } as { key: string; index: number },
+    }),
+  },
+  view((local, patch) => {
     const props = local.props
     const selection = () => local.selection
     const setSelection = (value: { key: string; index: number }) => patch({ selection: value })
@@ -128,4 +130,4 @@ export const KbSearchResults = localComponent({
       </div>
     )
   }),
-})
+)

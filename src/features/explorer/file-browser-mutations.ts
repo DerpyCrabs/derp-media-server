@@ -1,6 +1,6 @@
 import { Effect } from 'effect'
-import { AsyncResult } from 'effect/unstable/reactivity'
-import { modelOwner, ownedTasks, resourceError, type Snapshot } from 'effectweb'
+import { AsyncResult } from 'effect/reactivity'
+import { modelOwner, resourceError, type Snapshot } from 'effectweb'
 import { postEffect } from '@/lib/api/client'
 import { groups, queryCache } from '@/lib/api/cache'
 import type {
@@ -21,8 +21,8 @@ export const operationError = (result: AsyncResult.AsyncResult<unknown, Error>) 
   return message ? new Error(message) : undefined
 }
 export function createFileOperations(options: FileBrowserMutationOptions = {}) {
-  const owner = modelOwner<{ results: Record<string, AsyncResult.AsyncResult<unknown, Error>> }>({
-    results: {},
+  const owner = modelOwner({
+    results: {} as Partial<Record<string, AsyncResult.AsyncResult<unknown, Error>>>,
   })
   const filesChanged = () => {
     queryCache.invalidateGroup(groups.files)
@@ -35,36 +35,25 @@ export function createFileOperations(options: FileBrowserMutationOptions = {}) {
     settled: () => void,
     success?: (args: Args) => void,
   ) {
-    // One owner per operation gives each its own result key; the shared `results` map is derived.
-    const status = modelOwner<{ result: AsyncResult.AsyncResult<unknown, Error> }>({
-      result: AsyncResult.initial(),
-    })
-    owner.own(status)
-    owner.own(
-      status.source.subscribe(({ result }) =>
-        owner.edit('results', (results) => ({ ...results, [name]: result })),
-      ),
-    )
-    const tasks = ownedTasks(status, {
-      run: {
-        policy: 'queue',
-        result: 'result',
-        run: (args: Args, onSuccess?: () => void) =>
-          Effect.suspend(() => effect(args)).pipe(
-            Effect.tap(() =>
-              Effect.sync(() => {
-                success?.(args)
-                onSuccess?.()
-              }),
-            ),
-            Effect.ensuring(Effect.sync(settled)),
+    // Each operation publishes its own result at `results[name]` and queues its own requests.
+    const run = (args: Args, onSuccess?: () => void) =>
+      owner.task(
+        ['results', name],
+        Effect.suspend(() => effect(args)).pipe(
+          Effect.tap(() =>
+            Effect.sync(() => {
+              success?.(args)
+              onSuccess?.()
+            }),
           ),
-      },
-    })
-    const run = (args: Args, onSuccess?: () => void) => tasks.run(args, onSuccess)
-    const reset = () => status.patch({ result: AsyncResult.initial() })
+          Effect.ensuring(Effect.sync(settled)),
+        ),
+        'queue',
+      )
+    const reset = () =>
+      owner.edit('results', (results) => ({ ...results, [name]: AsyncResult.initial() }))
     const snapshot = (
-      results: Snapshot<Record<string, AsyncResult.AsyncResult<unknown, Error>>>,
+      results: Snapshot<Partial<Record<string, AsyncResult.AsyncResult<unknown, Error>>>>,
     ) => ({ run, reset, result: results[name] ?? AsyncResult.initial() })
     return { run, reset, snapshot }
   }

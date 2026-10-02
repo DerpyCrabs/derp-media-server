@@ -107,7 +107,7 @@ function videoController(props: Snapshot<Props>) {
   sync()
   return {
     source: owner.source,
-    actions,
+    ...actions,
     receive: (next: Snapshot<Props>) => {
       owner.patch({ props: next })
       sync()
@@ -120,9 +120,9 @@ function videoController(props: Snapshot<Props>) {
 }
 const attachVideo = (element: HTMLVideoElement, current: () => (video: HTMLVideoElement) => void) =>
   current()(element)
-export const VideoViewerPane = controllerView({
-  create: videoController,
-  view: view((model) => {
+export const VideoViewerPane = controllerView(
+  { controller: videoController },
+  view((model) => {
     const props = model.props
     const active =
       model.playback.mode === 'video' &&
@@ -156,4 +156,4 @@ export const VideoViewerPane = controllerView({
       </div>
     )
   }),
-})
+)

@@ -1,11 +1,11 @@
-import { type Snapshot, available, commandSlots, modelOwner } from 'effectweb'
+import { type Snapshot, available, modelOwner } from 'effectweb'
 import { Effect } from 'effect'
-import { AsyncResult } from 'effect/unstable/reactivity'
+import { AsyncResult } from 'effect/reactivity'
 import { postEffect } from '@/lib/api/client'
 import { statsQuery, type ViewStats } from '@/lib/api/queries'
 import { groups, queryCache } from '@/lib/api/cache'
 import { observeQuery } from '@effectweb/query'
-const incrementSlots = commandSlots('increment-view')
+const incrementSlots = (key: string | number) => ['increment-view', key] as const
 export function createViewStats(options?: { includeCounts?: boolean }) {
   const owner = modelOwner({
     result: AsyncResult.initial<ViewStats, Error>() as AsyncResult.AsyncResult<

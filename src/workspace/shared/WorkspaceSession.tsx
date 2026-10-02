@@ -1,4 +1,4 @@
-import { commandSlot, lifetime } from 'effectweb'
+import { modelOwner } from 'effectweb'
 import { Deferred, Effect } from 'effect'
 import { applyWorkspacePathMutation } from '@/workspace/model/workspace-path-mutation'
 import { subscribeSseAdmin } from '@/lib/api/sse-shared-worker-client'
@@ -9,8 +9,8 @@ export type WorkspaceSession = ReturnType<typeof createWorkspaceSession>
 
 export function createWorkspaceSession(workspaceId: () => string) {
   const blockers = new Set<() => boolean>()
-  const owner = lifetime()
-  const refreshSlot = commandSlot('workspace-remote-change')
+  const owner = modelOwner({})
+  const refreshSlot = 'workspace-remote-change'
   const waiters = new Set<Deferred.Deferred<void>>()
   const savingBlocked = () => [...blockers].some((blocked) => blocked())
   const registry = createWorkspaceRegistry({

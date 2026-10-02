@@ -1,17 +1,15 @@
 import { createFileSearchPalette } from './file-search-controller'
 import {
   type Snapshot,
-  localComponent,
+  component,
   list,
   available,
   domMount,
-  effectEvent,
   resourceError,
   view,
   controllerView,
   Portal,
 } from 'effectweb'
-import { Effect } from 'effect'
 import { modalFocus } from '@/lib/ui/modal-focus'
 import {
   FILE_SEARCH_DEFAULT_LIMIT,
@@ -27,7 +25,6 @@ import Folder from '@effectweb/lucide/icons/folder'
 import RefreshCw from '@effectweb/lucide/icons/refresh-cw'
 import Search from '@effectweb/lucide/icons/search'
 import X from '@effectweb/lucide/icons/x'
-import { showAppConfirmEffect } from '@/lib/ui/app-dialog'
 export type FileSearchButtonProps = {
   title: string
   onSelect: (result: FileSearchResult) => void
@@ -49,9 +46,9 @@ function stateLabel(status: Snapshot<FileSearchStatus> | undefined): string {
   const polling = status.roots.filter((root) => root.refreshMode === 'polling').length
   return `${status.indexedEntries.toLocaleString()} indexed items · ${status.watcherCount} watched · ${polling} polling`
 }
-export const FileSearchButton = localComponent({
-  init: (_props: Snapshot<FileSearchButtonProps>) => ({ internalOpen: false }),
-  view: view((local, patch) => {
+export const FileSearchButton = component(
+  { init: (_props: Snapshot<FileSearchButtonProps>) => ({ internalOpen: false }) },
+  view((local, patch) => {
     const props = local.props
     const internalOpen = () => local.internalOpen,
       setInternalOpen = (value: boolean) => patch({ internalOpen: value })
@@ -86,7 +83,7 @@ export const FileSearchButton = localComponent({
       </>
     )
   }),
-})
+)
 const lockScroll = domMount((_element: HTMLDivElement) => {
   const old = document.body.style.overflow
   document.body.style.overflow = 'hidden'
@@ -94,9 +91,9 @@ const lockScroll = domMount((_element: HTMLDivElement) => {
     document.body.style.overflow = old
   }
 })
-const FileSearchPalette = controllerView({
-  create: createFileSearchPalette,
-  view: view((model) => {
+const FileSearchPalette = controllerView(
+  { controller: createFileSearchPalette },
+  view((model) => {
     const props = model.props
     const listId = model.listId
     const query = () => model.query
@@ -288,19 +285,7 @@ const FileSearchPalette = controllerView({
                 type='button'
                 class='h-9 rounded-md px-2 hover:bg-muted hover:text-foreground disabled:opacity-50'
                 disabled={model.reindexResult.waiting}
-                onClick={effectEvent('drop', () =>
-                  showAppConfirmEffect({
-                    title: 'Rebuild file search index?',
-                    message: 'A complete rebuild may take a while.',
-                    confirmLabel: 'Rebuild',
-                  }).pipe(
-                    Effect.tap((confirmed) =>
-                      Effect.sync(() => {
-                        if (confirmed) model.reindex('full')
-                      }),
-                    ),
-                  ),
-                )}
+                onClick={() => model.confirmRebuild()}
               >
                 Rebuild
               </button>
@@ -310,4 +295,4 @@ const FileSearchPalette = controllerView({
       </Portal>
     )
   }),
-})
+)

@@ -1,4 +1,4 @@
-import { localComponent, view, domBinding, observe, type JSX } from 'effectweb'
+import { component, view, domBinding, observe, type JSX } from 'effectweb'
 import type { FileDragData } from '@/lib/files/file-drag-data'
 import type { PersistedWorkspaceState } from '@/workspace/model/workspace'
 import type { WindowDefinition as WorkspaceWindowDefinition } from '@/lib/models/window-model'
@@ -97,12 +97,12 @@ function shouldBlockWindowDragStart(
   if (el.closest('.workspace-window-buttons')) return true
   return false
 }
-export const WorkspaceWindowChrome = localComponent<
+export const WorkspaceWindowChrome = component<
   WorkspaceWindowChromeProps,
   { viewport: { width: number; height: number } | null }
->({
-  init: () => ({ viewport: null }),
-  view: view((local, patch) =>
+>(
+  { init: () => ({ viewport: null }) },
+  view((local, patch) =>
     observe(workspaceLayoutPreferences.source, (preferences) => {
       const props = local.props
       const viewport = (): { width: number; height: number } | null =>
@@ -492,7 +492,7 @@ export const WorkspaceWindowChrome = localComponent<
       )
     }),
   ),
-})
+)
 const chromeEvents = (
   element: HTMLElement,
   current: () => {

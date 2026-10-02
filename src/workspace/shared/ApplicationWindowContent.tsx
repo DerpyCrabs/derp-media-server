@@ -1,6 +1,6 @@
 import { view } from 'effectweb'
 import { memoView } from 'effectweb/advanced'
-import { HermesChatPane } from '@/features/hermes/HermesChatPane'
+import { HermesChatPane } from '@/features/hermes/LazyHermesChatPane'
 import { WorkspaceFileBrowser } from '@/workspace/shared/WorkspaceFileBrowser'
 import { ViewerPane } from '@/features/viewer'
 import { PaneSwitch } from './PaneSwitch'
