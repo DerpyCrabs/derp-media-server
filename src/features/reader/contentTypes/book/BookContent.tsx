@@ -1,4 +1,4 @@
-import { domBinding, entities, list, component, view, type Snapshot } from 'effectweb'
+import { domBinding, entities, list, component, view } from 'effectweb'
 import type { RenderedBook } from './book-sanitize'
 import type { BookAppearance } from '../../reader-state-client'
 type ChapterProps = {
@@ -12,7 +12,7 @@ type ChapterProps = {
 const chapterObserver = (
   element: HTMLElement,
   current: () => {
-    props: Snapshot<ChapterProps>
+    props: ChapterProps
     near: boolean
     changed: (visible: boolean) => void
     measured: (height: number) => void
@@ -64,15 +64,18 @@ const Chapter = component<ChapterProps, { intersecting: boolean; height: number 
     const near = Math.abs(props.index - props.currentIndex) <= 2 || model.intersecting
     return (
       <article
-        use={domBinding(
-          {
-            props,
-            near,
-            changed: (intersecting: boolean) => patch({ intersecting }),
-            measured: (height: number) => patch({ height }),
-          },
-          chapterObserver,
-        )}
+        use={{
+          ...domBinding(
+            {
+              props,
+              near,
+              changed: (intersecting: boolean) => patch({ intersecting }),
+              measured: (height: number) => patch({ height }),
+            },
+            chapterObserver,
+          ),
+          identity: props.viewport,
+        }}
         id={`reader-${props.chapter.id}`}
         data-book-chapter={props.chapter.id}
         aria-label={props.chapter.title}

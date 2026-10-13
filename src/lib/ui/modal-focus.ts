@@ -1,4 +1,4 @@
-import { domBinding, type Snapshot } from 'effectweb'
+import { domBinding } from 'effectweb'
 
 const FOCUSABLE =
   'input:not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled]), [tabindex="0"]'
@@ -7,7 +7,7 @@ export type ModalFocusOptions = {
   ignoreEscape?: (event: KeyboardEvent) => boolean
   fallbackFocus?: () => HTMLElement | null
 }
-function acquireModalFocus(element: HTMLElement, options: () => Snapshot<ModalFocusOptions>) {
+function acquireModalFocus(element: HTMLElement, options: () => ModalFocusOptions) {
   const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
   let disposed = false
   queueMicrotask(() => {

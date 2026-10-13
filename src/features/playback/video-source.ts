@@ -1,6 +1,5 @@
 import { videoInfoSchema, videoPreferencesSchema } from './playback-schemas'
 import { Effect } from 'effect'
-import { type Snapshot } from 'effectweb'
 import { groups, queryCache } from '@/lib/api/cache'
 import { apiSchemaEffect } from '@/lib/api/client'
 import { buildMediaUrl } from '@/lib/media/build-media-url'
@@ -104,7 +103,7 @@ export function preferredTrack(
   )
 }
 
-export function videoCodec(info: Snapshot<VideoInfo>): string {
+export function videoCodec(info: VideoInfo): string {
   const video = info.video
   if (!video) return ''
   switch (video.codec_name) {
@@ -131,7 +130,7 @@ export function videoCodec(info: Snapshot<VideoInfo>): string {
   }
 }
 
-function supportsVideo(info: Snapshot<VideoInfo>): boolean {
+function supportsVideo(info: VideoInfo): boolean {
   if (!info.video) return true
   const codec = videoCodec(info)
   if (!codec) return false
@@ -155,7 +154,7 @@ function supportsAudio(codec: string): boolean {
 }
 
 export function chooseCompatibility(
-  info: Snapshot<VideoInfo>,
+  info: VideoInfo,
   selected: VideoTrack | undefined,
   fallback: PlaybackFallback,
   videoSupported: boolean,

@@ -1,4 +1,4 @@
-import { type Snapshot, component, view } from 'effectweb'
+import { component, view } from 'effectweb'
 import { cn } from '@/lib/ui/cn'
 import type { ModalOverlayScope } from './modal-overlay-scope'
 import { modalDialogBackdropClass } from './modal-overlay-scope'
@@ -13,7 +13,7 @@ export type CreateFileDialogProps = {
   defaultExtension: 'txt' | 'md'
 }
 const CreateFileDialogContent = component(
-  { init: (_props: Snapshot<CreateFileDialogProps>) => ({ fileName: '' }) },
+  { init: (_props: CreateFileDialogProps) => ({ fileName: '' }) },
   view((local, patch) => {
     const props = local.props
     const fileName = () => local.fileName,

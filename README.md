@@ -212,6 +212,16 @@ Listens on `0.0.0.0` by default.
 - E2E: `bun run test` (single worker) or `bun run test:batch` (CI-style batches)
 - Unit: `bun run test:unit`
 
+Lint inherits the EffectWeb compiler preset and Effect TSGO correctness and antipattern
+presets. Warnings fail the check, including unused lint suppressions. The `prepare`
+script patches Oxlint with `@effect/tsgo`; keep its supported Oxlint and
+`oxlint-tsgolint` versions aligned when updating dependencies.
+
+The config permits `unknown` and untagged `Error` at library/UI boundaries, and
+zero-argument Effect factories. Prefer tagged errors when callers need to distinguish
+failures. Effect style suggestions are not enforced. The frontend additionally checks
+floating/misused Promises, exhaustive switches, and consistent returns.
+
 ## Stack
 
 Rust, Axum, Effect, EffectWeb, Vite, Tailwind CSS v4, Bun, TypeScript, Playwright, oxlint / oxfmt.

@@ -213,38 +213,17 @@ export const FileBrowser = controllerView(
           owner.run(hoverSlots(path), effect.pipe(Effect.catch(() => Effect.void)), 'drop'),
       })
       for (const child of [listing, browser, actions, chrome, virtual, stats]) owner.own(child)
-      const publishPresentation = () => {
+      const publishPresentation = (changes: Partial<ReturnType<typeof owner.read>> = {}) => {
         const next = presentation()
-        owner.patch({ presentation: next })
+        owner.patch({ ...changes, presentation: next })
         currentHost.onListingChange?.(next)
       }
-      owner.own(
-        listing.source.subscribe((listing) => {
-          owner.transaction(() => {
-            owner.patch({ listing })
-            publishPresentation()
-          })
-        }),
-      )
-      owner.own(
-        browser.source.subscribe((browser) => {
-          owner.transaction(() => {
-            owner.patch({ browser })
-            publishPresentation()
-          })
-        }),
-      )
+      owner.own(listing.source.subscribe((listing) => publishPresentation({ listing })))
+      owner.own(browser.source.subscribe((browser) => publishPresentation({ browser })))
       owner.own(actions.source.subscribe((actions) => owner.patch({ actions })))
       owner.own(chrome.source.subscribe((chrome) => owner.patch({ chrome })))
       owner.own(virtual.source.subscribe((virtual) => owner.patch({ virtual })))
-      owner.own(
-        stats.source.subscribe((stats) => {
-          owner.transaction(() => {
-            owner.patch({ stats })
-            publishPresentation()
-          })
-        }),
-      )
+      owner.own(stats.source.subscribe((stats) => publishPresentation({ stats })))
       owner.own(browserViewModes.source.subscribe((viewModes) => owner.patch({ viewModes })))
       owner.own(breadcrumbFloating.source.subscribe((breadcrumbs) => owner.patch({ breadcrumbs })))
       currentHost.onListingChange?.(owner.read().presentation)
@@ -252,13 +231,9 @@ export const FileBrowser = controllerView(
         source: owner.source,
         receive: (next: { host: FileBrowserHost }) => {
           currentHost = next.host
-          owner.transaction(() => {
-            owner.patch({ host: next.host })
-            publishPresentation()
-          })
+          publishPresentation({ host: next.host })
         },
-        dispose: owner.dispose,
-        close: owner.close,
+        lifetime: owner,
       }
     },
   },
@@ -275,7 +250,7 @@ export const FileBrowser = controllerView(
       error: () => data.error,
       loadNextPage: model.loadNextPage,
     }
-    const files = () => model.presentation.files
+    const files = model.presentation.files
     const isVirtualFolder = () =>
       (Object.values(VIRTUAL_FOLDERS) as string[]).includes(currentPath())
     const editable = () =>
@@ -290,14 +265,14 @@ export const FileBrowser = controllerView(
       if (fileActions.virtual?.open(file)) return
       if (![MediaType.AUDIO, MediaType.VIDEO, MediaType.IMAGE].includes(file.type))
         void model.incrementView(file.path)
-      host.present({ kind: 'default', file, sourceDir, orderedFiles: displayedFiles() })
+      host.present({ kind: 'default', file, sourceDir, orderedFiles: displayedFiles })
     }
     function openPath(path: string, displayName?: string) {
       openFile(fileItemFromPath(path, displayName))
     }
     const browser = model.projectBrowser(model.browser, {
       currentPath: currentPath(),
-      files: [...files()],
+      files: [...files],
       editable: editable(),
       editableFolders: host.editableFolders,
       active: host.active ?? true,
@@ -307,17 +282,12 @@ export const FileBrowser = controllerView(
       {
         controller: browser,
         currentPath: currentPath(),
-        files: files(),
+        files: files,
         inKnowledgeBase: browser.inKb,
         editableFolders: host.editableFolders,
         copyEnabled: true,
       },
-      model.projectVirtual(
-        model.virtual,
-        listing.virtualDirectory(),
-        files(),
-        listing.virtualEntry,
-      ),
+      model.projectVirtual(model.virtual, listing.virtualDirectory(), files, listing.virtualEntry),
     )
     const viewStats = {
       incrementView: model.incrementView,
@@ -331,12 +301,9 @@ export const FileBrowser = controllerView(
       browser.settings?.viewModes?.[currentPath()] ??
       'list'
     const sortingDisabled = () => isVirtualFolder() || !!listing.virtualDirectory()
-    const displayedFiles = () => model.presentation.orderedFiles
+    const displayedFiles = model.presentation.orderedFiles
     const empty = () =>
-      !listing.error() &&
-      !listing.loading() &&
-      files().length === 0 &&
-      !browser.search.showingResults
+      !listing.error() && !listing.loading() && files.length === 0 && !browser.search.showingResults
     const isKnowledgeBase = (file: FileItem) =>
       file.isDirectory && browser.knowledgeBases.includes(file.path.replace(/\\/g, '/'))
     function setViewMode(mode: 'list' | 'grid') {
@@ -399,7 +366,7 @@ export const FileBrowser = controllerView(
                 kind: 'reader',
                 file,
                 sourceDir: currentPath(),
-                orderedFiles: displayedFiles(),
+                orderedFiles: displayedFiles,
               }),
             get pickNewTabTarget() {
               return host.actions.beginOpenTargetPick
@@ -448,7 +415,7 @@ export const FileBrowser = controllerView(
     }
     const windowScroll = host.layout === 'media'
     const listingProps = {
-      displayedFiles: displayedFiles(),
+      displayedFiles: displayedFiles,
       viewMode: viewMode(),
       isVirtualFolder: isVirtualFolder(),
       sortingDisabled: sortingDisabled(),
@@ -481,11 +448,11 @@ export const FileBrowser = controllerView(
           host={{
             openParent: () => host.navigate(isVirtualFolder() ? '' : parentPath(currentPath())),
             openFile: (file, event) =>
-              host.selection ? host.selection.click(file, event, displayedFiles()) : openFile(file),
+              host.selection ? host.selection.click(file, event, displayedFiles) : openFile(file),
             activateFile: host.selection?.activate,
             selected: host.selection?.includes,
             selectionKeyDown: host.selection
-              ? (event) => host.selection?.keyDown(event, displayedFiles())
+              ? (event) => host.selection?.keyDown(event, displayedFiles)
               : undefined,
             setViewMode,
             navigateBreadcrumb: host.navigate,

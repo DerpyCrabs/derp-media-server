@@ -1,4 +1,3 @@
-import type { Snapshot } from 'effectweb'
 import { queryCache } from '@/lib/api/cache'
 import { settingsQuery } from '@/lib/api/queries'
 import type {
@@ -11,7 +10,7 @@ import type { FileOperationSnapshot } from './file-browser-mutations'
 import { DEFAULT_FILE_COLUMNS, DEFAULT_FILE_SORT } from './file-display-settings'
 export function fileDisplaySettings(
   path: string,
-  settings: Snapshot<GlobalSettings> | undefined,
+  settings: GlobalSettings | undefined,
   scope: FileColumnScope,
   operations: FileOperationSnapshot,
 ) {

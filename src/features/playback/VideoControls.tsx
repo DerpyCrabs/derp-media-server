@@ -10,7 +10,6 @@ import {
   modelOwner,
   resourceError,
   view,
-  type Snapshot,
   controllerView,
   type ControllerModel,
 } from 'effectweb'
@@ -67,7 +66,7 @@ function trackLabel(track: VideoTrack): string {
 }
 const hideSlot = 'video-controls-hide'
 const fullscreenSlot = 'video-fullscreen'
-function controlsController(props: Snapshot<Props>) {
+function controlsController(props: Props) {
   const session = getPlaybackSession()
   let previousPath = '',
     previousAudio: string | undefined,
@@ -269,14 +268,14 @@ function controlsController(props: Snapshot<Props>) {
   return {
     source: owner.source,
     ...actions,
-    receive: (next: Snapshot<Props>) => {
+    receive: (next: Props) => {
       owner.patch({ props: next })
       info.select(next.path || undefined)
       preferences.select(next.path || undefined)
       syncPreferences()
       syncHide()
     },
-    dispose: owner.dispose,
+    lifetime: owner,
   }
 }
 type ControlsModel = ControllerModel<typeof controlsController>
@@ -449,11 +448,11 @@ export const VideoControls = controllerView(
     const error = () => (props.active ? model.playback.error : null)
     const loading = () =>
       props.active && (model.playback.phase === 'resolving' || model.playback.buffering)
-    const visible = () => model.visible,
-      settingsOpen = () => model.settingsOpen,
-      settingsAnchor = () => model.settingsAnchor,
-      fullscreen = () => model.fullscreen,
-      width = () => model.width
+    const visible = model.visible,
+      settingsOpen = model.settingsOpen,
+      settingsAnchor = model.settingsAnchor,
+      fullscreen = model.fullscreen,
+      width = model.width
     const setSettingsOpen = (open: boolean) => model.actions.settings(open)
     const chooseTrack = model.actions.track,
       toggle = model.actions.toggle,
@@ -466,7 +465,7 @@ export const VideoControls = controllerView(
         <div
           class='pointer-events-none absolute inset-x-3 z-10 flex flex-col items-center gap-1 text-center font-medium text-white'
           style={{
-            bottom: visible() ? '5.75rem' : '1.25rem',
+            bottom: visible ? '5.75rem' : '1.25rem',
             'font-size': 'clamp(16px, 2.2vw, 28px)',
             'text-shadow': '0 1px 3px black, 0 0 4px black',
           }}
@@ -520,15 +519,15 @@ export const VideoControls = controllerView(
           </div>
         ) : null}
         <div
-          class={`absolute inset-x-0 bottom-0 z-20 transition-opacity duration-150 ${visible() ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
+          class={`absolute inset-x-0 bottom-0 z-20 transition-opacity duration-150 ${visible ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
           data-testid='video-controls'
-          aria-hidden={visible() ? 'false' : 'true'}
+          aria-hidden={visible ? 'false' : 'true'}
         >
           <FloatingContextMenu
-            open={settingsOpen()}
-            anchorRef={settingsAnchor()}
+            open={settingsOpen}
+            anchorRef={settingsAnchor}
             onDismiss={() => setSettingsOpen(false)}
-            mount={fullscreen() ? model.container : undefined}
+            mount={fullscreen ? model.container : undefined}
             role='presentation'
             zIndex={FLOATING_Z_PLAYBACK_MENU - 1}
             class='max-h-[min(80dvh,420px)] w-[min(340px,calc(100vw-2rem))] overflow-y-auto rounded-lg p-3'
@@ -554,7 +553,7 @@ export const VideoControls = controllerView(
                         ? model.playback.playbackRate
                         : (model.preferences?.video.speed ?? 1),
                     )}
-                    mount={fullscreen() ? model.container : undefined}
+                    mount={fullscreen ? model.container : undefined}
                     options={Array.from({ length: 12 }, (_, index) => {
                       const rate = (index + 1) / 4
                       return {
@@ -572,7 +571,7 @@ export const VideoControls = controllerView(
                   <PlaybackSetting
                     label='Audio track'
                     value={audio()?.id ?? ''}
-                    mount={fullscreen() ? model.container : undefined}
+                    mount={fullscreen ? model.container : undefined}
                     options={
                       model.info?.audio.length
                         ? model.info!.audio.map((track) => ({
@@ -591,7 +590,7 @@ export const VideoControls = controllerView(
                     <PlaybackSetting
                       label={kind === 'subtitleTrack' ? 'Subtitles' : 'Second subtitles'}
                       value={(kind === 'subtitleTrack' ? primary() : secondary())?.id ?? ''}
-                      mount={fullscreen() ? model.container : undefined}
+                      mount={fullscreen ? model.container : undefined}
                       options={[
                         { value: '', label: 'Off' },
                         ...(model.info?.subtitles ?? []).map((track) => ({
@@ -648,7 +647,7 @@ export const VideoControls = controllerView(
               >
                 {!model.playback.muted ? <Volume2 class='h-4 w-4' /> : <VolumeX class='h-4 w-4' />}
               </button>
-              {width() >= 480 ? (
+              {width >= 480 ? (
                 <input
                   type='range'
                   aria-label='Video volume'
@@ -685,7 +684,7 @@ export const VideoControls = controllerView(
                 type='button'
                 class={buttonClass}
                 aria-label='Playback settings'
-                aria-expanded={settingsOpen() ? 'true' : 'false'}
+                aria-expanded={settingsOpen ? 'true' : 'false'}
                 onClick={(event) =>
                   model.actions.settings(!model.settingsOpen, event.currentTarget)
                 }
@@ -695,10 +694,10 @@ export const VideoControls = controllerView(
               <button
                 type='button'
                 class={buttonClass}
-                aria-label={fullscreen() ? 'Exit fullscreen' : 'Enter fullscreen'}
+                aria-label={fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
                 onClick={toggleFullscreen}
               >
-                {fullscreen() ? <Minimize class='h-4 w-4' /> : <Maximize class='h-4 w-4' />}
+                {fullscreen ? <Minimize class='h-4 w-4' /> : <Maximize class='h-4 w-4' />}
               </button>
             </div>
           </div>
@@ -742,21 +741,21 @@ const subtitlesQuery = query({
 })
 const VideoSubtitleLine = controllerView(
   {
-    controller: (props: Snapshot<SubtitleProps>) => {
+    controller: (props: SubtitleProps) => {
       const owner = modelOwner({ props, cues: [] as ReturnType<typeof parseSubtitles>, error: '' })
       const resource = observeQuery(owner, queryCache, subtitlesQuery, (result) =>
         owner.patch({ cues: available(result) ?? [], error: resourceError(result) }),
       )
-      const select = (next: Snapshot<SubtitleProps>) =>
+      const select = (next: SubtitleProps) =>
         resource.select({ path: next.path, fingerprint: next.fingerprint, track: next.track.id })
       select(props)
       return {
         source: owner.source,
-        receive: (next: Snapshot<SubtitleProps>) => {
+        receive: (next: SubtitleProps) => {
           owner.patch({ props: next })
           select(next)
         },
-        dispose: owner.dispose,
+        lifetime: owner,
       }
     },
   },

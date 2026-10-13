@@ -1,4 +1,4 @@
-import { type Snapshot, component, view } from 'effectweb'
+import { component, view } from 'effectweb'
 import { cn } from '@/lib/ui/cn'
 import type { ModalOverlayScope } from './modal-overlay-scope'
 import { modalDialogBackdropClass } from './modal-overlay-scope'
@@ -12,7 +12,7 @@ export type CreateFolderDialogProps = {
   folderExists: (name: string) => boolean
 }
 const CreateFolderDialogContent = component(
-  { init: (_props: Snapshot<CreateFolderDialogProps>) => ({ folderName: '' }) },
+  { init: (_props: CreateFolderDialogProps) => ({ folderName: '' }) },
   view((local, patch) => {
     const props = local.props
     const folderName = () => local.folderName,

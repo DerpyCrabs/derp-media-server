@@ -1,6 +1,6 @@
 import { Cause, Effect, Schema } from 'effect'
 import { AsyncResult } from 'effect/reactivity'
-import { modelOwner, type Snapshot } from 'effectweb'
+import { modelOwner } from 'effectweb'
 import { queryCache } from '@/lib/api/cache'
 import { apiSchemaEffect, postSchemaEffect } from '@/lib/api/client'
 import { fileSearchResponseSchema, fileSearchStatusSchema } from '@/lib/files/file-schemas'
@@ -29,8 +29,8 @@ type FileSearchModel = {
   query: string
   debouncedQuery: string
   selection: Selection
-  statusResult: AsyncResult.AsyncResult<Snapshot<FileSearchStatus>, Error>
-  searchResult: AsyncResult.AsyncResult<Snapshot<FileSearchResponse>, Error>
+  statusResult: AsyncResult.AsyncResult<FileSearchStatus, Error>
+  searchResult: AsyncResult.AsyncResult<FileSearchResponse, Error>
   reindexResult: AsyncResult.AsyncResult<void, Error>
   setQuery: (text: string) => void
   setSelection: (selection: Selection) => void
@@ -151,7 +151,6 @@ export function createFileSearchPalette(props: FileSearchPaletteProps) {
   return {
     source: owner.source,
     receive: (next: FileSearchPaletteProps) => owner.patch({ props: next }),
-    dispose: owner.dispose,
-    close: owner.close,
+    lifetime: owner,
   }
 }

@@ -1,7 +1,7 @@
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import * as pdfjs from 'pdfjs-dist'
 import { Effect } from 'effect'
-import { domBinding, component, modelOwner, view, type Snapshot } from 'effectweb'
+import { domBinding, component, modelOwner, view } from 'effectweb'
 import { TextLayerBuilder } from 'pdfjs-dist/web/pdf_viewer.mjs'
 import type { ReaderPage, ReaderSelectionMode } from '../../reader-position'
 import type { ReaderSelection } from '../../ReaderSelectionMenu'
@@ -20,7 +20,7 @@ interface Props {
 const renderSlot = 'pdf-page-render'
 const renderPage = (
   host: HTMLDivElement,
-  current: () => Snapshot<Props> & { onError: (error: string) => void },
+  current: () => Props & { onError: (error: string) => void },
 ) => {
   const owner = modelOwner({})
   let near = false
@@ -33,7 +33,7 @@ const renderPage = (
     owner.run(
       renderSlot,
       Effect.gen(function* () {
-        if (!near) return
+        if (!near) return undefined
         props.onError('')
         const canvas = host.querySelector('canvas')!
         const page = yield* Effect.tryPromise({
@@ -43,7 +43,7 @@ const renderPage = (
         const viewport = page.getViewport({ scale: props.zoom })
         const ratio = window.devicePixelRatio || 1
         const context = canvas.getContext('2d')
-        if (!context) return
+        if (!context) return undefined
         canvas.width = Math.floor(viewport.width * ratio)
         canvas.height = Math.floor(viewport.height * ratio)
         canvas.style.width = `${viewport.width}px`
@@ -52,7 +52,7 @@ const renderPage = (
         const task = page.render({ canvas, canvasContext: context, viewport })
         let textLayer: InstanceType<typeof TextLayerBuilder> | undefined
         let cancelled = false
-        yield* Effect.gen(function* () {
+        return yield* Effect.gen(function* () {
           yield* Effect.tryPromise({ try: () => task.promise, catch: (error) => error })
           host.querySelectorAll(':scope > .textLayer').forEach((node) => node.remove())
           if (props.selectionMode === 'text') {
@@ -71,7 +71,7 @@ const renderPage = (
               catch: (error) => error,
             })
           }
-          yield* Effect.never
+          return yield* Effect.never
         }).pipe(
           Effect.ensuring(
             Effect.sync(() => {

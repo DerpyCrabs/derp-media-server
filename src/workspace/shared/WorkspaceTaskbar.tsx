@@ -33,7 +33,7 @@ export const WorkspaceTaskbar = view<{
   )
 })
 export const WorkspaceTaskbarPins = view<{
-  items: PinnedTaskbarItem[]
+  items: readonly PinnedTaskbarItem[]
   customIcons: Record<string, string>
   fileIconContext: FileIconContext
   onSelect: (pin: PinnedTaskbarItem) => void

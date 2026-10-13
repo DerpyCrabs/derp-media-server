@@ -1,4 +1,3 @@
-import type { Snapshot } from 'effectweb'
 import { directoryListingSchema } from '@/lib/files/file-schemas'
 import { apiSchemaEffect, type ApiRequestOptions } from '@/lib/api/client'
 import { queryKeys } from '@/lib/api/query-keys'
@@ -18,6 +17,6 @@ export function fetchFileBrowserListingEffect(
     options,
   )
 }
-export function nextFileBrowserListingPage(lastPage: Snapshot<DirectoryListing>) {
+export function nextFileBrowserListingPage(lastPage: DirectoryListing) {
   return lastPage.virtualDirectory?.nextOffset
 }

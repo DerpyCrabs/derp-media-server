@@ -2,7 +2,7 @@ import { Schema } from 'effect'
 import { fileItemSchema } from '@/lib/files/file-schemas'
 import { modelOwner } from 'effectweb'
 import { MediaType, type FileItem } from '@/lib/files/types'
-function restore(key: string, image: boolean): FileItem[] {
+function restore(key: string, image: boolean): readonly FileItem[] {
   try {
     const saved: unknown = JSON.parse(sessionStorage.getItem(key) || '[]')
     const result = Schema.decodeUnknownExit(Schema.Array(fileItemSchema))(saved)

@@ -1,4 +1,4 @@
-import { type Snapshot, domBinding, component, view } from 'effectweb'
+import { domBinding, component, view } from 'effectweb'
 import ArrowUp from '@effectweb/lucide/icons/arrow-up'
 import LocateFixed from '@effectweb/lucide/icons/locate-fixed'
 import { getVirtualFileScroller } from './virtual-directory-scroll'
@@ -60,7 +60,7 @@ const visibilityBinding = (
   }
 }
 export const FloatingScrollActions = component(
-  { init: (_props: Snapshot<Props>) => ({ playing: false, video: false }) },
+  { init: (_props: Props) => ({ playing: false, video: false }) },
   view((model, patch) => {
     const path = model.props.playingPath
     const scope = model.props.scrollScope

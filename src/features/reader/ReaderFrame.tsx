@@ -7,7 +7,6 @@ import {
   Portal,
   view,
   type JSX,
-  type Snapshot,
   controllerView,
   type ControllerModel,
 } from 'effectweb'
@@ -47,7 +46,7 @@ type Props = ReaderPresentation & {
   beforeClose?: () => Effect.Effect<void, unknown>
 }
 const closeSlot = 'reader-close'
-function frameController(props: Snapshot<Props>) {
+function frameController(props: Props) {
   let viewport: HTMLDivElement | undefined
   let root: HTMLDivElement | undefined
   let selectionId = 0
@@ -261,10 +260,12 @@ function frameController(props: Snapshot<Props>) {
   return {
     source: owner.source,
     ...actions,
-    receive: (next: Snapshot<Props>) => owner.patch({ props: next }),
-    dispose: () => {
-      menuHost.remove()
-      owner.dispose()
+    receive: (next: Props) => owner.patch({ props: next }),
+    lifetime: {
+      dispose: () => {
+        menuHost.remove()
+        owner.dispose()
+      },
     },
   }
 }

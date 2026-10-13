@@ -8,7 +8,6 @@ import {
   view,
   list,
   Portal,
-  type Snapshot,
   controllerView,
 } from 'effectweb'
 
@@ -45,7 +44,7 @@ import Search from '@effectweb/lucide/icons/search'
 import ThumbsDown from '@effectweb/lucide/icons/thumbs-down'
 import ThumbsUp from '@effectweb/lucide/icons/thumbs-up'
 import { FloatingContextMenu } from '@/features/explorer/FloatingContextMenu'
-function itemTitle(item: Snapshot<Pick>) {
+function itemTitle(item: Pick) {
   return (
     item.displayTitle ||
     (item.type === MediaType.FOLDER ? item.name : item.name.replace(/\.[^.]+$/, ''))
@@ -91,16 +90,16 @@ export const ForYou = controllerView(
       dispatch: (command: Parameters<ReturnType<typeof getPlaybackSession>['dispatch']>[0]) =>
         getPlaybackSession().dispatch(command),
     }
-    const category = () => model.category
-    const query = () => model.query
-    const debounced = () => model.debounced
-    const history = () => model.history
-    const answer = () => model.answer
-    const hidden = () => model.hidden
-    const notice = () => model.notice
-    const likes = () => model.likes
-    const menu = () => model.menu
-    const waitingForRecommendations = () => model.waitingForRecommendations
+    const category = model.category
+    const query = model.query
+    const debounced = model.debounced
+    const history = model.history
+    const answer = model.answer
+    const hidden = model.hidden
+    const notice = model.notice
+    const likes = model.likes
+    const menu = model.menu
+    const waitingForRecommendations = model.waitingForRecommendations
     const { open, playCollection, queue, setCategory, setQuery, setHistory, setAnswer, setMenu } =
       model.actions
     const home = {
@@ -160,7 +159,7 @@ export const ForYou = controllerView(
     }
     const actionClass =
       'flex min-h-11 w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm hover:bg-secondary focus:bg-secondary'
-    function bookCard(props: { item: Snapshot<Pick>; compact?: boolean }) {
+    function bookCard(props: { item: Pick; compact?: boolean }) {
       const progress = () => (props.item.lastRead === 0 ? undefined : props.item.readingProgress)
       const title = () => {
         if (props.item.displayTitle) return props.item.displayTitle
@@ -228,13 +227,9 @@ export const ForYou = controllerView(
         </div>
       )
     }
-    function cards(props: {
-      items: readonly Snapshot<Pick>[]
-      readingShelf?: boolean
-      bookStrip?: boolean
-    }) {
+    function cards(props: { items: readonly Pick[]; readingShelf?: boolean; bookStrip?: boolean }) {
       const visible = () =>
-        props.items.filter((i) => !hidden().some((p) => i.path === p || i.path.startsWith(`${p}/`)))
+        props.items.filter((i) => !hidden.some((p) => i.path === p || i.path.startsWith(`${p}/`)))
       return (
         <div
           class={
@@ -324,14 +319,14 @@ export const ForYou = controllerView(
                           aria-label={`Like ${item.name}`}
                           title='More like this'
                           aria-pressed={
-                            (likes()[item.path] ?? item.liked ?? false) ? 'true' : 'false'
+                            (likes[item.path] ?? item.liked ?? false) ? 'true' : 'false'
                           }
-                          class={`hidden items-center justify-center rounded-full p-2 transition-colors min-h-11 min-w-11 hover:bg-secondary sm:inline-flex ${(likes()[item.path] ?? item.liked) ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+                          class={`hidden items-center justify-center rounded-full p-2 transition-colors min-h-11 min-w-11 hover:bg-secondary sm:inline-flex ${(likes[item.path] ?? item.liked) ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
                           disabled={feedback.isPending}
                           onClick={() =>
                             feedback.mutate({
                               path: item.path,
-                              kind: (likes()[item.path] ?? item.liked) ? 'clear' : 'more',
+                              kind: (likes[item.path] ?? item.liked) ? 'clear' : 'more',
                             })
                           }
                         >
@@ -380,8 +375,8 @@ export const ForYou = controllerView(
             (item) => item.id,
             (item) => (
               <button
-                class={`min-h-11 rounded-full px-5 text-sm font-medium ${category() === item.id ? 'bg-primary text-primary-foreground' : 'bg-secondary/50 text-muted-foreground hover:bg-secondary'}`}
-                aria-pressed={category() === item.id ? 'true' : 'false'}
+                class={`min-h-11 rounded-full px-5 text-sm font-medium ${category === item.id ? 'bg-primary text-primary-foreground' : 'bg-secondary/50 text-muted-foreground hover:bg-secondary'}`}
+                aria-pressed={category === item.id ? 'true' : 'false'}
                 onClick={() => setCategory(item.id)}
               >
                 {item.title}
@@ -398,7 +393,7 @@ export const ForYou = controllerView(
                 title='Refresh recommendations'
                 aria-busy={refresh.isPending ? 'true' : 'false'}
                 disabled={refresh.isPending || home.isFetching}
-                onClick={() => refresh.mutate(category())}
+                onClick={() => refresh.mutate(category)}
               >
                 <RefreshCw size={18} class={refresh.isPending ? 'animate-spin' : ''} />
               </button>
@@ -412,7 +407,7 @@ export const ForYou = controllerView(
                   class='flex h-9 pointer-coarse:h-11 min-w-0 flex-1 items-center gap-2 rounded-lg bg-card pl-3 ring-1 ring-inset ring-border'
                   onSubmit={(e) => {
                     e.preventDefault()
-                    if (props.aiEnabled && query().trim()) ask.mutate(query().trim())
+                    if (props.aiEnabled && query.trim()) ask.mutate(query.trim())
                   }}
                 >
                   <Search size={18} class='shrink-0 text-muted-foreground' />
@@ -420,7 +415,7 @@ export const ForYou = controllerView(
                     use={autofocus}
                     aria-label='Search your library'
                     class='h-full min-w-0 flex-1 bg-transparent text-base outline-none sm:text-sm'
-                    value={query()}
+                    value={query}
                     maxlength={1000}
                     placeholder='Search your library'
                     onInput={(e) => setQuery(e.currentTarget.value)}
@@ -428,7 +423,7 @@ export const ForYou = controllerView(
                   <button
                     class='inline-flex h-8 w-8 pointer-coarse:h-11 pointer-coarse:w-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-40'
                     aria-label='Search'
-                    disabled={!props.aiEnabled || ask.isPending || !query().trim()}
+                    disabled={!props.aiEnabled || ask.isPending || !query.trim()}
                     type='submit'
                   >
                     {ask.isPending ? (
@@ -440,7 +435,7 @@ export const ForYou = controllerView(
                 </form>
               </div>
             ) : null}
-            {history().length ? (
+            {history.length ? (
               <button
                 class='text-xs text-muted-foreground hover:text-foreground'
                 onClick={() => {
@@ -452,8 +447,8 @@ export const ForYou = controllerView(
                 Start a new search
               </button>
             ) : null}
-            {debounced().length >= 3 && debounced().length <= 200 ? (
-              <LibraryMatches query={debounced()} open={open} />
+            {debounced.length >= 3 && debounced.length <= 200 ? (
+              <LibraryMatches query={debounced} open={open} />
             ) : null}
             {ask.error ? (
               <p role='alert' class='text-sm text-red-500'>
@@ -470,15 +465,15 @@ export const ForYou = controllerView(
               ) : null}
               {cards({ items: result.items })}
             </section>
-          ) : null)(answer())}
-        {!answer() ? (
+          ) : null)(answer)}
+        {!answer ? (
           <>
-            {(category() === 'all' || category() === 'books') &&
+            {(category === 'all' || category === 'books') &&
             available(model.reading)?.items.length ? (
               <section class='space-y-4' aria-label='Books'>
                 <div class='flex items-center justify-between'>
                   <h2 class='text-lg font-semibold'>Books</h2>
-                  {category() === 'all' ? (
+                  {category === 'all' ? (
                     <button
                       class='flex min-h-11 items-center gap-1 rounded-lg px-2 text-sm text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring'
                       onClick={() => setCategory('books')}
@@ -489,15 +484,15 @@ export const ForYou = controllerView(
                 </div>
                 {cards({
                   items:
-                    category() === 'all'
+                    category === 'all'
                       ? (available(model.reading)?.items ?? []).slice(0, 3)
                       : (available(model.reading)?.items ?? []),
                   readingShelf: true,
-                  bookStrip: category() === 'all',
+                  bookStrip: category === 'all',
                 })}
               </section>
             ) : null}
-            {(category() === 'all' || category() === 'books') && reading.error ? (
+            {(category === 'all' || category === 'books') && reading.error ? (
               <div
                 role='alert'
                 class='flex flex-wrap items-center gap-3 py-4 text-sm text-muted-foreground'
@@ -508,13 +503,13 @@ export const ForYou = controllerView(
                 </button>
               </div>
             ) : null}
-            {category() === 'all' || category() === 'music' ? <MusicHome /> : null}
-            {props.aiEnabled && category() !== 'music' && feed().length ? (
+            {category === 'all' || category === 'music' ? <MusicHome /> : null}
+            {props.aiEnabled && category !== 'music' && feed().length ? (
               <section class='space-y-4 pt-4' aria-label='Recommended media'>
                 <h2 class='text-lg font-semibold'>
-                  {category() === 'books'
+                  {category === 'books'
                     ? 'More books'
-                    : category() === 'video'
+                    : category === 'video'
                       ? 'Videos for you'
                       : 'More for you'}
                 </h2>
@@ -522,8 +517,8 @@ export const ForYou = controllerView(
               </section>
             ) : null}
             {props.aiEnabled &&
-            category() !== 'music' &&
-            (home.isPending || home.isFetchingNextPage || waitingForRecommendations()) ? (
+            category !== 'music' &&
+            (home.isPending || home.isFetchingNextPage || waitingForRecommendations) ? (
               <div
                 role='status'
                 class='flex items-center justify-center gap-3 py-12 text-sm text-muted-foreground'
@@ -532,7 +527,7 @@ export const ForYou = controllerView(
                 Loading…
               </div>
             ) : null}
-            {category() !== 'music' && home.error ? (
+            {category !== 'music' && home.error ? (
               <div
                 role='alert'
                 class='flex flex-wrap items-center justify-center gap-3 py-6 text-sm text-muted-foreground'
@@ -556,40 +551,40 @@ export const ForYou = controllerView(
               use={domBinding(
                 {
                   enabled:
-                    category() === 'all' &&
+                    category === 'all' &&
                     home.hasNextPage &&
                     !home.isFetching &&
                     !home.isError &&
-                    !answer(),
+                    !answer,
                   load: model.actions.loadNext,
                 },
                 watchSentinel,
               )}
             />
             {props.aiEnabled &&
-            (category() === 'video' || category() === 'books') &&
+            (category === 'video' || category === 'books') &&
             !home.isPending &&
             !home.error &&
-            !waitingForRecommendations() &&
+            !waitingForRecommendations &&
             !feed().length &&
-            (category() !== 'books' || !available(model.reading)?.items.length) ? (
+            (category !== 'books' || !available(model.reading)?.items.length) ? (
               <p class='py-12 text-center text-sm text-muted-foreground'>
-                {category() === 'books'
+                {category === 'books'
                   ? 'No book recommendations yet. Try searching your library.'
                   : 'Nothing to play yet. Try searching your library.'}
               </p>
             ) : null}
-            {category() !== 'music' && home.hasNextPage && !home.isFetching && !home.error ? (
+            {category !== 'music' && home.hasNextPage && !home.isFetching && !home.error ? (
               <div class='text-center'>
                 <button class={button} onClick={() => home.fetchNextPage()}>
-                  {category() === 'books' ? 'Load more recommendations' : 'More to play'}
+                  {category === 'books' ? 'Load more recommendations' : 'More to play'}
                 </button>
               </div>
             ) : null}
           </>
         ) : null}
         <FloatingContextMenu
-          state={menu()}
+          state={menu}
           anchor={(value) => ({ x: value.x, y: value.y })}
           onDismiss={() => setMenu(undefined)}
           role='menu'
@@ -601,19 +596,19 @@ export const ForYou = controllerView(
                 class={`${actionClass} ${isReading(value.item) ? '' : 'sm:hidden'}`}
                 aria-label={`Like ${value.item.name}`}
                 aria-pressed={
-                  (likes()[value.item.path] ?? value.item.liked ?? false) ? 'true' : 'false'
+                  (likes[value.item.path] ?? value.item.liked ?? false) ? 'true' : 'false'
                 }
                 disabled={feedback.isPending}
                 onClick={() => {
                   feedback.mutate({
                     path: value.item.path,
-                    kind: (likes()[value.item.path] ?? value.item.liked) ? 'clear' : 'more',
+                    kind: (likes[value.item.path] ?? value.item.liked) ? 'clear' : 'more',
                   })
                   setMenu(undefined)
                 }}
               >
                 <ThumbsUp size={17} />
-                {(likes()[value.item.path] ?? value.item.liked) ? 'Remove like' : 'More like this'}
+                {(likes[value.item.path] ?? value.item.liked) ? 'Remove like' : 'More like this'}
               </button>
               <button
                 class={`${actionClass} ${isReading(value.item) ? '' : 'sm:hidden'}`}
@@ -720,7 +715,7 @@ export const ForYou = controllerView(
             </>
           )}
         </FloatingContextMenu>
-        {refresh.error || feedback.error || notice() ? (
+        {refresh.error || feedback.error || notice ? (
           <div class='pointer-events-none fixed top-20 right-4 z-50 max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-card px-4 py-3 text-sm shadow-lg'>
             {refresh.error || feedback.error ? (
               <p role='alert' class='text-red-500'>
@@ -729,7 +724,7 @@ export const ForYou = controllerView(
                   : 'Couldn’t save that change. Please try again.'}
               </p>
             ) : (
-              <p role='status'>{notice()}</p>
+              <p role='status'>{notice}</p>
             )}
           </div>
         ) : null}

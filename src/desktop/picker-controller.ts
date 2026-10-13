@@ -1,5 +1,5 @@
 import { Cause, Effect } from 'effect'
-import { modelOwner, type Snapshot } from 'effectweb'
+import { modelOwner } from 'effectweb'
 import type { FileBrowserHost } from '@/features/explorer/FileBrowser'
 import type { FileItem } from '@/lib/files/types'
 import { showAppConfirmEffect } from '@/lib/ui/app-dialog'
@@ -16,7 +16,7 @@ export function createPicker(options: {
   bridge: DesktopBridge | undefined
 }) {
   const initial = {
-    selected: [] as FileItem[],
+    selected: [] as readonly FileItem[],
     anchor: '',
     name: '',
     filter: 0,
@@ -27,9 +27,7 @@ export function createPicker(options: {
   const owner = modelOwner(initial)
   const selected = () => owner.read().selected
   const setSelected = (
-    value:
-      | readonly Snapshot<FileItem>[]
-      | ((current: readonly Snapshot<FileItem>[]) => readonly Snapshot<FileItem>[]),
+    value: readonly FileItem[] | ((current: readonly FileItem[]) => readonly FileItem[]),
   ) => owner.patch({ selected: typeof value === 'function' ? value(selected()) : value })
   const anchor = () => owner.read().anchor
   const setAnchor = (anchor: string) => owner.patch({ anchor })

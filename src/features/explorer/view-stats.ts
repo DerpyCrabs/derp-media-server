@@ -1,4 +1,4 @@
-import { type Snapshot, available, modelOwner } from 'effectweb'
+import { available, modelOwner } from 'effectweb'
 import { Effect } from 'effect'
 import { AsyncResult } from 'effect/reactivity'
 import { postEffect } from '@/lib/api/client'
@@ -8,10 +8,7 @@ import { observeQuery } from '@effectweb/query'
 const incrementSlots = (key: string | number) => ['increment-view', key] as const
 export function createViewStats(options?: { includeCounts?: boolean }) {
   const owner = modelOwner({
-    result: AsyncResult.initial<ViewStats, Error>() as AsyncResult.AsyncResult<
-      Snapshot<ViewStats>,
-      Error
-    >,
+    result: AsyncResult.initial<ViewStats, Error>() as AsyncResult.AsyncResult<ViewStats, Error>,
   })
   const query = observeQuery(owner, queryCache, statsQuery, 'result')
   if (options?.includeCounts !== false) query.select(true)

@@ -22,7 +22,7 @@ export const MusicHome = controllerView(
       })
       const resource = observeQuery(owner, queryCache, musicHomeQuery, 'result')
       resource.select('')
-      return { source: owner.source, dispose: owner.dispose, close: owner.close }
+      return { source: owner.source, lifetime: owner }
     },
   },
   view((model) => {

@@ -35,11 +35,21 @@ const inlineInputBinding = (
   element: HTMLInputElement,
   current: () => (element: HTMLInputElement | undefined) => void,
 ) => {
-  current()(element)
+  let registered = current()
+  registered(element)
   const frame = requestAnimationFrame(() => element.focus())
-  return () => {
-    cancelAnimationFrame(frame)
-    current()(undefined)
+  return {
+    update: () => {
+      const next = current()
+      if (next === registered) return
+      registered(undefined)
+      registered = next
+      registered(element)
+    },
+    dispose: () => {
+      cancelAnimationFrame(frame)
+      registered(undefined)
+    },
   }
 }
 export const KbInlineCreateFooter = view<KbInlineCreateFooterProps>((props) => {

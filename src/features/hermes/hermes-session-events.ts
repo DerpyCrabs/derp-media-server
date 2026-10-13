@@ -256,10 +256,7 @@ export function connectEvents() {
       if (kind === 'message.complete')
         void registry.run(
           drainSlots(key),
-          Effect.yieldNow.pipe(
-            Effect.andThen(drainHermesQueue(key)),
-            Effect.catch(() => Effect.void),
-          ),
+          Effect.yieldNow.pipe(Effect.andThen(drainHermesQueue(key))),
           'drop',
         )
     } else if (kind === 'tool.start' || kind === 'tool.progress') {

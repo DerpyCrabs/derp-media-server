@@ -1,5 +1,5 @@
 import { modalScroll } from './modal-scroll'
-import { available, domBinding, modelOwner, view, type Snapshot, controllerView } from 'effectweb'
+import { available, domBinding, modelOwner, view, controllerView } from 'effectweb'
 import { queryCache, groups } from '@/lib/api/cache'
 import { settingsQuery, statsQuery } from '@/lib/api/queries'
 import { fileDownloadHref } from '@/lib/files/download-urls'
@@ -43,7 +43,7 @@ const directoryQuery = query({
   load: (directory: string) => fetchDirectoryFilesEffect(directory),
 })
 
-function viewerController(props: Snapshot<ViewerPaneProps>) {
+function viewerController(props: ViewerPaneProps) {
   const owner = modelOwner({
     props,
     files: [] as FileItem[],
@@ -57,7 +57,7 @@ function viewerController(props: Snapshot<ViewerPaneProps>) {
   const stats = observeQuery(owner, queryCache, statsQuery, (result) =>
     owner.patch({ views: available(result)?.views ?? {} }),
   )
-  const select = (next: Snapshot<ViewerPaneProps>) => {
+  const select = (next: ViewerPaneProps) => {
     const type = getMediaTypeFromPath(next.viewingPath)
     files.select(
       next.viewingPath && [MediaType.IMAGE, MediaType.AUDIO, MediaType.OTHER].includes(type)
@@ -70,11 +70,11 @@ function viewerController(props: Snapshot<ViewerPaneProps>) {
   select(props)
   return {
     source: owner.source,
-    receive: (next: Snapshot<ViewerPaneProps>) => {
+    receive: (next: ViewerPaneProps) => {
       owner.patch({ props: next })
       select(next)
     },
-    dispose: owner.dispose,
+    lifetime: owner,
   }
 }
 export const ViewerPane = controllerView(

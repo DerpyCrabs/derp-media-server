@@ -1,5 +1,5 @@
 import { Effect, Schema } from 'effect'
-import { modelOwner, type Snapshot } from 'effectweb'
+import { modelOwner } from 'effectweb'
 import { apiSchemaEffect } from '@/lib/api/client'
 import { virtualOpenTargetSchema } from '@/lib/files/file-schemas'
 import { projectionSource } from 'effectweb/advanced'
@@ -85,7 +85,7 @@ function activateDesktopTabState(
     ),
   }
 }
-export function createDesktopController(props: Snapshot<{ session: WorkspaceSession }>) {
+export function createDesktopController(props: { session: WorkspaceSession }) {
   const cleanups: (void | (() => void))[] = []
   const initial = {
     workspacePanelOpen: false,
@@ -1427,20 +1427,22 @@ export function createDesktopController(props: Snapshot<{ session: WorkspaceSess
   const stopSession = workspaceRegistry.source.subscribe(() => snap.updatePreview())
   return {
     source: presentation,
-    close: () =>
-      owner
-        .awaitIdle(actionSlot)
-        .pipe(Effect.andThen(crossWorkspaceTransfer!.close()), Effect.andThen(owner.close())),
-    dispose() {
-      stopSession()
-      cleanup0?.()
-      cleanup1?.()
-      cleanups.forEach((cleanup) => cleanup?.())
-      unblock()
-      server.dispose()
-      snap.dispose()
-      owner.dispose()
-      presentation.dispose()
+    lifetime: {
+      close: () =>
+        owner
+          .awaitIdle(actionSlot)
+          .pipe(Effect.andThen(crossWorkspaceTransfer!.close()), Effect.andThen(owner.close())),
+      dispose() {
+        stopSession()
+        cleanup0?.()
+        cleanup1?.()
+        cleanups.forEach((cleanup) => cleanup?.())
+        unblock()
+        server.dispose()
+        snap.dispose()
+        owner.dispose()
+        presentation.dispose()
+      },
     },
   }
 }

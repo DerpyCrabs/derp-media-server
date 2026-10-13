@@ -3,7 +3,6 @@ import {
   domBinding,
   modelOwner,
   view,
-  type Snapshot,
   type JSX,
   controllerView,
   type ControllerModel,
@@ -34,11 +33,11 @@ export type ImageViewerPaneProps = {
   onImageSeedChange?: (seed: string | null, path: string) => void
   onClose?: () => void
 }
-const orderedImages = (props: Snapshot<ImageViewerPaneProps>) => {
+const orderedImages = (props: ImageViewerPaneProps) => {
   const files = props.allFiles.filter((file) => file.type === MediaType.IMAGE)
   return props.imageSeed ? shuffleImages([...files], props.imageSeed) : files
 }
-function imageController(props: Snapshot<ImageViewerPaneProps>) {
+function imageController(props: ImageViewerPaneProps) {
   const responsive = createResponsiveImage({
     path: props.viewingPath,
     zoom: 'fit',
@@ -118,11 +117,11 @@ function imageController(props: Snapshot<ImageViewerPaneProps>) {
   return {
     source: owner.source,
     ...actions,
-    receive: (next: Snapshot<ImageViewerPaneProps>) => {
+    receive: (next: ImageViewerPaneProps) => {
       owner.patch({ props: next })
       select()
     },
-    dispose: owner.dispose,
+    lifetime: owner,
   }
 }
 type ImageModel = ControllerModel<typeof imageController>
@@ -289,7 +288,7 @@ export const ImageViewerPane = controllerView(
     const totalImages = () => images.length
     const currentImageNumber = () => (index < 0 ? 1 : index + 1)
     const imageSeed = () => props.imageSeed
-    const zoom = () => model.zoom
+    const zoom = model.zoom
     const handleClose = actions.dismiss,
       reshuffleImages = actions.shuffle,
       handleZoomOut = () => actions.zoom(-25),
@@ -398,7 +397,7 @@ export const ImageViewerPane = controllerView(
                   : 'hidden min-w-16 text-center text-sm text-white min-[480px]:inline'
               }
             >
-              {zoom() === 'fit' ? 'Fit' : `${zoom()}%`}
+              {zoom === 'fit' ? 'Fit' : `${zoom}%`}
             </span>
             <button
               type='button'
@@ -490,7 +489,7 @@ export const ImageViewerPane = controllerView(
             props.embedded
               ? 'relative flex min-h-0 flex-1 touch-pan-y items-center justify-center'
               : 'relative flex flex-1 touch-pan-y items-center justify-center p-4',
-            { 'overflow-hidden': zoom() === 'fit', 'overflow-auto': zoom() !== 'fit' },
+            { 'overflow-hidden': zoom === 'fit', 'overflow-auto': zoom !== 'fit' },
           )}
           use={domBinding(actions.attach, imageSurface)}
         >

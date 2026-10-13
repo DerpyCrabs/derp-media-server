@@ -1,4 +1,4 @@
-import { view, type Snapshot, type JSX } from 'effectweb'
+import { view, type JSX } from 'effectweb'
 import { FLOATING_Z_PIN_MENU } from '@/lib/ui/floating-z-index'
 import type { TaskbarPin as PinnedTaskbarItem } from '@/lib/models/taskbar-pins'
 import FolderOpen from '@effectweb/lucide/icons/folder-open'
@@ -32,7 +32,7 @@ export type DesktopWorkspaceTaskbarProps = {
     pinned: readonly PinnedTaskbarItem[]
     groupIds: readonly string[]
     windowRows: () => JSX.Element
-    settings: Snapshot<GlobalSettings> | undefined
+    settings: GlobalSettings | undefined
     fileIconContext: import('@/features/explorer/file-icon').FileIconContext
     selectPinned: (pin: PinnedTaskbarItem) => void
   }

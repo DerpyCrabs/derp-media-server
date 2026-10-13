@@ -101,18 +101,20 @@ function desktopController() {
   return {
     source: presentation.source,
     ...actions,
-    dispose() {
-      stops.forEach((stop) => stop())
-      stopPicker?.()
-      stopOpen?.()
-      stopClose?.()
-      stopEvents()
-      stopHistory()
-      window.removeEventListener('keydown', escape)
-      window.removeEventListener('desktop-operation', operation)
-      picker.dispose()
-      owner.dispose()
-      presentation.dispose()
+    lifetime: {
+      dispose() {
+        stops.forEach((stop) => stop())
+        stopPicker?.()
+        stopOpen?.()
+        stopClose?.()
+        stopEvents()
+        stopHistory()
+        window.removeEventListener('keydown', escape)
+        window.removeEventListener('desktop-operation', operation)
+        picker.dispose()
+        owner.dispose()
+        presentation.dispose()
+      },
     },
   }
 }
@@ -122,8 +124,8 @@ export const DesktopPage = controllerView(
     const { bridge } = model
     const { picker, setStatus } = model.actions
     const params = () => new URLSearchParams(model.location.search),
-      status = () => model.status,
-      pickerRequest = () => model.pickerRequest
+      status = model.status,
+      pickerRequest = model.pickerRequest
     const directory = () => params().get('dir') ?? '',
       viewing = () => params().get('viewing') ?? '',
       warm = () => params().has('warm'),
@@ -147,7 +149,7 @@ export const DesktopPage = controllerView(
     const host: FileBrowserHost = {
       layout: 'workspace',
       get selection() {
-        return pickerRequest()
+        return pickerRequest
           ? {
               ...picker.selection,
               visible: (file: import('@/lib/files/types').FileItem) =>
@@ -167,7 +169,7 @@ export const DesktopPage = controllerView(
       },
       navigate: (path) => navigateSearchParams({ dir: path }, 'push'),
       present: (request) => {
-        if (pickerRequest()) {
+        if (pickerRequest) {
           picker.selection.activate(request.file)
           return
         }
@@ -194,7 +196,7 @@ export const DesktopPage = controllerView(
             iconClass='h-3.5 w-3.5'
             onSelect={(file) => {
               if (file.isDirectory) host.navigate(file.path)
-              else if (pickerRequest()) picker.selection.activate({ ...file, size: 0 })
+              else if (pickerRequest) picker.selection.activate({ ...file, size: 0 })
               else open(file.path)
             }}
           />
@@ -223,13 +225,13 @@ export const DesktopPage = controllerView(
     return bridge ? (
       !warm() ? (
         <>
-          {status().pending || status().error ? (
+          {status.pending || status.error ? (
             <div
-              role={status().error ? 'alert' : 'status'}
+              role={status.error ? 'alert' : 'status'}
               class='fixed inset-x-4 top-2 z-[100] rounded border bg-background p-3 text-sm shadow-lg'
             >
-              {status().error || 'Working…'}
-              {status().error ? (
+              {status.error || 'Working…'}
+              {status.error ? (
                 <button type='button' class='float-right px-2' onClick={() => setStatus({})}>
                   Dismiss
                 </button>
@@ -280,7 +282,7 @@ export const DesktopPage = controllerView(
                     picker={picker}
                     cancel={() => bridge?.close()}
                   />
-                ) : null)(pickerRequest())}
+                ) : null)(pickerRequest)}
             </div>
           )}
         </>

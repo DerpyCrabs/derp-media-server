@@ -1,4 +1,4 @@
-import { modelOwner, type Snapshot } from 'effectweb'
+import { modelOwner } from 'effectweb'
 
 type DialogState =
   | { kind: 'none' }
@@ -24,16 +24,13 @@ export function createHermesChatUiState() {
   const history = () => owner.read().history
   const find = () => owner.read().find
   const atTranscriptBottom = () => owner.read().atTranscriptBottom
-  const setDialog = (update: DialogState | ((state: Snapshot<DialogState>) => DialogState)) =>
+  const setDialog = (update: DialogState | ((state: DialogState) => DialogState)) =>
     owner.patch({ dialog: typeof update === 'function' ? update(dialog()) : update })
   const setHistory = (
-    update:
-      | Snapshot<UiModel['history']>
-      | ((state: Snapshot<UiModel['history']>) => Snapshot<UiModel['history']>),
+    update: UiModel['history'] | ((state: UiModel['history']) => UiModel['history']),
   ) => owner.patch({ history: typeof update === 'function' ? update(history()) : update })
-  const setFind = (
-    update: UiModel['find'] | ((state: Snapshot<UiModel['find']>) => UiModel['find']),
-  ) => owner.patch({ find: typeof update === 'function' ? update(find()) : update })
+  const setFind = (update: UiModel['find'] | ((state: UiModel['find']) => UiModel['find'])) =>
+    owner.patch({ find: typeof update === 'function' ? update(find()) : update })
   const setAtTranscriptBottom = (value: boolean) => {
     if (owner.read().atTranscriptBottom !== value) owner.patch({ atTranscriptBottom: value })
   }
@@ -111,7 +108,7 @@ export function createHermesChatUiState() {
     source: owner.source,
     read: owner.read,
     dispose: owner.dispose,
-    snapshot: (model: Snapshot<UiModel>) => ({
+    snapshot: (model: UiModel) => ({
       ...commands,
       dialogs: {
         ...dialogs,

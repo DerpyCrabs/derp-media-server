@@ -1,6 +1,6 @@
 import { randomId } from '@/lib/random-id'
 import { Effect } from 'effect'
-import { modelOwner, type Snapshot } from 'effectweb'
+import { modelOwner } from 'effectweb'
 import { queryCache } from '@/lib/api/cache'
 import { musicHomeQuery } from './queries'
 import { radioTracks, recordingKey } from './radio'
@@ -14,8 +14,7 @@ const owner = modelOwner({ dialog: null as MusicDialog | null, notice: '' })
 const noticeSlot = 'music-notice'
 export const musicUiSource = owner.source
 export const musicUiLifetime = { dispose: owner.dispose, close: owner.close }
-export const setMusicDialog = (dialog: MusicDialog | Snapshot<MusicDialog> | null) =>
-  owner.patch({ dialog })
+export const setMusicDialog = (dialog: MusicDialog | null) => owner.patch({ dialog })
 export function notifyMusic(notice: string) {
   owner.patch({ notice })
   owner.run(
@@ -31,7 +30,7 @@ export function musicItem(track: Pick<MusicTrack, 'path' | 'title'>) {
 
 export function playMusic(
   session: PlaybackSession,
-  tracks: readonly Snapshot<MusicTrack>[],
+  tracks: readonly MusicTrack[],
   context: QueueContext,
   index = 0,
 ) {

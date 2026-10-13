@@ -5,7 +5,6 @@ import {
   list,
   modelOwner,
   view,
-  type Snapshot,
   controllerView,
   type ControllerModel,
 } from 'effectweb'
@@ -47,15 +46,14 @@ const metadataQuery = query({
   staleTime: Infinity,
   load: (path: string) => fetchAudioMetadataEffect(buildAudioMetadataUrl(path)),
 })
-const audioFiles = (props: Snapshot<Props>) =>
-  props.files.filter((file) => file.type === MediaType.AUDIO)
-const queueFor = (props: Snapshot<Props>) => {
+const audioFiles = (props: Props) => props.files.filter((file) => file.type === MediaType.AUDIO)
+const queueFor = (props: Props) => {
   const items = audioPlaybackQueueFromFiles([...audioFiles(props)])
   return !props.viewingPath || items.some((item) => playbackPathMatches(item, props.viewingPath))
     ? items
     : [...items, playbackItemFromPath(props.viewingPath, 'audio')]
 }
-function audioController(props: Snapshot<Props>) {
+function audioController(props: Props) {
   const session = getPlaybackSession()
   let offeredPath = ''
   const owner = modelOwner({
@@ -148,12 +146,12 @@ function audioController(props: Snapshot<Props>) {
   return {
     source: owner.source,
     ...actions,
-    receive: (next: Snapshot<Props>) => {
+    receive: (next: Props) => {
       owner.patch({ props: next })
       metadata.select(next.viewingPath || undefined)
       sync()
     },
-    dispose: owner.dispose,
+    lifetime: owner,
   }
 }
 type Model = ControllerModel<typeof audioController>
@@ -261,17 +259,17 @@ const Transport = view<{ model: Model; active: boolean }>((props) => {
 type RowProps = { file: FileItem; selected: boolean; onSelect: (path: string) => void }
 const PlaylistRow = controllerView(
   {
-    controller: (props: Snapshot<RowProps>) => {
+    controller: (props: RowProps) => {
       const owner = modelOwner({ props, metadata: undefined as AudioMetadata | undefined })
       const metadata = observeQuery(owner, queryCache, metadataQuery, 'metadata', available)
       metadata.select(props.file.path)
       return {
         source: owner.source,
-        receive: (next: Snapshot<RowProps>) => {
+        receive: (next: RowProps) => {
           owner.patch({ props: next })
           metadata.select(next.file.path)
         },
-        dispose: owner.dispose,
+        lifetime: owner,
       }
     },
   },

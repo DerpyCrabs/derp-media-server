@@ -84,16 +84,18 @@ function routeController() {
   synchronize()
   return {
     source: owner.source,
-    close: () =>
-      Effect.sync(() => {
+    lifetime: {
+      close: () =>
+        Effect.sync(() => {
+          stops.forEach((stop) => stop())
+          chrome.dispose()
+        }).pipe(Effect.andThen(session.close()), Effect.ensuring(owner.close().pipe(Effect.orDie))),
+      dispose() {
         stops.forEach((stop) => stop())
         chrome.dispose()
-      }).pipe(Effect.andThen(session.close()), Effect.ensuring(owner.close().pipe(Effect.orDie))),
-    dispose() {
-      stops.forEach((stop) => stop())
-      chrome.dispose()
-      session.dispose()
-      owner.dispose()
+        session.dispose()
+        owner.dispose()
+      },
     },
   }
 }

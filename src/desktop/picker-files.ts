@@ -21,7 +21,7 @@ function globMatches(name: string, pattern: string) {
 
 export function pickerFileVisible(
   file: FileItem,
-  request: import('effectweb').Snapshot<PickerRequest> | undefined,
+  request: PickerRequest | undefined,
   filter: number,
 ) {
   if (!request || file.isDirectory) return true

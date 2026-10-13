@@ -41,7 +41,6 @@ export function createDynamicFavicon() {
       svg
         ? generateFaviconFromSvg(svg, color).pipe(
             Effect.tap((data) => Effect.sync(() => setFaviconHref(data ?? originalHref))),
-            Effect.catch(() => Effect.void),
           )
         : Effect.sync(() => setFaviconHref(originalHref)),
       'replace',

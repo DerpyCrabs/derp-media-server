@@ -6,7 +6,7 @@ import { queryCache, groups } from '@/lib/api/cache'
 import { settingsQuery, statsQuery } from '@/lib/api/queries'
 import type { WorkspaceSettings } from '@/workspace/model/workspace-settings-types'
 import type { FileItem } from '@/lib/files/types'
-import { available, modelOwner, view, domBinding, type Snapshot, controllerView } from 'effectweb'
+import { available, modelOwner, view, domBinding, controllerView } from 'effectweb'
 import Headphones from '@effectweb/lucide/icons/headphones'
 import Monitor from '@effectweb/lucide/icons/monitor'
 import Pause from '@effectweb/lucide/icons/pause'
@@ -46,7 +46,7 @@ const audioMetadataQuery = query({
   name: 'workspace-audio-metadata',
   load: (path: string) => fetchAudioMetadataEffect(buildAudioMetadataUrl(path)),
 })
-function audioController(props: Snapshot<Props>) {
+function audioController(props: Props) {
   const session = getPlaybackSession()
   const owner = modelOwner({
     props,
@@ -121,7 +121,7 @@ function audioController(props: Snapshot<Props>) {
   }
   return {
     source: owner.source,
-    receive(next: Snapshot<Props>) {
+    receive(next: Props) {
       owner.patch({ props: next })
       select()
     },
@@ -135,17 +135,19 @@ function audioController(props: Snapshot<Props>) {
 type AudioModel = ReturnType<ReturnType<typeof audioController>['source']['model']>
 export const WorkspaceTaskbarAudio = controllerView(
   {
-    controller: (props: Snapshot<Props>) => {
+    controller: (props: Props) => {
       const controller = audioController(props)
       const owner = modelOwner({ ...controller.source.model(), setDetailsOpen: controller.details })
       const stop = controller.source.subscribe((model) => owner.patch(model))
       return {
         source: owner.source,
         receive: (props) => controller.receive(props),
-        dispose() {
-          stop()
-          controller.dispose()
-          owner.dispose()
+        lifetime: {
+          dispose() {
+            stop()
+            controller.dispose()
+            owner.dispose()
+          },
         },
       }
     },
@@ -154,18 +156,18 @@ export const WorkspaceTaskbarAudio = controllerView(
     const props = model.props,
       session = model.session,
       setDetailsOpen = model.setDetailsOpen
-    const playback = () => model.playback,
-      item = () => model.playback.currentItem,
-      playingPath = () => item()?.locator ?? null,
+    const playback = model.playback,
+      item = model.playback.currentItem,
+      playingPath = () => item?.locator ?? null,
       currentDir = () => parentPath(playingPath() ?? ''),
-      isVideoFile = () => item()?.media === 'video'
+      isVideoFile = () => item?.media === 'video'
     const shouldHandleAudio = () =>
-      !!item() && playback().mode === 'audio' && !props.suppressTaskbarAudioChrome?.()
+      !!item && playback.mode === 'audio' && !props.suppressTaskbarAudioChrome?.()
     const detailsOpen = () =>
-      model.detailsOpen && model.detailsKey === `${playingPath()}\0${playback().mode}`
-    const audioMetadata = () => model.metadata,
-      fileName = () => item()?.name ?? '',
-      displayDuration = () => playback().duration || audioMetadata()?.duration || 0
+      model.detailsOpen && model.detailsKey === `${playingPath()}\0${playback.mode}`
+    const audioMetadata = model.metadata,
+      fileName = () => item?.name ?? '',
+      displayDuration = () => playback.duration || audioMetadata?.duration || 0
     const cover = model.files.find(
       (file) =>
         file.type === MediaType.IMAGE &&
@@ -174,10 +176,10 @@ export const WorkspaceTaskbarAudio = controllerView(
     const displayImageUrl = () =>
       isVideoFile() && playingPath()
         ? buildThumbnailUrl(playingPath()!)
-        : audioMetadata()?.coverArt || (cover ? buildMediaUrl(cover.path) : null)
-    const hasPreviousAudio = () => playback().currentIndex > 0 || playback().position > 20,
+        : audioMetadata?.coverArt || (cover ? buildMediaUrl(cover.path) : null)
+    const hasPreviousAudio = () => playback.currentIndex > 0 || playback.position > 20,
       hasNextAudio = () =>
-        playback().currentIndex >= 0 && playback().currentIndex + 1 < playback().queue.length
+        playback.currentIndex >= 0 && playback.currentIndex + 1 < playback.queue.length
     function handleShowVideo() {
       const path = playingPath()
       if (!path || !isVideoFile()) return
@@ -217,10 +219,10 @@ export const WorkspaceTaskbarAudio = controllerView(
             </div>
             <div class='hidden max-w-52 min-w-52 min-[1150px]:block'>
               <div class='text-foreground truncate text-[12px] leading-none font-medium'>
-                {audioMetadata()?.title || fileName()}
+                {audioMetadata?.title || fileName()}
               </div>
               <div class='text-muted-foreground truncate text-[11px] leading-none'>
-                {audioMetadata()?.artist || currentDir() || '\u00A0'}
+                {audioMetadata?.artist || currentDir() || '\u00A0'}
               </div>
             </div>
           </button>
@@ -255,27 +257,27 @@ export const WorkspaceTaskbarAudio = controllerView(
                 </div>
                 <div class='min-w-0 flex-1'>
                   <div class='text-foreground truncate text-sm font-medium'>
-                    {audioMetadata()?.title || fileName()}
+                    {audioMetadata?.title || fileName()}
                   </div>
                   <div class='text-muted-foreground truncate text-xs'>
-                    {audioMetadata()?.artist || currentDir() || '\u00A0'}
+                    {audioMetadata?.artist || currentDir() || '\u00A0'}
                   </div>
                 </div>
               </div>
 
               <div class='text-muted-foreground flex items-center gap-2 text-[11px]'>
                 <span class='w-9 text-right tabular-nums'>
-                  {formatPlaybackTime(playback().position)}
+                  {formatPlaybackTime(playback.position)}
                 </span>
                 <PlaybackScrubber
-                  itemKey={`${playingPath()}\0${playback().mode}`}
-                  position={playback().position}
+                  itemKey={`${playingPath()}\0${playback.mode}`}
+                  position={playback.position}
                   duration={displayDuration()}
                   ariaLabel='Playback position'
                   ariaValueText={(position) =>
                     `${formatPlaybackTime(position)} of ${formatPlaybackTime(displayDuration())}`
                   }
-                  disabled={!item()}
+                  disabled={!item}
                   onSeek={(position) => session.dispatch({ type: 'seek', position })}
                   class='[&::-webkit-slider-thumb]:bg-primary h-1.5 flex-1 cursor-pointer appearance-none rounded-none bg-secondary [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full'
                 />
@@ -297,17 +299,13 @@ export const WorkspaceTaskbarAudio = controllerView(
                   </button>
                   <button
                     type='button'
-                    aria-label={playback().desiredPlaying ? 'Pause' : 'Play'}
+                    aria-label={playback.desiredPlaying ? 'Pause' : 'Play'}
                     class='bg-primary text-primary-foreground hover:bg-primary/90 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md'
                     onClick={() => {
                       session.dispatch({ type: 'toggle' })
                     }}
                   >
-                    {playback().desiredPlaying ? (
-                      <Pause class='h-4 w-4' />
-                    ) : (
-                      <Play class='h-4 w-4' />
-                    )}
+                    {playback.desiredPlaying ? <Pause class='h-4 w-4' /> : <Play class='h-4 w-4' />}
                   </button>
                   <button
                     type='button'
@@ -322,10 +320,10 @@ export const WorkspaceTaskbarAudio = controllerView(
                   </button>
                   <button
                     type='button'
-                    aria-label={playback().repeat ? 'Disable repeat' : 'Enable repeat'}
-                    aria-pressed={playback().repeat ? 'true' : 'false'}
+                    aria-label={playback.repeat ? 'Disable repeat' : 'Enable repeat'}
+                    aria-pressed={playback.repeat ? 'true' : 'false'}
                     class={
-                      playback().repeat
+                      playback.repeat
                         ? 'bg-primary text-primary-foreground inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md'
                         : 'hover:bg-accent inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md'
                     }
@@ -353,22 +351,22 @@ export const WorkspaceTaskbarAudio = controllerView(
                   <div class='ml-1 flex min-w-0 max-w-32 flex-1 items-center gap-2'>
                     <button
                       type='button'
-                      aria-label={playback().muted ? 'Unmute' : 'Mute'}
+                      aria-label={playback.muted ? 'Unmute' : 'Mute'}
                       class='hover:bg-accent inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md'
                       onClick={() => {
-                        session.dispatch({ type: 'setMuted', muted: !playback().muted })
+                        session.dispatch({ type: 'setMuted', muted: !playback.muted })
                       }}
                     >
-                      {playback().muted ? <VolumeX class='h-4 w-4' /> : <Volume2 class='h-4 w-4' />}
+                      {playback.muted ? <VolumeX class='h-4 w-4' /> : <Volume2 class='h-4 w-4' />}
                     </button>
                     <input
                       type='range'
                       aria-label='Volume'
-                      aria-valuetext={`${Math.round((playback().muted ? 0 : playback().volume) * 100)} percent`}
+                      aria-valuetext={`${Math.round((playback.muted ? 0 : playback.volume) * 100)} percent`}
                       min={0}
                       max={1}
                       step={0.01}
-                      value={playback().muted ? 0 : playback().volume}
+                      value={playback.muted ? 0 : playback.volume}
                       onInput={(event) => {
                         session.dispatch({
                           type: 'setVolume',

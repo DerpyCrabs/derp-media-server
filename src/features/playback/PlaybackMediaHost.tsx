@@ -1,6 +1,6 @@
 import { directoryFilesSchema } from '@/lib/files/file-schemas'
 import { audioMetadataSchema } from './playback-schemas'
-import { available, domMount, modelOwner, observe, view, type Snapshot } from 'effectweb'
+import { available, domMount, modelOwner, observe, view } from 'effectweb'
 import { queryCache, groups, seedQuery } from '@/lib/api/cache'
 import { fetchDirectoryFilesEffect } from '@/lib/files/files-client'
 import { MediaType } from '@/lib/files/types'
@@ -45,8 +45,8 @@ const audioHost = domMount((element: HTMLAudioElement) => {
   let detached: (() => void) | undefined
   let selectedPath = ''
   let observedItem = ''
-  let metadata: Snapshot<typeof audioMetadataSchema.Type> | undefined
-  let files: Snapshot<typeof directoryFilesSchema.Type>['files'] = []
+  let metadata: typeof audioMetadataSchema.Type | undefined
+  let files: (typeof directoryFilesSchema.Type)['files'] = []
   const updateMetadata = () => {
     if (!('mediaSession' in navigator)) return
     const state = session.getSnapshot()

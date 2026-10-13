@@ -1,4 +1,4 @@
-import { type Snapshot, component, view, list, type JSX } from 'effectweb'
+import { component, view, list, type JSX } from 'effectweb'
 import { getIconComponent, AVAILABLE_ICONS } from '@/lib/ui/available-icons'
 import X from '@effectweb/lucide/icons/x'
 import type { ModalOverlayScope } from './modal-overlay-scope'
@@ -14,7 +14,7 @@ type Props = {
 }
 export const IconEditorDialog = component(
   {
-    init: (_props: Snapshot<Props>) => ({
+    init: (_props: Props) => ({
       selection: { key: '', icon: null } as { key: string; icon: string | null },
     }),
   },

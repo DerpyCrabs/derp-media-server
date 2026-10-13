@@ -75,14 +75,14 @@ export const MediaCenterPage = controllerView(
         ),
         'replace',
       )
-      return { source: owner.source, ...actions, dispose: owner.dispose, close: owner.close }
+      return { source: owner.source, ...actions, lifetime: owner }
     },
   },
   view((model) =>
     observe(browserHistory, (location) => {
       const params = () => new URLSearchParams(location.search)
-      const searchOpen = () => model.searchOpen
-      const feedActions = () => model.feedActions
+      const searchOpen = model.searchOpen
+      const feedActions = model.feedActions
       const setSearchOpen = model.actions.setSearchOpen
       const indexing = () => {
         const status = available(model.ai)
@@ -103,7 +103,7 @@ export const MediaCenterPage = controllerView(
             !params().has('viewing')))
       const knowledgeBases = () => available(model.settings)?.knowledgeBases ?? []
       const editableFolders = () => available(model.config)?.editableFolders ?? []
-      const audioPlayerVisible = () => model.audioPlayerVisible
+      const audioPlayerVisible = model.audioPlayerVisible
       function navigation() {
         return (
           <nav class='flex shrink-0 items-center gap-4 max-[600px]:gap-1' aria-label='Media center'>
@@ -145,14 +145,19 @@ export const MediaCenterPage = controllerView(
                     <button
                       class='flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground pointer-coarse:h-11 pointer-coarse:w-11'
                       aria-label='Search library'
-                      aria-expanded={searchOpen() ? 'true' : 'false'}
+                      aria-expanded={searchOpen ? 'true' : 'false'}
                       onClick={() => {
                         setSearchOpen(!model.searchOpen)
                       }}
                     >
                       <Search size={18} />
                     </button>
-                    <div use={domBinding({ set: model.actions.setFeedActions }, feedTarget)} />
+                    <div
+                      use={{
+                        ...domBinding({ set: model.actions.setFeedActions }, feedTarget),
+                        identity: model.actions.setFeedActions,
+                      }}
+                    />
                   </div>
                 ) : null}
               </div>
@@ -175,7 +180,7 @@ export const MediaCenterPage = controllerView(
           <div
             class={cn(
               'media-center-content lg:pt-1',
-              audioPlayerVisible() &&
+              audioPlayerVisible &&
                 'max-[649px]:pb-[calc(3.125rem+env(safe-area-inset-bottom,0px))] min-[650px]:pb-[calc(4.5625rem+env(safe-area-inset-bottom,0px))]',
             )}
             data-testid='media-chrome-pad-root'
@@ -183,8 +188,8 @@ export const MediaCenterPage = controllerView(
             {home() ? (
               <ForYou
                 aiEnabled={!!available(model.ai)?.enabled}
-                actions={feedActions()}
-                searchOpen={searchOpen()}
+                actions={feedActions}
+                searchOpen={searchOpen}
                 onOpenFolder={() => {
                   setSearchOpen(false)
                 }}
@@ -192,7 +197,7 @@ export const MediaCenterPage = controllerView(
             ) : (
               <MediaCenterFileBrowser
                 hideSearch={available(model.ai)?.enabled}
-                searchOpen={searchOpen()}
+                searchOpen={searchOpen}
                 onSearchOpenChange={setSearchOpen}
               />
             )}

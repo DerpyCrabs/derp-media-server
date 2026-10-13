@@ -1,4 +1,4 @@
-import { available, modelOwner, view, controllerView, type Snapshot } from 'effectweb'
+import { available, modelOwner, view, controllerView } from 'effectweb'
 import { queryCache } from '@/lib/api/cache'
 import { configQuery, settingsQuery, type ServerConfig } from '@/lib/api/queries'
 import type { GlobalSettings } from '@/lib/models/settings-types'
@@ -81,8 +81,8 @@ function createMediaBrowser(props: Props) {
     props,
     history: browserHistory.model(),
     playback: browserPlayback(playbackSource.model()),
-    config: undefined as Snapshot<ServerConfig> | undefined,
-    settings: undefined as Snapshot<GlobalSettings> | undefined,
+    config: undefined as ServerConfig | undefined,
+    settings: undefined as GlobalSettings | undefined,
     hermesViewer: null as HermesViewer,
   })
   const actions = {
@@ -148,7 +148,7 @@ function createMediaBrowser(props: Props) {
     source: owner.source,
     ...actions,
     receive: (props: Props) => owner.patch({ props }),
-    dispose: owner.dispose,
+    lifetime: owner,
   }
 }
 export const MediaCenterFileBrowser = controllerView(

@@ -1,6 +1,5 @@
 import { Schema } from 'effect'
 import { objectResponse } from './hermes-api'
-import { type Snapshot } from 'effectweb'
 
 import { extractHermesMessageImages } from './hermes-chat-parity'
 import { type HermesMessage, type HermesToolCall } from './hermes-session-types'
@@ -104,8 +103,8 @@ export function normalizeMessages(value: unknown): HermesMessage[] {
 }
 
 export function sameHermesMessages(
-  left: readonly Snapshot<HermesMessage>[],
-  right: readonly Snapshot<HermesMessage>[],
+  left: readonly HermesMessage[],
+  right: readonly HermesMessage[],
 ): boolean {
   if (left === right) return true
   if (left.length !== right.length) return false

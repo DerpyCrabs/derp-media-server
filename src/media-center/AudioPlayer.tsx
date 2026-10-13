@@ -18,7 +18,7 @@ import { setAudioOnly } from '@/lib/browser/url-state-actions'
 import { parentPath } from '@/lib/files/path-utils'
 import { createFileSortMetadata, sortFilesForPath } from '@/features/explorer/file-display-settings'
 import { AsyncResult } from 'effect/reactivity'
-import { available, modelOwner, view, type Snapshot, controllerView } from 'effectweb'
+import { available, modelOwner, view, controllerView } from 'effectweb'
 import { queryCache } from '@/lib/api/cache'
 import { settingsQuery, statsQuery } from '@/lib/api/queries'
 import { mediaSelectionSource } from '@/features/media-ai/selection'
@@ -34,9 +34,9 @@ function createAudioPlayer() {
   const owner = modelOwner({
     playback: session.getSnapshot(),
     files: [] as readonly FileItem[],
-    settings: undefined as Snapshot<GlobalSettings> | undefined,
+    settings: undefined as GlobalSettings | undefined,
     views: {} as Readonly<Record<string, number>>,
-    metadata: undefined as Snapshot<AudioMetadata> | undefined,
+    metadata: undefined as AudioMetadata | undefined,
     metadataLoading: false,
     filesReady: false,
   })
@@ -103,7 +103,7 @@ function createAudioPlayer() {
   owner.own(session.subscribe(update))
   owner.own(mediaSelectionSource.subscribe(syncQueue))
   update()
-  return { source: owner.source, dispose: owner.dispose }
+  return { source: owner.source, lifetime: owner }
 }
 export const AudioPlayer = controllerView(
   { controller: createAudioPlayer },
@@ -113,12 +113,12 @@ export const AudioPlayer = controllerView(
         getPlaybackSession().dispatch(command)
       },
     }
-    const currentItem = () => model.playback.currentItem
-    const playbackMode = () => model.playback.mode
-    const shouldHandleAudio = () => !!currentItem() && playbackMode() === 'audio'
-    const playingPath = () => currentItem()?.locator ?? ''
-    const fileName = () => currentItem()?.name ?? ''
-    const isVideoFile = () => currentItem()?.media === 'video'
+    const currentItem = model.playback.currentItem
+    const playbackMode = model.playback.mode
+    const shouldHandleAudio = () => !!currentItem && playbackMode === 'audio'
+    const playingPath = () => currentItem?.locator ?? ''
+    const fileName = () => currentItem?.name ?? ''
+    const isVideoFile = () => currentItem?.media === 'video'
     const allFiles = sortFilesForPath(
       model.files,
       parentPath(playingPath()),
@@ -139,8 +139,8 @@ export const AudioPlayer = controllerView(
       isVideoFile() && (model.metadata?.duration ?? 0) > 0
         ? model.metadata!.duration!
         : model.playback.duration
-    const scrubTime = () => model.playback.position
-    const isRepeat = () => model.playback.repeat
+    const scrubTime = model.playback.position
+    const isRepeat = model.playback.repeat
     const hasPreviousAudio = () => model.playback.position > 20 || model.playback.currentIndex > 0
     const hasNextAudio = () =>
       model.playback.currentIndex >= 0 &&
@@ -163,17 +163,17 @@ export const AudioPlayer = controllerView(
           <div
             class='absolute top-0 left-0 h-full bg-white transition-all duration-100'
             style={{
-              width: `${displayDuration() > 0 ? (scrubTime() / displayDuration()) * 100 : 0}%`,
+              width: `${displayDuration() > 0 ? (scrubTime / displayDuration()) * 100 : 0}%`,
             }}
           />
           <PlaybackScrubber
-            itemKey={`${playingPath()}\0${playbackMode()}`}
-            position={scrubTime()}
+            itemKey={`${playingPath()}\0${playbackMode}`}
+            position={scrubTime}
             duration={displayDuration()}
             onSeek={(position) => session.dispatch({ type: 'seek', position })}
             ariaLabel='Playback position'
             class='absolute -top-2.5 left-0 h-5 w-full cursor-pointer touch-none opacity-0'
-            disabled={!currentItem()}
+            disabled={!currentItem}
           />
         </div>
 
@@ -192,7 +192,7 @@ export const AudioPlayer = controllerView(
               <button
                 type='button'
                 aria-label={model.playback.desiredPlaying ? 'Pause' : 'Play'}
-                disabled={!currentItem()}
+                disabled={!currentItem}
                 onClick={() => session.dispatch({ type: 'toggle' })}
                 class='inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 min-[650px]:size-10'
               >
@@ -213,12 +213,12 @@ export const AudioPlayer = controllerView(
               </button>
               <button
                 type='button'
-                aria-label={isRepeat() ? 'Disable repeat' : 'Enable repeat'}
-                aria-pressed={isRepeat() ? 'true' : 'false'}
-                disabled={!currentItem()}
+                aria-label={isRepeat ? 'Disable repeat' : 'Enable repeat'}
+                aria-pressed={isRepeat ? 'true' : 'false'}
+                disabled={!currentItem}
                 onClick={() => session.dispatch({ type: 'toggleRepeat' })}
                 class={
-                  isRepeat()
+                  isRepeat
                     ? 'inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground disabled:opacity-50 min-[650px]:size-10'
                     : 'inline-flex size-8 shrink-0 items-center justify-center rounded-md hover:bg-accent disabled:opacity-50 min-[650px]:size-10'
                 }
@@ -228,7 +228,7 @@ export const AudioPlayer = controllerView(
               {isVideoFile() ? (
                 <button
                   type='button'
-                  disabled={!currentItem()}
+                  disabled={!currentItem}
                   onClick={handleShowVideo}
                   aria-label='Show video'
                   class='inline-flex size-8 shrink-0 items-center justify-center rounded-md hover:bg-accent disabled:opacity-50 min-[650px]:size-10'
@@ -241,15 +241,15 @@ export const AudioPlayer = controllerView(
             <div class='hidden h-8 w-px shrink-0 bg-border min-[650px]:block' />
 
             <div class='hidden flex-1 items-center gap-3 min-[650px]:flex'>
-              <span class='text-sm tabular-nums'>{formatPlaybackTime(scrubTime())}</span>
+              <span class='text-sm tabular-nums'>{formatPlaybackTime(scrubTime)}</span>
               <PlaybackScrubber
-                itemKey={`${playingPath()}\0${playbackMode()}`}
-                position={scrubTime()}
+                itemKey={`${playingPath()}\0${playbackMode}`}
+                position={scrubTime}
                 duration={displayDuration()}
                 onSeek={(position) => session.dispatch({ type: 'seek', position })}
                 ariaLabel='Playback position'
                 class='h-2 flex-1 cursor-pointer appearance-none rounded-lg bg-secondary [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary'
-                disabled={!currentItem()}
+                disabled={!currentItem}
               />
               <span class='text-sm tabular-nums'>{formatPlaybackTime(displayDuration())}</span>
             </div>

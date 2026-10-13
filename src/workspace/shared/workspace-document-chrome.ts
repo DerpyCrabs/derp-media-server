@@ -6,7 +6,7 @@ import {
   setFaviconHref,
 } from '@/lib/ui/dynamic-favicon-core'
 import type { WorkspaceRecord } from '@/workspace/model/workspace-registry'
-import { modelOwner, type Snapshot } from 'effectweb'
+import { modelOwner } from 'effectweb'
 import { Effect } from 'effect'
 export function createWorkspaceDocumentChrome() {
   const previousTitle = document.title
@@ -15,7 +15,7 @@ export function createWorkspaceDocumentChrome() {
   const owner = modelOwner({})
   const slot = 'workspace-favicon'
   return {
-    update(record: Snapshot<WorkspaceRecord> | undefined) {
+    update(record: WorkspaceRecord | undefined) {
       const title = record?.name?.trim()
       document.title = title ? `${title} · Media Server` : 'Workspace · Media Server'
       const svg = getLucideIconSvg(record?.icon?.trim() ?? '')

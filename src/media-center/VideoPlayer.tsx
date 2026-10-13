@@ -117,15 +117,15 @@ export const VideoPlayer = controllerView(
         owner.patch({ minimized: false })
       }
       update()
-      return { source: owner.source, ...actions, dispose: owner.dispose, close: owner.close }
+      return { source: owner.source, ...actions, lifetime: owner }
     },
   },
   view((model) => {
-    const snapshot = () => model.snapshot
-    const currentItem = () => model.snapshot.currentItem
-    const isVideoFile = () => currentItem()?.media === 'video' && model.snapshot.mode === 'video'
-    const fileName = () => currentItem()?.name ?? ''
-    const position = () => model.position
+    const snapshot = model.snapshot
+    const currentItem = model.snapshot.currentItem
+    const isVideoFile = () => currentItem?.media === 'video' && model.snapshot.mode === 'video'
+    const fileName = () => currentItem?.name ?? ''
+    const position = model.position
     const { toggleMinimize, handleAudioOnly, handleClose } = model.actions
     const session = {
       dispatch: (command: Parameters<ReturnType<typeof getPlaybackSession>['dispatch']>[0]) =>
@@ -135,7 +135,7 @@ export const VideoPlayer = controllerView(
       model.minimized ? 'fixed z-40 w-80 max-w-[calc(100vw-2rem)]' : 'w-full bg-background'
     const containerStyle = (): Record<string, string | undefined> => {
       if (!model.minimized) return {}
-      const current = position()
+      const current = position
       return { left: `${current.x}px`, top: `${current.y}px` }
     }
     const videoAreaStyle = (): Record<string, string | undefined> => {
@@ -144,7 +144,7 @@ export const VideoPlayer = controllerView(
       }
       return { 'max-height': '70vh', 'aspect-ratio': '16 / 9' }
     }
-    return isVideoFile() && currentItem() ? (
+    return isVideoFile() && currentItem ? (
       <div
         use={domBinding({ minimized: model.minimized }, containFloating)}
         class={containerClass()}
@@ -158,13 +158,13 @@ export const VideoPlayer = controllerView(
             <div class='border-border z-10 flex items-center justify-between border-b bg-background/90 p-2 backdrop-blur-sm'>
               <span class='flex-1 truncate px-2 text-sm font-medium'>{fileName()}</span>
               <div class='flex items-center gap-1'>
-                {snapshot().queue.length > 1 ? (
+                {snapshot.queue.length > 1 ? (
                   <>
                     <button
                       type='button'
                       class='inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-muted disabled:opacity-40'
                       aria-label='Previous video'
-                      disabled={snapshot().currentIndex === 0 && snapshot().position <= 20}
+                      disabled={snapshot.currentIndex === 0 && snapshot.position <= 20}
                       onClick={() => session.dispatch({ type: 'previous' })}
                     >
                       <StepBack size={16} />
@@ -173,7 +173,7 @@ export const VideoPlayer = controllerView(
                       type='button'
                       class='inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-muted disabled:opacity-40'
                       aria-label='Next video'
-                      disabled={snapshot().currentIndex >= snapshot().queue.length - 1}
+                      disabled={snapshot.currentIndex >= snapshot.queue.length - 1}
                       onClick={() => session.dispatch({ type: 'next' })}
                     >
                       <StepForward size={16} />
@@ -212,14 +212,17 @@ export const VideoPlayer = controllerView(
             </div>
             <div class='video-surface relative w-full bg-black' style={videoAreaStyle()}>
               <video
-                data-playback-source={snapshot().source?.url}
-                use={domBinding({ set: model.actions.setVideo }, videoBinding)}
+                data-playback-source={snapshot.source?.url}
+                use={{
+                  ...domBinding({ set: model.actions.setVideo }, videoBinding),
+                  identity: model.actions.setVideo,
+                }}
                 playsinline
                 tabindex={0}
                 class='h-full w-full bg-black object-contain'
               />
               <VideoControls
-                path={currentItem()?.locator ?? ''}
+                path={currentItem?.locator ?? ''}
                 video={model.video}
                 active={isVideoFile()}
               />

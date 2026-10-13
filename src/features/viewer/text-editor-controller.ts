@@ -1,6 +1,6 @@
 import { Effect, Exit, Schema } from 'effect'
 import * as AsyncResult from 'effect/reactivity/AsyncResult'
-import { available, modelOwner, resourceError, type Snapshot } from 'effectweb'
+import { available, modelOwner, resourceError } from 'effectweb'
 import { apiSchemaEffect, postSchemaEffect, postEffect } from '@/lib/api/client'
 import { groups, queryCache } from '@/lib/api/cache'
 import { settingsQuery } from '@/lib/api/queries'
@@ -41,7 +41,7 @@ export const dirtyGuard = (element: HTMLDivElement, current: () => boolean) => {
   window.addEventListener('beforeunload', warn)
   return () => window.removeEventListener('beforeunload', warn)
 }
-export function textController(props: Snapshot<TextEditorPaneProps>) {
+export function textController(props: TextEditorPaneProps) {
   let closing = false
   let hydrated = false
   let settingsLoaded = false
@@ -249,27 +249,29 @@ export function textController(props: Snapshot<TextEditorPaneProps>) {
   return {
     source: owner.source,
     ...actions,
-    receive: (next: Snapshot<TextEditorPaneProps>) => owner.patch({ props: next }),
+    receive: (next: TextEditorPaneProps) => owner.patch({ props: next }),
     beforeDispose: () => {
       closing = true
       owner.cancel(debounceSlot)
     },
-    close: () =>
-      owner.awaitIdle('saved').pipe(
-        Effect.andThen(
-          Effect.suspend(() => {
-            const current = owner.read()
-            return hydrated &&
-              current.edit !== current.base &&
-              !conflict() &&
-              isPathEditable(current.props.viewingPath, [...current.props.editableFolders]) &&
-              (current.settings?.autoSave?.[current.props.viewingPath]?.enabled ?? true)
-              ? save(true).await
-              : Effect.void
-          }),
+    lifetime: {
+      close: () =>
+        owner.awaitIdle('saved').pipe(
+          Effect.andThen(
+            Effect.suspend(() => {
+              const current = owner.read()
+              return hydrated &&
+                current.edit !== current.base &&
+                !conflict() &&
+                isPathEditable(current.props.viewingPath, [...current.props.editableFolders]) &&
+                (current.settings?.autoSave?.[current.props.viewingPath]?.enabled ?? true)
+                ? save(true).await
+                : Effect.void
+            }),
+          ),
+          Effect.ensuring(owner.close().pipe(Effect.orDie)),
         ),
-        Effect.ensuring(owner.close().pipe(Effect.orDie)),
-      ),
-    dispose: owner.dispose,
+      dispose: owner.dispose,
+    },
   }
 }

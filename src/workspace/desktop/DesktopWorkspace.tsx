@@ -53,13 +53,13 @@ export const DesktopWorkspace = controllerView(
     const orderedWindowGroupIds = () => model.orderedWindowGroupIds
     const workspaceFileIconContext = () => model.workspaceFileIconContext
     const layoutPicker = () => model.layoutPicker
-    const workspacePanelOpen = () => model.workspacePanelOpen
-    const workspaceId = () => model.workspaceId
-    const fileOpenTargetPick = () => model.fileOpenTargetPick
-    const fileOpenPickHoverId = () => model.fileOpenPickHoverId
-    const hasAnyTaskbarItems = () => model.hasAnyTaskbarItems
-    const pinnedItems = () => model.pinnedItems
-    const pinMenu = () => model.pinMenu
+    const workspacePanelOpen = model.workspacePanelOpen
+    const workspaceId = model.workspaceId
+    const fileOpenTargetPick = model.fileOpenTargetPick
+    const fileOpenPickHoverId = model.fileOpenPickHoverId
+    const hasAnyTaskbarItems = model.hasAnyTaskbarItems
+    const pinnedItems = model.pinnedItems
+    const pinMenu = model.pinMenu
     const browserSource = () => model.browserSource
     const suppressWorkspaceTaskbarAudioForVideoViewer = () =>
       model.suppressWorkspaceTaskbarAudioForVideoViewer
@@ -86,7 +86,10 @@ export const DesktopWorkspace = controllerView(
       >
         <div
           class='relative min-h-0 flex-1 overflow-hidden'
-          use={domBinding(snap.actions.bindWorkspaceAreaRoot, mountDesktopArea)}
+          use={{
+            ...domBinding(snap.actions.bindWorkspaceAreaRoot, mountDesktopArea),
+            identity: snap.actions.bindWorkspaceAreaRoot,
+          }}
         >
           {!model.editable ? (
             <div class='absolute left-1/2 top-2 z-[100002] -translate-x-1/2 rounded-md border border-border bg-popover px-3 py-1.5 text-xs shadow-lg'>
@@ -135,7 +138,7 @@ export const DesktopWorkspace = controllerView(
               endDrag: endWindowDrag,
             }}
           />
-          {fileOpenTargetPick()
+          {fileOpenTargetPick
             ? ((hid) => {
                 if (!hid) return null
 
@@ -152,7 +155,7 @@ export const DesktopWorkspace = controllerView(
                     }}
                   />
                 )
-              })(fileOpenPickHoverId())
+              })(fileOpenPickHoverId)
             : null}
         </div>
         <DesktopWorkspaceTaskbar
@@ -164,15 +167,15 @@ export const DesktopWorkspace = controllerView(
             openSearchResult: editableOpenSearchResult,
           }}
           items={{
-            hasAny: hasAnyTaskbarItems(),
-            pinned: pinnedItems(),
+            hasAny: hasAnyTaskbarItems,
+            pinned: pinnedItems,
             groupIds: orderedWindowGroupIds(),
             windowRows: taskbarWindowRows,
             settings: model.settings,
             fileIconContext: workspaceFileIconContext(),
             selectPinned: editableSelectPinned,
           }}
-          pinMenu={{ state: pinMenu(), onSet: setPinMenu, remove: editableRemovePinnedItem }}
+          pinMenu={{ state: pinMenu, onSet: setPinMenu, remove: editableRemovePinnedItem }}
           playback={{
             browserSource,
             workspace,
@@ -183,8 +186,8 @@ export const DesktopWorkspace = controllerView(
           }}
         />
         <WorkspaceSwitcher
-          open={workspacePanelOpen()}
-          activeId={workspaceId()}
+          open={workspacePanelOpen}
+          activeId={workspaceId}
           registry={model.registry}
           editable={model.editable}
           onToggle={() => setWorkspacePanelOpen((open) => !open)}
@@ -193,7 +196,7 @@ export const DesktopWorkspace = controllerView(
             void leaveForWorkspace(id)
           }}
           onOpenNewTab={(id) => {
-            if (id === workspaceId()) return
+            if (id === workspaceId) return
             window.open(`/workspace?ws=${encodeURIComponent(id)}`, '_blank', 'noopener,noreferrer')
           }}
           onCreate={() => {

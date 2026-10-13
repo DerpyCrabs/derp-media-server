@@ -1,5 +1,5 @@
 import { Effect, Exit } from 'effect'
-import { view, type Snapshot } from 'effectweb'
+import { view } from 'effectweb'
 import * as pdfjs from 'pdfjs-dist'
 import { buildMediaUrl } from '@/lib/media/build-media-url'
 import { PdfContent, type PdfDocument } from './PdfContent'
@@ -51,7 +51,7 @@ const PdfReader = view<ReaderContentProps>((props) => {
       selectionModes={['text', 'image']}
       renderPage={({ document, page, pageIndex, zoom, frame }) => (
         <PdfContent
-          document={(document as Snapshot<PdfReaderDocument>).pdf}
+          document={(document as PdfReaderDocument).pdf}
           page={page}
           pageIndex={pageIndex}
           zoom={zoom}

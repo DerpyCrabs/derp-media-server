@@ -1,6 +1,6 @@
 import { createMediaCenterPlaybackSync } from '@/media-center/media-center-playback-sync'
 import { Effect, Schema } from 'effect'
-import { available, modelOwner, type Snapshot } from 'effectweb'
+import { available, modelOwner } from 'effectweb'
 import * as AsyncResult from 'effect/reactivity/AsyncResult'
 import { groups, queryCache, initialData } from '@/lib/api/cache'
 import { postSchemaEffect } from '@/lib/api/client'
@@ -28,7 +28,7 @@ import {
 import { homeKey, homeQuery, readingQuery, loadPage } from './recommendation-queries'
 import { infiniteResource, observeQuery, type InfiniteData } from '@effectweb/query'
 const slots = { poll: 'warming-feed', notice: 'feed-notice', debounce: 'library-search-delay' }
-export function createForYou(props: Snapshot<Props>) {
+export function createForYou(props: Props) {
   const session = getPlaybackSession()
   // Results of the feed's actions, published by `owner.task` under the same keys.
   const initialTask = () => AsyncResult.initial() as AsyncResult.AsyncResult<unknown, unknown>
@@ -37,12 +37,12 @@ export function createForYou(props: Snapshot<Props>) {
     category: 'all' as Category,
     query: '',
     debounced: '',
-    history: [] as string[],
+    history: [] as readonly string[],
     answer: undefined as Answer | undefined,
     hidden: [] as string[],
     notice: '',
     likes: {} as Record<string, boolean>,
-    menu: undefined as { item: Snapshot<Pick>; x: number; y: number } | undefined,
+    menu: undefined as { item: Pick; x: number; y: number } | undefined,
     waitingForRecommendations: false,
     home: AsyncResult.initial<InfiniteData<Home, PageParam>, unknown>() as AsyncResult.AsyncResult<
       InfiniteData<Home, PageParam>,
@@ -177,10 +177,10 @@ export function createForYou(props: Snapshot<Props>) {
   function setHistory(history: readonly string[]) {
     owner.patch({ history })
   }
-  function setAnswer(answer: Snapshot<Answer> | undefined) {
+  function setAnswer(answer: Answer | undefined) {
     owner.patch({ answer })
   }
-  function setMenu(menu: { item: Snapshot<Pick>; x: number; y: number } | undefined) {
+  function setMenu(menu: { item: Pick; x: number; y: number } | undefined) {
     owner.patch({ menu })
   }
   function setNotice(notice: string) {
@@ -308,7 +308,7 @@ export function createForYou(props: Snapshot<Props>) {
     })
     navigateSearchParams({ playing: item.path, view: 'for-you', audioOnly: null }, 'push')
   }
-  function playCollection(item: Snapshot<Pick>) {
+  function playCollection(item: Pick) {
     const members = item.members ?? []
     const first = members[0]
     if (!first) return
@@ -336,7 +336,7 @@ export function createForYou(props: Snapshot<Props>) {
       'push',
     )
   }
-  function queue(input: readonly Snapshot<Pick>[]) {
+  function queue(input: readonly Pick[]) {
     const items = input.flatMap((item) =>
       item.type === MediaType.FOLDER ? (item.members ?? []) : [item],
     )
@@ -398,11 +398,10 @@ export function createForYou(props: Snapshot<Props>) {
   return {
     source: owner.source,
     ...actions,
-    receive: (props: Snapshot<Props>) => {
+    receive: (props: Props) => {
       owner.patch({ props })
       select()
     },
-    dispose: owner.dispose,
-    close: owner.close,
+    lifetime: owner,
   }
 }

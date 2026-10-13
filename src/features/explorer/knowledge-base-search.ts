@@ -77,6 +77,10 @@ export function createKnowledgeBaseSearch(context: () => Context) {
       focusInput: focus,
     }),
   )
+  const setInputElement = (element: HTMLInputElement | undefined) => {
+    input = element
+    if (element && owner.read().open) void focus()
+  }
   return {
     source: owner.source,
     read: owner.read,
@@ -91,10 +95,7 @@ export function createKnowledgeBaseSearch(context: () => Context) {
         debouncedQuery: state.debouncedQuery,
         open: state.open,
         setOpen,
-        setInputElement: (element: HTMLInputElement | undefined) => {
-          input = element
-          if (element && owner.read().open) void focus()
-        },
+        setInputElement,
         onClear: clear,
         results: [...(available(state.result)?.results ?? [])],
         error: resourceError(state.result) || undefined,

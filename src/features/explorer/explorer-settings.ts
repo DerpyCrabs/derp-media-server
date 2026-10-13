@@ -1,4 +1,4 @@
-import { type Snapshot, available, modelOwner } from 'effectweb'
+import { available, modelOwner } from 'effectweb'
 import { AsyncResult } from 'effect/reactivity'
 import { settingsQuery } from '@/lib/api/queries'
 import { queryCache } from '@/lib/api/cache'
@@ -7,7 +7,7 @@ import { observeQuery } from '@effectweb/query'
 export function createExplorerSettings() {
   const owner = modelOwner({
     result: AsyncResult.initial<GlobalSettings, Error>() as AsyncResult.AsyncResult<
-      Snapshot<GlobalSettings>,
+      GlobalSettings,
       Error
     >,
   })

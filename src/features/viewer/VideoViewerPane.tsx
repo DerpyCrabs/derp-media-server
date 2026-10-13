@@ -1,4 +1,4 @@
-import { domBinding, modelOwner, view, type Snapshot, controllerView } from 'effectweb'
+import { domBinding, modelOwner, view, controllerView } from 'effectweb'
 import { VideoControls } from '@/features/playback/VideoControls'
 import { MediaType } from '@/lib/files/types'
 import { playbackItemFromPath, playbackPathKey, playbackPathMatches } from '@/features/playback'
@@ -15,7 +15,7 @@ type Props = {
   onMetadataLoaded?: (width: number, height: number) => void
   onListenOnly?: () => void
 }
-function videoController(props: Snapshot<Props>) {
+function videoController(props: Props) {
   const session = getPlaybackSession(),
     host = getPlaybackMediaHost()
   let offeredPath = '',
@@ -108,13 +108,15 @@ function videoController(props: Snapshot<Props>) {
   return {
     source: owner.source,
     ...actions,
-    receive: (next: Snapshot<Props>) => {
+    receive: (next: Props) => {
       owner.patch({ props: next })
       sync()
     },
-    dispose: () => {
-      release()
-      owner.dispose()
+    lifetime: {
+      dispose: () => {
+        release()
+        owner.dispose()
+      },
     },
   }
 }

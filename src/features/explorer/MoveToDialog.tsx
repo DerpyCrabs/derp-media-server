@@ -1,12 +1,4 @@
-import {
-  type Snapshot,
-  list,
-  available,
-  modelOwner,
-  resourceError,
-  view,
-  controllerView,
-} from 'effectweb'
+import { list, available, modelOwner, resourceError, view, controllerView } from 'effectweb'
 import { cn } from '@/lib/ui/cn'
 import { AsyncResult } from 'effect/reactivity'
 import { groups, queryCache } from '@/lib/api/cache'
@@ -59,7 +51,7 @@ export const MoveToDialog = controllerView(
         selectedRoot: computeSourceRoot(props.filePath, props.editableFolders),
         browsePath: computeInitialBrowse(props.filePath, props.editableFolders),
         result: AsyncResult.initial<{ files: FileItem[] }, Error>() as AsyncResult.AsyncResult<
-          Snapshot<{ files: FileItem[] }>,
+          { files: FileItem[] },
           Error
         >,
       })
@@ -80,14 +72,14 @@ export const MoveToDialog = controllerView(
         source: owner.source,
         ...actions,
         receive: (next: MoveToDialogProps) => owner.patch({ props: next }),
-        dispose: owner.dispose,
+        lifetime: owner,
       }
     },
   },
   view((model) => {
     const props = model.props
-    const selectedRoot = () => model.selectedRoot
-    const browsePath = () => model.browsePath
+    const selectedRoot = model.selectedRoot
+    const browsePath = model.browsePath
     const setBrowsePath = model.actions.browse
     const setSelectedRoot = model.actions.chooseRoot
     const isCopy = () => (props.mode ?? 'move') === 'copy'
@@ -99,8 +91,8 @@ export const MoveToDialog = controllerView(
       const parts = fp.split(/[/\\]/).filter(Boolean)
       return parts.slice(0, -1).join('/')
     }
-    const normalizedBrowse = () => browsePath().replace(/\\/g, '/')
-    const normalizedRoot = () => selectedRoot().replace(/\\/g, '/')
+    const normalizedBrowse = () => browsePath.replace(/\\/g, '/')
+    const normalizedRoot = () => selectedRoot.replace(/\\/g, '/')
     const folders = () => {
       const rawFiles = files
       const normalizedFilePath = props.filePath.replace(/\\/g, '/')
@@ -118,7 +110,7 @@ export const MoveToDialog = controllerView(
     }
     const canGoUp = () => normalizedBrowse() !== normalizedRoot()
     function goUp() {
-      const parts = browsePath().split(/[/\\]/).filter(Boolean)
+      const parts = browsePath.split(/[/\\]/).filter(Boolean)
       setBrowsePath(parts.slice(0, -1).join('/'))
     }
     function handleRootChange(root: string) {
@@ -163,9 +155,8 @@ export const MoveToDialog = controllerView(
                       class={cn([
                         'text-xs h-7 px-2 rounded-md border text-sm font-medium',
                         {
-                          'bg-primary text-primary-foreground border-primary':
-                            selectedRoot() === nf,
-                          'border-input bg-background hover:bg-accent': selectedRoot() !== nf,
+                          'bg-primary text-primary-foreground border-primary': selectedRoot === nf,
+                          'border-input bg-background hover:bg-accent': selectedRoot !== nf,
                         },
                       ])}
                       onClick={() => handleRootChange(folder)}
@@ -253,7 +244,7 @@ export const MoveToDialog = controllerView(
               type='button'
               class='h-9 px-4 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50'
               disabled={isSameAsSource() || props.isPending}
-              onClick={() => props.onConfirm(browsePath())}
+              onClick={() => props.onConfirm(browsePath)}
             >
               {props.isPending
                 ? isCopy()

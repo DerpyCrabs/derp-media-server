@@ -1,4 +1,4 @@
-import { type Snapshot, available, component, observe, view } from 'effectweb'
+import { available, component, observe, view } from 'effectweb'
 import { cn } from '@/lib/ui/cn'
 import { query, querySource } from '@effectweb/query'
 import { queryCache } from '@/lib/api/cache'
@@ -53,12 +53,12 @@ type Props = {
   pasteData: PasteData | null
   isPending: boolean
   error: Error | null | undefined
-  existingFiles: FileItem[]
+  existingFiles: readonly FileItem[]
   onPaste: (fileName: string, mode: 'create' | 'replace', expectedVersion?: number) => void
   onClose: () => void
 }
 export const PasteDialog = component(
-  { init: (_props: Snapshot<Props>) => ({ fileName: '' }) },
+  { init: (_props: Props) => ({ fileName: '' }) },
   view((local, patch) => {
     const props = local.props
     const fileName = () => local.fileName,

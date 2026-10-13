@@ -9,7 +9,6 @@ import {
   modelOwner,
   view,
   type JSX,
-  type Snapshot,
   controllerView,
   type ControllerModel,
 } from 'effectweb'
@@ -39,7 +38,7 @@ type Props<TDocument extends PagedDocument> = ReaderContentProps & {
   load: (path: string) => Effect.Effect<TDocument, unknown>
   selectionModes: readonly ReaderSelectionMode[]
   renderPage: (input: {
-    document: Snapshot<TDocument>
+    document: TDocument
     page: TDocument['pages'][number]
     pageIndex: number
     zoom: number
@@ -113,7 +112,7 @@ const PageIndicator = component<
     </div>
   )),
 )
-function createPagedReader(props: Snapshot<Props<PagedDocument>>) {
+function createPagedReader(props: Props<PagedDocument>) {
   const saveGate = Semaphore.makeUnsafe(1)
   let viewport: HTMLDivElement | undefined
   let resize: ResizeObserver | undefined
@@ -262,7 +261,7 @@ function createPagedReader(props: Snapshot<Props<PagedDocument>>) {
         })
       apply(initial)
       restored = true
-      yield* Effect.never
+      return yield* Effect.never
     }).pipe(
       Effect.catch((error) =>
         Effect.sync(() => owner.patch({ loading: false, error: String(error) })),
@@ -274,7 +273,7 @@ function createPagedReader(props: Snapshot<Props<PagedDocument>>) {
   return {
     source: owner.source,
     ...actions,
-    receive: (next: Snapshot<Props<PagedDocument>>) => owner.patch({ props: next }),
+    receive: (next: Props<PagedDocument>) => owner.patch({ props: next }),
     beforeDispose: () => {
       const current = owner.read().position
       finalPosition = {
@@ -283,24 +282,26 @@ function createPagedReader(props: Snapshot<Props<PagedDocument>>) {
         scrollTop: viewport?.scrollTop ?? current.scrollTop,
       }
     },
-    close: () => {
-      closing = true
-      const save = persist()
-      owner.cancel(debounceSlot)
-      owner.cancel(restoreSlot)
-      resize?.disconnect()
-      return owner
-        .awaitIdle(saveSlot)
-        .pipe(Effect.andThen(save), Effect.ensuring(owner.close().pipe(Effect.orDie)))
-    },
-    dispose: () => {
-      resize?.disconnect()
-      owner.dispose()
+    lifetime: {
+      close: () => {
+        closing = true
+        const save = persist()
+        owner.cancel(debounceSlot)
+        owner.cancel(restoreSlot)
+        resize?.disconnect()
+        return owner
+          .awaitIdle(saveSlot)
+          .pipe(Effect.andThen(save), Effect.ensuring(owner.close().pipe(Effect.orDie)))
+      },
+      dispose: () => {
+        resize?.disconnect()
+        owner.dispose()
+      },
     },
   }
 }
 function zoomFor(
-  position: Snapshot<PagedReaderPosition>,
+  position: PagedReaderPosition,
   pages: readonly ReaderPage[],
   size: { width: number; height: number },
 ) {

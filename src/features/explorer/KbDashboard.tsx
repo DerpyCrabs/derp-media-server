@@ -1,14 +1,5 @@
 import { knowledgeBaseRecentSchema } from '@/lib/files/file-schemas'
-import {
-  type Snapshot,
-  list,
-  available,
-  clock,
-  domMount,
-  modelOwner,
-  view,
-  controllerView,
-} from 'effectweb'
+import { list, available, clock, domMount, modelOwner, view, controllerView } from 'effectweb'
 import { AsyncResult } from 'effect/reactivity'
 import { groups, queryCache } from '@/lib/api/cache'
 import { setFileDragData } from '@/lib/files/file-drag-data'
@@ -65,7 +56,7 @@ export const KbDashboard = controllerView(
       const owner = modelOwner({
         props,
         result: AsyncResult.initial<{ results: RecentFile[] }, Error>() as AsyncResult.AsyncResult<
-          Snapshot<{ results: RecentFile[] }>,
+          { results: RecentFile[] },
           Error
         >,
         enableDrag: finePointerDragEnabled(),
@@ -81,7 +72,7 @@ export const KbDashboard = controllerView(
           owner.patch({ props: next })
           recent.select(next.scopePath || undefined)
         },
-        dispose: owner.dispose,
+        lifetime: owner,
       }
     },
   },
@@ -90,10 +81,10 @@ export const KbDashboard = controllerView(
     const compact = () => props.compact === true || props.mode === 'Workspace'
     const recent = () => available(model.result)?.results ?? []
     const isLoading = () => model.result.waiting && !available(model.result)
-    const enableDrag = () => model.enableDrag
+    const enableDrag = model.enableDrag
     function onRecentDragStart(file: RecentFile, e: globalThis.DragEvent) {
       const dtr = e.dataTransfer
-      if (!dtr || !enableDrag()) return
+      if (!dtr || !enableDrag) return
       const canMove = props.recentDragCanMove?.(file.path) ?? false
       setFileDragData(dtr, { path: file.path, isDirectory: false, sourceKind: 'local' })
       dtr.effectAllowed = canMove ? 'copyMove' : 'copy'
@@ -126,7 +117,7 @@ export const KbDashboard = controllerView(
                     ? 'gap-1 px-1.5 py-0.5'
                     : 'gap-1 px-1.5 py-1 md:gap-1.5 md:px-2 md:py-1.5',
                 )}
-                draggable={enableDrag() ? 'true' : 'false'}
+                draggable={enableDrag ? 'true' : 'false'}
                 onClick={() => props.onFileClick(file.path)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {

@@ -1,4 +1,4 @@
-import { type Snapshot, component, view, list } from 'effectweb'
+import { component, view, list } from 'effectweb'
 import { cn } from '@/lib/ui/cn'
 import type {
   FileColumnVisibility,
@@ -33,7 +33,7 @@ const fields: { field: FileSortField; label: string }[] = [
 ]
 export const ExplorerDisplayOptions = component(
   {
-    init: (_props: Snapshot<ExplorerDisplayOptionsProps>) => ({
+    init: (_props: ExplorerDisplayOptionsProps) => ({
       open: false,
       anchor: null as HTMLDivElement | null,
     }),

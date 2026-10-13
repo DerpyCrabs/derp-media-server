@@ -1,4 +1,4 @@
-import { type Snapshot, collection, domBinding, list, component, view, type JSX } from 'effectweb'
+import { collection, domBinding, list, component, view, type JSX } from 'effectweb'
 import type { FileItem } from '@/lib/files/types'
 import { cn } from '@/lib/ui/cn'
 import { directoryViewport } from './virtual-directory-binding'
@@ -16,7 +16,7 @@ type VirtualDirectoryGridProps = {
 const byPath = collection<FileItem>((file) => file.path)
 export const VirtualDirectoryGrid = component(
   {
-    init: (_props: Snapshot<VirtualDirectoryGridProps>) => ({
+    init: (_props: VirtualDirectoryGridProps) => ({
       start: 0,
       end: 100,
       columns: 1,

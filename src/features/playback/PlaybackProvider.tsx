@@ -1,4 +1,4 @@
-import { modelOwner, type Snapshot } from 'effectweb'
+import { modelOwner } from 'effectweb'
 import { restoreActivityQueue } from '@/features/media-ai/activity'
 import {
   createMediaElementHost,
@@ -11,12 +11,12 @@ let session: PlaybackSession | undefined
 let mediaHost: MediaElementHost | undefined
 const owner = modelOwner<{ snapshot: PlaybackSnapshot | undefined }>({ snapshot: undefined })
 export const playbackSource = {
-  model: (): Snapshot<PlaybackSnapshot> => {
+  model: (): PlaybackSnapshot => {
     const snapshot = owner.read().snapshot
     if (!snapshot) throw new Error('Playback has not been initialized')
     return snapshot
   },
-  subscribe: (listener: (snapshot: Snapshot<PlaybackSnapshot>) => void) =>
+  subscribe: (listener: (snapshot: PlaybackSnapshot) => void) =>
     owner.source.subscribe(({ snapshot }) => {
       if (snapshot) listener(snapshot)
     }),

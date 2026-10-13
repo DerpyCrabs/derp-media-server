@@ -1,4 +1,4 @@
-import { domBinding, component, Portal, view, type JSX, type Snapshot } from 'effectweb'
+import { domBinding, component, Portal, view, type JSX } from 'effectweb'
 import { getFloatingLayerMount } from '@/lib/ui/floating-layer-mount'
 import {
   floatingPointerInsideSurface,
@@ -111,7 +111,7 @@ const surfaceBinding = (element: HTMLDivElement, current: () => SurfaceProps) =>
   }
 }
 const MenuSurface = component(
-  { init: (props: Snapshot<SurfaceProps>) => ({ mount: props.mount ?? getFloatingLayerMount() }) },
+  { init: (props: SurfaceProps) => ({ mount: props.mount ?? getFloatingLayerMount() }) },
   view((model) => {
     const props = model.props
     return (

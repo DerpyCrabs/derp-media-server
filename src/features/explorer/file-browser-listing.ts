@@ -1,7 +1,7 @@
 import { directoryListingSchema } from '@/lib/files/file-schemas'
 import { Cause, Effect, Schema } from 'effect'
 import { AsyncResult } from 'effect/reactivity'
-import { available, modelOwner, resourceError, type Snapshot } from 'effectweb'
+import { available, modelOwner, resourceError } from 'effectweb'
 import { isApiError } from '@/lib/api/client'
 import { pushForbiddenNotice } from '@/lib/state/forbidden-notify'
 import { groups, initialData, queryCache } from '@/lib/api/cache'
@@ -33,7 +33,7 @@ export function createFileBrowserListing(path: string) {
     result: AsyncResult.initial<
       InfiniteData<DirectoryListing, number>,
       Error
-    >() as AsyncResult.AsyncResult<Snapshot<InfiniteData<DirectoryListing, number>>, Error>,
+    >() as AsyncResult.AsyncResult<InfiniteData<DirectoryListing, number>, Error>,
     loadingMore: false,
     deferredLoading: false,
   })
@@ -106,7 +106,7 @@ export function createFileBrowserListing(path: string) {
   }
 }
 export function fileListingSnapshot(
-  state: Snapshot<ReturnType<ReturnType<typeof createFileBrowserListing>['read']>>,
+  state: ReturnType<ReturnType<typeof createFileBrowserListing>['read']>,
 ) {
   const pages = available(state.result)?.pages.map((page) => page.value) ?? []
   const seen = new Set<string>()

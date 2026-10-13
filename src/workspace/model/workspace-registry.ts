@@ -35,10 +35,7 @@ export type WorkspaceMoveInput = {
   deleteSource: boolean
 }
 
-export function workspaceDisplayName(
-  record: import('effectweb').Snapshot<WorkspaceRecord>,
-  position = 1,
-): string {
+export function workspaceDisplayName(record: WorkspaceRecord, position = 1): string {
   const named = record.name?.trim()
   if (named) return named
   return `Workspace ${position}`

@@ -1,5 +1,5 @@
 import { Effect } from 'effect'
-import { modelOwner, domHandle, view, list, type Snapshot, controllerView } from 'effectweb'
+import { modelOwner, domMount, view, list, controllerView } from 'effectweb'
 import type { HermesSessionTarget } from './hermes-session-store'
 export type HermesChatPaneProps = {
   target: HermesSessionTarget | undefined
@@ -28,7 +28,21 @@ import { unsupportedHermesCommand, voiceControlGates } from '@/features/hermes/h
 import { createHermesChatUiState } from './hermes-chat-ui-state'
 import { createHermesVoiceRecorder } from './create-hermes-voice-recorder'
 const chatCommands = (key: string | number) => ['hermes-chat', key] as const
-function createChatPane(props: Snapshot<HermesChatPaneProps>) {
+/** A DOM mount that remembers its element, for controller work such as focus and scrolling. */
+function elementHandle<T extends Element>(attached?: (element: T) => void | (() => void)) {
+  let current: T | undefined
+  const mount = domMount<T>((element) => {
+    current = element
+    const cleanup = attached?.(element)
+    return () => {
+      if (current === element) current = undefined
+      cleanup?.()
+    }
+  })
+  return { mount, element: () => current }
+}
+
+function createChatPane(props: HermesChatPaneProps) {
   const session = createHermesSession(props.target ?? {})
   const key = session.key
   const state = session.state
@@ -46,14 +60,14 @@ function createChatPane(props: Snapshot<HermesChatPaneProps>) {
     visible: () => props.contentVisible ?? true,
     maxSeconds: () => state()?.voice.maxRecordingSeconds ?? 120,
   })
-  const attachmentInput = domHandle<HTMLInputElement>()
-  const transcriptEl = domHandle<HTMLDivElement>(() => scrollTranscriptToBottom())
-  const transcriptContentEl = domHandle<HTMLDivElement>((element) => {
+  const attachmentInput = elementHandle<HTMLInputElement>()
+  const transcriptEl = elementHandle<HTMLDivElement>(() => scrollTranscriptToBottom())
+  const transcriptContentEl = elementHandle<HTMLDivElement>((element) => {
     transcriptObserver.observe(element)
     return () => transcriptObserver.unobserve(element)
   })
-  const paneEl = domHandle<HTMLDivElement>()
-  const findInputEl = domHandle<HTMLInputElement>((element) => element.focus())
+  const paneEl = elementHandle<HTMLDivElement>()
+  const findInputEl = elementHandle<HTMLInputElement>((element) => element.focus())
   let findReturnFocus: HTMLElement | null = null
   let followLatest = true
   let awaitingScrollAway = false
@@ -210,12 +224,7 @@ function createChatPane(props: Snapshot<HermesChatPaneProps>) {
         session.lifecycle.restore().pipe(Effect.catch(reportError)),
         'queue',
       ),
-    retry: () =>
-      model.run(
-        chatCommands('submit'),
-        session.prompt.retry().pipe(Effect.catch(reportError)),
-        'queue',
-      ),
+    retry: () => model.run(chatCommands('submit'), session.prompt.retry(), 'queue'),
     stop: () =>
       model.run(
         chatCommands('stop'),
@@ -235,23 +244,11 @@ function createChatPane(props: Snapshot<HermesChatPaneProps>) {
         'queue',
       ),
     answer: (answer: string) =>
-      model.run(
-        chatCommands('decision'),
-        session.decision.answer(answer).pipe(Effect.catch(reportError)),
-        'drop',
-      ),
+      model.run(chatCommands('decision'), session.decision.answer(answer), 'drop'),
     addFiles: (files: Iterable<File>) =>
-      model.run(
-        chatCommands('attachments'),
-        session.attachments.addFiles(files).pipe(Effect.catch(reportError)),
-        'queue',
-      ),
+      model.run(chatCommands('attachments'), session.attachments.addFiles(files), 'queue'),
     addDraggedPath: (dragged: Parameters<typeof session.attachments.addDraggedPath>[0]) =>
-      model.run(
-        chatCommands('attachments'),
-        session.attachments.addDraggedPath(dragged).pipe(Effect.catch(reportError)),
-        'queue',
-      ),
+      model.run(chatCommands('attachments'), session.attachments.addDraggedPath(dragged), 'queue'),
     speak: (text: string) =>
       model.run(
         chatCommands('speak'),
@@ -280,10 +277,9 @@ function createChatPane(props: Snapshot<HermesChatPaneProps>) {
     rewind: (id: string, text: string) =>
       model.run(
         chatCommands('submit'),
-        session.prompt.rewind(id, text).pipe(
-          Effect.tap(() => Effect.sync(() => ui.dialogs.close('edit'))),
-          Effect.catch(reportError),
-        ),
+        session.prompt
+          .rewind(id, text)
+          .pipe(Effect.tap(() => Effect.sync(() => ui.dialogs.close('edit')))),
         'queue',
       ),
     rename: (title: string) =>
@@ -304,12 +300,7 @@ function createChatPane(props: Snapshot<HermesChatPaneProps>) {
     session,
     openFind,
     closeFind,
-    claimCurrentEditor: () =>
-      model.run(
-        chatCommands('editor'),
-        claimCurrentEditor().pipe(Effect.catch(reportError)),
-        'drop',
-      ),
+    claimCurrentEditor: () => model.run(chatCommands('editor'), claimCurrentEditor(), 'drop'),
     setDecisionAnswer,
     jumpToFindMatch,
     submit,
@@ -335,7 +326,6 @@ function createChatPane(props: Snapshot<HermesChatPaneProps>) {
               if (transcript) transcript.scrollTop += transcript.scrollHeight - before
             }),
           ),
-          Effect.catch(reportError),
         ),
         'drop',
       )
@@ -393,12 +383,7 @@ function createChatPane(props: Snapshot<HermesChatPaneProps>) {
         alive = false
         queueMicrotask(editor.release)
       }
-      if (editor.owned())
-        void model.run(
-          chatCommands('editor'),
-          editor.claim().pipe(Effect.catch(reportError)),
-          'replace',
-        )
+      if (editor.owned()) void model.run(chatCommands('editor'), editor.claim(), 'replace')
     }
     if ((props.contentVisible ?? true) && state()?.unread) session.lifecycle.markRead()
     const id = state()?.sessionId,
@@ -423,23 +408,25 @@ function createChatPane(props: Snapshot<HermesChatPaneProps>) {
   publish()
   return {
     source: model.source,
-    receive: (next: Snapshot<HermesChatPaneProps>) => {
+    receive: (next: HermesChatPaneProps) => {
       props = next
       session.receive(props.target ?? {})
       voiceRecorder.update()
       model.patch({ props })
       publish()
     },
-    dispose: () => {
-      disposed = true
-      releaseEditor?.()
-      voiceRecorder.dispose()
-      ui.dispose()
-      transcriptObserver.disconnect()
-      window.removeEventListener('keydown', handleFind, true)
-      window.removeEventListener('pointerdown', handlePointer)
-      if (scrollFrame !== undefined) cancelAnimationFrame(scrollFrame)
-      model.dispose()
+    lifetime: {
+      dispose: () => {
+        disposed = true
+        releaseEditor?.()
+        voiceRecorder.dispose()
+        ui.dispose()
+        transcriptObserver.disconnect()
+        window.removeEventListener('keydown', handleFind, true)
+        window.removeEventListener('pointerdown', handlePointer)
+        if (scrollFrame !== undefined) cancelAnimationFrame(scrollFrame)
+        model.dispose()
+      },
     },
   }
 }
@@ -456,40 +443,40 @@ export const HermesChatPane = controllerView(
       pauseTranscriptFollow,
     } = actions
     const session = actions.session
-    const state = () => model.state
-    const key = () => model.key
-    const owner = () => props.ownerId ?? key()
-    const ownsEditor = () => !state()?.editorOwner || state()?.editorOwner === owner()
-    const recording = () => model.recording
+    const state = model.state
+    const key = model.key
+    const owner = () => props.ownerId ?? key
+    const ownsEditor = () => !state?.editorOwner || state?.editorOwner === owner()
+    const recording = model.recording
     const voiceRecorder = { toggle: actions.toggleVoice }
     const decisionAnswer = () => {
-      const decision = state()?.decision
+      const decision = state?.decision
       const key = decision ? `${model.key}:${decision.kind}:${decision.dedupeId}` : ''
       return model.decisionDraft.key === key ? model.decisionDraft.answer : ''
     }
     const findMatches = () => {
       const query = ui.search.query().trim().toLowerCase()
       if (!query) return []
-      return (state()?.messages ?? []).filter((message) =>
+      return (state?.messages ?? []).filter((message) =>
         `${message.text}\n${message.reasoning ?? ''}\n${message.toolName ?? ''}`
           .toLowerCase()
           .includes(query),
       )
     }
     const lastAssistantId = () =>
-      [...(state()?.messages ?? [])].reverse().find((message) => message.role === 'assistant')?.id
+      [...(state?.messages ?? [])].reverse().find((message) => message.role === 'assistant')?.id
     const completedToolCallIds = () =>
       new Set(
-        (state()?.messages ?? [])
+        (state?.messages ?? [])
           .filter((message) => message.role === 'tool' && message.toolCallId)
           .map((message) => message.toolCallId!),
       )
     const activeModelOption = () =>
-      state()?.modelOptions.find((option) => option.value.endsWith(`/${state()?.model}`))
+      state?.modelOptions.find((option) => option.value.endsWith(`/${state?.model}`))
     const voiceGates = () =>
       voiceControlGates({
-        transcription: state()?.voice.transcription ?? false,
-        playback: state()?.voice.playback ?? false,
+        transcription: state?.voice.transcription ?? false,
+        playback: state?.voice.playback ?? false,
         mediaRecorder: model.mediaRecorderAvailable,
         microphoneApi: model.microphoneAvailable,
         permissionDenied: model.denied,
@@ -533,12 +520,12 @@ export const HermesChatPane = controllerView(
             </button>
           </div>
         ) : null}
-        {state()?.status !== 'idle' || state()?.archived || state()?.unavailable ? (
+        {state?.status !== 'idle' || state?.archived || state?.unavailable ? (
           <div class='flex min-h-7 items-center gap-2 border-b border-border px-3 py-1 pr-9 text-[11px] text-muted-foreground'>
-            {state()?.status !== 'idle' ? <span>{state()?.status ?? 'loading'}</span> : null}
-            {state()?.archived ? <span>Archived</span> : null}
-            {state()?.unavailable ? <span>Session unavailable</span> : null}
-            {state()?.archived ? (
+            {state?.status !== 'idle' ? <span>{state?.status ?? 'loading'}</span> : null}
+            {state?.archived ? <span>Archived</span> : null}
+            {state?.unavailable ? <span>Session unavailable</span> : null}
+            {state?.archived ? (
               <button class='ml-auto hover:text-foreground' onClick={() => actions.restore()}>
                 Restore
               </button>
@@ -557,20 +544,20 @@ export const HermesChatPane = controllerView(
           onScroll={actions.scroll}
         >
           <div use={actions.elements.transcriptContentEl.mount} class='space-y-2'>
-            {state()?.status === 'loading' ? <div>Loading transcript…</div> : null}
-            {state()?.hasOlderMessages ? (
+            {state?.status === 'loading' ? <div>Loading transcript…</div> : null}
+            {state?.hasOlderMessages ? (
               <div class='text-center'>
                 <button
                   class='rounded-md border border-border px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground'
-                  disabled={state()?.historyLoading}
+                  disabled={state?.historyLoading}
                   onClick={actions.loadOlder}
                 >
-                  {state()?.historyLoading ? 'Loading…' : 'Load older messages'}
+                  {state?.historyLoading ? 'Loading…' : 'Load older messages'}
                 </button>
               </div>
             ) : null}
             {list(
-              state()?.messages ?? [],
+              state?.messages ?? [],
               (message) => message.id,
               (message) => (
                 <div
@@ -586,20 +573,19 @@ export const HermesChatPane = controllerView(
                     completedToolCallIds={completedToolCallIds()}
                     onOpenImage={ui.dialogs.openImage}
                     onEdit={
-                      state()?.readOnly || state()?.status !== 'idle'
+                      state?.readOnly || state?.status !== 'idle'
                         ? undefined
                         : (item) => {
                             ui.dialogs.openEdit({ id: item.id, text: item.text })
                           }
                     }
                     onBranch={
-                      state()?.readOnly
+                      state?.readOnly
                         ? undefined
                         : (item) => {
                             const count =
-                              (state()?.messages.findIndex(
-                                (candidate) => candidate.id === item.id,
-                              ) ?? -1) + 1
+                              (state?.messages.findIndex((candidate) => candidate.id === item.id) ??
+                                -1) + 1
                             void actions.branch(count)
                           }
                     }
@@ -610,8 +596,8 @@ export const HermesChatPane = controllerView(
                     }
                     onRetry={
                       message.id === lastAssistantId() &&
-                      state()?.status === 'idle' &&
-                      !state()?.readOnly
+                      state?.status === 'idle' &&
+                      !state?.readOnly
                         ? () => actions.retry()
                         : undefined
                     }
@@ -619,7 +605,7 @@ export const HermesChatPane = controllerView(
                 </div>
               ),
             )}
-            {state()?.awaitingResponse && !state()?.streamMessageId ? (
+            {state?.awaitingResponse && !state?.streamMessageId ? (
               <div
                 class='flex min-h-7 items-center gap-1.5 pl-5 text-xs text-muted-foreground'
                 data-testid='hermes-awaiting-response'
@@ -639,17 +625,17 @@ export const HermesChatPane = controllerView(
             <ArrowDown class='h-3.5 w-3.5' />
           </button>
         ) : null}
-        {state()?.error ? (
+        {state?.error ? (
           <div class='border-t border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive'>
-            {state()?.error}
+            {state?.error}
           </div>
         ) : null}
-        {state()?.connection !== 'connected' ? (
+        {state?.connection !== 'connected' ? (
           <div
             class='border-t border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300'
             role='status'
           >
-            {state()?.connection === 'auth-error'
+            {state?.connection === 'auth-error'
               ? 'Hermes authentication rejected. Check configured gateway token.'
               : 'Hermes gateway disconnected. Transcript remains available; reconnecting…'}
           </div>
@@ -698,8 +684,8 @@ export const HermesChatPane = controllerView(
                 ) : null}
               </div>
             </div>
-          ) : null)(state()?.decision)}
-        {!state()?.readOnly ? (
+          ) : null)(state?.decision)}
+        {!state?.readOnly ? (
           <div
             data-testid='hermes-composer'
             class='relative shrink-0 rounded-t-lg border-t border-border bg-card px-2 py-1.5 shadow-[0_-4px_14px_rgba(0,0,0,0.12)]'
@@ -737,10 +723,10 @@ export const HermesChatPane = controllerView(
                 event.currentTarget.value = ''
               }}
             />
-            {state()?.attachments.length ? (
+            {state?.attachments.length ? (
               <div class='mb-2 flex flex-wrap gap-2' aria-label='Attachments'>
                 {list(
-                  state()?.attachments ?? [],
+                  state?.attachments ?? [],
                   (attachment) => attachment.id,
                   (attachment) => (
                     <div
@@ -763,16 +749,16 @@ export const HermesChatPane = controllerView(
                 )}
               </div>
             ) : null}
-            {state()?.queuedPrompts.length ? (
+            {state?.queuedPrompts.length ? (
               <details class='mb-1 rounded-md border border-border bg-muted/30 text-xs text-muted-foreground'>
                 <summary class='cursor-pointer px-2 py-1'>
-                  {state()?.queuedPrompts.length} queued prompt
-                  {state()?.queuedPrompts.length === 1 ? '' : 's'}
-                  {state()?.queueParked ? ' · parked' : ''}
+                  {state?.queuedPrompts.length} queued prompt
+                  {state?.queuedPrompts.length === 1 ? '' : 's'}
+                  {state?.queueParked ? ' · parked' : ''}
                 </summary>
                 <div class='space-y-1 border-t border-border p-1'>
                   {list(
-                    (state()?.queuedPrompts ?? []).map((prompt, index) => ({ prompt, index })),
+                    (state?.queuedPrompts ?? []).map((prompt, index) => ({ prompt, index })),
                     (row) => row.index,
                     ({ prompt, index }) => (
                       <div class='flex items-center gap-1 rounded px-1 py-0.5 hover:bg-muted'>
@@ -786,7 +772,7 @@ export const HermesChatPane = controllerView(
                         </button>
                         <button
                           title='Move down'
-                          disabled={index === (state()?.queuedPrompts.length ?? 0) - 1}
+                          disabled={index === (state?.queuedPrompts.length ?? 0) - 1}
                           onClick={() => session.prompt.moveQueued(index, 1)}
                         >
                           <ArrowDown class='h-3 w-3' />
@@ -806,7 +792,7 @@ export const HermesChatPane = controllerView(
                       </div>
                     ),
                   )}
-                  {state()?.queueParked ? (
+                  {state?.queueParked ? (
                     <button
                       class='rounded border border-input px-2 py-1 text-foreground'
                       onClick={() => session.prompt.resumeQueue()}
@@ -817,10 +803,10 @@ export const HermesChatPane = controllerView(
                 </div>
               </details>
             ) : null}
-            {state()?.completions.length ? (
+            {state?.completions.length ? (
               <div class='absolute right-2 bottom-full left-2 z-30 mb-1 overflow-hidden rounded-md border border-border bg-popover shadow-md'>
                 {list(
-                  state()?.completions ?? [],
+                  state?.completions ?? [],
                   (completion) => completion.text,
                   (completion) => (
                     <button
@@ -842,7 +828,7 @@ export const HermesChatPane = controllerView(
                 class='shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground'
                 aria-label='Attach files (16 MiB maximum each)'
                 title='Attach files (16 MiB maximum each)'
-                disabled={state()?.connection !== 'connected'}
+                disabled={state?.connection !== 'connected'}
                 onClick={actions.attach}
               >
                 <Paperclip class='h-4 w-4' />
@@ -850,9 +836,9 @@ export const HermesChatPane = controllerView(
               <textarea
                 class='scrollbar-none max-h-24 min-h-8 min-w-0 flex-1 resize-none overflow-y-auto rounded-lg border border-input bg-background px-2.5 py-1.5 text-[13px] leading-5 outline-none focus:ring-1 focus:ring-ring'
                 rows={1}
-                value={state()?.composer ?? ''}
+                value={state?.composer ?? ''}
                 placeholder='Message Hermes…'
-                disabled={!ownsEditor() || state()?.connection !== 'connected'}
+                disabled={!ownsEditor() || state?.connection !== 'connected'}
                 onFocus={() => claimCurrentEditor()}
                 onInput={(event) => {
                   session.composer.setDraft(event.currentTarget.value)
@@ -863,7 +849,7 @@ export const HermesChatPane = controllerView(
                 onKeyDown={(event) => {
                   if (
                     (event.key === 'ArrowUp' || event.key === 'ArrowDown') &&
-                    !state()?.completions.length &&
+                    !state?.completions.length &&
                     !event.shiftKey
                   ) {
                     const atStart = event.currentTarget.selectionStart === 0
@@ -889,7 +875,7 @@ export const HermesChatPane = controllerView(
                   }
                 }}
               />
-              {(state()?.sessionId && !state()?.archived) || state()?.modelOptions.length ? (
+              {(state?.sessionId && !state?.archived) || state?.modelOptions.length ? (
                 <details class='relative shrink-0' name='hermes-composer-menu'>
                   <summary
                     class='flex cursor-pointer list-none rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground'
@@ -898,7 +884,7 @@ export const HermesChatPane = controllerView(
                     <MoreHorizontal class='h-4 w-4' />
                   </summary>
                   <div class='absolute right-0 bottom-full z-30 mb-1 flex min-w-52 max-w-[min(18rem,calc(100vw-2rem))] flex-col gap-1 rounded-md border border-border bg-popover p-1 text-xs text-foreground shadow-lg'>
-                    {state()?.status === 'sending' || state()?.status === 'streaming' ? (
+                    {state?.status === 'sending' || state?.status === 'streaming' ? (
                       <button
                         class='rounded px-2 py-1 text-left text-destructive hover:bg-muted'
                         onClick={() => actions.stop()}
@@ -906,12 +892,12 @@ export const HermesChatPane = controllerView(
                         Stop response
                       </button>
                     ) : null}
-                    {state()?.sessionId && !state()?.archived ? (
+                    {state?.sessionId && !state?.archived ? (
                       <>
                         <button
                           class='rounded px-2 py-1 text-left hover:bg-muted'
                           onClick={() => {
-                            ui.dialogs.openRename(state()?.title ?? '')
+                            ui.dialogs.openRename(state?.title ?? '')
                           }}
                         >
                           Rename
@@ -930,25 +916,25 @@ export const HermesChatPane = controllerView(
                         </button>
                         <button
                           class='rounded px-2 py-1 text-left hover:bg-muted disabled:opacity-50'
-                          disabled={state()?.status !== 'idle' || !!state()?.queuedPrompts.length}
+                          disabled={state?.status !== 'idle' || !!state?.queuedPrompts.length}
                           onClick={() => actions.archive()}
                         >
                           Archive
                         </button>
                       </>
                     ) : null}
-                    {state()?.modelOptions.length ? (
+                    {state?.modelOptions.length ? (
                       <>
                         <div class='my-0.5 border-t border-border' />
                         <select
                           class='min-w-0 rounded-md border border-input bg-background px-2 py-1.5 text-xs'
                           aria-label='Hermes model'
                           value={
-                            state()?.provider && state()?.model
-                              ? `${state()?.provider}/${state()?.model}`
+                            state?.provider && state?.model
+                              ? `${state?.provider}/${state?.model}`
                               : ''
                           }
-                          disabled={state()?.status !== 'idle'}
+                          disabled={state?.status !== 'idle'}
                           onChange={(event) =>
                             actions.control(`/model ${event.currentTarget.value}`)
                           }
@@ -957,7 +943,7 @@ export const HermesChatPane = controllerView(
                             Model
                           </option>
                           {list(
-                            state()?.modelOptions,
+                            state?.modelOptions,
                             (option) => option.value,
                             (option) => (
                               <option value={option.value}>{option.label}</option>
@@ -968,7 +954,7 @@ export const HermesChatPane = controllerView(
                           <select
                             class='min-w-0 rounded-md border border-input bg-background px-2 py-1.5 text-xs'
                             aria-label='Reasoning effort'
-                            disabled={state()?.status !== 'idle'}
+                            disabled={state?.status !== 'idle'}
                             onChange={(event) =>
                               actions.control(`/reasoning ${event.currentTarget.value}`)
                             }
@@ -986,7 +972,7 @@ export const HermesChatPane = controllerView(
                         {activeModelOption()?.fast ? (
                           <button
                             class='rounded-md border border-border px-2 py-1.5 text-left text-xs'
-                            disabled={state()?.status !== 'idle'}
+                            disabled={state?.status !== 'idle'}
                             onClick={() => actions.control('/fast')}
                           >
                             Toggle Fast mode
@@ -999,25 +985,25 @@ export const HermesChatPane = controllerView(
               ) : null}
               {voiceGates().record ? (
                 <button
-                  class={`shrink-0 rounded-md p-1.5 ${recording() ? 'text-red-500' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}
+                  class={`shrink-0 rounded-md p-1.5 ${recording ? 'text-red-500' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}
                   aria-label={
                     model.denied
                       ? 'Microphone permission denied'
-                      : recording()
+                      : recording
                         ? 'Stop voice recording'
                         : 'Record voice prompt'
                   }
                   title={
                     model.denied
                       ? 'Microphone permission denied'
-                      : recording()
+                      : recording
                         ? 'Stop recording'
                         : 'Push to talk'
                   }
                   disabled={voiceGates().recordDisabled}
                   onClick={() => voiceRecorder.toggle()}
                 >
-                  {!recording() ? <Mic class='h-4 w-4' /> : <Square class='h-4 w-4' />}
+                  {!recording ? <Mic class='h-4 w-4' /> : <Square class='h-4 w-4' />}
                 </button>
               ) : null}
               {!ownsEditor() ? (
@@ -1031,11 +1017,11 @@ export const HermesChatPane = controllerView(
               <button
                 class='flex shrink-0 items-center gap-1 rounded-md bg-primary p-1.5 text-xs text-primary-foreground disabled:opacity-50'
                 aria-label={
-                  state()?.status === 'sending' || state()?.status === 'streaming'
+                  state?.status === 'sending' || state?.status === 'streaming'
                     ? 'Queue prompt'
                     : 'Send'
                 }
-                disabled={!state()?.composer.trim() || state()?.connection !== 'connected'}
+                disabled={!state?.composer.trim() || state?.connection !== 'connected'}
                 onClick={() => submit()}
               >
                 <SendHorizontal class='h-4 w-4' />
@@ -1045,11 +1031,11 @@ export const HermesChatPane = controllerView(
         ) : (
           <div class='flex items-center gap-2 border-t border-border px-3 py-2 text-xs text-muted-foreground'>
             <span>
-              {state()?.externallyActive
-                ? `Active in ${state()?.externalSource || 'another Hermes client'} — observer mode`
+              {state?.externallyActive
+                ? `Active in ${state?.externalSource || 'another Hermes client'} — observer mode`
                 : 'Archived session — read only'}
             </span>
-            {state()?.externallyActive ? (
+            {state?.externallyActive ? (
               <button
                 class='ml-auto rounded-md border border-input px-2 py-1 text-foreground hover:bg-muted'
                 onClick={() => session.lifecycle.takeOver()}

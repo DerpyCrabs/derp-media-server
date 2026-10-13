@@ -3,15 +3,7 @@ import RefreshCw from '@effectweb/lucide/icons/refresh-cw'
 import Sparkles from '@effectweb/lucide/icons/sparkles'
 import { Effect } from 'effect'
 import { AsyncResult } from 'effect/reactivity'
-import {
-  domBinding,
-  modelOwner,
-  view,
-  type Snapshot,
-  controllerView,
-  available,
-  resourceError,
-} from 'effectweb'
+import { domBinding, modelOwner, view, controllerView, available, resourceError } from 'effectweb'
 import type { ReaderDefaultAction } from './reader-position'
 import { MarkdownContent } from './MarkdownContent'
 import { readerAiAvailableEffect, runReaderAiEffect } from './reader-ai'
@@ -43,9 +35,9 @@ const editableText = (element: HTMLDivElement, current: () => string) => {
   update()
   return { update, dispose: () => {} }
 }
-function menuController(props: Snapshot<Props>) {
+function menuController(props: Props) {
   const owner = modelOwner<{
-    props: Snapshot<Props>
+    props: Props
     task: 'define' | 'translate' | null
     answer: AsyncResult.AsyncResult<string, unknown>
     enabled: boolean | undefined
@@ -90,11 +82,11 @@ function menuController(props: Snapshot<Props>) {
   return {
     source: owner.source,
     ...actions,
-    receive: (next: Snapshot<Props>) => {
+    receive: (next: Props) => {
       owner.patch({ props: next })
       automatic()
     },
-    dispose: owner.dispose,
+    lifetime: owner,
   }
 }
 export const ReaderSelectionMenu = controllerView(

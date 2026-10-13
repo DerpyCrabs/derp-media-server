@@ -1,4 +1,4 @@
-import { view, list, domBinding, type Snapshot } from 'effectweb'
+import { view, list, domBinding } from 'effectweb'
 import type { AssistGridSpan } from '@/workspace/model/workspace-assist-grid'
 import { WorkspaceDocumentCommands } from '@/workspace/model/workspace-document-commands'
 import type { PersistedWorkspaceState } from '@/workspace/model/workspace'
@@ -81,7 +81,7 @@ export const DesktopWorkspaceCanvas = view<DesktopWorkspaceCanvasProps>((props) 
   const snap = () => props.snap.model
   const renderWindowContent = (
     windowId: string,
-    definition: Snapshot<WorkspaceWindowDefinition> | undefined,
+    definition: WorkspaceWindowDefinition | undefined,
     visible: boolean,
   ) => {
     return (
@@ -101,7 +101,10 @@ export const DesktopWorkspaceCanvas = view<DesktopWorkspaceCanvasProps>((props) 
   return props.empty.hasWindows() ? (
     <>
       <div
-        use={domBinding(snap().actions.bindSnapPreview, previewBinding)}
+        use={{
+          ...domBinding(snap().actions.bindSnapPreview, previewBinding),
+          identity: snap().actions.bindSnapPreview,
+        }}
         data-snap-preview
         class='pointer-events-none absolute border-2 border-blue-400/50 bg-blue-500/15 transition-all duration-150'
       />
@@ -113,9 +116,7 @@ export const DesktopWorkspaceCanvas = view<DesktopWorkspaceCanvasProps>((props) 
             onHandleEnter={snap().actions.engageSnapAssistFromHandle}
             onPanelLeave={snap().actions.disengageSnapAssistFromPanel}
             hoverPick={snap().assistHoverPick}
-            rootRef={(el) => {
-              snap().actions.bindSnapAssistRoot(el ?? null)
-            }}
+            rootRef={snap().actions.bindSnapAssistRoot}
           />
         ) : null)(snap().workspaceAreaNode)}
       {list(

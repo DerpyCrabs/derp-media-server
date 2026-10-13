@@ -1,5 +1,5 @@
 import { selection } from '@/features/media-ai/selection'
-import { modelOwner, type Snapshot } from 'effectweb'
+import { modelOwner } from 'effectweb'
 import { getPlaybackSession } from '@/features/playback/PlaybackProvider'
 import {
   audioPlaybackQueueFromFiles,
@@ -47,7 +47,7 @@ export type MediaCenterPlaybackSyncProps = {
   files: readonly FileItem[]
   displayedFiles: readonly FileItem[]
 }
-export function createMediaCenterPlaybackSync(initial: Snapshot<MediaCenterPlaybackSyncProps>) {
+export function createMediaCenterPlaybackSync(initial: MediaCenterPlaybackSyncProps) {
   const owner = modelOwner({})
   let props = initial
   const session = initial.session ?? getPlaybackSession()
@@ -110,7 +110,7 @@ export function createMediaCenterPlaybackSync(initial: Snapshot<MediaCenterPlayb
   }
   sync()
   return {
-    receive: (next: Snapshot<MediaCenterPlaybackSyncProps>) => {
+    receive: (next: MediaCenterPlaybackSyncProps) => {
       if (owner.disposed) return
       props = next
       sync()

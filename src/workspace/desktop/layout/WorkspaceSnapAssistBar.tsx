@@ -16,7 +16,7 @@ export type WorkspaceSnapAssistBarProps = {
   onHandleEnter: () => void
   onPanelLeave: () => void
   hoverPick: AssistSlotPick | null
-  rootRef: (el: HTMLDivElement | undefined) => void
+  rootRef: (el: HTMLDivElement | null) => void
 }
 export const WorkspaceSnapAssistBar = component<
   WorkspaceSnapAssistBarProps,
@@ -47,7 +47,7 @@ export const WorkspaceSnapAssistBar = component<
         <div class='contents' use={domBinding(setViewportSize, snapViewport)}>
           {props.visible ? (
             <div
-              use={domBinding(props.rootRef, snapAssistRoot)}
+              use={{ ...domBinding(props.rootRef, snapAssistRoot), identity: props.rootRef }}
               data-workspace-snap-assist
               class='pointer-events-auto fixed left-1/2 top-0 z-[100000] max-w-[calc(100%-1rem)] -translate-x-1/2 overflow-hidden rounded-b-xl border border-border/80 bg-popover/95 shadow-2xl ring-1 ring-black/10 backdrop-blur-xl'
               style={{ width: `${surfaceWidth()}px` }}
@@ -125,8 +125,8 @@ const snapViewport = (
 }
 const snapAssistRoot = (
   element: HTMLDivElement,
-  current: () => (element: HTMLDivElement | undefined) => void,
+  current: () => (element: HTMLDivElement | null) => void,
 ) => {
   current()(element)
-  return () => current()(undefined)
+  return () => current()(null)
 }

@@ -1,4 +1,4 @@
-import { type Snapshot, component, view } from 'effectweb'
+import { component, view } from 'effectweb'
 import type { FileItem } from '@/lib/files/types'
 import { FloatingContextMenu } from './FloatingContextMenu'
 import AppWindow from '@effectweb/lucide/icons/app-window'
@@ -17,7 +17,7 @@ import type { ExplorerRowMenu } from './explorer-row-menu'
 type MenuState = { x: number; y: number; file: FileItem }
 export const FileRowContextMenu = component(
   {
-    init: (_props: Snapshot<{ model: ExplorerRowMenu }>) => ({
+    init: (_props: { model: ExplorerRowMenu }) => ({
       openWithState: { menu: null, open: false } as { menu: MenuState | null; open: boolean },
     }),
   },

@@ -1,5 +1,5 @@
 import { Effect, Schema } from 'effect'
-import { modelOwner, type Snapshot } from 'effectweb'
+import { modelOwner } from 'effectweb'
 import { apiSchemaEffect, postEffect } from '@/lib/api/client'
 import { virtualOpenTargetSchema } from '@/lib/files/file-schemas'
 import { projectionSource } from 'effectweb/advanced'
@@ -202,7 +202,7 @@ function resizeRect(
   }
   return snapCanvasRect({ x, y, width, height })
 }
-export function createCanvasController(props: Snapshot<{ session: WorkspaceSession }>) {
+export function createCanvasController(props: { session: WorkspaceSession }) {
   const initial = {
     geometryActive: false,
     searchOpen: false,
@@ -378,6 +378,12 @@ export function createCanvasController(props: Snapshot<{ session: WorkspaceSessi
   }
   let viewportEl: HTMLDivElement | undefined
   let worldEl: HTMLDivElement | undefined
+  const mountViewport = (element: HTMLDivElement | undefined) => {
+    viewportEl = element
+  }
+  const mountWorld = (element: HTMLDivElement | undefined) => {
+    worldEl = element
+  }
   let animationTimer: number | undefined
   let cameraInteractionRevision = 0
   const panController = createCanvasPanController({
@@ -1826,12 +1832,8 @@ export function createCanvasController(props: Snapshot<{ session: WorkspaceSessi
       windowActions,
       startWindowResize,
       createDocumentFromComposer,
-      mountViewport: (element: HTMLDivElement | undefined) => {
-        viewportEl = element
-      },
-      mountWorld: (element: HTMLDivElement | undefined) => {
-        worldEl = element
-      },
+      mountViewport,
+      mountWorld,
       session: workspaceRegistry,
       registry: catalog,
       editable,
@@ -1902,20 +1904,22 @@ export function createCanvasController(props: Snapshot<{ session: WorkspaceSessi
   return {
     source: presentation,
     start,
-    close: () =>
-      local
-        .awaitIdle(actionSlot)
-        .pipe(Effect.andThen(crossWorkspaceTransfer!.close()), Effect.andThen(local.close())),
-    dispose() {
-      presentation.dispose()
-      for (const frame of visibilityFrames) window.cancelAnimationFrame(frame)
-      visibilityFrames.clear()
-      for (const dispose of cleanup) dispose()
-      unblock()
-      server.dispose()
-      canvasSelection.dispose()
-      overlays.dispose()
-      local.dispose()
+    lifetime: {
+      close: () =>
+        local
+          .awaitIdle(actionSlot)
+          .pipe(Effect.andThen(crossWorkspaceTransfer!.close()), Effect.andThen(local.close())),
+      dispose() {
+        presentation.dispose()
+        for (const frame of visibilityFrames) window.cancelAnimationFrame(frame)
+        visibilityFrames.clear()
+        for (const dispose of cleanup) dispose()
+        unblock()
+        server.dispose()
+        canvasSelection.dispose()
+        overlays.dispose()
+        local.dispose()
+      },
     },
   }
 }

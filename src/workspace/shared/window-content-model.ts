@@ -1,4 +1,3 @@
-import type { Snapshot } from 'effectweb'
 import type { WindowDefinition } from '@/lib/models/window-model'
 import type { FileIconContext } from '@/features/explorer/file-icon'
 import type { WorkspaceWindowActions } from './workspace-window-actions'
@@ -11,7 +10,7 @@ export type WindowContentDefinition = Pick<
 
 export type ApplicationWindowContentProps = Readonly<{
   windowId: string
-  definition: Snapshot<WindowContentDefinition> | undefined
+  definition: WindowContentDefinition | undefined
   visible: boolean
   active: boolean
   editableFolders: readonly string[]
@@ -22,8 +21,8 @@ export type ApplicationWindowContentProps = Readonly<{
 }>
 
 export function windowContentEquals(
-  previous: Snapshot<ApplicationWindowContentProps>,
-  next: Snapshot<ApplicationWindowContentProps>,
+  previous: ApplicationWindowContentProps,
+  next: ApplicationWindowContentProps,
 ): boolean {
   const a = previous.definition
   const b = next.definition

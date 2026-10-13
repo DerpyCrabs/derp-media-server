@@ -1,5 +1,4 @@
 import { Schema } from 'effect'
-import { type Snapshot } from 'effectweb'
 import { queryCache as createQueryCache, queryGroup, type Query } from '@effectweb/query'
 
 export const groups = {
@@ -36,7 +35,7 @@ export function initialData(key: readonly unknown[]): unknown {
 
 export function seedQuery<Args, A, E>(
   definition: Query<Args, A, E>,
-  args: Args | Snapshot<Args>,
+  args: Args,
   key: readonly unknown[],
   schema: Schema.Decoder<A>,
 ): void {

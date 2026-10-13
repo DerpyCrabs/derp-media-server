@@ -1,9 +1,8 @@
-import type { Snapshot } from 'effectweb'
 import type { WindowDefinition, PersistedWindowState } from '@/lib/models/window-model'
 import { resolveGroupVisibleTabId, tabsInGroup } from '../tabs/tab-group-ops'
 
 export type TaskbarGroupModel = {
-  window: Snapshot<Omit<WindowDefinition, 'layout'>> | undefined
+  window: Omit<WindowDefinition, 'layout'> | undefined
   count: number
   leaderId: string | undefined
   visibleId: string
@@ -11,13 +10,13 @@ export type TaskbarGroupModel = {
   minimized: boolean
 }
 
-function taskbarWindow(window: Snapshot<WindowDefinition>) {
+function taskbarWindow(window: WindowDefinition) {
   const { layout: _layout, ...content } = window
   return content
 }
 
 export function taskbarGroupModel(
-  workspace: Snapshot<PersistedWindowState> | null,
+  workspace: PersistedWindowState | null,
   groupId: string,
 ): TaskbarGroupModel {
   const windows = tabsInGroup(workspace?.windows ?? [], groupId)

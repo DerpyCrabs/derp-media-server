@@ -1,6 +1,6 @@
 import { Effect } from 'effect'
 import { AsyncResult } from 'effect/reactivity'
-import { modelOwner, resourceError, type Snapshot } from 'effectweb'
+import { modelOwner, resourceError } from 'effectweb'
 import { postEffect } from '@/lib/api/client'
 import { groups, queryCache } from '@/lib/api/cache'
 import type {
@@ -53,7 +53,7 @@ export function createFileOperations(options: FileBrowserMutationOptions = {}) {
     const reset = () =>
       owner.edit('results', (results) => ({ ...results, [name]: AsyncResult.initial() }))
     const snapshot = (
-      results: Snapshot<Partial<Record<string, AsyncResult.AsyncResult<unknown, Error>>>>,
+      results: Partial<Record<string, AsyncResult.AsyncResult<unknown, Error>>>,
     ) => ({ run, reset, result: results[name] ?? AsyncResult.initial() })
     return { run, reset, snapshot }
   }

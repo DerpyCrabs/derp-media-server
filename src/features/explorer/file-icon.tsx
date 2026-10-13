@@ -1,4 +1,4 @@
-import { type Snapshot, domBinding, component, view, type JSX } from 'effectweb'
+import { domBinding, component, view, type JSX } from 'effectweb'
 import { buildThumbnailUrl } from '@/lib/media/build-media-url'
 import { thumbnailBinding } from './thumbnail-binding'
 import { VIRTUAL_FOLDERS } from '@/lib/files/constants'
@@ -212,7 +212,7 @@ function gridHeroIconScaleWrap(inner: JSX.Element): JSX.Element {
 }
 const GridMediaThumbnail = component(
   {
-    init: (_props: Snapshot<{ file: FileItem; ctx: FileIconContext }>) => ({
+    init: (_props: { file: FileItem; ctx: FileIconContext }) => ({
       queuedSrc: undefined as string | undefined,
       failed: false,
       attempt: 0,

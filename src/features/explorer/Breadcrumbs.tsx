@@ -1,4 +1,4 @@
-import { type Snapshot, component, view, domBinding, observe, list } from 'effectweb'
+import { component, view, domBinding, observe, list } from 'effectweb'
 import {
   breadcrumbFloating,
   clearCompactPathOpenOnly,
@@ -128,9 +128,7 @@ const breadcrumbLayout = (element: HTMLDivElement, current: () => LayoutBinding)
 const BreadcrumbsContent = component(
   {
     init: (
-      _props: Snapshot<
-        BreadcrumbsProps & { floating: { compactPathOpen: boolean; folderMenu: unknown } }
-      >,
+      _props: BreadcrumbsProps & { floating: { compactPathOpen: boolean; folderMenu: unknown } },
     ) => ({
       visibleIndices: new Set() as Set<number>,
       pathEllipsisVisible: false,

@@ -72,16 +72,19 @@ export const WorkspaceTilingPicker = component<
     }
     return (
       <div
-        use={domBinding(
-          {
-            container: props.container,
-            measure: (geometry: Geometry) => patch({ geometry }),
-            pick: updatePointerPick,
-            close: props.onClose,
-            clear: () => props.onHoverSpanChange?.(null),
-          },
-          tilingPickerEvents,
-        )}
+        use={{
+          ...domBinding(
+            {
+              container: props.container,
+              measure: (geometry: Geometry) => patch({ geometry }),
+              pick: updatePointerPick,
+              close: props.onClose,
+              clear: () => props.onHoverSpanChange?.(null),
+            },
+            tilingPickerEvents,
+          ),
+          identity: props.container,
+        }}
         data-tiling-picker
         class='fixed z-[9999] max-w-[calc(100vw-16px)] overflow-hidden rounded-xl border border-border/80 bg-popover/95 shadow-2xl ring-1 ring-black/10 backdrop-blur-xl'
         style={{

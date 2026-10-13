@@ -159,27 +159,27 @@ export const CanvasWorkspace = controllerView(
     } = model
     const state = () => ({ ...model.state, windows: [...model.state.windows] })
     const fileIconContext = () => model.fileIconContext
-    const selectedWindow = () => model.selectedWindow
-    const maximizedWindowId = () => model.maximizedWindowId
-    const lastAudioWindow = () => model.lastAudioWindow
-    const searchOpen = () => model.searchOpen
-    const workspacePanelOpen = () => model.workspacePanelOpen
-    const workspaceId = () => model.workspaceId
-    const outlineOpen = () => model.outlineOpen
-    const spaceHeld = () => model.spaceHeld
-    const geometryActive = () => model.geometryActive
-    const fileDropPreview = () => model.fileDropPreview
-    const readOnlyMode = () => model.readOnlyMode
-    const cameraAnimating = () => model.cameraAnimating
-    const canvasGroupIds = () => model.canvasGroupIds
-    const workspaceSnapshot = () => model.workspaceSnapshot
-    const viewportSize = () => model.viewportSize
-    const selectedIds = () => model.selectedIds
-    const canvasMergeDrag = () => model.canvasMergeDrag
-    const editableFolders = () => model.editableFolders
-    const knowledgeBases = () => model.knowledgeBases
-    const fileDropVisualBounds = () => model.fileDropVisualBounds
-    const writableDirectories = () => model.writableDirectories
+    const selectedWindow = model.selectedWindow
+    const maximizedWindowId = model.maximizedWindowId
+    const lastAudioWindow = model.lastAudioWindow
+    const searchOpen = model.searchOpen
+    const workspacePanelOpen = model.workspacePanelOpen
+    const workspaceId = model.workspaceId
+    const outlineOpen = model.outlineOpen
+    const spaceHeld = model.spaceHeld
+    const geometryActive = model.geometryActive
+    const fileDropPreview = model.fileDropPreview
+    const readOnlyMode = model.readOnlyMode
+    const cameraAnimating = model.cameraAnimating
+    const canvasGroupIds = model.canvasGroupIds
+    const workspaceSnapshot = model.workspaceSnapshot
+    const viewportSize = model.viewportSize
+    const selectedIds = model.selectedIds
+    const canvasMergeDrag = model.canvasMergeDrag
+    const editableFolders = model.editableFolders
+    const knowledgeBases = model.knowledgeBases
+    const fileDropVisualBounds = model.fileDropVisualBounds
+    const writableDirectories = model.writableDirectories
     const definitionFor = (window: CanvasWindow) => {
       const definition = model.workspace.windows.find((item) => item.id === window.id)
       if (!definition) throw new Error('Missing workspace window ' + window.id)
@@ -241,7 +241,7 @@ export const CanvasWorkspace = controllerView(
                 }}
               />
             ) : null}
-            {model.serverPins.length > 0 && selectedWindow() ? (
+            {model.serverPins.length > 0 && selectedWindow ? (
               <div class='w-2 shrink-0' aria-hidden='true' />
             ) : null}
             <div class='flex min-w-0 flex-1 items-center' data-testid='canvas-navigation'>
@@ -257,13 +257,13 @@ export const CanvasWorkspace = controllerView(
                   >
                     {definitionFor(item).title}
                   </button>
-                ) : null)(selectedWindow())}
+                ) : null)(selectedWindow)}
             </div>
           </div>
           <div class={WORKSPACE_TASKBAR_END_CLASS}>
             <WorkspaceSaveStatus session={session} />
             <div data-testid='canvas-create-tools' class='flex items-center gap-1'>
-              {!maximizedWindowId() ? (
+              {!maximizedWindowId ? (
                 <div
                   data-testid='canvas-zoom-control'
                   class='flex h-7 shrink-0 items-center gap-1 border-r border-border pr-1'
@@ -326,12 +326,12 @@ export const CanvasWorkspace = controllerView(
                   >
                     <Volume2 class='size-4' />
                   </button>
-                ) : null)(lastAudioWindow())}
+                ) : null)(lastAudioWindow)}
               <FileSearchButton
                 title='Search library and open a new canvas window'
                 testId='canvas-search-trigger'
                 class={WORKSPACE_TASKBAR_ICON_BUTTON_CLASS}
-                open={searchOpen()}
+                open={searchOpen}
                 onOpenChange={setSearchOpen}
                 onSelect={(result) =>
                   addFileWindow(fileSearchResultToFileItem(result), viewportCenterWorld())
@@ -379,8 +379,8 @@ export const CanvasWorkspace = controllerView(
         </FloatingContextMenu>
 
         <WorkspaceSwitcher
-          open={workspacePanelOpen()}
-          activeId={workspaceId()}
+          open={workspacePanelOpen}
+          activeId={workspaceId}
           registry={model.registry}
           editable={model.editable}
           onToggle={() => {
@@ -411,7 +411,7 @@ export const CanvasWorkspace = controllerView(
           transferReady={model.transferReady}
         />
 
-        {outlineOpen() ? (
+        {outlineOpen ? (
           <aside class='fixed top-0 bottom-8 left-0 z-[110000] flex w-72 flex-col border-r border-border bg-card/95 shadow-xl backdrop-blur'>
             <div class='flex h-11 items-center justify-between border-b px-3'>
               <span class='text-sm font-semibold'>Canvas outline</span>
@@ -449,11 +449,14 @@ export const CanvasWorkspace = controllerView(
         ) : null}
 
         <div
-          use={domBinding(model.mountViewport, mountCanvasElement)}
+          use={{
+            ...domBinding(model.mountViewport, mountCanvasElement),
+            identity: model.mountViewport,
+          }}
           data-testid='infinite-canvas'
           class={cn('relative min-h-0 flex-1 overflow-hidden bg-muted/20 outline-none', {
-            'cursor-grab': spaceHeld(),
-            'cursor-grabbing': geometryActive(),
+            'cursor-grab': spaceHeld,
+            'cursor-grabbing': geometryActive,
           })}
           style={{
             'background-image':
@@ -462,13 +465,13 @@ export const CanvasWorkspace = controllerView(
                 : 'radial-gradient(circle, color-mix(in oklab, var(--muted-foreground) 36%, transparent) 1px, transparent 1px)',
             'background-size': `${CANVAS_GRID_SIZE * state().camera.zoom}px ${CANVAS_GRID_SIZE * state().camera.zoom}px`,
             'background-position': `${state().camera.x}px ${state().camera.y}px`,
-            'background-color': geometryActive()
+            'background-color': geometryActive
               ? 'color-mix(in oklab, var(--muted) 45%, var(--background))'
               : undefined,
           }}
           tabindex={-1}
           onPointerDown={(event) => {
-            if (fileDropPreview()) setFileDropPreview(null)
+            if (fileDropPreview) setFileDropPreview(null)
             if (event.button === 0 && event.target === event.currentTarget) {
               clearSelection()
               overlayCommands.closeCanvasMenu()
@@ -488,7 +491,7 @@ export const CanvasWorkspace = controllerView(
           }}
           onContextMenu={onCanvasContextMenu}
           onDragOver={(event) => {
-            if (readOnlyMode()) return
+            if (readOnlyMode) return
             if (!event.dataTransfer || !hasFileDragData(event.dataTransfer)) return
             if ((event.target as Element | null)?.closest('[data-testid="canvas-window"]')) return
             event.preventDefault()
@@ -502,7 +505,7 @@ export const CanvasWorkspace = controllerView(
             setFileDropPreview(null)
           }}
           onDrop={(event) => {
-            if (readOnlyMode()) return
+            if (readOnlyMode) return
             const transfer = event.dataTransfer
             if (!transfer) return
             if ((event.target as Element | null)?.closest('[data-testid="canvas-window"]')) return
@@ -511,7 +514,7 @@ export const CanvasWorkspace = controllerView(
             event.preventDefault()
             const point = screenToWorld(event.clientX, event.clientY)
             const placement =
-              fileDropPreview() ??
+              fileDropPreview ??
               fileWindowPlacement(
                 point,
                 state(),
@@ -537,7 +540,7 @@ export const CanvasWorkspace = controllerView(
             })
           }}
         >
-          {!readOnlyMode() && !state().windows.length ? (
+          {!readOnlyMode && !state().windows.length ? (
             <div class='pointer-events-none absolute inset-0 z-10 flex items-center justify-center p-8'>
               <div class='pointer-events-auto max-w-lg rounded-2xl border border-border bg-card/90 p-7 text-center shadow-xl backdrop-blur'>
                 <h1 class='text-lg font-semibold'>Build your knowledge canvas</h1>
@@ -577,25 +580,28 @@ export const CanvasWorkspace = controllerView(
             </div>
           ) : null}
           <div
-            use={domBinding(model.mountWorld, mountCanvasElement)}
+            use={{
+              ...domBinding(model.mountWorld, mountCanvasElement),
+              identity: model.mountWorld,
+            }}
             data-testid='canvas-world'
             class={cn('absolute top-0 left-0 origin-top-left will-change-transform', {
-              'transition-transform duration-200 ease-out': cameraAnimating(),
+              'transition-transform duration-200 ease-out': cameraAnimating,
             })}
             style={{
               transform: `translate3d(${state().camera.x}px, ${state().camera.y}px, 0) scale(${state().camera.zoom})`,
             }}
           >
-            {list(canvasStrings.from(canvasGroupIds()), (groupId) => {
+            {list(canvasStrings.from(canvasGroupIds), (groupId) => {
               const members = () => groupWindows(groupId)
               const item = () => activeWindowForGroup(groupId)
-              const split = () => workspaceSnapshot()?.tabGroupSplits?.[groupId]
+              const split = () => workspaceSnapshot?.tabGroupSplits?.[groupId]
               const memberIds = () => members().map((member) => member.id)
               const worldBounds = () =>
                 members()[0]?.bounds ?? item()?.bounds ?? EMPTY_CANVAS_BOUNDS
               const maximized = () => {
                 const active = item()
-                return active ? maximizedWindowId() === active.id : false
+                return active ? maximizedWindowId === active.id : false
               }
               const visualBounds = () => {
                 if (!maximized()) return canvasWindowVisualBounds(worldBounds())
@@ -603,11 +609,11 @@ export const CanvasWorkspace = controllerView(
                 return {
                   x: -state().camera.x / zoom,
                   y: -state().camera.y / zoom,
-                  width: viewportSize().width,
-                  height: viewportSize().height,
+                  width: viewportSize.width,
+                  height: viewportSize.height,
                 }
               }
-              const selected = () => members().some((member) => selectedIds().includes(member.id))
+              const selected = () => members().some((member) => selectedIds.includes(member.id))
               const details = () => {
                 const active = item()
                 return active
@@ -681,7 +687,7 @@ export const CanvasWorkspace = controllerView(
                     'transform-origin': 'top left',
                     'box-shadow': liveWindowChrome() ? undefined : windowShadow(),
                     opacity:
-                      canvasMergeDrag()?.target && canvasMergeDrag()?.sourceGroupId === groupId
+                      canvasMergeDrag?.target && canvasMergeDrag?.sourceGroupId === groupId
                         ? 0.55
                         : undefined,
                     'z-index': maximized()
@@ -712,8 +718,8 @@ export const CanvasWorkspace = controllerView(
                     rounded={() => !maximized()}
                     showTabs={liveWindowChrome}
                     mergeHighlightInsertIndex={() =>
-                      canvasMergeDrag()?.target?.groupId === groupId
-                        ? canvasMergeDrag()!.target!.insertIndex
+                      canvasMergeDrag?.target?.groupId === groupId
+                        ? canvasMergeDrag!.target!.insertIndex
                         : null
                     }
                     splitLeftTabId={() => split()?.leftTabId}
@@ -741,7 +747,7 @@ export const CanvasWorkspace = controllerView(
                     onToggleMaximize={() =>
                       maximized() ? setMaximizedWindowId(null) : maximizeWindow(item()!.id)
                     }
-                    onClose={readOnlyMode() ? undefined : () => closeWindowGroup(groupId)}
+                    onClose={readOnlyMode ? undefined : () => closeWindowGroup(groupId)}
                   />
                   <div
                     data-canvas-window-content
@@ -804,8 +810,8 @@ export const CanvasWorkspace = controllerView(
                                     ? model.workspace.activeWindowId
                                     : model.focusedId) === paneId
                                 }
-                                editableFolders={readOnlyMode() ? [] : editableFolders()}
-                                knowledgeBases={knowledgeBases()}
+                                editableFolders={readOnlyMode ? [] : editableFolders}
+                                knowledgeBases={knowledgeBases}
                                 fileIconContext={fileIconContext()}
                                 actions={windowActions}
                                 autoPlayVideo={false}
@@ -857,7 +863,7 @@ export const CanvasWorkspace = controllerView(
                       </div>
                     ) : null}
                   </div>
-                  {selected() && !readOnlyMode() && !maximized() ? (
+                  {selected() && !readOnlyMode && !maximized() ? (
                     <ResizeHandles
                       onStart={(direction, event) =>
                         startWindowResize(item()!.id, direction, event)
@@ -868,7 +874,7 @@ export const CanvasWorkspace = controllerView(
               ) : null
             })}
             {state().camera.zoom < FAR_ZOOM
-              ? list(canvasStrings.from(canvasGroupIds()), (groupId) => {
+              ? list(canvasStrings.from(canvasGroupIds), (groupId) => {
                   const item = () => activeWindowForGroup(groupId)
                   const memberCount = () => groupWindows(groupId).length
                   const bounds = () =>
@@ -967,20 +973,20 @@ export const CanvasWorkspace = controllerView(
               data-testid='canvas-drop-preview'
               class={cn(
                 'pointer-events-none absolute overflow-hidden rounded-lg border-2 border-dashed border-primary bg-primary/10 shadow-xl',
-                { invisible: !fileDropVisualBounds() },
+                { invisible: !fileDropVisualBounds },
               )}
               style={{
-                left: `${fileDropVisualBounds()?.x ?? 0}px`,
-                top: `${fileDropVisualBounds()?.y ?? 0}px`,
-                width: `${fileDropVisualBounds()?.width ?? 0}px`,
-                height: `${fileDropVisualBounds()?.height ?? 0}px`,
+                left: `${fileDropVisualBounds?.x ?? 0}px`,
+                top: `${fileDropVisualBounds?.y ?? 0}px`,
+                width: `${fileDropVisualBounds?.width ?? 0}px`,
+                height: `${fileDropVisualBounds?.height ?? 0}px`,
                 'z-index': 1000000,
               }}
             >
               <div class='flex h-8 items-center justify-between border-b border-primary/40 bg-primary/15 px-3 text-xs font-medium text-primary'>
                 <span>New window</span>
                 <span class='tabular-nums'>
-                  {fileDropPreview()?.bounds.width ?? 0} × {fileDropPreview()?.bounds.height ?? 0}
+                  {fileDropPreview?.bounds.width ?? 0} × {fileDropPreview?.bounds.height ?? 0}
                 </span>
               </div>
             </div>
@@ -1096,7 +1102,7 @@ export const CanvasWorkspace = controllerView(
                         overlayCommands.updateNoteDirectory(event.currentTarget.value)
                       }}
                     >
-                      {list(canvasStrings.from(writableDirectories()), (directory) => (
+                      {list(canvasStrings.from(writableDirectories), (directory) => (
                         <option value={directory}>{directory}</option>
                       ))}
                     </select>

@@ -42,9 +42,9 @@ const application = Effect.scoped(
     yield* own(createRadioContinuation)
     const owner = yield* own(() => modelOwner({}))
     const root = document.getElementById('root')
-    if (!root) return
+    if (!root) return undefined
     yield* makeMount(root, App, owner.source)
-    yield* Effect.never
+    return yield* Effect.never
   }),
 )
 Effect.runFork(application)

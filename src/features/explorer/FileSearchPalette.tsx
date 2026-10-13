@@ -1,6 +1,5 @@
 import { createFileSearchPalette } from './file-search-controller'
 import {
-  type Snapshot,
   component,
   list,
   available,
@@ -35,7 +34,7 @@ export type FileSearchButtonProps = {
   open?: boolean
   onOpenChange?: (open: boolean) => void
 }
-function stateLabel(status: Snapshot<FileSearchStatus> | undefined): string {
+function stateLabel(status: FileSearchStatus | undefined): string {
   if (!status) return 'Loading index status…'
   if (status.state === 'building')
     return `Indexing… ${status.indexedEntries.toLocaleString()} items`
@@ -47,7 +46,7 @@ function stateLabel(status: Snapshot<FileSearchStatus> | undefined): string {
   return `${status.indexedEntries.toLocaleString()} indexed items · ${status.watcherCount} watched · ${polling} polling`
 }
 export const FileSearchButton = component(
-  { init: (_props: Snapshot<FileSearchButtonProps>) => ({ internalOpen: false }) },
+  { init: (_props: FileSearchButtonProps) => ({ internalOpen: false }) },
   view((local, patch) => {
     const props = local.props
     const internalOpen = () => local.internalOpen,
@@ -96,13 +95,13 @@ const FileSearchPalette = controllerView(
   view((model) => {
     const props = model.props
     const listId = model.listId
-    const query = () => model.query
+    const query = model.query
     const setQuery = model.setQuery
     const queryLongEnough = () =>
       fileSearchCodePointLength(model.debouncedQuery) >= FILE_SEARCH_MIN_QUERY_LENGTH
     const results = () => (queryLongEnough() ? (available(model.searchResult)?.results ?? []) : [])
     const status = () => available(model.searchResult)?.status ?? available(model.statusResult)
-    const selection = () => model.selection
+    const selection = model.selection
     const setSelection = model.setSelection
     const searchError = resourceError(model.searchResult)
     const reindexError = resourceError(model.reindexResult)
@@ -111,7 +110,7 @@ const FileSearchPalette = controllerView(
         .map((result) => result.path)
         .join('\0')}`
     const activeIndex = () => {
-      const current = selection()
+      const current = selection
       if (current.key !== selectionKey()) return 0
       return Math.min(current.index, Math.max(0, results().length - 1))
     }
@@ -178,7 +177,7 @@ const FileSearchPalette = controllerView(
                 autocomplete='off'
                 placeholder='Search files and folders…'
                 class='h-11 min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground'
-                value={query()}
+                value={query}
                 onInput={(event) => setQuery(event.currentTarget.value)}
                 onKeyDown={onInputKeyDown}
               />

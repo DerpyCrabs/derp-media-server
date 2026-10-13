@@ -2,7 +2,7 @@ import { nextAnimationFrame } from '@/lib/browser/animation-frame'
 import ChevronLeft from '@effectweb/lucide/icons/chevron-left'
 import ChevronRight from '@effectweb/lucide/icons/chevron-right'
 import { Effect, Semaphore } from 'effect'
-import { modelOwner, view, type Snapshot, controllerView } from 'effectweb'
+import { modelOwner, view, controllerView } from 'effectweb'
 
 import { buildMediaUrl } from '@/lib/media/build-media-url'
 import { ReaderFrame } from '../../ReaderFrame'
@@ -20,10 +20,10 @@ import { renderBook, type RenderedBook } from './book-sanitize'
 
 type LoadedBook = { document: RenderedBook; outline: ReaderOutlineItem[] }
 
-const allOutlineIds = (items: readonly Snapshot<ReaderOutlineItem>[]): string[] =>
+const allOutlineIds = (items: readonly ReaderOutlineItem[]): string[] =>
   items.flatMap((item) => [item.id, ...allOutlineIds(item.children)])
 
-const firstOutlineTarget = (items: readonly Snapshot<ReaderOutlineItem>[]): string | undefined => {
+const firstOutlineTarget = (items: readonly ReaderOutlineItem[]): string | undefined => {
   for (const item of items) {
     if (typeof item.target === 'string') return item.target
     const child = firstOutlineTarget(item.children)
@@ -64,7 +64,7 @@ const positionSlot = 'book-position-load'
 const saveSlot = 'book-save'
 const debounceSlot = 'book-save-debounce'
 const navigateSlot = 'book-navigate'
-function bookController(props: Snapshot<ReaderContentProps>) {
+function bookController(props: ReaderContentProps) {
   const saveGate = Semaphore.makeUnsafe(1)
   let released: (() => void) | undefined
   let viewport: HTMLDivElement | undefined
@@ -270,7 +270,7 @@ function bookController(props: Snapshot<ReaderContentProps>) {
       loaded = model.book
     if (!loaded) return
     const ids: string[] = []
-    const collect = (items: readonly Snapshot<ReaderOutlineItem>[]) => {
+    const collect = (items: readonly ReaderOutlineItem[]) => {
       for (const item of items) {
         if (typeof item.target === 'string' && !ids.includes(item.target)) ids.push(item.target)
         collect(item.children)
@@ -340,26 +340,28 @@ function bookController(props: Snapshot<ReaderContentProps>) {
   return {
     source: owner.source,
     ...actions,
-    receive: (next: Snapshot<ReaderContentProps>) => owner.patch({ props: next }),
+    receive: (next: ReaderContentProps) => owner.patch({ props: next }),
     beforeDispose: () => {
       finalPosition = capture()
     },
-    close: () => {
-      closing = true
-      const save = persist()
-      owner.cancel(debounceSlot)
-      owner.cancel(navigateSlot)
-      return owner
-        .awaitIdle(saveSlot)
-        .pipe(
-          Effect.andThen(save),
-          Effect.ensuring(owner.close().pipe(Effect.orDie)),
-          Effect.ensuring(Effect.sync(() => released?.())),
-        )
-    },
-    dispose: () => {
-      owner.dispose()
-      released?.()
+    lifetime: {
+      close: () => {
+        closing = true
+        const save = persist()
+        owner.cancel(debounceSlot)
+        owner.cancel(navigateSlot)
+        return owner
+          .awaitIdle(saveSlot)
+          .pipe(
+            Effect.andThen(save),
+            Effect.ensuring(owner.close().pipe(Effect.orDie)),
+            Effect.ensuring(Effect.sync(() => released?.())),
+          )
+      },
+      dispose: () => {
+        owner.dispose()
+        released?.()
+      },
     },
   }
 }

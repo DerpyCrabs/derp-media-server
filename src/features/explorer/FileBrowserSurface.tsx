@@ -1,4 +1,4 @@
-import { type Snapshot, component, view, domBinding, type JSX } from 'effectweb'
+import { component, view, domBinding, type JSX } from 'effectweb'
 import { operationError } from './file-browser-mutations'
 import { AsyncResult } from 'effect/reactivity'
 import { runDesktopOperation } from '@/desktop/operations'
@@ -127,7 +127,7 @@ const searchInputBinding = (
 }
 export const FileBrowserView = component(
   {
-    init: (_props: Snapshot<FileBrowserViewProps>) => ({
+    init: (_props: FileBrowserViewProps) => ({
       directoryBackgroundMenu: null as { x: number; y: number } | null,
     }),
   },
@@ -444,7 +444,10 @@ export const FileBrowserView = component(
     const scrollableListing = () =>
       props.listing.scrollTarget.kind === 'element' ? (
         <div
-          use={domBinding(props.listing.setScrollElement, directoryElementBinding)}
+          use={{
+            ...domBinding(props.listing.setScrollElement, directoryElementBinding),
+            identity: props.listing.setScrollElement,
+          }}
           class='min-h-0 flex-1 overflow-auto'
           onScroll={(event) =>
             props.listing.onScroll?.(
@@ -666,7 +669,10 @@ export const FileBrowserView = component(
                   data-testid='kb-search-bar'
                 >
                   <input
-                    use={domBinding(props.controller.search.setInputElement, searchInputBinding)}
+                    use={{
+                      ...domBinding(props.controller.search.setInputElement, searchInputBinding),
+                      identity: props.controller.search.setInputElement,
+                    }}
                     type='text'
                     placeholder='Search notes...'
                     autocomplete='off'

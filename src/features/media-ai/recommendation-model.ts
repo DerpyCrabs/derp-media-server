@@ -1,5 +1,4 @@
 import { Schema } from 'effect'
-import type { Snapshot } from 'effectweb'
 import { MediaType, type FileItem } from '@/lib/files/types'
 
 const optionalNumber = Schema.optional(Schema.NullOr(Schema.Number))
@@ -104,7 +103,7 @@ export function preparePage(page: Home): Home {
     })),
   }
 }
-export function asFile(item: Snapshot<Recommendation>): FileItem {
+export function asFile(item: Recommendation): FileItem {
   return {
     name: item.name,
     path: item.path,

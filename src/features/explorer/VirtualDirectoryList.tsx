@@ -1,5 +1,5 @@
 import { sequence } from 'effectweb'
-import { type Snapshot, collection, domBinding, list, component, view, type JSX } from 'effectweb'
+import { collection, domBinding, list, component, view, type JSX } from 'effectweb'
 import type { FileItem } from '@/lib/files/types'
 import { directoryViewport } from './virtual-directory-binding'
 type VirtualDirectoryListProps = {
@@ -23,7 +23,7 @@ type VirtualDirectoryListProps = {
 const byPath = collection<FileItem>((file) => file.path)
 export const VirtualDirectoryList = component(
   {
-    init: (_props: Snapshot<VirtualDirectoryListProps>) => ({
+    init: (_props: VirtualDirectoryListProps) => ({
       start: 0,
       end: 100,
       columns: 1,

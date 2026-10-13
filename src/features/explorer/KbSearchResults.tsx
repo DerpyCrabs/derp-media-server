@@ -1,4 +1,4 @@
-import { sequence, type Snapshot, list, component, view } from 'effectweb'
+import { sequence, list, component, view } from 'effectweb'
 import { cn } from '@/lib/ui/cn'
 import Search from '@effectweb/lucide/icons/search'
 type SearchResult = { path: string; name: string; snippet: string }
@@ -31,7 +31,7 @@ function pathRelativeTo(from: string, to: string): string {
 }
 export const KbSearchResults = component(
   {
-    init: (_props: Snapshot<Props>) => ({
+    init: (_props: Props) => ({
       selection: { key: '', index: 0 } as { key: string; index: number },
     }),
   },

@@ -1,6 +1,6 @@
 import { randomId } from '@/lib/random-id'
 
-import { modelOwner, type Snapshot, type Source } from 'effectweb'
+import { modelOwner, type Source } from 'effectweb'
 
 import { type HermesMessage, type HermesChatState } from './hermes-session-types'
 
@@ -17,14 +17,14 @@ export const durableSessionAliases = new Map<string, string>()
 
 export function updateHermesState(
   key: string,
-  update: (state: Snapshot<HermesChatState>) => Snapshot<Partial<HermesChatState>>,
+  update: (state: HermesChatState) => Partial<HermesChatState>,
 ) {
   const current = sessions()[key]
   if (!current) return
   patchHermesState(key, update(current))
 }
 
-export function patchHermesState(key: string, patch: Snapshot<Partial<HermesChatState>>) {
+export function patchHermesState(key: string, patch: Partial<HermesChatState>) {
   const current = sessions()[key]
   if (!current) return
   if (
@@ -36,11 +36,7 @@ export function patchHermesState(key: string, patch: Snapshot<Partial<HermesChat
   registry.patch({ sessions: { ...sessions(), [key]: { ...current, ...patch } } })
 }
 
-export function updateHermesMessage(
-  key: string,
-  index: number,
-  patch: Snapshot<Partial<HermesMessage>>,
-) {
+export function updateHermesMessage(key: string, index: number, patch: Partial<HermesMessage>) {
   updateHermesState(key, (state) => ({
     messages: state.messages.map((message, at) =>
       at === index ? { ...message, ...patch } : message,
@@ -89,7 +85,7 @@ export function bindHermesSessionId(key: string, sessionId: string): string {
   return key
 }
 
-export function hermesSessionForId(sessionId: string): Snapshot<HermesChatState> | undefined {
+export function hermesSessionForId(sessionId: string): HermesChatState | undefined {
   const key = stableKeyForSessionId(sessionId)
   return key ? sessions()[key] : undefined
 }

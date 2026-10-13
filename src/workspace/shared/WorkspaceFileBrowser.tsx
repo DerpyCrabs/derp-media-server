@@ -1,4 +1,4 @@
-import { view, observe, type Snapshot } from 'effectweb'
+import { view, observe } from 'effectweb'
 import {
   FileBrowser,
   type FileBrowserHost,
@@ -13,7 +13,7 @@ import { fileOpenTargetStore } from './file-open-target'
 import type { WorkspaceBrowserActions } from './workspace-window-actions'
 type WorkspaceFileBrowserProps = {
   windowId: string
-  definition: Snapshot<WindowContentDefinition> | undefined
+  definition: WindowContentDefinition | undefined
   active: boolean
   fileIconContext: FileIconContext
   editableFolders: readonly string[]

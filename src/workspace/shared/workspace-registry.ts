@@ -35,10 +35,10 @@ import {
   createWorkspaceSaveCoordinator,
   type PendingWorkspaceSave,
 } from './workspace-persistence'
-import { modelOwner, type Snapshot } from 'effectweb'
+import { modelOwner } from 'effectweb'
 import { Effect, Exit, Semaphore, Schema } from 'effect'
 type Accessor<T> = () => T
-type Setter<T> = (value: T | ((current: Snapshot<T>) => T)) => T
+type Setter<T> = (value: T | ((current: T) => T)) => T
 const EMPTY_REGISTRY: WorkspaceRegistry = { version: 1, order: [], records: {} }
 export type WorkspaceActiveSession = {
   id: string
@@ -698,16 +698,16 @@ export function createWorkspaceRegistry(options: WorkspaceRegistryOptions) {
       const isActive = active().id === id
       if (isActive) yield* flushWorkspace(id)
       let record = registry().records[id]
-      if (!record) return
+      if (!record) return undefined
       let releaseAfter = false
       if (!isActive) {
         const opened = yield* openWorkspace(id, record.snapshot)
-        if (!opened.editable) yield* Effect.fail(new Error('Workspace is open elsewhere.'))
+        if (!opened.editable) return yield* Effect.fail(new Error('Workspace is open elsewhere.'))
         record = opened.record
         releaseAfter = true
       }
       const snapshot = convertWorkspaceSnapshot(record.snapshot, target, viewport)
-      yield* Effect.gen(function* () {
+      return yield* Effect.gen(function* () {
         const result = yield* operations.run(id, () =>
           postDecoded(workspaceRevisionSchema, '/api/workspaces/convert', {
             id,
@@ -864,8 +864,9 @@ export function createWorkspaceRegistry(options: WorkspaceRegistryOptions) {
             Effect.gen(function* () {
               const activeResult = yield* Effect.exit(closeActive())
               const savesResult = yield* Effect.exit(saveCoordinator.close())
-              if (Exit.isFailure(activeResult)) yield* Effect.failCause(activeResult.cause)
-              if (Exit.isFailure(savesResult)) yield* Effect.failCause(savesResult.cause)
+              if (Exit.isFailure(activeResult)) return yield* Effect.failCause(activeResult.cause)
+              if (Exit.isFailure(savesResult)) return yield* Effect.failCause(savesResult.cause)
+              return undefined
             }),
           )
           .pipe(Effect.ensuring(owner.close().pipe(Effect.orDie)), Effect.uninterruptible)

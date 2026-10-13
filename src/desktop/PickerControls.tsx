@@ -21,13 +21,8 @@ const PickerChoice = component<
       patch({ open: typeof value === 'function' ? value(open()) : value })
     }
     const anchor = (): HTMLDivElement | null => local.anchor as HTMLDivElement | null
-    const setAnchor = (
-      value: HTMLDivElement | null | ((current: HTMLDivElement | null) => HTMLDivElement | null),
-    ) => {
-      patch({ anchor: typeof value === 'function' ? value(anchor()) : value })
-    }
     return (
-      <div class='relative' use={domBinding(setAnchor, pickerAnchor)}>
+      <div class='relative' use={{ ...domBinding(patch, pickerAnchor), identity: patch }}>
         <button
           type='button'
           aria-label={props.label}
@@ -169,8 +164,8 @@ export const PickerControls = view<{ request: PickerRequest; picker: Picker; can
 )
 const pickerAnchor = (
   element: HTMLDivElement,
-  current: () => (element: HTMLDivElement | null) => void,
+  current: () => (fields: { anchor: HTMLDivElement | null }) => void,
 ) => {
-  current()(element)
-  return () => current()(null)
+  current()({ anchor: element })
+  return () => current()({ anchor: null })
 }
