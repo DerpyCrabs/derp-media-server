@@ -29,14 +29,20 @@ export function isPathEditable(
     return root.editableFolders.some((folder) => {
       const normalizedFolder = folder.replace(/\\/g, '/')
       return (
-        rootRelativePath === normalizedFolder || rootRelativePath.startsWith(normalizedFolder + '/')
+        normalizedFolder === '' ||
+        rootRelativePath === normalizedFolder ||
+        rootRelativePath.startsWith(normalizedFolder + '/')
       )
     })
   }
 
   return editableFolders.some((folder) => {
     const normalizedFolder = folder.replace(/\\/g, '/')
-    return normalizedPath === normalizedFolder || normalizedPath.startsWith(normalizedFolder + '/')
+    return (
+      normalizedFolder === '' ||
+      normalizedPath === normalizedFolder ||
+      normalizedPath.startsWith(normalizedFolder + '/')
+    )
   })
 }
 

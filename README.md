@@ -42,6 +42,7 @@ Path: `CONFIG_PATH` or `--config-path=...`. Options can also be set via environm
 | `mediaDir`          | `MEDIA_DIR`        | Media root for legacy/single-root configs                                   |
 | `port`              | `PORT`             | App port; Workspace is served at `/workspace` (default `3000`)              |
 | `mediaDirs`         |                    | Multiple named media roots, each with optional editable folders             |
+| `writeAccess`       | —                  | `editableFolders` (default) or `filesystem`                                 |
 | `editableFolders`   | `EDITABLE_FOLDERS` | Comma-separated paths under single-root `mediaDir` where writes are allowed |
 | `fileSearch`        |                    | Persistent filename/path search index settings                              |
 | `imageOptimization` |                    | Responsive viewer variants and disk-cache settings                          |
@@ -190,6 +191,18 @@ as a folder. Paths are prefixed by the root name, for example `Movies/Incoming`.
 `name` is derived from the directory basename when possible, but must be set explicitly
 if the basename is empty, duplicates another media root, or conflicts with a virtual
 folder such as `Favorites` or `Most Played`.
+
+### Filesystem write permissions
+
+Set `writeAccess` to `"filesystem"` to allow file operations according to the OS permissions of the account running the server:
+
+```json
+{ "mediaDir": "/path/to/your/media", "writeAccess": "filesystem" }
+```
+
+This also applies to every root in `mediaDirs`. Remove `editableFolders` from both the top level and all `mediaDirs` entries, and unset `EDITABLE_FOLDERS`; combining any of them (even an empty list) with filesystem mode is a startup error. Omitting `writeAccess`, or setting it to `"editableFolders"`, keeps the existing allowlist behavior.
+
+In filesystem mode the UI offers write actions throughout the configured media roots. The OS checks each actual operation, including file permissions, directory permissions, and ACLs; denied operations return HTTP 403. A read-only file can still be renamed or deleted if the OS permits changes to its parent directory. Media-root boundaries and symlink escape protections still apply.
 
 ## Desktop client
 

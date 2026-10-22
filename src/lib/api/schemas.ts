@@ -40,6 +40,7 @@ export const workspaceSettingsSchema = Schema.Struct({
   workspaceTaskbarPins: Schema.mutable(Schema.Array(taskbarPin)),
 })
 export const serverConfigSchema = Schema.Struct({
+  writeAccess: Schema.optional(Schema.Literals(['editableFolders', 'filesystem'])),
   editableFolders: strings,
   mediaRoots: Schema.mutable(
     Schema.Array(

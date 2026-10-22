@@ -393,6 +393,7 @@ mod tests {
         let data_path =
             std::env::temp_dir().join(format!("derp-workspace-route-{}", uuid::Uuid::new_v4()));
         let config = Config {
+            write_access: crate::config::WriteAccess::default(),
             port: 0,
             roots: Vec::new(),
             library_key: "library".into(),

@@ -43,6 +43,7 @@ export const BATCHES = [
       'effectweb-reactivity',
       'url-state',
       'multiple-media-dirs',
+      'filesystem-write-access',
       'stage2-playback-continuity',
       'media-ai-interactions',
       'media-ai-unconfigured',

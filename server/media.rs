@@ -202,6 +202,9 @@ pub fn resolve(config: &Config, input: &str) -> AppResult<ResolvedPath> {
 pub fn editable(config: &Config, input: &str) -> bool {
     resolve(config, input)
         .map(|r| {
+            if config.write_access == crate::config::WriteAccess::Filesystem {
+                return true;
+            }
             r.root.editable_folders.iter().any(|f| {
                 let f = f.replace('\\', "/");
                 r.relative == f || r.relative.starts_with(&(f + "/"))

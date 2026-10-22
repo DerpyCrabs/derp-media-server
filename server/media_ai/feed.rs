@@ -660,6 +660,7 @@ mod tests {
             let media = directory.join("media");
             std::fs::create_dir_all(&media).unwrap();
             let config = Config {
+                write_access: crate::config::WriteAccess::default(),
                 port: 0,
                 library_key: "test".into(),
                 data_path: directory.join("data"),

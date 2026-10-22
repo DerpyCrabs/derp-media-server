@@ -27,7 +27,7 @@ function computeSourceRoot(filePath: string, editableFolders: readonly string[])
   const normalized = filePath.replace(/\\/g, '/')
   for (const folder of editableFolders) {
     const nf = folder.replace(/\\/g, '/')
-    if (normalized === nf || normalized.startsWith(nf + '/')) return nf
+    if (nf === '' || normalized === nf || normalized.startsWith(nf + '/')) return nf
   }
   return editableFolders[0]?.replace(/\\/g, '/') || ''
 }
@@ -35,7 +35,7 @@ function computeInitialBrowse(filePath: string, editableFolders: readonly string
   const root = computeSourceRoot(filePath, editableFolders)
   const parts = filePath.split(/[/\\]/).filter(Boolean)
   const dir = parts.slice(0, -1).join('/').replace(/\\/g, '/')
-  if (dir === root || dir.startsWith(root + '/')) return dir
+  if (root === '' || dir === root || dir.startsWith(root + '/')) return dir
   return root
 }
 const destinationQuery = query({
@@ -118,7 +118,8 @@ export const MoveToDialog = controllerView(
     const isSameAsSource = () => normalizedBrowse() === sourceDir()
     const displayPath = () => {
       if (normalizedBrowse() === normalizedRoot()) return '/'
-      return '/' + normalizedBrowse().slice(normalizedRoot().length + 1)
+      const offset = normalizedRoot() ? normalizedRoot().length + 1 : 0
+      return '/' + normalizedBrowse().slice(offset)
     }
     return (
       <div
@@ -158,7 +159,7 @@ export const MoveToDialog = controllerView(
                       ])}
                       onClick={() => handleRootChange(folder)}
                     >
-                      {folder}
+                      {folder || 'Library'}
                     </button>
                   )
                 },

@@ -34,9 +34,19 @@ pub struct MediaRoot {
     pub editable_folders: Vec<String>,
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum WriteAccess {
+    #[default]
+    EditableFolders,
+    Filesystem,
+}
+
 #[derive(Clone, Debug, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 struct RawConfig {
+    #[serde(default)]
+    write_access: WriteAccess,
     port: Option<serde_json::Value>,
     media_dir: Option<PathBuf>,
     #[serde(default, deserialize_with = "deserialize_value_array")]
@@ -202,6 +212,7 @@ struct RawFileSearchConfig {
 
 #[derive(Clone, Debug)]
 pub struct Config {
+    pub write_access: WriteAccess,
     pub port: u16,
     pub roots: Vec<MediaRoot>,
     pub library_key: String,
@@ -641,6 +652,28 @@ fn migrate_legacy_data(
     Ok(())
 }
 
+fn parse_config(source: &str, editable_folders_env_present: bool) -> Result<RawConfig, String> {
+    let value: serde_json::Value =
+        json5::from_str(source).map_err(|error| format!("Invalid config: {error}"))?;
+    let raw: RawConfig = serde_json::from_value(value.clone())
+        .map_err(|error| format!("Invalid config: {error}"))?;
+    if raw.write_access == WriteAccess::Filesystem {
+        let root_allowlist = value
+            .get("mediaDirs")
+            .and_then(|value| value.as_array())
+            .is_some_and(|roots| {
+                roots
+                    .iter()
+                    .any(|root| root.get("editableFolders").is_some())
+            });
+        if value.get("editableFolders").is_some() || root_allowlist || editable_folders_env_present
+        {
+            return Err("writeAccess: filesystem is mutually exclusive with editableFolders (including mediaDirs entries and EDITABLE_FOLDERS)".into());
+        }
+    }
+    Ok(raw)
+}
+
 impl Config {
     pub fn load() -> Result<Self, String> {
         let cwd = env::current_dir().map_err(|e| e.to_string())?;
@@ -670,8 +703,10 @@ impl Config {
             }
         }
         let raw: RawConfig = if config_path.exists() {
-            json5::from_str(&fs::read_to_string(&config_path).map_err(|e| e.to_string())?)
-                .map_err(|e| format!("Invalid config: {e}"))?
+            parse_config(
+                &fs::read_to_string(&config_path).map_err(|e| e.to_string())?,
+                env::var_os("EDITABLE_FOLDERS").is_some(),
+            )?
         } else {
             RawConfig::default()
         };
@@ -839,6 +874,7 @@ impl Config {
                 .into_owned();
         }
         Ok(Self {
+            write_access: raw.write_access,
             port,
             roots,
             library_key,
@@ -856,6 +892,51 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn write_access_defaults_to_allowlist_and_accepts_filesystem() {
+        assert_eq!(
+            parse_config("{}", false).unwrap().write_access,
+            WriteAccess::EditableFolders
+        );
+        assert_eq!(
+            parse_config(
+                r#"{writeAccess: "filesystem", mediaDirs: [{path: "/media"}]}"#,
+                false
+            )
+            .unwrap()
+            .write_access,
+            WriteAccess::Filesystem
+        );
+        assert!(parse_config(r#"{writeAccess: "unknown"}"#, false).is_err());
+    }
+
+    #[test]
+    fn filesystem_access_rejects_all_allowlist_sources() {
+        for source in [
+            r#"{writeAccess: "filesystem", editableFolders: ["Notes"]}"#,
+            r#"{writeAccess: "filesystem", editableFolders: []}"#,
+            r#"{writeAccess: "filesystem", mediaDirs: [{path: "/media", editableFolders: []}]}"#,
+        ] {
+            assert!(
+                parse_config(source, false)
+                    .unwrap_err()
+                    .contains("mutually exclusive")
+            );
+        }
+        assert!(
+            parse_config(r#"{writeAccess: "filesystem"}"#, true)
+                .unwrap_err()
+                .contains("EDITABLE_FOLDERS")
+        );
+        assert!(
+            parse_config(
+                r#"{writeAccess: "editableFolders", editableFolders: ["Notes"]}"#,
+                true
+            )
+            .is_ok()
+        );
+    }
 
     #[test]
     fn playback_defaults_and_limits() {

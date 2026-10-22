@@ -29,7 +29,7 @@ impl<'a> FileMutation<'a> {
 
     pub async fn rename(&self, old_path: &str, new_path: &str) -> AppResult<()> {
         let _guard = self.begin().await;
-        let old = resolve(self.state, old_path)?;
+        let old = resolve_mutable_entry(self.state, old_path)?;
         let new = resolve(self.state, new_path)?;
         if fs::try_exists(&new).await.map_err(AppError::io)? {
             return Err(AppError::conflict(
@@ -48,7 +48,7 @@ impl<'a> FileMutation<'a> {
 
     pub async fn delete(&self, path: &str) -> AppResult<bool> {
         let _guard = self.begin().await;
-        let target = resolve(self.state, path)?;
+        let target = resolve_mutable_entry(self.state, path)?;
         let metadata = fs::symlink_metadata(&target).await.map_err(AppError::io)?;
         let staged = sibling_artifact(&target, "delete")?;
         fs::rename(&target, &staged).await.map_err(AppError::io)?;
@@ -206,6 +206,14 @@ pub(crate) fn content_hash(content: &[u8]) -> String {
 
 fn resolve(state: &AppState, logical: &str) -> AppResult<PathBuf> {
     Ok(media::resolve(&state.config, logical)?.full)
+}
+
+fn resolve_mutable_entry(state: &AppState, logical: &str) -> AppResult<PathBuf> {
+    let resolved = media::resolve(&state.config, logical)?;
+    if resolved.relative.is_empty() {
+        return Err(AppError::forbidden("Cannot rename or delete a media root"));
+    }
+    Ok(resolved.full)
 }
 
 async fn write_file_with_rollback(

@@ -75,21 +75,32 @@ pub(crate) fn decode_node_base64(value: &str) -> AppResult<Vec<u8>> {
 }
 
 pub(crate) fn server_config(state: &AppState) -> Value {
-    let roots = &state.config.roots;
+    let mut roots = state.config.roots.clone();
+    if state.config.write_access == crate::config::WriteAccess::Filesystem {
+        // Root-wide UI actions are available; the OS authorizes each actual mutation.
+        for root in &mut roots {
+            root.editable_folders = vec![String::new()];
+        }
+    }
     let editable_folders = match roots.as_slice() {
         [] => Vec::new(),
         [root] => root.editable_folders.clone(),
         [first, ..] => {
             let mut values = first.editable_folders.clone();
             values.extend(roots.iter().flat_map(|root| {
-                root.editable_folders
-                    .iter()
-                    .map(move |folder| format!("{}/{}", root.name, folder.replace('\\', "/")))
+                root.editable_folders.iter().map(move |folder| {
+                    if folder.is_empty() {
+                        root.name.clone()
+                    } else {
+                        format!("{}/{}", root.name, folder.replace('\\', "/"))
+                    }
+                })
             }));
             values
         }
     };
     json!({
+        "writeAccess": state.config.write_access,
         "editableFolders": editable_folders,
         "mediaRoots": roots.iter().map(|root| json!({
             "id": root.id,
