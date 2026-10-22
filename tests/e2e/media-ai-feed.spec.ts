@@ -189,6 +189,7 @@ test('scrolling repeatedly while the next page is pending requests it only once'
 test('unsupported file types cannot appear alongside playable recommendations', async ({
   page,
 }) => {
+  await page.route('**/api/media-ai/books', (route) => route.fulfill({ json: { items: [] } }))
   await page.route('**/api/media-ai/home*', (route) =>
     route.fulfill({
       json: homePage([

@@ -1,3 +1,5 @@
+import type { DomLifetime } from 'effectweb'
+import { scrollAffectsElement } from '@/lib/ui/scroll-affects-element'
 import type { FileItem } from '@/lib/files/types'
 import { registerVirtualFileScroller } from './virtual-directory-scroll'
 import { mountThumbnailWarmup } from './thumbnail-warmup'
@@ -13,11 +15,14 @@ export type DirectoryViewport = {
   range: DirectoryRange
   patch: (range: DirectoryRange) => void
 }
-export const directoryViewport = (element: HTMLDivElement, current: () => DirectoryViewport) => {
-  let frame = 0
+export const directoryViewport = (
+  element: HTMLDivElement,
+  current: () => DirectoryViewport,
+  lifetime: DomLifetime,
+) => {
   let unregister: (() => void) | undefined
   let registeredScope: string | undefined
-  const update = () => {
+  const read = () => {
     const state = current()
     const width = element.clientWidth
     const columns = state.grid ? Math.max(1, Math.min(6, Math.floor((width + 16) / 144))) : 1
@@ -38,6 +43,10 @@ export const directoryViewport = (element: HTMLDivElement, current: () => Direct
     const end = virtual
       ? Math.min(count, Math.max(start, Math.ceil((height - top) / rowHeight) + overscan))
       : count
+    return { start, end, columns, rowHeight }
+  }
+  const write = ({ start, end, columns, rowHeight }: DirectoryRange) => {
+    const state = current()
     if (
       start !== state.range.start ||
       end !== state.range.end ||
@@ -79,24 +88,24 @@ export const directoryViewport = (element: HTMLDivElement, current: () => Direct
         : undefined
     }
   }
-  const schedule = () => {
-    cancelAnimationFrame(frame)
-    frame = requestAnimationFrame(update)
+  const measurement = lifetime.measure({ read, write })
+  const schedule = measurement.schedule
+  const onScroll = (event: Event) => {
+    if (scrollAffectsElement(event, element)) schedule()
   }
   const observer = new ResizeObserver(schedule)
   observer.observe(element)
-  document.addEventListener('scroll', schedule, { capture: true, passive: true })
+  document.addEventListener('scroll', onScroll, { capture: true, passive: true })
   window.addEventListener('resize', schedule)
   const warmup = mountThumbnailWarmup(element, () => current().files)
   schedule()
   return {
     update: schedule,
     dispose: () => {
-      cancelAnimationFrame(frame)
       observer.disconnect()
       unregister?.()
       warmup()
-      document.removeEventListener('scroll', schedule, true)
+      document.removeEventListener('scroll', onScroll, true)
       window.removeEventListener('resize', schedule)
     },
   }

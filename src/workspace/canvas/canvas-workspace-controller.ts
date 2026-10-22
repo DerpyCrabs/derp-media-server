@@ -1,8 +1,8 @@
 import { Effect, Schema } from 'effect'
-import { modelOwner } from 'effectweb'
+import { mapSource, modelOwner } from 'effectweb'
 import { apiSchemaEffect, postEffect } from '@/lib/api/client'
 import { virtualOpenTargetSchema } from '@/lib/files/file-schemas'
-import { projectionSource } from 'effectweb/advanced'
+import { projectionSource, shareValue } from 'effectweb/advanced'
 import { randomId } from '@/lib/random-id'
 import {
   getFileDragData,
@@ -17,7 +17,6 @@ import {
   CANVAS_MIN_ZOOM,
   canvasWindowVisualBounds,
   cloneInfiniteCanvasState,
-  createEmptyCanvasState,
   findNearestFreeCanvasRect,
   snapCanvasRect,
   snapCanvasValue,
@@ -36,7 +35,7 @@ import { HermesSessions } from '@/features/hermes/hermes-session-store'
 import { canvasEdgeAutoPanVelocity } from './canvas-edge-auto-pan'
 import { cameraForCanvasBounds } from './model/canvas-camera'
 import { createCanvasPanController } from './create-canvas-pan-controller'
-import { EMPTY_FILE_ICON_CONTEXT } from '@/features/explorer/file-icon'
+import { EMPTY_FILE_ICON_CONTEXT, fileIconContextEquals } from '@/features/explorer/file-icon'
 import { getPlaybackSession, playbackSource } from '@/features/playback/PlaybackProvider'
 import { browserHistory, navigateSearchParams } from '@/lib/browser/browser-history'
 import type { WorkspaceSession } from '@/workspace/shared/WorkspaceSession'
@@ -48,6 +47,7 @@ import {
   canvasViewFromWorkspace,
 } from '@/workspace/canvas/model/canvas-projection'
 import { createCanvasSelection } from '@/workspace/canvas/model/canvas-selection'
+import { createCanvasScene } from './model/canvas-scene'
 import {
   createCanvasOverlayState,
   type CanvasDialogState,
@@ -58,6 +58,10 @@ import { rollbackWorkspaceTransferGeometry } from '@/workspace/model/workspace-t
 import { createCrossWorkspaceTransferController } from '@/workspace/shared/cross-workspace-transfer-controller'
 import { confirmWorkspaceWindowsSequentially } from '@/workspace/model/workspace-close'
 import { createWorkspacePageServerData } from '@/workspace/shared/workspace-page-server-data'
+import {
+  workspaceDocumentSource,
+  workspacePlaybackSource,
+} from '@/workspace/shared/workspace-presentation-sources'
 import { showAppAlertEffect } from '@/lib/ui/app-dialog'
 import { startPointerGesture, type PointerGestureOptions } from '@/lib/ui/start-pointer-gesture'
 import { WorkspaceDocumentCommands } from '@/workspace/model/workspace-document-commands'
@@ -235,10 +239,20 @@ export function createCanvasController(props: { session: WorkspaceSession }) {
   )
   const workspaceSnapshot = workspaceRegistry.document.value
   const setWorkspaceSnapshot = workspaceRegistry.document.update
-  const state = () => {
-    const snapshot = workspaceSnapshot()
-    return snapshot ? canvasViewFromWorkspace(snapshot) : createEmptyCanvasState()
+  const emptyWorkspace = defaultPersistedState(DEFAULT_WORKSPACE_SOURCE)
+  emptyWorkspace.windows = []
+  const workspace = () => workspaceSnapshot() ?? emptyWorkspace
+  let sceneDocument: PersistedWorkspaceState | undefined
+  let scene: ReturnType<typeof createCanvasScene>
+  const canvasScene = () => {
+    const document = workspace()
+    if (document !== sceneDocument) {
+      sceneDocument = document
+      scene = createCanvasScene(document, scene)
+    }
+    return scene
   }
+  const state = () => canvasScene().state
   const setState = (
     next: InfiniteCanvasState | ((current: InfiniteCanvasState) => InfiniteCanvasState),
   ) => {
@@ -398,23 +412,29 @@ export function createCanvasController(props: { session: WorkspaceSession }) {
   const server = createWorkspacePageServerData()
   const settingsQuery = server.settingsQuery
   const editableFolders = server.editableFolders
-  const knowledgeBases = () => settingsQuery.data?.knowledgeBases ?? []
-  const writableDirectories = () =>
+  const knowledgeBases = () =>
+    settingsQuery.data?.knowledgeBases ?? EMPTY_FILE_ICON_CONTEXT.knowledgeBases
+  const directories = mapSource(server.source, () =>
     [...new Set([...knowledgeBases(), ...editableFolders()])].map((path) =>
       path.replace(/\\/g, '/').replace(/\/$/, ''),
-    )
-  const fileIconContext = () => ({
-    ...EMPTY_FILE_ICON_CONTEXT,
-    customIcons: settingsQuery.data?.customIcons ?? {},
-    knowledgeBases: knowledgeBases(),
-  })
+    ),
+  )
+  const writableDirectories = directories.model
+  const icons = mapSource(
+    server.source,
+    () => ({
+      ...EMPTY_FILE_ICON_CONTEXT,
+      customIcons: settingsQuery.data?.customIcons ?? EMPTY_FILE_ICON_CONTEXT.customIcons,
+      knowledgeBases: knowledgeBases(),
+    }),
+    fileIconContextEquals,
+  )
+  const fileIconContext = icons.model
   const fileDropVisualBounds = () => {
     const preview = fileDropPreview()
     return preview ? canvasWindowVisualBounds(preview.bounds) : null
   }
-  const workspace = () => workspaceSnapshot() ?? defaultPersistedState(DEFAULT_WORKSPACE_SOURCE)
-  const windowDefinitions = () =>
-    new Map(workspace().windows.map((window) => [window.id, window] as const))
+  const windowDefinitions = () => canvasScene().definitions
   const definitionFor = (window: CanvasWindow) => {
     const definition = windowDefinitions().get(window.id)
     if (!definition) throw new Error(`Missing workspace window ${window.id}`)
@@ -422,19 +442,8 @@ export function createCanvasController(props: { session: WorkspaceSession }) {
   }
   const groupIdForCanvasWindow = (window: CanvasWindow) =>
     definitionFor(window).tabGroupId ?? window.id
-  const groupWindows = (groupId: string) =>
-    state().windows.filter((window) => groupIdForCanvasWindow(window) === groupId)
-  const canvasGroupIds = () => {
-    const seen = new Set<string>()
-    const ids: string[] = []
-    for (const window of state().windows) {
-      const groupId = groupIdForCanvasWindow(window)
-      if (seen.has(groupId)) continue
-      seen.add(groupId)
-      ids.push(groupId)
-    }
-    return ids
-  }
+  const groupWindows = (groupId: string) => canvasScene().groups.get(groupId) ?? []
+  const canvasGroupIds = () => canvasScene().groupIds
   function clearCanvasCrossWorkspaceHover() {
     crossWorkspaceTransfer!.hover(null)
   }
@@ -1753,8 +1762,92 @@ export function createCanvasController(props: { session: WorkspaceSession }) {
         ),
     },
   }
+  const registryCommands = {
+    transition: (action: () => void) =>
+      local.run(
+        actionSlot,
+        settleCanvasGesturesBeforeNavigation().pipe(
+          Effect.andThen(workspaceRegistry.lifecycle.transition(action)),
+        ),
+        'queue',
+      ),
+    takeControl: () => local.run(actionSlot, workspaceRegistry.lifecycle.takeControl(), 'queue'),
+    updateMetadata: (id: string, update: { name?: string; icon?: string; iconColor?: string }) =>
+      local.run(actionSlot, workspaceRegistry.catalog.updateMetadataFor(id, update), 'queue'),
+    reorder: (order: string[]) =>
+      local.run(actionSlot, workspaceRegistry.catalog.reorder(order), 'queue'),
+  }
+  const overlayCommands = {
+    openPinMenu: overlays.pinMenu.open,
+    closePinMenu: overlays.pinMenu.close,
+    closeCanvasMenu: overlays.canvasMenu.close,
+    closeNote: overlays.note.close,
+    updateNoteTitle: overlays.note.updateTitle,
+    updateNoteDirectory: overlays.note.updateDirectory,
+  }
+  const closeWindowAction = (id: string) => local.run(actionSlot, closeWindow(id), 'parallel')
+  const windowCommands = {
+    selectWindow,
+    selectCanvasTab,
+    activateWindow,
+    closeWindow: closeWindowAction,
+    toggleCanvasTabPinned,
+    startCanvasTabPull,
+    updateCanvasWorkspace,
+    startWindowMove,
+    setMaximizedWindowId,
+    maximizeWindow,
+    closeWindowGroup,
+    startCanvasSplitPaneDrag,
+    startWindowResize,
+  }
+  const catalogSource = mapSource(workspaceRegistry.source, (snapshot) => snapshot.registry)
+  let windowCamera = { x: 0, y: 0, zoom: state().camera.zoom }
+  const unusedViewport = { width: 0, height: 0 }
+  const projectWindowGroups = () => {
+    const scene = canvasScene()
+    const selected = selectedIds()
+    const focused = canvasSelection.focusedId()
+    const active = workspace().activeWindowId
+    const maximized = maximizedWindowId()
+    const merge = canvasMergeDrag()
+    const viewport = viewportSize()
+    const readOnly = readOnlyMode()
+    const icons = fileIconContext()
+    const folders = server.editableFolders()
+    const bases = knowledgeBases()
+    return scene.groupIds.map((groupId) => {
+      const members = scene.groups.get(groupId)!
+      const item = scene.activeWindows.get(groupId)
+      const isMaximized = item?.id === maximized
+      return {
+        groupId,
+        members,
+        item,
+        definitions: scene.tabs.get(groupId)!,
+        split: workspaceSnapshot()?.tabGroupSplits?.[groupId],
+        camera: isMaximized ? scene.state.camera : windowCamera,
+        selected: members.some((member) => selected.includes(member.id)),
+        maximized: isMaximized,
+        viewportSize: isMaximized ? viewport : unusedViewport,
+        mergeOpacity: Boolean(merge?.target && merge.sourceGroupId === groupId),
+        mergeInsertIndex: merge?.target?.groupId === groupId ? merge.target.insertIndex : null,
+        activeBrowserId: members.some((member) => member.id === active) ? active : null,
+        focusedId: members.some((member) => member.id === focused) ? focused : null,
+        readOnlyMode: readOnly,
+        fileIconContext: icons,
+        editableFolders: folders,
+        knowledgeBases: bases,
+        windowActions,
+        commands: windowCommands,
+      }
+    })
+  }
+  let windowGroups: ReturnType<typeof projectWindowGroups> = []
   const project = () => {
-    const catalog = workspaceRegistry.catalog.value()
+    const zoom = state().camera.zoom
+    if (windowCamera.zoom !== zoom) windowCamera = { x: 0, y: 0, zoom }
+    windowGroups = shareValue(windowGroups, projectWindowGroups())
     const editable = workspaceRegistry.state.editable()
     const opened = workspaceRegistry.state.opened()
     const settings = settingsQuery.data
@@ -1770,6 +1863,7 @@ export function createCanvasController(props: { session: WorkspaceSession }) {
     return {
       start,
       state: state(),
+      scene: canvasScene(),
       fileIconContext: fileIconContext(),
       selectedWindow: selectedWindow(),
       maximizedWindowId: maximizedWindowId(),
@@ -1820,7 +1914,7 @@ export function createCanvasController(props: { session: WorkspaceSession }) {
       selectWindow,
       selectCanvasTab,
       activateWindow,
-      closeWindow: (id: string) => local.run(actionSlot, closeWindow(id), 'parallel'),
+      closeWindow: closeWindowAction,
       toggleCanvasTabPinned,
       startCanvasTabPull,
       updateCanvasWorkspace,
@@ -1830,48 +1924,26 @@ export function createCanvasController(props: { session: WorkspaceSession }) {
       closeWindowGroup,
       startCanvasSplitPaneDrag,
       windowActions,
+      windowCommands,
       startWindowResize,
       createDocumentFromComposer,
       mountViewport,
       mountWorld,
       session: workspaceRegistry,
-      registry: catalog,
+      catalogSource,
+      windowCamera,
+      windowGroups,
       editable,
       opened,
       settings,
       serverPins: pins,
       editableFolders: folders,
       setWorkspaceTransition: server.setWorkspaceTransition,
-      registryCommands: {
-        transition: (action: () => void) =>
-          local.run(
-            actionSlot,
-            settleCanvasGesturesBeforeNavigation().pipe(
-              Effect.andThen(workspaceRegistry.lifecycle.transition(action)),
-            ),
-            'queue',
-          ),
-        takeControl: () =>
-          local.run(actionSlot, workspaceRegistry.lifecycle.takeControl(), 'queue'),
-        updateMetadata: (
-          id: string,
-          update: { name?: string; icon?: string; iconColor?: string },
-        ) =>
-          local.run(actionSlot, workspaceRegistry.catalog.updateMetadataFor(id, update), 'queue'),
-        reorder: (order: string[]) =>
-          local.run(actionSlot, workspaceRegistry.catalog.reorder(order), 'queue'),
-      },
+      registryCommands,
       pinMenu: pin,
       canvasMenu: menu,
       noteDialog: note,
-      overlayCommands: {
-        openPinMenu: overlays.pinMenu.open,
-        closePinMenu: overlays.pinMenu.close,
-        closeCanvasMenu: overlays.canvasMenu.close,
-        closeNote: overlays.note.close,
-        updateNoteTitle: overlays.note.updateTitle,
-        updateNoteDirectory: overlays.note.updateDirectory,
-      },
+      overlayCommands,
       transferActive,
       transferReady,
       transferHover,
@@ -1881,13 +1953,13 @@ export function createCanvasController(props: { session: WorkspaceSession }) {
   const presentation = projectionSource({ project, refresh: workspaceRegistry.savingBlockChanged })
   const dependencies = [
     local.source,
-    workspaceRegistry.source,
+    workspaceDocumentSource(workspaceRegistry.source),
     server.source,
     canvasSelection.source,
     overlays.source,
     crossWorkspaceTransfer!.source,
     browserHistory,
-    playbackSource,
+    workspacePlaybackSource(playbackSource),
   ]
   dependencies.forEach((source) => presentation.watch(source))
   presentation.start()
@@ -1901,6 +1973,16 @@ export function createCanvasController(props: { session: WorkspaceSession }) {
       if (dispose) cleanup.push(dispose)
     }
   }
+  local.own(() => {
+    presentation.dispose()
+    for (const frame of visibilityFrames) window.cancelAnimationFrame(frame)
+    visibilityFrames.clear()
+    for (const dispose of cleanup) dispose()
+    unblock()
+    server.dispose()
+    canvasSelection.dispose()
+    overlays.dispose()
+  })
   return {
     source: presentation,
     start,
@@ -1908,18 +1990,8 @@ export function createCanvasController(props: { session: WorkspaceSession }) {
       close: () =>
         local
           .awaitIdle(actionSlot)
-          .pipe(Effect.andThen(crossWorkspaceTransfer!.close()), Effect.andThen(local.close())),
-      dispose() {
-        presentation.dispose()
-        for (const frame of visibilityFrames) window.cancelAnimationFrame(frame)
-        visibilityFrames.clear()
-        for (const dispose of cleanup) dispose()
-        unblock()
-        server.dispose()
-        canvasSelection.dispose()
-        overlays.dispose()
-        local.dispose()
-      },
+          .pipe(Effect.andThen(crossWorkspaceTransfer!.close()), Effect.ensuring(local.close())),
+      dispose: local.dispose,
     },
   }
 }

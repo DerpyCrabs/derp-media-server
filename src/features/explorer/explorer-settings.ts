@@ -5,12 +5,7 @@ import { queryCache } from '@/lib/api/cache'
 import type { GlobalSettings } from '@/lib/models/settings-types'
 import { observeQuery } from '@effectweb/query'
 export function createExplorerSettings() {
-  const owner = modelOwner({
-    result: AsyncResult.initial<GlobalSettings, Error>() as AsyncResult.AsyncResult<
-      GlobalSettings,
-      Error
-    >,
-  })
+  const owner = modelOwner({ result: AsyncResult.initial<GlobalSettings, Error>() })
   const query = observeQuery(owner, queryCache, settingsQuery, 'result')
   query.select(true)
   return {

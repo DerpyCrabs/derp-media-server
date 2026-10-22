@@ -50,10 +50,7 @@ export const MoveToDialog = controllerView(
         props,
         selectedRoot: computeSourceRoot(props.filePath, props.editableFolders),
         browsePath: computeInitialBrowse(props.filePath, props.editableFolders),
-        result: AsyncResult.initial<{ files: FileItem[] }, Error>() as AsyncResult.AsyncResult<
-          { files: FileItem[] },
-          Error
-        >,
+        result: AsyncResult.initial<{ files: FileItem[] }, Error>(),
       })
       const observer = observeQuery(owner, queryCache, destinationQuery, 'result')
       const browse = (path: string) => {

@@ -13,24 +13,11 @@ export const DesktopWorkspace = controllerView(
   view((model) => {
     const {
       editableOpenBrowser,
-      setEditableWorkspace,
-      windowActions,
       editableFocusWindow,
       editableCloseWindow,
       editableSetWindowMinimized,
-      editableToggleFullscreen,
-      beginPointerGesture,
-      editableActivateTab,
-      editableCloseTab,
-      editableToggleTabPinned,
-      editableHandleTabPullStart,
-      editableDropFileToTabBar,
-      editableStartSplitPaneDrag,
       setLayoutPicker,
       editableHandleWorkspaceTilingPick,
-      editableOpenLayoutPicker,
-      moveWindowDrag,
-      endWindowDrag,
       setWorkspacePanelOpen,
       beginCrossWorkspaceHover,
       toggleWorkspacePanelFromTaskbar,
@@ -97,46 +84,15 @@ export const DesktopWorkspace = controllerView(
             </div>
           ) : null}
           <DesktopWorkspaceCanvas
+            groups={model.windowGroups}
             empty={{ hasWindows: hasWorkspaceWindows, openBrowser: editableOpenBrowser }}
-            document={{
-              state: workspace,
-              onSet: setEditableWorkspace,
-              groupIds: orderedWindowGroupIds,
-            }}
-            content={{
-              editableFolders: () => model.editableFolders,
-              knowledgeBases: () => model.settings?.knowledgeBases ?? [],
-              fileIconContext: workspaceFileIconContext,
-              windowActions,
-            }}
-            windows={{
-              focus: editableFocusWindow,
-              close: editableCloseWindow,
-              minimize: editableSetWindowMinimized,
-              toggleFullscreen: editableToggleFullscreen,
-              beginPointerGesture,
-            }}
-            tabs={{
-              activate: editableActivateTab,
-              close: editableCloseTab,
-              togglePinned: editableToggleTabPinned,
-              pull: editableHandleTabPullStart,
-              dropFile: editableDropFileToTabBar,
-              startSplitDrag: editableStartSplitPaneDrag,
-            }}
             picker={{
               state: layoutPicker,
               close: () => setLayoutPicker(null),
               pick: editableHandleWorkspaceTilingPick,
               setHover: snap.actions.setTilingPickerHoverPreview,
-              open: editableOpenLayoutPicker,
             }}
-            snap={{
-              model: snap,
-              canMutate: () => model.editable,
-              moveDrag: moveWindowDrag,
-              endDrag: endWindowDrag,
-            }}
+            snap={{ model: snap }}
           />
           {fileOpenTargetPick
             ? ((hid) => {

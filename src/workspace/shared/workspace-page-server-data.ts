@@ -5,7 +5,7 @@ import { settingsQuery, configQuery } from '@/lib/api/queries'
 import type { WorkspaceSettings } from '@/workspace/model/workspace-settings-types'
 import type { WorkspaceTransition } from '@/lib/models/settings-types'
 import type { TaskbarPin as PinnedTaskbarItem } from '@/lib/models/taskbar-pins'
-import { available, modelOwner } from 'effectweb'
+import { available, mapSource, modelOwner } from 'effectweb'
 import { Effect, Schema } from 'effect'
 import { observeQuery } from '@effectweb/query'
 
@@ -123,17 +123,22 @@ export function createWorkspacePageServerData() {
       'queue',
     )
   }
+  const viewSource = mapSource(
+    owner.source,
+    ({ settings, editableFolders }) => ({ settings, editableFolders }),
+    (a, b) => a.settings === b.settings && a.editableFolders === b.editableFolders,
+  )
+  const emptyPins: PinnedTaskbarItem[] = []
   return {
-    source: owner.source,
+    source: viewSource,
     dispose: owner.dispose,
     settingsQuery: {
       get data(): WorkspaceSettings | undefined {
-        return structuredClone(owner.read().settings) as WorkspaceSettings | undefined
+        return owner.read().settings
       },
     },
-    editableFolders: () => [...owner.read().editableFolders],
-    serverPinsList: () =>
-      structuredClone(owner.read().settings?.workspaceTaskbarPins ?? []) as PinnedTaskbarItem[],
+    editableFolders: () => owner.read().editableFolders,
+    serverPinsList: () => owner.read().settings?.workspaceTaskbarPins ?? emptyPins,
     addPin: (pin: PinnedTaskbarItem) => pinCommand({ kind: 'add', pin }),
     removePin: (id: string) => pinCommand({ kind: 'remove', id }),
     reorderPins: (ids: string[]) => pinCommand({ kind: 'reorder', ids }),

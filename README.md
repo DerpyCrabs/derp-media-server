@@ -15,7 +15,7 @@ Self-hosted media library with a **Effect + EffectWeb** + Vite web UI and a **Ru
 
 **Needs:** [Rust](https://www.rust-lang.org/tools/install) and [Bun](https://bun.sh). **Optional:** FFmpeg and ffprobe for video thumbnails, track selection, subtitles, compatibility playback, audio-only video playback and tests.
 
-The frontend uses the local EffectWeb packages. Keep its checkout beside this repository at `../EffectWeb` and build its packages before installing dependencies.
+The frontend uses published EffectWeb packages pinned together to `0.14.0`, with Effect `4.0.6`. A local EffectWeb checkout is not required.
 
 ```bash
 bun install

@@ -59,15 +59,9 @@ export function createHermesVirtualDirectory(options: HermesVirtualDirectoryOpti
     detail: null as { file: FileItem; entry: VirtualEntry } | null,
     deleteAction: null as 'deletePermanently' | 'deleteProject' | null,
     actionDialog: null as VirtualActionDialog | null,
-    choices: AsyncResult.initial<
-      InfiniteData<DirectoryListing, number>,
-      Error
-    >() as AsyncResult.AsyncResult<InfiniteData<DirectoryListing, number>, Error>,
-    detailResult: AsyncResult.initial<DetailResponse, Error>() as AsyncResult.AsyncResult<
-      DetailResponse,
-      Error
-    >,
-    operation: AsyncResult.initial<unknown, Error>() as AsyncResult.AsyncResult<unknown, Error>,
+    choices: AsyncResult.initial<InfiniteData<DirectoryListing, number>, Error>(),
+    detailResult: AsyncResult.initial<DetailResponse, Error>(),
+    operation: AsyncResult.initial<unknown, Error>(),
   })
   const choices = owner.own(infiniteResource(queryCache, fileBrowserQuery))
   owner.own(choices.subscribe((choices) => owner.patch({ choices })))

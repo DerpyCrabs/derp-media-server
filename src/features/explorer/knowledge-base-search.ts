@@ -24,10 +24,7 @@ export function createKnowledgeBaseSearch(context: () => Context) {
     query: '',
     debouncedQuery: '',
     open: false,
-    result: AsyncResult.initial<SearchResponse, Error>() as AsyncResult.AsyncResult<
-      SearchResponse,
-      Error
-    >,
+    result: AsyncResult.initial<SearchResponse, Error>(),
   })
   let input: HTMLInputElement | undefined
   const observer = observeQuery(owner, queryCache, searchQuery, 'result')

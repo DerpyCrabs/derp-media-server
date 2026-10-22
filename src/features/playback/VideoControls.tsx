@@ -86,7 +86,7 @@ function controlsController(props: Props) {
     info: undefined as VideoInfo | undefined,
     preferences: undefined as VideoPreferences | undefined,
     infoError: false,
-    saved: AsyncResult.initial() as AsyncResult.AsyncResult<unknown, unknown>,
+    saved: AsyncResult.initial<unknown, unknown>(),
   })
   const save = (video: VideoPreferences['video'], global?: VideoPreferences['global']) => {
     const path = owner.read().props.path

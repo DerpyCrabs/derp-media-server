@@ -22,11 +22,13 @@ export function resolveCanvasSelection(
       selectedIds: activeWindowId ? [activeWindowId] : [],
     }
   }
-  return {
-    activeWindowId,
-    focusedId: state.focusedId && ids.has(state.focusedId) ? state.focusedId : null,
-    selectedIds: state.selectedIds.filter((id) => ids.has(id)),
-  }
+  const focusedId = state.focusedId && ids.has(state.focusedId) ? state.focusedId : null
+  const selectedIds = state.selectedIds.every((id) => ids.has(id))
+    ? state.selectedIds
+    : state.selectedIds.filter((id) => ids.has(id))
+  return focusedId === state.focusedId && selectedIds === state.selectedIds
+    ? state
+    : { activeWindowId, focusedId, selectedIds }
 }
 
 export function createCanvasSelection(options: {
@@ -43,11 +45,26 @@ export function createCanvasSelection(options: {
     focusedId: initialActiveWindowId,
     selectedIds: initialActiveWindowId ? [initialActiveWindowId] : [],
   })
-  const resolved = () =>
-    resolveCanvasSelection(
-      { ...owner.read(), selectedIds: [...owner.read().selectedIds] },
-      options.workspace(),
-    )
+  let previousState: CanvasSelectionState | undefined
+  let previousDocument: PersistedWindowState | null | undefined
+  let current: CanvasSelectionState
+  const resolved = () => {
+    const state = owner.read()
+    const document = options.workspace()
+    if (state !== previousState || document !== previousDocument) {
+      const next = resolveCanvasSelection(state, document)
+      const unchanged =
+        current &&
+        current.activeWindowId === next.activeWindowId &&
+        current.focusedId === next.focusedId &&
+        current.selectedIds.length === next.selectedIds.length &&
+        current.selectedIds.every((id, index) => id === next.selectedIds[index])
+      if (!unchanged) current = next
+      previousState = state
+      previousDocument = document
+    }
+    return current
+  }
   const setLocal = (value: CanvasSelectionState) => owner.patch(value)
 
   function replace(id: string) {

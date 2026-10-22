@@ -1,4 +1,4 @@
-import { domBinding, component, view } from 'effectweb'
+import { domBinding, component, view, type DomLifetime } from 'effectweb'
 import ArrowUp from '@effectweb/lucide/icons/arrow-up'
 import LocateFixed from '@effectweb/lucide/icons/locate-fixed'
 import { getVirtualFileScroller } from './virtual-directory-scroll'
@@ -23,9 +23,9 @@ const visibilityBinding = (
     video: boolean
     patch: (state: { playing: boolean; video: boolean }) => void
   },
+  lifetime: DomLifetime,
 ) => {
-  let frame = 0
-  const update = () => {
+  const read = () => {
     const state = current()
     const file = playingElement(state.path)
     const playing =
@@ -33,12 +33,16 @@ const visibilityBinding = (
       (file ? outside(file) : !!getVirtualFileScroller(state.scope)?.hasPath(state.path))
     const videoElement = document.querySelector<HTMLElement>('[data-video-player-inline="true"]')
     const video = !!videoElement && outside(videoElement)
-    if (playing !== state.playing || video !== state.video) state.patch({ playing, video })
+    return { playing, video }
   }
-  const schedule = () => {
-    cancelAnimationFrame(frame)
-    frame = requestAnimationFrame(update)
-  }
+  const measurement = lifetime.measure({
+    read,
+    write: ({ playing, video }) => {
+      const state = current()
+      if (playing !== state.playing || video !== state.video) state.patch({ playing, video })
+    },
+  })
+  const schedule = measurement.schedule
   const observer = new MutationObserver(schedule)
   observer.observe(document.body, {
     attributeFilter: ['data-video-player-inline'],
@@ -52,7 +56,6 @@ const visibilityBinding = (
   return {
     update: schedule,
     dispose: () => {
-      cancelAnimationFrame(frame)
       observer.disconnect()
       window.removeEventListener('scroll', schedule)
       window.removeEventListener('resize', schedule)

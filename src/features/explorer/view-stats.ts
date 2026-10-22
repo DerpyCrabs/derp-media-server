@@ -7,9 +7,7 @@ import { groups, queryCache } from '@/lib/api/cache'
 import { observeQuery } from '@effectweb/query'
 const incrementSlots = (key: string | number) => ['increment-view', key] as const
 export function createViewStats(options?: { includeCounts?: boolean }) {
-  const owner = modelOwner({
-    result: AsyncResult.initial<ViewStats, Error>() as AsyncResult.AsyncResult<ViewStats, Error>,
-  })
+  const owner = modelOwner({ result: AsyncResult.initial<ViewStats, Error>() })
   const query = observeQuery(owner, queryCache, statsQuery, 'result')
   if (options?.includeCounts !== false) query.select(true)
   return {

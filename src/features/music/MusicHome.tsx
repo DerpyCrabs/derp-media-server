@@ -14,10 +14,7 @@ export const MusicHome = controllerView(
   {
     controller: (_props: Record<string, never>) => {
       const owner = modelOwner({
-        result: AsyncResult.initial<MusicHomeData, Error>() as AsyncResult.AsyncResult<
-          MusicHomeData,
-          Error
-        >,
+        result: AsyncResult.initial<MusicHomeData, Error>(),
         refresh: () => resource.refresh(),
       })
       const resource = observeQuery(owner, queryCache, musicHomeQuery, 'result')

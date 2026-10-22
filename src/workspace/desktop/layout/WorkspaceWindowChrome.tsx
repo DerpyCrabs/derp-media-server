@@ -1,6 +1,5 @@
 import { component, view, domBinding, observe, type JSX } from 'effectweb'
 import type { FileDragData } from '@/lib/files/file-drag-data'
-import type { PersistedWorkspaceState } from '@/workspace/model/workspace'
 import type { WindowDefinition as WorkspaceWindowDefinition } from '@/lib/models/window-model'
 import type { FileIconContext } from '@/features/explorer/file-icon'
 import { createDefaultBounds } from '@/workspace/model/workspace-geometry'
@@ -11,7 +10,6 @@ import {
   getWorkspaceSnapResizeHandleMap,
 } from './workspace-snap-resize-handles'
 import type { MergeTarget } from './merge-target'
-import { groupIdForWindow } from '../../tabs/tab-group-ops'
 import { WorkspaceWindowTitlebar } from '@/workspace/shared/WorkspaceWindowTitlebar'
 import { workspaceLayoutPreferences } from '@/workspace/model/workspace-preferred-snap-store'
 import { applyWorkspaceTileGap } from '@/workspace/model/workspace-tile-gaps'
@@ -27,7 +25,6 @@ export type WorkspaceWindowChromeProps = {
     groupId: string
     tabs: Accessor<readonly WorkspaceWindowDefinition[]>
     visibleTabId: Accessor<string>
-    workspace: Accessor<PersistedWorkspaceState | null>
     isActive: boolean
   }
   environment: {
@@ -117,10 +114,7 @@ export const WorkspaceWindowChrome = component<
       ) => {
         patch({ viewport: typeof value === 'function' ? value(viewport()) : value })
       }
-      const workspace = props.window.workspace()
-      const groupWindows =
-        workspace?.windows.filter((window) => groupIdForWindow(window) === props.window.groupId) ??
-        props.window.tabs()
+      const groupWindows = props.window.tabs()
       const leaderId = groupWindows[0]?.id ?? props.window.leaderId
       const leader = groupWindows.find((window) => window.id === leaderId)
       const bounds = leader?.layout?.bounds ?? createDefaultBounds(0, leader?.type ?? 'browser')
@@ -160,9 +154,7 @@ export const WorkspaceWindowChrome = component<
         const container = props.environment.container()
         if (!container) return
         const initialLeaderId = liveLeaderId()
-        const initialWorkspace = props.window.workspace()
-        if (!initialWorkspace) return
-        const wb = initialWorkspace.windows.find((w) => w.id === initialLeaderId)?.layout?.bounds
+        const wb = props.window.tabs().find((w) => w.id === initialLeaderId)?.layout?.bounds
         if (!wb) return
         const pointerGesture = props.commands.beginPointerGesture()
         e.preventDefault()
@@ -226,8 +218,6 @@ export const WorkspaceWindowChrome = component<
       const startResize = (direction: string, e: PointerEvent) => {
         const container = props.environment.container()
         if (!container) return
-        const initialWorkspace = props.window.workspace()
-        if (!initialWorkspace) return
         const pointerGesture = props.commands.beginPointerGesture()
         e.preventDefault()
         e.stopPropagation()

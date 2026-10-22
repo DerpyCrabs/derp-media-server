@@ -31,7 +31,7 @@ const slots = { poll: 'warming-feed', notice: 'feed-notice', debounce: 'library-
 export function createForYou(props: Props) {
   const session = getPlaybackSession()
   // Results of the feed's actions, published by `owner.task` under the same keys.
-  const initialTask = () => AsyncResult.initial() as AsyncResult.AsyncResult<unknown, unknown>
+  const initialTask = () => AsyncResult.initial<unknown, unknown>()
   const owner = modelOwner({
     props,
     category: 'all' as Category,
@@ -44,14 +44,8 @@ export function createForYou(props: Props) {
     likes: {} as Record<string, boolean>,
     menu: undefined as { item: Pick; x: number; y: number } | undefined,
     waitingForRecommendations: false,
-    home: AsyncResult.initial<InfiniteData<Home, PageParam>, unknown>() as AsyncResult.AsyncResult<
-      InfiniteData<Home, PageParam>,
-      unknown
-    >,
-    reading: AsyncResult.initial<{ items: Pick[] }, unknown>() as AsyncResult.AsyncResult<
-      { items: Pick[] },
-      unknown
-    >,
+    home: AsyncResult.initial<InfiniteData<Home, PageParam>, unknown>(),
+    reading: AsyncResult.initial<{ items: Pick[] }, unknown>(),
     refreshResult: initialTask(),
     askResult: initialTask(),
     feedbackResult: initialTask(),

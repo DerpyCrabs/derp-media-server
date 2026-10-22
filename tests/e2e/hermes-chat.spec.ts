@@ -725,7 +725,7 @@ test('opens Hermes sessions from Media Center in a fullscreen chat dialog', asyn
     Object.defineProperty(window, '__INITIAL_DATA__', {
       configurable: true,
       get: () => undefined,
-      set: () => undefined,
+      set: () => {},
     })
   })
   await page.route('**/api/files?*', async (route) => {

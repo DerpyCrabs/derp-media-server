@@ -1,4 +1,4 @@
-import { component, view, domBinding, observe, list } from 'effectweb'
+import { component, view, domBinding, observe, list, type DomLifetime } from 'effectweb'
 import {
   breadcrumbFloating,
   clearCompactPathOpenOnly,
@@ -36,25 +36,30 @@ type LayoutBinding = {
     compactOnly: boolean,
   ) => void
 }
-const breadcrumbLayout = (element: HTMLDivElement, current: () => LayoutBinding) => {
+const breadcrumbLayout = (
+  element: HTMLDivElement,
+  current: () => LayoutBinding,
+  lifetime: DomLifetime,
+) => {
   const calculate = () => {
     const value = current()
     const bc = value.crumbs
-    const commitLayout = value.commitLayout
+    const commitLayout =
+      (visible: Set<number>, ellipsis: boolean, skipsParent: boolean, compactOnly: boolean) => () =>
+        current().commitLayout(visible, ellipsis, skipsParent, compactOnly)
     const container = element.querySelector<HTMLDivElement>('[data-testid="breadcrumb-bar"]')
     const measure = element.querySelector<HTMLDivElement>('[data-breadcrumb-measure]')
-    if (!container || !measure) return
+    if (!container || !measure) return undefined
     const layoutObserverTarget = () => {
       const slot = element.parentElement
       return slot?.hasAttribute('data-breadcrumb-slot') ? slot : container
     }
     if (bc.length === 0) {
-      commitLayout(new Set<number>(), false, false, false)
-      return
+      return commitLayout(new Set<number>(), false, false, false)
     }
     const layoutEl = layoutObserverTarget()
     const barEl = container
-    if (!layoutEl || !barEl) return
+    if (!layoutEl || !barEl) return undefined
     const availableWidth = layoutEl.clientWidth
     const gap = parseFloat(window.getComputedStyle(barEl).gap) || 0
     const safetyMargin = 10
@@ -74,54 +79,46 @@ const breadcrumbLayout = (element: HTMLDivElement, current: () => LayoutBinding)
     const allIndices = bc.map((_, i) => i)
     const n = bc.length
     if (n === 1) {
-      commitLayout(new Set([0]), false, false, false)
-      return
+      return commitLayout(new Set([0]), false, false, false)
     }
     if (n === 2) {
       if (rowTotalFor([0, 1], false) <= availableWidth) {
-        commitLayout(new Set([0, 1]), false, false, false)
+        return commitLayout(new Set([0, 1]), false, false, false)
       } else {
-        commitLayout(new Set([1]), false, false, true)
+        return commitLayout(new Set([1]), false, false, true)
       }
-      return
     }
     if (n === 3) {
       if (rowTotalFor([0, 1, 2], false) <= availableWidth) {
-        commitLayout(new Set([0, 1, 2]), false, false, false)
+        return commitLayout(new Set([0, 1, 2]), false, false, false)
       } else {
-        commitLayout(new Set([2]), false, false, true)
+        return commitLayout(new Set([2]), false, false, true)
       }
-      return
     }
     if (rowTotalFor(allIndices, false) <= availableWidth) {
-      commitLayout(new Set(allIndices), false, false, false)
-      return
+      return commitLayout(new Set(allIndices), false, false, false)
     }
     const tail = [0, n - 2, n - 1] as number[]
     if (rowTotalFor(tail, true) <= availableWidth) {
-      commitLayout(new Set(tail), true, false, false)
-      return
+      return commitLayout(new Set(tail), true, false, false)
     }
     const homeCurrent = [0, n - 1] as number[]
     if (rowTotalFor(homeCurrent, true) <= availableWidth) {
-      commitLayout(new Set(homeCurrent), true, true, false)
-      return
+      return commitLayout(new Set(homeCurrent), true, true, false)
     }
-    commitLayout(new Set([n - 1]), false, false, true)
+    return commitLayout(new Set([n - 1]), false, false, true)
   }
-  let frame = 0
-  const schedule = () => {
-    cancelAnimationFrame(frame)
-    frame = requestAnimationFrame(calculate)
-  }
+  const measurement = lifetime.measure({ read: calculate, write: (commit) => commit?.() })
+  const schedule = () => measurement.schedule()
   const observer = new ResizeObserver(schedule)
   observer.observe(element.parentElement ?? element)
+  document.fonts.addEventListener('loadingdone', schedule)
   schedule()
   return {
     update: schedule,
     dispose: () => {
       observer.disconnect()
-      cancelAnimationFrame(frame)
+      document.fonts.removeEventListener('loadingdone', schedule)
     },
   }
 }
@@ -141,14 +138,10 @@ const BreadcrumbsContent = component(
   },
   view((local, patch) => {
     const props = local.props
-    const visibleIndices = () => local.visibleIndices,
-      setVisibleIndices = (value: Set<number>) => patch({ visibleIndices: value })
-    const pathEllipsisVisible = () => local.pathEllipsisVisible,
-      setPathEllipsis = (value: boolean) => patch({ pathEllipsisVisible: value })
-    const ellipsisSkipsParent = () => local.ellipsisSkipsParent,
-      setEllipsisSkipsParent = (value: boolean) => patch({ ellipsisSkipsParent: value })
-    const compactPathOnly = () => local.compactPathOnly,
-      setCompactPathOnly = (value: boolean) => patch({ compactPathOnly: value })
+    const visibleIndices = () => local.visibleIndices
+    const pathEllipsisVisible = () => local.pathEllipsisVisible
+    const ellipsisSkipsParent = () => local.ellipsisSkipsParent
+    const compactPathOnly = () => local.compactPathOnly
     const pathPickerButtonEl = () => local.pathPickerButtonEl,
       setPathPickerButtonEl = (value: HTMLButtonElement | null) =>
         patch({ pathPickerButtonEl: value })
@@ -181,11 +174,13 @@ const BreadcrumbsContent = component(
         return
       if (compactPathOnly() !== compactOnly) setBreadcrumbFolderMenu(null)
       if (!compactOnly) clearCompactPathOpenOnly()
-      if (!ellipsis || compactOnly) setInlinePathMenuOpen(false)
-      setVisibleIndices(visible)
-      setPathEllipsis(ellipsis)
-      setEllipsisSkipsParent(skipsParent)
-      setCompactPathOnly(compactOnly)
+      patch({
+        visibleIndices: visible,
+        pathEllipsisVisible: ellipsis,
+        ellipsisSkipsParent: skipsParent,
+        compactPathOnly: compactOnly,
+        ...(!ellipsis || compactOnly ? { inlinePathMenuOpen: false } : {}),
+      })
     }
     const effectiveVisible = () => {
       const s = visibleIndices()

@@ -1,3 +1,4 @@
+import { scrollAffectsElement } from '@/lib/ui/scroll-affects-element'
 import { MediaType, type FileItem } from '@/lib/files/types'
 import { buildThumbnailUrl } from '@/lib/media/build-media-url'
 import { observeMediaVisibility, createMediaWarmup } from '@/lib/media/media-warmup'
@@ -45,18 +46,21 @@ export function mountThumbnailWarmup(target: HTMLElement, files: () => readonly 
     clearTimeout(timer)
     timer = setTimeout(update, 150)
   }
+  const onScroll = (event: Event) => {
+    if (scrollAffectsElement(event, target)) schedule()
+  }
   const stopVisibility = observeMediaVisibility(target, (next) => {
     visible = next
     schedule()
   })
   const observer = new MutationObserver(schedule)
   observer.observe(target, { childList: true, subtree: true })
-  document.addEventListener('scroll', schedule, { capture: true, passive: true })
+  document.addEventListener('scroll', onScroll, { capture: true, passive: true })
   return () => {
     clearTimeout(timer)
     stopVisibility()
     observer.disconnect()
     warmup.dispose()
-    document.removeEventListener('scroll', schedule, true)
+    document.removeEventListener('scroll', onScroll, true)
   }
 }

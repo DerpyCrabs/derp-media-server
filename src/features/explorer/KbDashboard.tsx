@@ -55,10 +55,7 @@ export const KbDashboard = controllerView(
     controller: (props: Props) => {
       const owner = modelOwner({
         props,
-        result: AsyncResult.initial<{ results: RecentFile[] }, Error>() as AsyncResult.AsyncResult<
-          { results: RecentFile[] },
-          Error
-        >,
+        result: AsyncResult.initial<{ results: RecentFile[] }, Error>(),
         enableDrag: finePointerDragEnabled(),
         now: Date.now(),
       })

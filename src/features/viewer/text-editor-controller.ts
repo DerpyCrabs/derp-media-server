@@ -57,7 +57,7 @@ export function textController(props: TextEditorPaneProps) {
     version: '',
     copied: false,
     // The latest save: waiting while a save runs or is queued, failed until the next success.
-    saved: AsyncResult.initial() as AsyncResult.AsyncResult<void, unknown>,
+    saved: AsyncResult.initial<void, unknown>(),
   })
   const actions = {
     edit: (edit: string) => {

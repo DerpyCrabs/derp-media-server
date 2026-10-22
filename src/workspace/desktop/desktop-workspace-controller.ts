@@ -1,8 +1,9 @@
+import { desktopWindowGroups, type DesktopWindowGroupModel } from './desktop-window-groups'
 import { Effect, Schema } from 'effect'
 import { modelOwner } from 'effectweb'
 import { apiSchemaEffect } from '@/lib/api/client'
 import { virtualOpenTargetSchema } from '@/lib/files/file-schemas'
-import { projectionSource } from 'effectweb/advanced'
+import { projectionSource, shareValue } from 'effectweb/advanced'
 import { randomId } from '@/lib/random-id'
 import type { FileItem } from '@/lib/files/types'
 import { MediaType } from '@/lib/files/types'
@@ -31,10 +32,18 @@ import { viewerBoundsForVideoOpen } from '@/workspace/model/workspace-video-boun
 import { workspaceLayoutPreferences } from '@/workspace/model/workspace-preferred-snap-store'
 import { getFileOpenTarget } from '@/workspace/shared/file-open-target'
 import { pickWorkspaceWindowAtClientPoint } from './workspace-file-open-target-picker'
-import { EMPTY_FILE_ICON_CONTEXT, type FileIconContext } from '@/features/explorer/file-icon'
+import {
+  EMPTY_FILE_ICON_CONTEXT,
+  fileIconContextEquals,
+  type FileIconContext,
+} from '@/features/explorer/file-icon'
 import { browserHistory, navigateSearchParams } from '@/lib/browser/browser-history'
 import { createWorkspaceSnapDragModel } from './layout/create-workspace-snap-drag-model'
 import { createWorkspacePageServerData } from '../shared/workspace-page-server-data'
+import {
+  workspacePresentationSource,
+  workspacePlaybackSource,
+} from '../shared/workspace-presentation-sources'
 import type { WorkspaceSession } from '../shared/WorkspaceSession'
 import {
   clampTabInsertIndex,
@@ -1095,10 +1104,11 @@ export function createDesktopController(props: { session: WorkspaceSession }) {
       return isVideoPath(v)
     })
   }
+  let previousFileIconContext = EMPTY_FILE_ICON_CONTEXT
   const workspaceFileIconContext = (): FileIconContext => {
     const state = playback()
     const playing = state.currentItem?.locator ?? null
-    return {
+    const next: FileIconContext = {
       customIcons: server.settingsQuery.data?.customIcons ?? EMPTY_FILE_ICON_CONTEXT.customIcons,
       knowledgeBases:
         server.settingsQuery.data?.knowledgeBases ?? EMPTY_FILE_ICON_CONTEXT.knowledgeBases,
@@ -1107,6 +1117,8 @@ export function createDesktopController(props: { session: WorkspaceSession }) {
       mediaPlayerIsPlaying: state.phase === 'playing',
       mediaType: state.currentItem ? state.mode : null,
     }
+    if (!fileIconContextEquals(previousFileIconContext, next)) previousFileIconContext = next
+    return previousFileIconContext
   }
   const orderedWindowGroupIds = () => orderedAllGroupIds(workspace()?.windows ?? [])
   const taskbarActiveWindowId = () => workspace()?.activeWindowId ?? null
@@ -1294,6 +1306,40 @@ export function createDesktopController(props: { session: WorkspaceSession }) {
       panelDismissTimer = setTimeout(() => setWorkspacePanelOpen(false), 100)
     }
   }
+  const groupWindows = {
+    focus: editableFocusWindow,
+    close: editableCloseWindow,
+    minimize: editableSetWindowMinimized,
+    toggleFullscreen: editableToggleFullscreen,
+    beginPointerGesture,
+  }
+  const groupTabs = {
+    activate: editableActivateTab,
+    close: editableCloseTab,
+    togglePinned: editableToggleTabPinned,
+    pull: editableHandleTabPullStart,
+    dropFile: editableDropFileToTabBar,
+    startSplitDrag: editableStartSplitPaneDrag,
+  }
+  const groupPicker = { open: editableOpenLayoutPicker }
+  const snapActions = {
+    bindWorkspaceAreaRoot: snap.bindWorkspaceAreaRoot,
+    bindSnapPreview: snap.bindSnapPreview,
+    bindSnapAssistRoot: snap.bindSnapAssistRoot,
+    engageSnapAssistFromHandle: snap.engageSnapAssistFromHandle,
+    disengageSnapAssistFromPanel: snap.disengageSnapAssistFromPanel,
+    restoreDrag: snap.restoreDrag,
+    updateWindowBounds: snap.updateWindowBounds,
+    resizeSnappedWindowBounds: snap.resizeSnappedWindowBounds,
+    setTilingPickerHoverPreview: snap.setTilingPickerHoverPreview,
+  }
+  let groupContent = {
+    editableFolders: server.editableFolders(),
+    knowledgeBases: server.settingsQuery.data?.knowledgeBases ?? [],
+    fileIconContext: workspaceFileIconContext(),
+    windowActions,
+  }
+  let windowGroups: readonly DesktopWindowGroupModel[] = []
   const project = () => {
     const catalog = workspaceRegistry.catalog.value()
     const editable = workspaceRegistry.state.editable()
@@ -1302,10 +1348,39 @@ export function createDesktopController(props: { session: WorkspaceSession }) {
     const pins = server.serverPinsList()
     const folders = server.editableFolders()
     const snapState = snap.source.model()
+    groupContent = shareValue(groupContent, {
+      editableFolders: folders,
+      knowledgeBases: settings?.knowledgeBases ?? [],
+      fileIconContext: workspaceFileIconContext(),
+      windowActions,
+    })
+    windowGroups = desktopWindowGroups(
+      workspace(),
+      {
+        editable,
+        onSet: setEditableWorkspace,
+        content: groupContent,
+        windows: groupWindows,
+        tabs: groupTabs,
+        picker: groupPicker,
+        snap: {
+          model: {
+            workspaceAreaNode: snapState.workspaceAreaNode,
+            mergeTargetPreview: snapState.mergeTargetPreview,
+            dragSnapWindowId: snapState.dragSnapWindowId,
+            actions: snapActions,
+          },
+          moveDrag: moveWindowDrag,
+          endDrag: endWindowDrag,
+        },
+      },
+      windowGroups,
+    )
     const transferActive = crossWorkspaceTransfer!.active()
     const transferReady = crossWorkspaceTransfer!.ready()
     const transferHover = crossWorkspaceTransfer!.hoverTarget()
     return {
+      windowGroups,
       hasWorkspaceWindows: hasWorkspaceWindows(),
       workspace: workspace(),
       orderedWindowGroupIds: orderedWindowGroupIds(),
@@ -1318,7 +1393,6 @@ export function createDesktopController(props: { session: WorkspaceSession }) {
       hasAnyTaskbarItems: hasAnyTaskbarItems(),
       pinnedItems: pinnedItems(),
       pinMenu: pinMenu(),
-      playback: playback(),
       browserSource: browserSource(),
       suppressWorkspaceTaskbarAudioForVideoViewer: suppressWorkspaceTaskbarAudioForVideoViewer(),
       playbackPlayingPath: playbackPlayingPath(),
@@ -1385,20 +1459,7 @@ export function createDesktopController(props: { session: WorkspaceSession }) {
         reorder: (order: string[]) =>
           owner.run(actionSlot, workspaceRegistry.catalog.reorder(order), 'queue'),
       },
-      snap: {
-        ...snapState,
-        actions: {
-          bindWorkspaceAreaRoot: snap.bindWorkspaceAreaRoot,
-          bindSnapPreview: snap.bindSnapPreview,
-          bindSnapAssistRoot: snap.bindSnapAssistRoot,
-          engageSnapAssistFromHandle: snap.engageSnapAssistFromHandle,
-          disengageSnapAssistFromPanel: snap.disengageSnapAssistFromPanel,
-          restoreDrag: snap.restoreDrag,
-          updateWindowBounds: snap.updateWindowBounds,
-          resizeSnappedWindowBounds: snap.resizeSnappedWindowBounds,
-          setTilingPickerHoverPreview: snap.setTilingPickerHoverPreview,
-        },
-      },
+      snap: { ...snapState, actions: snapActions },
       transferActive,
       transferReady,
       transferHover,
@@ -1412,37 +1473,38 @@ export function createDesktopController(props: { session: WorkspaceSession }) {
       synchronize1()
     },
   })
+  const registryView = workspacePresentationSource(workspaceRegistry.source)
   const dependencies = [
     owner.source,
-    workspaceRegistry.source,
+    registryView,
     server.source,
     snap.source,
     crossWorkspaceTransfer!.source,
     browserHistory,
-    playbackSource,
+    workspacePlaybackSource(playbackSource),
     workspaceLayoutPreferences.source,
   ]
   dependencies.forEach((source) => presentation.watch(source))
   presentation.start()
-  const stopSession = workspaceRegistry.source.subscribe(() => snap.updatePreview())
+  const stopSession = registryView.subscribe(() => snap.updatePreview())
+  owner.own(() => {
+    stopSession()
+    cleanup0?.()
+    cleanup1?.()
+    cleanups.forEach((cleanup) => cleanup?.())
+    unblock()
+    server.dispose()
+    snap.dispose()
+    presentation.dispose()
+  })
   return {
     source: presentation,
     lifetime: {
       close: () =>
         owner
           .awaitIdle(actionSlot)
-          .pipe(Effect.andThen(crossWorkspaceTransfer!.close()), Effect.andThen(owner.close())),
-      dispose() {
-        stopSession()
-        cleanup0?.()
-        cleanup1?.()
-        cleanups.forEach((cleanup) => cleanup?.())
-        unblock()
-        server.dispose()
-        snap.dispose()
-        owner.dispose()
-        presentation.dispose()
-      },
+          .pipe(Effect.andThen(crossWorkspaceTransfer!.close()), Effect.ensuring(owner.close())),
+      dispose: owner.dispose,
     },
   }
 }

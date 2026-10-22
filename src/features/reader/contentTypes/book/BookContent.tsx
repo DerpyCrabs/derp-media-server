@@ -1,4 +1,4 @@
-import { domBinding, entities, list, component, view } from 'effectweb'
+import { domBinding, entities, list, component, view, type DomLifetime } from 'effectweb'
 import type { RenderedBook } from './book-sanitize'
 import type { BookAppearance } from '../../reader-state-client'
 type ChapterProps = {
@@ -17,28 +17,28 @@ const chapterObserver = (
     changed: (visible: boolean) => void
     measured: (height: number) => void
   },
+  lifetime: DomLifetime,
 ) => {
   const observer = new IntersectionObserver(
     ([entry]) => current().changed(Boolean(entry?.isIntersecting)),
     { root: current().props.viewport, rootMargin: '1200px 0px', threshold: 0.01 },
   )
   observer.observe(element)
-  let frame = 0
-  const resize = new ResizeObserver(() => {
-    cancelAnimationFrame(frame)
-    frame = requestAnimationFrame(() => {
+  const measurement = lifetime.measure({
+    read: () => (current().near ? element.offsetHeight : undefined),
+    write: (height) => {
       const model = current()
-      if (model.near && element.offsetHeight > 80) {
-        model.measured(element.offsetHeight)
-        model.props.onMeasure(model.props.index, element.offsetHeight)
+      if (height !== undefined && height > 80) {
+        model.measured(height)
+        model.props.onMeasure(model.props.index, height)
       }
-    })
+    },
   })
+  const resize = new ResizeObserver(measurement.schedule)
   resize.observe(element)
   return () => {
     observer.disconnect()
     resize.disconnect()
-    cancelAnimationFrame(frame)
   }
 }
 const chapterHtml = (element: HTMLDivElement, current: () => string) => {

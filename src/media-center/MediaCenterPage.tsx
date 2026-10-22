@@ -32,18 +32,9 @@ export const MediaCenterPage = controllerView(
         audioPlayerVisible:
           !!playbackSource.model().currentItem && playbackSource.model().mode === 'audio',
         feedActions: undefined as HTMLDivElement | undefined,
-        ai: AsyncResult.initial<IndexingStatus, Error>() as AsyncResult.AsyncResult<
-          IndexingStatus,
-          Error
-        >,
-        config: AsyncResult.initial<ServerConfig, Error>() as AsyncResult.AsyncResult<
-          ServerConfig,
-          Error
-        >,
-        settings: AsyncResult.initial<WorkspaceSettings, Error>() as AsyncResult.AsyncResult<
-          WorkspaceSettings,
-          Error
-        >,
+        ai: AsyncResult.initial<IndexingStatus, Error>(),
+        config: AsyncResult.initial<ServerConfig, Error>(),
+        settings: AsyncResult.initial<WorkspaceSettings, Error>(),
       })
       const actions = {
         setSearchOpen: (searchOpen: boolean) => owner.patch({ searchOpen }),

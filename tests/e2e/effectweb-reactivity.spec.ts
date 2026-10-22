@@ -15,6 +15,28 @@ function captureDiagnostics(page: Page) {
   }
 }
 
+test('leaving a canvas releases its document layout through awaited controller cleanup', async ({
+  page,
+}) => {
+  const diagnostics = captureDiagnostics(page)
+  await page.goto('/?dir=Documents')
+  await expect(page.getByRole('button', { name: 'Display options' })).toBeVisible()
+  const overflow = () =>
+    page.evaluate(() => [document.documentElement.style.overflow, document.body.style.overflow])
+  const initial = await overflow()
+  for (let visit = 0; visit < 2; visit++) {
+    await page.evaluate((id) => {
+      history.pushState(null, '', `/workspace?ws=${id}&new=canvas`)
+    }, `cleanup-canvas-${Date.now()}-${visit}`)
+    await expect(page.locator('[data-workspace-opened]')).toBeAttached()
+    await expect.poll(overflow).toEqual(['hidden', 'hidden'])
+    await page.evaluate(() => history.pushState(null, '', '/?dir=Documents'))
+    await expect(page.locator('[data-workspace-opened]')).toHaveCount(0)
+    await expect.poll(overflow).toEqual(initial)
+  }
+  diagnostics.expectNone()
+})
+
 test('common application flows have no development warnings or errors', async ({ page }) => {
   const diagnostics = captureDiagnostics(page)
 
