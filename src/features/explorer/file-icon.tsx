@@ -214,6 +214,7 @@ const GridMediaThumbnail = component(
   {
     init: (_props: { file: FileItem; ctx: FileIconContext }) => ({
       queuedSrc: undefined as string | undefined,
+      priority: 'low' as 'high' | 'low',
       failed: false,
       attempt: 0,
     }),
@@ -224,18 +225,13 @@ const GridMediaThumbnail = component(
     const base = buildThumbnailUrl(file.path, file.version)
     const url = `${base}${model.attempt ? `${base.includes('?') ? '&' : '?'}retry=${model.attempt}` : ''}`
     return (
-      <div
-        class='absolute inset-0'
-        use={domBinding(
-          { url, generated: file.thumbnailGenerated === true, patch },
-          thumbnailBinding,
-        )}
-      >
+      <div class='absolute inset-0' use={domBinding({ url, patch }, thumbnailBinding)}>
         {model.queuedSrc && !model.failed ? (
           <img
             src={model.queuedSrc}
             alt=''
             loading='eager'
+            fetchpriority={model.priority}
             decoding='async'
             class='h-full w-full object-cover'
             data-testid={

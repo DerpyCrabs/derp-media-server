@@ -110,6 +110,70 @@ test.describe('Folder virtualization', () => {
       .toBe(true)
   })
 
+  test('preloads mounted thumbnails three rows above and below the viewport', async ({ page }) => {
+    await page.route('**/api/thumbnail/**', (route) =>
+      route.fulfill({
+        contentType: 'image/png',
+        body: fs.readFileSync(path.resolve(mediaDirName, 'Images/photo.png')),
+      }),
+    )
+    await page.goto(`/?dir=${encodeURIComponent(mediaFolderName)}`)
+    await page.getByRole('button', { name: 'Display options' }).click()
+    await page.getByRole('menuitem', { name: 'Grid view' }).click()
+    await expect(page.getByText('image-0000.png')).toBeVisible()
+    await page.evaluate(() => window.scrollTo(0, 3000))
+    await expect
+      .poll(() =>
+        page.locator('[data-testid=file-browser] [data-file-path]').evaluateAll((cards) => {
+          let above = 0
+          let below = 0
+          let beyond = 0
+          for (const card of cards) {
+            const hero = card.querySelector('.aspect-video')
+            if (!hero) continue
+            const rect = hero.getBoundingClientRect()
+            const margin = Math.ceil((card.getBoundingClientRect().height + 16) * 3)
+            const image = hero.querySelector('img')
+            const loaded = image?.complete && image.naturalWidth > 0
+            if (rect.bottom > -margin && rect.bottom < 0) {
+              if (!loaded || image.getAttribute('fetchpriority') !== 'low')
+                return {
+                  path: card.getAttribute('data-file-path'),
+                  loaded,
+                  priority: image?.getAttribute('fetchpriority'),
+                  top: rect.top,
+                  bottom: rect.bottom,
+                  margin,
+                }
+              above++
+            } else if (rect.top > innerHeight && rect.top < innerHeight + margin) {
+              if (!loaded || image.getAttribute('fetchpriority') !== 'low')
+                return {
+                  path: card.getAttribute('data-file-path'),
+                  loaded,
+                  priority: image?.getAttribute('fetchpriority'),
+                  top: rect.top,
+                  bottom: rect.bottom,
+                  margin,
+                }
+              below++
+            } else if (rect.top > innerHeight + margin || rect.bottom < -margin) {
+              if (image)
+                return {
+                  unexpected: card.getAttribute('data-file-path'),
+                  top: rect.top,
+                  bottom: rect.bottom,
+                  margin,
+                }
+              beyond++
+            }
+          }
+          return above > 0 && below > 0 && beyond > 0 ? true : { above, below, beyond }
+        }),
+      )
+      .toBe(true)
+  })
+
   test('scrolls the grid while thumbnail requests are queued', async ({ page }) => {
     const queuedFolderName = `VirtualQueued-${crypto.randomUUID()}`
     fs.cpSync(
