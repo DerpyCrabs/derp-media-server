@@ -993,6 +993,26 @@ test.describe('Workspace Text Viewer', () => {
     await test.step('displays text content', async () => {
       await expect(viewer.getByText('This is a test readme file')).toBeVisible()
     })
+    await test.step('selects and copies read-only text without allowing edits', async () => {
+      const text = viewer.locator('pre')
+      const original = await text.textContent()
+      const bounds = await text.evaluate((element) => {
+        const range = document.createRange()
+        range.setStart(element.firstChild!, 0)
+        range.setEnd(element.firstChild!, 4)
+        const rect = range.getBoundingClientRect()
+        return { left: rect.left, right: rect.right, y: rect.top + rect.height / 2 }
+      })
+      await page.mouse.move(bounds.left, bounds.y)
+      await page.mouse.down()
+      await page.mouse.move(bounds.right, bounds.y, { steps: 8 })
+      await page.mouse.up()
+      await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe('This')
+      await page.keyboard.press('Control+c')
+      await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('This')
+      await page.keyboard.insertText('replacement')
+      await expect(text).toHaveText(original!)
+    })
     await test.step('shows file type and line count', async () => {
       await expect(viewer.getByText('TXT')).toBeVisible()
       await expect(viewer.getByText(/\d+ lines/)).toBeVisible()

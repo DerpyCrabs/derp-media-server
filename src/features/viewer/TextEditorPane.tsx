@@ -323,8 +323,8 @@ export const TextEditorPane = controllerView(
                 <pre
                   class={
                     props.embedded
-                      ? 'wrap-break-word whitespace-pre-wrap px-3 py-2 font-sans text-base leading-[1.75] text-foreground'
-                      : 'wrap-break-word whitespace-pre-wrap font-sans text-base leading-[1.75] text-foreground'
+                      ? 'select-text wrap-break-word whitespace-pre-wrap px-3 py-2 font-sans text-base leading-[1.75] text-foreground'
+                      : 'select-text wrap-break-word whitespace-pre-wrap font-sans text-base leading-[1.75] text-foreground'
                   }
                 >
                   {remoteContent()}
