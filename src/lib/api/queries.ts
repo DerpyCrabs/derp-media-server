@@ -19,6 +19,7 @@ export const settingsQuery = query({
 })
 export const configQuery = query({
   name: 'server-config',
+  groups: [groups.config],
   staleTime: Infinity,
   load: () => apiSchemaEffect(serverConfigSchema, '/api/config'),
 })

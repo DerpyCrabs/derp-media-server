@@ -1,4 +1,4 @@
-import { Data, Effect, Schema } from 'effect'
+import { Data, Effect, Schedule, Schema } from 'effect'
 import { pushForbiddenNotice } from '@/lib/state/forbidden-notify'
 
 export class ApiError extends Error {
@@ -60,7 +60,7 @@ export function apiEffect(
   url: string,
   options?: ApiRequestOptions,
 ): Effect.Effect<unknown, ApiError | ApiTransportError | ApiDecodeError> {
-  return Effect.tryPromise({
+  const request = Effect.tryPromise({
     try: async (signal) => {
       const { headers: optsHeaders, notifyForbidden = true, ...rest } = options ?? {}
       const headers = mergeFetchHeaders(
@@ -97,6 +97,19 @@ export function apiEffect(
         ? cause
         : new ApiTransportError({ url, cause }),
   })
+  const method = (options?.method ?? 'GET').toUpperCase()
+  return method === 'GET' || method === 'HEAD'
+    ? request.pipe(
+        Effect.retry({
+          times: 3,
+          schedule: Schedule.exponential('250 millis'),
+          while: (error) =>
+            !options?.signal?.aborted &&
+            (error instanceof ApiTransportError ||
+              (error instanceof ApiError && [408, 429, 500, 502, 503, 504].includes(error.status))),
+        }),
+      )
+    : request
 }
 
 export function apiSchemaEffect<S extends Schema.Constraint>(

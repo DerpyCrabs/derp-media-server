@@ -9,8 +9,8 @@
         "@codemirror/language": "^6.13.1",
         "@codemirror/state": "^6.7.6",
         "@codemirror/view": "^6.43.15",
-        "@effectweb/lucide": "0.14.0",
-        "@effectweb/query": "0.14.0",
+        "@effectweb/lucide": "0.14.1",
+        "@effectweb/query": "0.14.1",
         "@fontsource-variable/geist": "^5.3.0",
         "@fontsource-variable/geist-mono": "^5.3.0",
         "@lezer/common": "^1.5.4",
@@ -18,7 +18,7 @@
         "@xmldom/xmldom": "^0.9.12",
         "clsx": "^2.1.1",
         "effect": "4.0.6",
-        "effectweb": "0.14.0",
+        "effectweb": "0.14.1",
         "entities": "^8.1.0",
         "fflate": "^0.8.3",
         "pdfjs-dist": "^6.4.299",
@@ -27,7 +27,7 @@
       },
       "devDependencies": {
         "@effect/tsgo": "0.56.0",
-        "@effectweb/compiler": "0.14.0",
+        "@effectweb/compiler": "0.14.1",
         "@playwright/test": "^1.64.1",
         "@tailwindcss/vite": "^4.3.3",
         "@types/bun": "^1.4.3",
@@ -71,21 +71,21 @@
 
     "@effect/tsgo-win32-x64": ["@effect/tsgo-win32-x64@0.56.0", "", { "os": "win32", "cpu": "x64" }, "sha512-Cf6SDixFTkp7Aoeg2eRwJps/2BG9lvx2m+iVRjUzxdqkTbCCNKmmOAIyDslNZm2sMwaDUw/iN/BPGqxx7xMxww=="],
 
-    "@effectweb/compiler": ["@effectweb/compiler@0.14.0", "", { "optionalDependencies": { "@effectweb/compiler-darwin-arm64": "0.14.0", "@effectweb/compiler-darwin-x64": "0.14.0", "@effectweb/compiler-linux-arm64-gnu": "0.14.0", "@effectweb/compiler-linux-x64-gnu": "0.14.0", "@effectweb/compiler-win32-x64-msvc": "0.14.0" }, "peerDependencies": { "typescript": ">=5.4", "vite": "*" }, "optionalPeers": ["typescript", "vite"] }, "sha512-i4f2NXGnowTwCv27D62zSuAXl6I6aMBAreJyZkoJ2igy4YnmN8PzVgbOGD3kN4JvzakPH+NAGe86PoC4UT4rMQ=="],
+    "@effectweb/compiler": ["@effectweb/compiler@0.14.1", "", { "optionalDependencies": { "@effectweb/compiler-darwin-arm64": "0.14.1", "@effectweb/compiler-darwin-x64": "0.14.1", "@effectweb/compiler-linux-arm64-gnu": "0.14.1", "@effectweb/compiler-linux-x64-gnu": "0.14.1", "@effectweb/compiler-win32-x64-msvc": "0.14.1" }, "peerDependencies": { "typescript": ">=5.4", "vite": "*" }, "optionalPeers": ["typescript", "vite"] }, "sha512-KX5MeUUhFCxuFSzpmtG2s0c10fZq8J50ofGvGih145qtOXE6kPS7L+iSYVl9+g/XOpiu1jPURtzbf400Y0vNvA=="],
 
-    "@effectweb/compiler-darwin-arm64": ["@effectweb/compiler-darwin-arm64@0.14.0", "", { "os": "darwin", "cpu": "arm64" }, "sha512-hVLqgEa+desiX7ATDcvcAsYtvhte35FVV/AYhAuFygrjaiPc+7u98RH5okYFmONxzf6q/K9aGKSuUJsf7qgGtA=="],
+    "@effectweb/compiler-darwin-arm64": ["@effectweb/compiler-darwin-arm64@0.14.1", "", { "os": "darwin", "cpu": "arm64" }, "sha512-2bpXIl6X7H1FcV+ePoSODEC5nqUth/7bnIvRFiYpftt1sdwWc4Tagv4gkqoQ6IH3s13NOuxNqlQj/hr9DbJQtg=="],
 
-    "@effectweb/compiler-darwin-x64": ["@effectweb/compiler-darwin-x64@0.14.0", "", { "os": "darwin", "cpu": "x64" }, "sha512-HQri2drzZ93pTyE3P13pOPHIkdQt0sLEixTQ0oadshsmgozDm6Cdg90rZYZlujSs9u0qyPfjSYvk91pOKJFvpA=="],
+    "@effectweb/compiler-darwin-x64": ["@effectweb/compiler-darwin-x64@0.14.1", "", { "os": "darwin", "cpu": "x64" }, "sha512-X5d4dkuUhZn63whWcK32QI64+NbKKDJNVfdOOV6FYMH7x/29Bsb6ZPZaHEGj0VknhJXQHHSncZviIDYQZtPFjA=="],
 
-    "@effectweb/compiler-linux-arm64-gnu": ["@effectweb/compiler-linux-arm64-gnu@0.14.0", "", { "os": "linux", "cpu": "arm64" }, "sha512-NjO9LR9aIyfWUyYo62c4g4f8NNXVuIjrB+DH/eVLZdsK7aHbUxpyt9rxslnSk5V1551D758qAGfxCPADB64MWQ=="],
+    "@effectweb/compiler-linux-arm64-gnu": ["@effectweb/compiler-linux-arm64-gnu@0.14.1", "", { "os": "linux", "cpu": "arm64" }, "sha512-3JGLoXXc8T1WoT2uJKhhKqPXPOOsYpGjXDJBhQIwSN/WCpYqZwiYq1O5DtQZJAYDzMzTEbN8u93cziDz1+rDWw=="],
 
-    "@effectweb/compiler-linux-x64-gnu": ["@effectweb/compiler-linux-x64-gnu@0.14.0", "", { "os": "linux", "cpu": "x64" }, "sha512-Vd1LGdS//hfHmTc7nmLdxYD2UNabJLxC9PcM2fy2wxnoHBWomM4Js8IW7ILgIFNzawygEUUrkQk7hkPVzgMi4w=="],
+    "@effectweb/compiler-linux-x64-gnu": ["@effectweb/compiler-linux-x64-gnu@0.14.1", "", { "os": "linux", "cpu": "x64" }, "sha512-nt3UmoG55p/b+DtSVrWjuBSOruZcUBwiHzGWPcH5pjY2ZT0wiHC+E1G2BZFzA6joIsoeNtk+ZL3pZiF+On51eg=="],
 
-    "@effectweb/compiler-win32-x64-msvc": ["@effectweb/compiler-win32-x64-msvc@0.14.0", "", { "os": "win32", "cpu": "x64" }, "sha512-E+zS9wsbeI9Jv0yQv6JAf43HUG1+LknkS4DkyEgiYKI5NLfOJPTiWNvoVqpkzlBsEbBQ5UR4gxWL3Kil4MBZjg=="],
+    "@effectweb/compiler-win32-x64-msvc": ["@effectweb/compiler-win32-x64-msvc@0.14.1", "", { "os": "win32", "cpu": "x64" }, "sha512-0qOv6MOKOQIr1dH9hi/MNGN+lmJOwBLMv/T3xrREH4IfWyra4gQxdUvHAmhH5A8wm8Za+wXK2iKS+3fhF5wwSA=="],
 
-    "@effectweb/lucide": ["@effectweb/lucide@0.14.0", "", { "dependencies": { "@lucide/icons": "1.49.0" }, "peerDependencies": { "effect": "^4.0.0", "effectweb": "0.14.0" } }, "sha512-0B1VML77UuESTaJirXz7Tf7UZhWo7HRdE6B8nfowkJm9i9pX/PbyfaeWUFzfpGImqHShg7j+LgvrQjHJcqSdQw=="],
+    "@effectweb/lucide": ["@effectweb/lucide@0.14.1", "", { "dependencies": { "@lucide/icons": "1.49.0" }, "peerDependencies": { "effect": "^4.0.0", "effectweb": "0.14.1" } }, "sha512-9SE9zve/DBAQMfV1v/KJMYs+MfCN1GUJmSQdpWfT3WJwt+eWHZK6zgKnUgWSwBPPhQ3Ps4awUZvr1yU+gNPmdw=="],
 
-    "@effectweb/query": ["@effectweb/query@0.14.0", "", { "peerDependencies": { "effect": "^4.0.0", "effectweb": "0.14.0", "typescript": ">=5.4" }, "optionalPeers": ["typescript"] }, "sha512-yevnDhAGwsQXGXmswn6okE0RahBzhzN9Z2B+Pyt/D2pl+3WcaMJLmP1HiAIpUlKKc32N/tAtA67hnSsRW3CGew=="],
+    "@effectweb/query": ["@effectweb/query@0.14.1", "", { "peerDependencies": { "effect": "^4.0.0", "effectweb": "0.14.1", "typescript": ">=5.4" }, "optionalPeers": ["typescript"] }, "sha512-eglZMv21UxRcPFwAMIFiCd756mRRxmXP6dc/CgUjX62rFA2+vORGZ34lgdVj8n1l0QoCQQ4FqqAL1mXFBptmeA=="],
 
     "@fontsource-variable/geist": ["@fontsource-variable/geist@5.3.0", "", {}, "sha512-j0m+vLQuG5XAYoHtGCVu0spvlGreR3EzpECUVzkFmI1mTVnAO38l/NEPDCFgZ177JxzYJCLSmTQibIiYPilGrA=="],
 
@@ -317,7 +317,7 @@
 
     "effect": ["effect@4.0.6", "", {}, "sha512-Tc3mkzuLR6t6P9dhLt0D2GrxYtmU5td4XEJEiXCmILz53IRIfJyHsKZWjTA3xEjiwpNTtXBgI4iqYPxMztBDrw=="],
 
-    "effectweb": ["effectweb@0.14.0", "", { "peerDependencies": { "effect": "^4.0.0", "typescript": ">=5.4" }, "optionalPeers": ["typescript"] }, "sha512-Qwl5hOf3WOFP30+SCHchBTl5lEg3qkiyrGT5OKoFRMpqXAvH1rEEeb9JftaNY2O9QiGom3Q35pLCNXGaMhJu/A=="],
+    "effectweb": ["effectweb@0.14.1", "", { "peerDependencies": { "effect": "^4.0.0", "typescript": ">=5.4" }, "optionalPeers": ["typescript"] }, "sha512-7QPCRJu9IXuOE92/99s9hq4eINaWRChJ8V3YiKUbRBk3fZu0i7XPAH3U6EHTTh9XvCNGpDrK8G9LOOeE3D2BEA=="],
 
     "enhanced-resolve": ["enhanced-resolve@5.26.0", "", { "dependencies": { "graceful-fs": "^4.2.4", "tapable": "^2.3.3" } }, "sha512-9vhedylFonb2YGogzUKX6+Ja72gOJbN1QHAqdrvqLwhdl/QWbKopzoUC9EbQNVsAns/bx/4uyqalrQAoy1IByw=="],
 

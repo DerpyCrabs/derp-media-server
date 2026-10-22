@@ -2,6 +2,7 @@ import { Schema } from 'effect'
 import { queryCache as createQueryCache, queryGroup, type Query } from '@effectweb/query'
 
 export const groups = {
+  config: queryGroup('config'),
   files: queryGroup('files'),
   settings: queryGroup('settings'),
   stats: queryGroup('stats'),
