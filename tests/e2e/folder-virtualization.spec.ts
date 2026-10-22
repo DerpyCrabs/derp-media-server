@@ -68,6 +68,34 @@ test.describe('Folder virtualization', () => {
     await expect(page.getByText('item-0499.txt')).toBeVisible()
   })
 
+  test('opening an image reuses the mounted directory listing', async ({ page }) => {
+    const initialRefresh = page.waitForResponse((response) => {
+      const url = new URL(response.url())
+      return url.pathname === '/api/files' && url.searchParams.get('dir') === mediaFolderName
+    })
+    await page.goto(`/?dir=${encodeURIComponent(mediaFolderName)}`)
+    await initialRefresh
+    const file = page.locator(`[data-file-path="${mediaFolderName}/image-0000.png"]`)
+    await expect(file).toBeVisible()
+    const listings: string[] = []
+    page.on('request', (request) => {
+      const url = new URL(request.url())
+      if (url.pathname === '/api/files' && url.searchParams.get('dir') === mediaFolderName)
+        listings.push(url.href)
+    })
+    await file.click()
+    await expect(page.getByRole('dialog').getByText('1 of 500', { exact: true })).toBeVisible()
+    const image = page.getByRole('dialog').getByRole('img', { name: 'image-0000.png', exact: true })
+    await expect
+      .poll(() =>
+        image.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0),
+      )
+      .toBe(true)
+    await page.keyboard.press('ArrowRight')
+    await expect(page.getByRole('dialog').getByText('2 of 500', { exact: true })).toBeVisible()
+    expect(listings).toEqual([])
+  })
+
   test('grid thumbnails load while virtualized cards are remounted', async ({ page }) => {
     await page.goto(`/?dir=${encodeURIComponent(mediaFolderName)}`)
     await page.getByRole('button', { name: 'Display options' }).click()

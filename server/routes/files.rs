@@ -62,7 +62,7 @@ async fn list(
     {
         return Err(AppError::not_found("Directory not found"));
     }
-    let files = list_items(&state, &query.dir)?;
+    let files = list_items_async(&state, &query.dir).await?;
     let directory = crate::virtual_directory::is_builtin_path(&query.dir).then(|| {
         json!({"provider":"builtin","kind":"collection","path":query.dir,"capabilities":[],
             "offset":0,"pageSize":files.len(),"total":files.len()})
@@ -72,11 +72,7 @@ async fn list(
     ))
 }
 
-pub(crate) async fn list_for_browser(
-    state: &AppState,
-    dir: &str,
-    offset: usize,
-) -> AppResult<Value> {
+pub(crate) async fn list_for_browser(state: &Shared, dir: &str, offset: usize) -> AppResult<Value> {
     if dir == crate::virtual_directory::HERMES_ROOT
         || dir.starts_with(&format!("{}/", crate::virtual_directory::HERMES_ROOT))
     {
@@ -86,7 +82,7 @@ pub(crate) async fn list_for_browser(
         .map_err(|error| AppError::internal(error.to_string()));
     }
 
-    let mut files = list_items(state, dir)?;
+    let mut files = list_items_async(state, dir).await?;
     let mut entries = serde_json::Map::new();
     if dir.is_empty() && state.hermes.is_some() {
         let path = crate::virtual_directory::HERMES_ROOT.to_string();
@@ -158,6 +154,14 @@ async fn virtual_fs(
         .as_ref()
         .ok_or_else(|| AppError::not_found("Hermes integration is disabled"))?;
     Ok(Json(hub.get("api/fs/list", &[("path", query.path)]).await?))
+}
+
+pub(crate) async fn list_items_async(state: &Shared, dir: &str) -> AppResult<Vec<media::FileItem>> {
+    let state = state.clone();
+    let dir = dir.to_owned();
+    tokio::task::spawn_blocking(move || list_items(&state, &dir))
+        .await
+        .map_err(|error| AppError::internal(error.to_string()))?
 }
 
 pub(crate) fn list_items(state: &AppState, dir: &str) -> AppResult<Vec<media::FileItem>> {

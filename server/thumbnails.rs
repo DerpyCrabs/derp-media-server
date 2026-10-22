@@ -83,6 +83,31 @@ impl Thumbnailer {
             || (!is_audio(file) && self.legacy_cache_path(file, modified).exists())
     }
 
+    pub fn with_cache_lookup<T>(
+        &self,
+        list: impl FnOnce(&mut dyn FnMut(&Path, std::time::SystemTime) -> bool) -> T,
+    ) -> T {
+        let connection = self.database.connection().ok();
+        let mut statement = connection.as_ref().and_then(|connection| {
+            connection
+                .prepare("SELECT cache_id FROM thumbnail_cache_ids WHERE source_path=?1")
+                .ok()
+        });
+        list(&mut |file, modified| {
+            let id: Option<String> = statement.as_mut().and_then(|statement| {
+                statement
+                    .query_row([file.to_string_lossy().as_ref()], |row| row.get(0))
+                    .optional()
+                    .ok()
+                    .flatten()
+            });
+            id.is_some_and(|id| {
+                self.cache_path_for_id(&versioned_id(file, &id), modified)
+                    .exists()
+            }) || (!is_audio(file) && self.legacy_cache_path(file, modified).exists())
+        })
+    }
+
     fn modified_ms(modified: std::time::SystemTime) -> u128 {
         modified
             .duration_since(UNIX_EPOCH)
@@ -1169,6 +1194,29 @@ mod tests {
         let svg = thumbnails.read(&svg_path, modified).await.unwrap();
         assert!(svg.starts_with(&[0xff, 0xd8, 0xff]));
 
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[tokio::test]
+    async fn directory_cache_lookup_tracks_versions_legacy_files_and_eviction() {
+        let base = std::env::temp_dir().join(format!("derp-thumbs-list-{}", uuid::Uuid::new_v4()));
+        let database = test_database(&base);
+        let thumbnails = Thumbnailer::with_concurrency(base.join("cache"), database, 1);
+        std::fs::create_dir_all(&thumbnails.cache_dir).unwrap();
+        let source = base.join("image.png");
+        let legacy = base.join("legacy.png");
+        let modified = UNIX_EPOCH + Duration::from_secs(100);
+        let cache = thumbnails.cache_path(&source, modified).unwrap();
+        std::fs::write(&cache, b"cached").unwrap();
+        std::fs::write(thumbnails.legacy_cache_path(&legacy, modified), b"legacy").unwrap();
+        thumbnails.with_cache_lookup(|cached| {
+            assert!(cached(&source, modified));
+            assert!(cached(&legacy, modified));
+            assert!(!cached(&source, modified + Duration::from_secs(1)));
+            assert!(!cached(&base.join("missing.png"), modified));
+            std::fs::remove_file(&cache).unwrap();
+            assert!(!cached(&source, modified));
+        });
         std::fs::remove_dir_all(base).unwrap();
     }
 

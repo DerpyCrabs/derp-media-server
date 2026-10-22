@@ -254,7 +254,11 @@ fn virtual_item(name: &str) -> FileItem {
         version: None,
     }
 }
-pub fn list(config: &Config, input: &str) -> AppResult<Vec<FileItem>> {
+pub fn list(
+    config: &Config,
+    input: &str,
+    cached: &mut dyn FnMut(&Path, std::time::SystemTime) -> bool,
+) -> AppResult<Vec<FileItem>> {
     let logical = clean_logical(input)?;
     let mut items = if logical.is_empty() {
         vec![virtual_item("Favorites"), virtual_item("Most Played")]
@@ -336,7 +340,9 @@ pub fn list(config: &Config, input: &str) -> AppResult<Vec<FileItem>> {
                         .to_string_lossy()
                         .as_ref(),
                 )) {
-                Some(false)
+                meta.modified()
+                    .ok()
+                    .map(|modified| cached(&entry.path(), modified))
             } else {
                 None
             },

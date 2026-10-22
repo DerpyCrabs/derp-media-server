@@ -111,7 +111,15 @@ async fn initial_data(state: &Shared, uri: &axum::http::Uri) -> AppResult<Value>
             json!(["media-ai", "status"]),
             crate::media_ai::status(State(state.clone())).await?.0,
         ));
-        if state.config.media_ai.enabled {
+        let showing_home = params.get("view").map_or_else(
+            || {
+                !["dir", "playing", "viewing"]
+                    .iter()
+                    .any(|key| params.contains_key(*key))
+            },
+            |view| view == "for-you",
+        );
+        if state.config.media_ai.enabled && path == "/" && showing_home {
             let (music, home) = tokio::try_join!(
                 crate::music::initial_data(state),
                 crate::media_ai::initial_home(state)
@@ -158,12 +166,12 @@ async fn initial_data(state: &Shared, uri: &axum::http::Uri) -> AppResult<Value>
                         json!({"content":content,"version":crate::file_mutation::content_hash(&bytes)}),
                     ));
                 }
-            } else if media::media_type(&extension) != "pdf" {
+            } else if matches!(media::media_type(&extension), "audio" | "video") {
                 let listing = params
                     .get("dir")
                     .cloned()
                     .unwrap_or_else(|| parent(viewing));
-                if let Ok(files) = crate::routes::files::list_items(state, &listing) {
+                if let Ok(files) = crate::routes::files::list_items_async(state, &listing).await {
                     queries.push(query(json!(["files", listing]), json!({"files":files})));
                 }
             }
@@ -186,7 +194,7 @@ async fn initial_data(state: &Shared, uri: &axum::http::Uri) -> AppResult<Value>
                     .get("dir")
                     .cloned()
                     .unwrap_or_else(|| parent(playing));
-                if let Ok(files) = crate::routes::files::list_items(state, &listing) {
+                if let Ok(files) = crate::routes::files::list_items_async(state, &listing).await {
                     queries.push(query(json!(["files", listing]), json!({"files":files})));
                 }
             }

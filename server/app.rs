@@ -149,21 +149,9 @@ pub(crate) fn emit_path_moved(state: &AppState, old_path: &str, new_path: &str) 
 }
 
 pub(crate) fn list_directory(state: &AppState, path: &str) -> AppResult<Vec<media::FileItem>> {
-    let mut files = media::list(&state.config, path)?;
-    for file in &mut files {
-        if !matches!(file.media_type.as_str(), "image" | "video") {
-            continue;
-        }
-        if let Ok(resolved) = media::resolve(&state.config, &file.path)
-            && let Ok(metadata) = std::fs::metadata(&resolved.full)
-        {
-            file.thumbnail_generated = metadata
-                .modified()
-                .ok()
-                .map(|modified| state.thumbnails.cached(&resolved.full, modified));
-        }
-    }
-    Ok(files)
+    state
+        .thumbnails
+        .with_cache_lookup(|cached| media::list(&state.config, path, cached))
 }
 
 pub(crate) fn parent_logical(path: &str) -> String {

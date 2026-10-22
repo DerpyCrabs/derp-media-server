@@ -1,10 +1,10 @@
 import { modalScroll } from './modal-scroll'
 import { available, domBinding, modelOwner, view, controllerView } from 'effectweb'
-import { queryCache, groups } from '@/lib/api/cache'
+import { queryCache } from '@/lib/api/cache'
 import { settingsQuery, statsQuery } from '@/lib/api/queries'
 import { fileDownloadHref } from '@/lib/files/download-urls'
 import { getMediaTypeFromPath, formatFileSize } from '@/lib/media/media-utils'
-import { fetchDirectoryFilesEffect } from '@/lib/files/files-client'
+import { fileBrowserQuery } from '@/features/explorer/file-browser-listing'
 import { MediaType, type FileItem } from '@/lib/files/types'
 import { createFileSortMetadata, sortFilesForPath } from '@/features/explorer/file-display-settings'
 import type { GlobalSettings } from '@/lib/models/settings-types'
@@ -15,7 +15,7 @@ import { TextEditorPane } from './TextEditorPane'
 import { AudioViewerPane } from './AudioViewerPane'
 import { VideoViewerPane } from './VideoViewerPane'
 import { Reader } from '@/features/reader/Reader'
-import { observeQuery, query } from '@effectweb/query'
+import { observeQuery } from '@effectweb/query'
 export type ViewerPaneProps = {
   selection?: readonly FileItem[]
   viewingPath: string
@@ -37,11 +37,6 @@ export type ViewerPaneProps = {
   showListenOnly?: boolean
   onAudioActivate?: () => void
 }
-const directoryQuery = query({
-  name: 'viewer-directory',
-  groups: [groups.files],
-  load: (directory: string) => fetchDirectoryFilesEffect(directory),
-})
 
 function viewerController(props: ViewerPaneProps) {
   const owner = modelOwner({
@@ -50,8 +45,8 @@ function viewerController(props: ViewerPaneProps) {
     settings: undefined as GlobalSettings | undefined,
     views: {} as Record<string, number>,
   })
-  const files = observeQuery(owner, queryCache, directoryQuery, (result) =>
-    owner.patch({ files: available(result)?.files ?? [] }),
+  const files = observeQuery(owner, queryCache, fileBrowserQuery.query, (result) =>
+    owner.patch({ files: available(result)?.pages.flatMap((page) => page.value.files) ?? [] }),
   )
   const settings = observeQuery(owner, queryCache, settingsQuery, 'settings', available)
   const stats = observeQuery(owner, queryCache, statsQuery, (result) =>
@@ -90,7 +85,7 @@ export const ViewerPane = controllerView(
         : (props.readerKind ??
           (type === MediaType.PDF ? 'pdf' : type === MediaType.BOOK ? 'book' : null))
     const ordered = sortFilesForPath(
-      [...model.files],
+      model.files,
       props.directory ?? '',
       model.settings?.sortOrders,
       false,
