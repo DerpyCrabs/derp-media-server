@@ -68,11 +68,7 @@ test.describe('Tab Merging and Splitting', () => {
       const bottomGap = titleBar
         ? titleBar.getBoundingClientRect().bottom - el.getBoundingClientRect().bottom
         : 0
-      return {
-        left: style.borderLeftWidth,
-        right: style.borderRightWidth,
-        bottomGap,
-      }
+      return { left: style.borderLeftWidth, right: style.borderRightWidth, bottomGap }
     })
 
     expect(borders.left).toBe('1px')
@@ -755,7 +751,10 @@ test.describe('File Browsing and Viewers', () => {
     await test.step('navigating into a folder updates browser content', async () => {
       await content.getByText('Videos', { exact: true }).click()
       await expect(content.getByText('sample.mp4')).toBeVisible({ timeout: 10000 })
+      await content.getByRole('button', { name: 'Display options' }).click()
+      await page.getByRole('menuitem', { name: 'List view', exact: true }).click()
       const fileRow = content.locator('tr').filter({ hasText: 'sample.mp4' })
+      await expect(fileRow).toBeVisible()
       await expect(
         content.getByRole('button', { name: 'More actions for sample.mp4', exact: true }),
       ).toBeHidden()

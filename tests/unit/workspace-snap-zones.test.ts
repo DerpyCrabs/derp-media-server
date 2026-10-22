@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { detectEdgeAssistGridSpan } from '@/workspace/model/workspace-assist-grid'
-import { segmentIndex, snapAssistSurfaceWidth } from '@/workspace/model/use-snap-zones'
+import { segmentIndex, snapAssistSurfaceWidth } from '@/workspace/model/snap-zones'
 
 describe('snapAssistSurfaceWidth', () => {
   test('fits four thumbnails in landscape and two in portrait', () => {
@@ -24,26 +24,12 @@ describe('detectEdgeAssistGridSpan', () => {
 
   test('top edge left third cell for 3x2', () => {
     const s = detectEdgeAssistGridSpan(80, 10, cw, ch, '3x2', { suppressTopEdgeSpans: false })
-    expect(s).toEqual({
-      gridCols: 3,
-      gridRows: 2,
-      gc0: 0,
-      gc1: 0,
-      gr0: 0,
-      gr1: 0,
-    })
+    expect(s).toEqual({ gridCols: 3, gridRows: 2, gc0: 0, gc1: 0, gr0: 0, gr1: 0 })
   })
 
   test('top edge between first and second column merges two top cells', () => {
     const s = detectEdgeAssistGridSpan(320, 10, cw, ch, '3x2', { suppressTopEdgeSpans: false })
-    expect(s).toEqual({
-      gridCols: 3,
-      gridRows: 2,
-      gc0: 0,
-      gc1: 1,
-      gr0: 0,
-      gr1: 0,
-    })
+    expect(s).toEqual({ gridCols: 3, gridRows: 2, gc0: 0, gc1: 1, gr0: 0, gr1: 0 })
   })
 
   test('suppresses top edge when in top assist center band', () => {
@@ -53,13 +39,6 @@ describe('detectEdgeAssistGridSpan', () => {
 
   test('top edge center cell for 3x3', () => {
     const s = detectEdgeAssistGridSpan(cw / 2, 10, cw, ch, '3x3', { suppressTopEdgeSpans: false })
-    expect(s).toEqual({
-      gridCols: 3,
-      gridRows: 3,
-      gc0: 1,
-      gc1: 1,
-      gr0: 0,
-      gr1: 0,
-    })
+    expect(s).toEqual({ gridCols: 3, gridRows: 3, gc0: 1, gc1: 1, gr0: 0, gr1: 0 })
   })
 })

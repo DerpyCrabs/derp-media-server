@@ -2,7 +2,7 @@ import {
   applyTaskbarPinCommand,
   applyWorkspaceTransition,
   type TaskbarPinCommand,
-} from '@/workspace/shared/use-workspace-page-server-data'
+} from '@/workspace/shared/workspace-page-server-data'
 import type { WorkspaceSettings } from '@/workspace/model/workspace-settings-types'
 import type { TaskbarPin as PinnedTaskbarItem } from '@/lib/models/taskbar-pins'
 import { describe, expect, test } from 'bun:test'

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { convertWorkspaceSnapshot } from '@/workspace/model/workspace-conversion'
-import type { PersistedWorkspaceState } from '@/workspace/model/use-workspace'
+import type { PersistedWorkspaceState } from '@/workspace/model/workspace'
 
 function canvasWorkspace(): PersistedWorkspaceState {
   return {

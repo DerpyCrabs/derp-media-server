@@ -4,7 +4,7 @@ import {
   transferWorkspaceGroups,
 } from '@/workspace/model/workspace-transfer'
 import { closeWorkspaceWindows } from '@/workspace/model/workspace-close'
-import type { PersistedWorkspaceState } from '@/workspace/model/use-workspace'
+import type { PersistedWorkspaceState } from '@/workspace/model/workspace'
 
 const state = (type: 'desktop' | 'canvas'): PersistedWorkspaceState => ({
   workspaceType: type,
@@ -276,9 +276,7 @@ describe('workspace group transfer', () => {
       },
     ]
 
-    const moved = transferWorkspaceGroups(source, state('desktop'), {
-      windowIds: ['browser'],
-    })
+    const moved = transferWorkspaceGroups(source, state('desktop'), { windowIds: ['browser'] })
 
     expect(moved.destination.windows[0]!.fileOpenTargetWindowId).toBeNull()
   })

@@ -1,3 +1,4 @@
+import { Effect } from 'effect'
 import { describe, expect, test } from 'bun:test'
 import {
   createPlaybackSession,
@@ -12,17 +13,13 @@ import {
 function item(id: string, media: 'audio' | 'video' = 'audio'): PlaybackItem {
   const extension = media === 'audio' ? 'mp3' : 'mp4'
   const folder = media === 'audio' ? 'Music' : 'Videos'
-  return {
-    locator: `${folder}/${id}.${extension}`,
-    name: `${id}.${extension}`,
-    media,
-  }
+  return { locator: `${folder}/${id}.${extension}`, name: `${id}.${extension}`, media }
 }
 
 function resolverHarness(
   resolve: (
     request: PlaybackSourceRequest,
-  ) => PlaybackSourceResolution | Promise<PlaybackSourceResolution> = (request) => ({
+  ) => PlaybackSourceResolution | Effect.Effect<PlaybackSourceResolution> = (request) => ({
     kind: 'resolved',
     url: `/${request.mode}/${request.item.name}`,
   }),
@@ -31,7 +28,8 @@ function resolverHarness(
   const sourceResolver: PlaybackSourceResolver = {
     resolve(request) {
       requests.push(request)
-      return resolve(request)
+      const result = resolve(request)
+      return Effect.isEffect(result) ? result : Effect.succeed(result)
     },
   }
   return { sourceResolver, requests }
@@ -90,11 +88,11 @@ describe('PlaybackSession', () => {
   test('rejects stale asynchronous source resolutions and media events', async () => {
     let resolveFirst!: (value: PlaybackSourceResolution) => void
     let resolveSecond!: (value: PlaybackSourceResolution) => void
-    const first = new Promise<PlaybackSourceResolution>((resolve) => {
-      resolveFirst = resolve
+    const first = Effect.callback<PlaybackSourceResolution>((resume) => {
+      resolveFirst = (value) => resume(Effect.succeed(value))
     })
-    const second = new Promise<PlaybackSourceResolution>((resolve) => {
-      resolveSecond = resolve
+    const second = Effect.callback<PlaybackSourceResolution>((resume) => {
+      resolveSecond = (value) => resume(Effect.succeed(value))
     })
     const { sourceResolver, requests } = resolverHarness((request) =>
       request.item.name === 'first.mp3' ? first : second,
@@ -194,8 +192,8 @@ describe('PlaybackSession', () => {
     let finish!: (value: PlaybackSourceResolution) => void
     const { sourceResolver } = resolverHarness((request) =>
       request.reason === 'refresh'
-        ? new Promise((resolve) => {
-            finish = resolve
+        ? Effect.callback<PlaybackSourceResolution>((resume) => {
+            finish = (value) => resume(Effect.succeed(value))
           })
         : { kind: 'resolved', url: '/original' },
     )
@@ -222,11 +220,10 @@ describe('PlaybackSession', () => {
 
   test('play while resolving keeps one request and late settings do not overwrite a new speed', async () => {
     let finish!: (value: PlaybackSourceResolution) => void
-    const { sourceResolver, requests } = resolverHarness(
-      () =>
-        new Promise((resolve) => {
-          finish = resolve
-        }),
+    const { sourceResolver, requests } = resolverHarness(() =>
+      Effect.callback<PlaybackSourceResolution>((resume) => {
+        finish = (value) => resume(Effect.succeed(value))
+      }),
     )
     const session = createPlaybackSession({ sourceResolver })
     session.dispatch({ type: 'load', item: item('loading', 'video'), autoplay: false })
@@ -242,8 +239,8 @@ describe('PlaybackSession', () => {
     let finish!: (value: PlaybackSourceResolution) => void
     const { sourceResolver, requests } = resolverHarness((request) =>
       request.mode === 'audio'
-        ? new Promise((resolve) => {
-            finish = resolve
+        ? Effect.callback<PlaybackSourceResolution>((resume) => {
+            finish = (value) => resume(Effect.succeed(value))
           })
         : { kind: 'resolved', url: '/video' },
     )
@@ -277,4 +274,46 @@ describe('PlaybackSession', () => {
     expect(requests).toHaveLength(1)
     expect(session.getSnapshot()).toMatchObject({ position: 15, source: { generation: 1 } })
   })
+})
+
+test('replacing and destroying a playback session interrupt its owned resolver effects', () => {
+  const started: string[] = []
+  const released: string[] = []
+  const session = createPlaybackSession({
+    sourceResolver: {
+      resolve: (request) =>
+        Effect.acquireUseRelease(
+          Effect.sync(() => {
+            started.push(request.item.name)
+            return request.item.name
+          }),
+          () => Effect.never,
+          (name) =>
+            Effect.sync(() => {
+              released.push(name)
+            }),
+        ),
+    },
+  })
+  session.dispatch({ type: 'load', item: item('first') })
+  session.dispatch({ type: 'load', item: item('second') })
+  expect(started).toEqual(['first.mp3', 'second.mp3'])
+  expect(released).toEqual(['first.mp3'])
+  session.dispatch({ type: 'destroy' })
+  expect(released).toEqual(['first.mp3', 'second.mp3'])
+  expect(session.getSnapshot().phase).toBe('destroyed')
+})
+
+test('reentrant navigation during resolution publication cannot replace the newer request', () => {
+  const { sourceResolver, requests } = resolverHarness()
+  const session = createPlaybackSession({ sourceResolver })
+  session.subscribe(() => {
+    const state = session.getSnapshot()
+    if (state.phase === 'resolving' && state.currentItem?.name === 'first.mp3')
+      session.dispatch({ type: 'load', item: item('second') })
+  })
+  session.dispatch({ type: 'load', item: item('first') })
+  expect(requests.map((request) => request.item.name)).toEqual(['second.mp3'])
+  expect(session.getSnapshot().source?.url).toBe('/audio/second.mp3')
+  session.dispatch({ type: 'destroy' })
 })

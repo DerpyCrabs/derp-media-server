@@ -179,7 +179,8 @@ void ClientWindow::closeEvent(QCloseEvent *event) {
         auto callback = std::move(pickerFinished);
         callback(1, {});
     }
-    if (ready && !approvedClose && picker.isEmpty()) {
+    // A never-assigned warm page has no user document or persistence work to flush.
+    if (ready && !approvedClose && picker.isEmpty() && !target.isEmpty()) {
         event->ignore();
         if (!closing) {
             closing = true;

@@ -1,51 +1,54 @@
-async function readAllEntries(reader: FileSystemDirectoryReader): Promise<FileSystemEntry[]> {
-  const entries: FileSystemEntry[] = []
-  let batch: FileSystemEntry[]
-  do {
-    batch = await new Promise<FileSystemEntry[]>((resolve, reject) => {
-      reader.readEntries(resolve, reject)
-    })
-    entries.push(...batch)
-  } while (batch.length > 0)
-  return entries
-}
+import { Effect } from 'effect'
 
-async function readEntry(entry: FileSystemEntry, basePath: string, files: File[]): Promise<void> {
-  if (entry.isFile) {
-    const fileEntry = entry as FileSystemFileEntry
-    const file = await new Promise<File>((resolve, reject) => {
-      fileEntry.file(resolve, reject)
-    })
-    const relativePath = basePath ? `${basePath}/${entry.name}` : entry.name
-    files.push(new File([file], relativePath, { type: file.type, lastModified: file.lastModified }))
-  } else if (entry.isDirectory) {
-    const dirEntry = entry as FileSystemDirectoryEntry
-    const reader = dirEntry.createReader()
-    const sub = await readAllEntries(reader)
-    const dirPath = basePath ? `${basePath}/${entry.name}` : entry.name
-    await Promise.all(sub.map((child) => readEntry(child, dirPath, files)))
-  }
-}
-
-export async function collectDroppedUploadFiles(dataTransfer: DataTransfer): Promise<File[]> {
-  const files: File[] = []
-  const items = dataTransfer.items
-
-  if (items) {
+function readAllEntries(reader: FileSystemDirectoryReader) {
+  return Effect.gen(function* () {
     const entries: FileSystemEntry[] = []
-    for (let i = 0; i < items.length; i++) {
-      const entry = items[i].webkitGetAsEntry?.()
-      if (entry) entries.push(entry)
+    while (true) {
+      const batch = yield* Effect.callback<FileSystemEntry[], DOMException>((resume) => {
+        reader.readEntries(
+          (value) => resume(Effect.succeed(value)),
+          (error) => resume(Effect.fail(error)),
+        )
+      })
+      if (!batch.length) return entries
+      entries.push(...batch)
     }
+  })
+}
 
-    if (entries.length > 0) {
-      await Promise.all(entries.map((ent) => readEntry(ent, '', files)))
-      return files
+function readEntry(entry: FileSystemEntry, basePath: string): Effect.Effect<File[], DOMException> {
+  return Effect.gen(function* () {
+    const relativePath = basePath ? `${basePath}/${entry.name}` : entry.name
+    if (entry.isFile) {
+      const file = yield* Effect.callback<File, DOMException>((resume) => {
+        ;(entry as FileSystemFileEntry).file(
+          (value) => resume(Effect.succeed(value)),
+          (error) => resume(Effect.fail(error)),
+        )
+      })
+      return [new File([file], relativePath, { type: file.type, lastModified: file.lastModified })]
     }
-  }
+    if (entry.isDirectory) {
+      const entries = yield* readAllEntries((entry as FileSystemDirectoryEntry).createReader())
+      const nested = yield* Effect.forEach(entries, (child) => readEntry(child, relativePath), {
+        concurrency: 'unbounded',
+      })
+      return nested.flat()
+    }
+    return []
+  })
+}
 
-  for (let i = 0; i < dataTransfer.files.length; i++) {
-    files.push(dataTransfer.files[i])
-  }
-  return files
+export function collectDroppedUploadFiles(dataTransfer: DataTransfer) {
+  // DataTransfer access is restricted to the browser event dispatch.
+  const entries = Array.from(dataTransfer.items ?? []).flatMap((item) => {
+    const entry = item.webkitGetAsEntry?.()
+    return entry ? [entry] : []
+  })
+  const files = Array.from(dataTransfer.files)
+  return entries.length
+    ? Effect.forEach(entries, (entry) => readEntry(entry, ''), { concurrency: 'unbounded' }).pipe(
+        Effect.map((groups) => groups.flat()),
+      )
+    : Effect.succeed(files)
 }

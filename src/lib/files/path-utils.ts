@@ -1,7 +1,7 @@
 export interface ClientMediaRoot {
   id?: string
   name: string
-  editableFolders: string[]
+  editableFolders: readonly string[]
 }
 
 /**
@@ -12,8 +12,8 @@ export interface ClientMediaRoot {
  */
 export function isPathEditable(
   relativePath: string,
-  editableFolders: string[],
-  mediaRoots?: ClientMediaRoot[],
+  editableFolders: readonly string[],
+  mediaRoots?: readonly ClientMediaRoot[],
 ): boolean {
   if (editableFolders.length === 0) return false
 

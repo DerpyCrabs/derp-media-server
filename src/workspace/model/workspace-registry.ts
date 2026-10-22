@@ -1,5 +1,5 @@
 import { randomId } from '@/lib/random-id'
-import type { PersistedWorkspaceState } from './use-workspace'
+import type { PersistedWorkspaceState } from './workspace'
 
 export type WorkspaceRecord = {
   id: string
@@ -15,7 +15,7 @@ export type WorkspaceRecord = {
 
 export type WorkspaceRegistry = {
   version: 1
-  order: string[]
+  order: readonly string[]
   records: Record<string, WorkspaceRecord>
 }
 

@@ -16,11 +16,7 @@ export const markdownEditorTheme = EditorView.theme({
     fontFamily: 'var(--font-sans)',
     lineHeight: '1.75',
   },
-  '.cm-content': {
-    minHeight: '100%',
-    padding: '0.5rem 0.75rem',
-    caretColor: 'var(--foreground)',
-  },
+  '.cm-content': { minHeight: '100%', padding: '0.5rem 0.75rem', caretColor: 'var(--foreground)' },
   '.cm-content[contenteditable="false"]': { caretColor: 'transparent' },
   '.cm-line': { padding: '0' },
   '.cm-cursor': { borderLeftColor: 'var(--foreground)' },

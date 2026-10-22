@@ -79,13 +79,7 @@ test.describe('File display settings', () => {
       ).toHaveCount(3)
     } finally {
       await page.request.post('/api/settings/fileColumns', {
-        data: {
-          scope: 'media',
-          createdDate: false,
-          size: true,
-          favorite: true,
-          views: true,
-        },
+        data: { scope: 'media', createdDate: false, size: true, favorite: true, views: true },
       })
       await saveSort(page, folderName, 'name', 'asc')
       fs.rmSync(folderPath, { recursive: true, force: true })

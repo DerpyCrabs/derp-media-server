@@ -2,7 +2,7 @@
 
 > Mostly vibe-coded; treat it as a personal tool, not a hardened product.
 
-Self-hosted media library with a **Solid.js** + Vite web UI and a **Rust/Axum** server. Browse, play, and edit files; workspaces with multi-pane layout; knowledge-base folders with search and Obsidian-style markdown. Changes propagate to open tabs via **SSE**.
+Self-hosted media library with a **Effect + EffectWeb** + Vite web UI and a **Rust/Axum** server. Browse, play, and edit files; workspaces with multi-pane layout; knowledge-base folders with search and Obsidian-style markdown. Changes propagate to open tabs via **SSE**.
 
 ## Features (high level)
 
@@ -15,6 +15,8 @@ Self-hosted media library with a **Solid.js** + Vite web UI and a **Rust/Axum** 
 
 **Needs:** [Rust](https://www.rust-lang.org/tools/install) and [Bun](https://bun.sh). **Optional:** FFmpeg and ffprobe for video thumbnails, track selection, subtitles, compatibility playback, audio-only video playback and tests.
 
+The frontend uses published EffectWeb packages pinned together to `0.14.0`, with Effect `4.0.6`. A local EffectWeb checkout is not required.
+
 ```bash
 bun install
 ```
@@ -22,10 +24,7 @@ bun install
 Create `config.jsonc` (JSON with comments; falls back to `config.json`):
 
 ```jsonc
-{
-  "mediaDir": "/path/to/your/media",
-  "editableFolders": ["notes", "documents"],
-}
+{ "mediaDir": "/path/to/your/media", "editableFolders": ["notes", "documents"] }
 ```
 
 ```bash
@@ -83,11 +82,7 @@ Manually queued tracks play ahead of automatic suggestions. **Don’t recommend*
 Optional Last.fm genre and similar-artist lookups are configured in `config.jsonc`:
 
 ```jsonc
-{
-  "music": {
-    "lastFmApiKey": "your-api-key",
-  },
-}
+{ "music": { "lastFmApiKey": "your-api-key" } }
 ```
 
 Artist and track names are sent to Last.fm; listening history is not uploaded. The key stays on the
@@ -148,13 +143,7 @@ and original ASS styling are unsupported.
 These are the playback defaults in `config.jsonc`; restart the server after changing them:
 
 ```jsonc
-{
-  "playback": {
-    "allowVideoTranscoding": false,
-    "maxCacheSize": "10GiB",
-    "threads": 4,
-  },
-}
+{ "playback": { "allowVideoTranscoding": false, "maxCacheSize": "10GiB", "threads": 4 } }
 ```
 
 Compatible originals play directly. Container remuxing, selected audio tracks, audio conversion,
@@ -182,12 +171,7 @@ fit. Cancelled temporary output is deleted; stale temporary files are removed on
 Hermes chat and Reader AI are optional and use the configured Hermes gateway.
 
 ```jsonc
-{
-  "hermes": {
-    "gatewayUrl": "http://127.0.0.1:4000",
-    "profile": "default",
-  },
-}
+{ "hermes": { "gatewayUrl": "http://127.0.0.1:4000", "profile": "default" } }
 ```
 
 Use `mediaDirs` when serving multiple media roots:
@@ -228,9 +212,19 @@ Listens on `0.0.0.0` by default.
 - E2E: `bun run test` (single worker) or `bun run test:batch` (CI-style batches)
 - Unit: `bun run test:unit`
 
+Lint inherits the EffectWeb compiler preset and Effect TSGO correctness and antipattern
+presets. Warnings fail the check, including unused lint suppressions. The `prepare`
+script patches Oxlint with `@effect/tsgo`; keep its supported Oxlint and
+`oxlint-tsgolint` versions aligned when updating dependencies.
+
+The config permits `unknown` and untagged `Error` at library/UI boundaries, and
+zero-argument Effect factories. Prefer tagged errors when callers need to distinguish
+failures. Effect style suggestions are not enforced. The frontend additionally checks
+floating/misused Promises, exhaustive switches, and consistent returns.
+
 ## Stack
 
-Rust, Axum, Solid.js, Vite, TanStack Query (Solid), Tailwind CSS v4, Bun, TypeScript, Playwright, oxlint / oxfmt.
+Rust, Axum, Effect, EffectWeb, Vite, Tailwind CSS v4, Bun, TypeScript, Playwright, oxlint / oxfmt.
 
 ## License
 

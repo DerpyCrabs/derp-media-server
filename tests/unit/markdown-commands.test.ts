@@ -24,11 +24,7 @@ function runCommand(source: string, selection: Selection, command: StateCommand,
       transaction = next
     },
   })
-  return {
-    handled,
-    transaction,
-    state: transaction?.state ?? state,
-  }
+  return { handled, transaction, state: transaction?.state ?? state }
 }
 
 describe('Markdown formatting commands', () => {

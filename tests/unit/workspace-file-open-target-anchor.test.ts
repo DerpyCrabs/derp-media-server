@@ -4,8 +4,8 @@ import {
   normalizePersistedWorkspaceState,
   resolveNewTabAnchorWindowId,
   type PersistedWorkspaceState,
-} from '@/workspace/model/use-workspace'
-import { DEFAULT_WORKSPACE_SOURCE } from '@/workspace/model/use-workspace'
+} from '@/workspace/model/workspace'
+import { DEFAULT_WORKSPACE_SOURCE } from '@/workspace/model/workspace'
 
 function minimalState(windows: PersistedWorkspaceState['windows']): PersistedWorkspaceState {
   return {

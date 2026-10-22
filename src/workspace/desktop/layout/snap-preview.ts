@@ -1,5 +1,5 @@
 import type { SnapZone } from '@/lib/models/window-model'
-import type { SnapDetectResult } from '@/workspace/model/use-snap-zones'
+import type { SnapDetectResult } from '@/workspace/model/snap-zones'
 import { applyWorkspaceTileGap, type WorkspaceRect } from '@/workspace/model/workspace-tile-gaps'
 
 export function applySnapPreviewBounds(

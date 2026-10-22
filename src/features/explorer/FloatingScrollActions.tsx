@@ -1,16 +1,10 @@
-import type { Accessor } from 'solid-js'
-import { createEffect, createSignal, onSettled, Show } from 'solid-js'
-import ArrowUp from 'lucide-solid/icons/arrow-up'
-import LocateFixed from 'lucide-solid/icons/locate-fixed'
+import { domBinding, component, view, type DomLifetime } from 'effectweb'
+import ArrowUp from '@effectweb/lucide/icons/arrow-up'
+import LocateFixed from '@effectweb/lucide/icons/locate-fixed'
 import { getVirtualFileScroller } from './virtual-directory-scroll'
-
-type Props = {
-  playingPath: Accessor<string>
-  scrollScope?: Accessor<string | undefined>
-}
-
-function isOutsideViewport(el: HTMLElement) {
-  const rect = el.getBoundingClientRect()
+type Props = { playingPath: string; scrollScope?: string }
+const outside = (element: HTMLElement) => {
+  const rect = element.getBoundingClientRect()
   return (
     rect.bottom < 0 ||
     rect.top > window.innerHeight ||
@@ -18,104 +12,97 @@ function isOutsideViewport(el: HTMLElement) {
     rect.left > window.innerWidth
   )
 }
-
-function playingFileElement(path: string) {
-  if (!path || typeof CSS === 'undefined' || typeof CSS.escape !== 'function') return null
-  return document.querySelector<HTMLElement>(`[data-file-path="${CSS.escape(path)}"]`)
-}
-
-export function FloatingScrollActions(props: Props) {
-  const [showPlayingFile, setShowPlayingFile] = createSignal(false)
-  const [showVideoTop, setShowVideoTop] = createSignal(false)
-  let raf = 0
-  let observer: MutationObserver | undefined
-
-  function updateVisibility() {
-    cancelAnimationFrame(raf)
-    raf = requestAnimationFrame(() => {
-      const path = props.playingPath()
-      const fileEl = playingFileElement(path)
-      const virtualScroller = getVirtualFileScroller(props.scrollScope?.())
-      setShowPlayingFile(
-        !!path && (fileEl ? isOutsideViewport(fileEl) : !!virtualScroller?.hasPath(path)),
-      )
-
-      const videoEl = document.querySelector<HTMLElement>('[data-video-player-inline="true"]')
-      setShowVideoTop(!!videoEl && isOutsideViewport(videoEl))
-    })
+const playingElement = (path: string) =>
+  path ? document.querySelector<HTMLElement>(`[data-file-path="${CSS.escape(path)}"]`) : null
+const visibilityBinding = (
+  _element: HTMLDivElement,
+  current: () => {
+    path: string
+    scope?: string
+    playing: boolean
+    video: boolean
+    patch: (state: { playing: boolean; video: boolean }) => void
+  },
+  lifetime: DomLifetime,
+) => {
+  const read = () => {
+    const state = current()
+    const file = playingElement(state.path)
+    const playing =
+      !!state.path &&
+      (file ? outside(file) : !!getVirtualFileScroller(state.scope)?.hasPath(state.path))
+    const videoElement = document.querySelector<HTMLElement>('[data-video-player-inline="true"]')
+    const video = !!videoElement && outside(videoElement)
+    return { playing, video }
   }
-
-  function scrollPlayingFileIntoView() {
-    const path = props.playingPath()
-    const fileEl = playingFileElement(path)
-    if (!fileEl) {
-      getVirtualFileScroller(props.scrollScope?.())?.scrollToPath(path)
-      return
-    }
-
-    fileEl.scrollIntoView({
-      behavior: 'smooth',
-      block: 'center',
-      inline: 'nearest',
-    })
-  }
-
-  function scrollToVideoPlayer() {
-    window.scrollTo({ top: 0, behavior: 'smooth' })
-  }
-
-  createEffect(
-    () => [props.playingPath(), props.scrollScope?.()] as const,
-    () => {
-      updateVisibility()
+  const measurement = lifetime.measure({
+    read,
+    write: ({ playing, video }) => {
+      const state = current()
+      if (playing !== state.playing || video !== state.video) state.patch({ playing, video })
     },
-  )
-
-  onSettled(() => {
-    window.addEventListener('scroll', updateVisibility, { passive: true })
-    window.addEventListener('resize', updateVisibility)
-    observer = new MutationObserver(updateVisibility)
-    observer.observe(document.body, {
-      attributeFilter: ['data-video-player-inline'],
-      attributes: true,
-      childList: true,
-      subtree: true,
-    })
-    updateVisibility()
-    return () => {
-      cancelAnimationFrame(raf)
-      window.removeEventListener('scroll', updateVisibility)
-      window.removeEventListener('resize', updateVisibility)
-      observer?.disconnect()
-    }
   })
-
-  return (
-    <Show when={showPlayingFile() || showVideoTop()}>
-      <div class='fixed right-3 top-1/2 z-30 flex -translate-y-1/2 flex-col gap-2 sm:right-5'>
-        <Show when={showVideoTop()}>
+  const schedule = measurement.schedule
+  const observer = new MutationObserver(schedule)
+  observer.observe(document.body, {
+    attributeFilter: ['data-video-player-inline'],
+    attributes: true,
+    childList: true,
+    subtree: true,
+  })
+  window.addEventListener('scroll', schedule, { passive: true })
+  window.addEventListener('resize', schedule)
+  schedule()
+  return {
+    update: schedule,
+    dispose: () => {
+      observer.disconnect()
+      window.removeEventListener('scroll', schedule)
+      window.removeEventListener('resize', schedule)
+    },
+  }
+}
+export const FloatingScrollActions = component(
+  { init: (_props: Props) => ({ playing: false, video: false }) },
+  view((model, patch) => {
+    const path = model.props.playingPath
+    const scope = model.props.scrollScope
+    return (
+      <div
+        use={domBinding(
+          { path, scope, playing: model.playing, video: model.video, patch },
+          visibilityBinding,
+        )}
+        class='fixed right-3 top-1/2 z-30 flex -translate-y-1/2 flex-col gap-2 sm:right-5'
+      >
+        {model.video ? (
           <button
             type='button'
             class='inline-flex size-10 items-center justify-center rounded-full border border-border bg-background/95 text-foreground shadow-lg backdrop-blur transition-colors hover:bg-muted'
             title='Scroll to video player'
             aria-label='Scroll to video player'
-            onClick={scrollToVideoPlayer}
+            onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
           >
-            <ArrowUp class='h-4 w-4' aria-hidden='true' stroke-width={2} />
+            <ArrowUp class='h-4 w-4' aria-hidden='true' />
           </button>
-        </Show>
-        <Show when={showPlayingFile()}>
+        ) : null}
+        {model.playing ? (
           <button
             type='button'
             class='inline-flex size-10 items-center justify-center rounded-full border border-border bg-background/95 text-foreground shadow-lg backdrop-blur transition-colors hover:bg-muted'
             title='Scroll to playing file'
             aria-label='Scroll to playing file'
-            onClick={scrollPlayingFileIntoView}
+            onClick={() => {
+              const file = playingElement(path)
+              if (file)
+                file.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' })
+              else getVirtualFileScroller(scope)?.scrollToPath(path)
+            }}
           >
-            <LocateFixed class='h-4 w-4' aria-hidden='true' stroke-width={2} />
+            <LocateFixed class='h-4 w-4' aria-hidden='true' />
           </button>
-        </Show>
+        ) : null}
       </div>
-    </Show>
-  )
-}
+    )
+  }),
+)

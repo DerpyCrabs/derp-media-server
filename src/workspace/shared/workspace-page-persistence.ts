@@ -1,5 +1,5 @@
 import type { WindowSource as WorkspaceSource } from '@/lib/models/window-model'
-import type { PersistedWorkspaceState } from '@/workspace/model/use-workspace'
+import type { PersistedWorkspaceState } from '@/workspace/model/workspace'
 import { createDefaultBounds, createWindowLayout } from '@/workspace/model/workspace-geometry'
 import {
   createWorkspaceWindowDefinition,

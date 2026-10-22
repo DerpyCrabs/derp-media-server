@@ -14,10 +14,7 @@ export type MarkdownImage = {
   syntax: 'standard' | 'obsidian'
 }
 
-type MarkdownImageActivation = {
-  src: string
-  alt: string
-}
+type MarkdownImageActivation = { src: string; alt: string }
 
 const markdownImageActivations = new WeakMap<EditorView, MarkdownImageActivation>()
 
@@ -43,11 +40,7 @@ function directChild(node: SyntaxNode, name: string): SyntaxNode | null {
   return null
 }
 
-type MarkdownTextReplacement = {
-  from: number
-  to: number
-  text: string
-}
+type MarkdownTextReplacement = { from: number; to: number; text: string }
 
 function inlineCodeText(node: SyntaxNode, doc: Text): string {
   const open = node.firstChild
@@ -132,13 +125,7 @@ export function extractStandardImage(
     src = resolveReference(referenceText || doc.sliceString(node.from + 2, closingLabel.from))
   }
   if (!src) return null
-  return {
-    from: node.from,
-    to: node.to,
-    src,
-    alt,
-    syntax: 'standard',
-  }
+  return { from: node.from, to: node.to, src, alt, syntax: 'standard' }
 }
 
 export function extractObsidianImage(node: SyntaxNode, doc: Text): MarkdownImage | null {
@@ -209,10 +196,7 @@ export class MarkdownImageWidget extends WidgetType {
         this.runtime.openImage(this.resolvedSrc, this.image.alt)
         return
       }
-      markdownImageActivations.set(view, {
-        src: this.resolvedSrc,
-        alt: this.image.alt,
-      })
+      markdownImageActivations.set(view, { src: this.resolvedSrc, alt: this.image.alt })
       selectSource()
     })
 

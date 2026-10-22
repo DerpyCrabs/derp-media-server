@@ -1,46 +1,39 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["eslint", "typescript"],
-  "categories": {
-    "correctness": "error"
-  },
-  "env": {
-    "builtin": true
-  },
-  "options": {
-    "typeAware": true,
-    "typeCheck": true,
-    "maxWarnings": 0
-  },
+  "extends": [
+    "./node_modules/@effectweb/compiler/dist/oxlint-preset.json",
+    "./node_modules/@effect/tsgo/oxlint-presets/correctness.json",
+    "./node_modules/@effect/tsgo/oxlint-presets/antipattern.json"
+  ],
+  "plugins": ["eslint", "typescript", "effecttsgo"],
+  "categories": { "correctness": "error" },
+  "env": { "builtin": true },
+  "options": { "typeAware": true, "typeCheck": true, "maxWarnings": 0 },
   "overrides": [
     {
       "files": ["src/**/*.ts", "src/**/*.tsx"],
-      "jsPlugins": ["eslint-plugin-solid"],
       "rules": {
-        "solid/jsx-no-duplicate-props": "error",
-        "solid/jsx-no-undef": ["error", { "typescriptEnabled": true }],
-        "solid/jsx-uses-vars": "error",
-        "solid/no-unknown-namespaces": "error",
-        "solid/no-innerhtml": "error",
-        "solid/jsx-no-script-url": "error",
-        "solid/components-return-once": "error",
-        "solid/no-destructure": "error",
-        "solid/prefer-for": "error",
-        "solid/reactivity": "error",
-        "solid/event-handlers": "error",
-        "solid/imports": "error",
-        "solid/style-prop": "error",
-        "solid/no-react-deps": "error",
-        "solid/no-react-specific-props": "error",
-        "solid/self-closing-comp": "error",
-        "solid/no-array-handlers": "off",
-        "solid/prefer-show": "error",
-        "solid/no-proxy-apis": "off",
-        "solid/prefer-classlist": "off",
         "typescript/no-misused-promises": "error",
         "typescript/switch-exhaustiveness-check": "error",
-        "typescript/consistent-return": "error"
+        "typescript/consistent-return": "error",
+        "typescript/no-floating-promises": "error"
       }
     }
-  ]
+  ],
+  "rules": {
+    "effecttsgo/floating-effect": "error",
+    "effecttsgo/missing-effect-context": "error",
+    "effecttsgo/missing-effect-error": "error",
+    "effecttsgo/missing-layer-context": "error",
+    "effecttsgo/missing-return-yield-star": "error",
+    "effecttsgo/missing-star-in-yield-effect-gen": "error",
+    "effecttsgo/class-self-mismatch": "error",
+    "effecttsgo/non-object-effect-service-type": "error",
+    "effecttsgo/any-unknown-in-error-context": "off",
+    "effecttsgo/unstable-api-usage": "off",
+    "effecttsgo/global-error-in-effect-catch": "off",
+    "effecttsgo/global-error-in-effect-failure": "off",
+    "effecttsgo/unknown-in-effect-catch": "off",
+    "effecttsgo/lazy-effect": "off"
+  }
 }

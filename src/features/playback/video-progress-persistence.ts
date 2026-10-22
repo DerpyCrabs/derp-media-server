@@ -1,9 +1,6 @@
-import { createStore, untrack } from 'solid-js'
-import {
-  createStoreListeners,
-  readPersistedState,
-  writePersistedState,
-} from '@/lib/state/client-store-utils'
+import { Schema } from 'effect'
+import { modelOwner } from 'effectweb'
+import { readPersistedState, writePersistedState } from '@/lib/state/client-store-utils'
 
 const STORAGE_KEY = 'video-playback-times'
 
@@ -11,65 +8,46 @@ interface VideoPlaybackTimes {
   [filePath: string]: number
 }
 
+const persistedTimesSchema = Schema.Struct({
+  playbackTimes: Schema.optional(Schema.Record(Schema.String, Schema.Number)),
+})
+
 function loadTimes(): VideoPlaybackTimes {
-  const s = readPersistedState<{ playbackTimes?: unknown }>(STORAGE_KEY)
-  if (s?.playbackTimes && typeof s.playbackTimes === 'object' && s.playbackTimes !== null) {
-    return { ...(s.playbackTimes as VideoPlaybackTimes) }
-  }
-  return {}
+  return readPersistedState(STORAGE_KEY, persistedTimesSchema)?.playbackTimes ?? {}
 }
 
-const listeners = createStoreListeners()
-
-const [store, setStore] = createStore({
-  playbackTimes: loadTimes(),
-})
+const owner = modelOwner({ playbackTimes: loadTimes() })
 
 function persist(playbackTimes: VideoPlaybackTimes) {
   writePersistedState(STORAGE_KEY, { playbackTimes: { ...playbackTimes } })
 }
 
 function getSavedTime(filePath: string): number | null {
-  return untrack(() => store.playbackTimes[filePath] ?? null)
+  return owner.read().playbackTimes[filePath] ?? null
 }
 
 function saveTime(filePath: string, time: number, duration: number) {
-  const next = untrack(() => ({ ...store.playbackTimes }))
+  const next = { ...owner.read().playbackTimes }
   if (duration > 0 && time >= duration * 0.9) {
     delete next[filePath]
-    setStore((state) => {
-      state.playbackTimes = next
-    })
   } else {
-    setStore((state) => {
-      state.playbackTimes[filePath] = time
-    })
     next[filePath] = time
   }
+  owner.patch({ playbackTimes: next })
   persist(next)
-  listeners.notify()
 }
 
 function clearTime(filePath: string) {
-  const next = untrack(() => ({ ...store.playbackTimes }))
+  const next = { ...owner.read().playbackTimes }
   delete next[filePath]
-  setStore((state) => {
-    state.playbackTimes = next
-  })
+  owner.patch({ playbackTimes: next })
   persist(next)
-  listeners.notify()
-}
-
-const api = {
-  get playbackTimes() {
-    return { ...store.playbackTimes }
-  },
-  getSavedTime,
-  saveTime,
-  clearTime,
 }
 
 export const videoPlaybackProgress = Object.freeze({
-  getState: () => api,
-  subscribe: (fn: () => void) => listeners.subscribe(fn),
+  source: owner.source,
+  read: owner.read,
+  getSavedTime,
+  saveTime,
+  clearTime,
 })

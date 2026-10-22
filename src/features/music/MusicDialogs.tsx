@@ -1,19 +1,19 @@
-import { Show } from 'solid-js'
-import { Portal } from '@solidjs/web'
-import X from 'lucide-solid/icons/x'
-import { useModalFocus } from '@/lib/ui/modal-focus'
-import { musicDialog, musicNotice, playMusic, setMusicDialog, type MusicDialog } from './actions'
+import { observe, view, Portal } from 'effectweb'
+import X from '@effectweb/lucide/icons/x'
+import { modalFocus } from '@/lib/ui/modal-focus'
+import { musicUiSource, playMusic, setMusicDialog, type MusicDialog } from './actions'
 import { TrackList } from './TrackList'
-import { usePlaybackSession } from '@/features/playback/PlaybackProvider'
-
-function DialogContent(props: { request: MusicDialog }) {
-  const session = usePlaybackSession()
+import { getPlaybackSession } from '@/features/playback/PlaybackProvider'
+const DialogContent = view<{ request: MusicDialog }>((props) => {
   return (
     <>
       <button
         class='min-h-11 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90'
         onClick={() => {
-          playMusic(session, props.request.items, { kind: 'manual', title: props.request.title })
+          playMusic(getPlaybackSession(), props.request.items, {
+            kind: 'manual',
+            title: props.request.title,
+          })
           setMusicDialog(null)
         }}
       >
@@ -22,36 +22,23 @@ function DialogContent(props: { request: MusicDialog }) {
       <TrackList items={props.request.items} title={props.request.title} />
     </>
   )
-}
-
-export function MusicDialogs() {
-  let element: HTMLDivElement | undefined
-  const onKeyDown = useModalFocus({
-    active: () => musicDialog() != null,
-    element: () => element,
-    onEscape: () => setMusicDialog(null),
-  })
-  const title = () => {
-    const request = musicDialog()
-    return request?.title ?? ''
-  }
-  return (
-    <>
-      <Show when={musicDialog()} keyed>
-        {(request) => (
+})
+export const MusicDialogs = view(() =>
+  observe(musicUiSource, ({ dialog, notice }) => {
+    const title = () => dialog?.title ?? ''
+    return (
+      <>
+        {dialog ? (
           <Portal>
             <div
               class='fixed inset-0 z-[20000] flex items-center justify-center bg-black/55 p-3 sm:p-6'
               role='presentation'
-              onKeyDown={onKeyDown}
               onPointerDown={(event) => {
                 if (event.target === event.currentTarget) setMusicDialog(null)
               }}
             >
               <div
-                ref={(node) => {
-                  element = node
-                }}
+                use={modalFocus({ onEscape: () => setMusicDialog(null) })}
                 role='dialog'
                 aria-modal='true'
                 aria-label={title()}
@@ -68,23 +55,23 @@ export function MusicDialogs() {
                   </button>
                 </div>
                 <div class='overflow-y-auto p-5'>
-                  <DialogContent request={request} />
+                  <DialogContent request={dialog} />
                 </div>
               </div>
             </div>
           </Portal>
-        )}
-      </Show>
-      <Show when={musicNotice()}>
-        <Portal>
-          <div
-            role='status'
-            class='fixed right-4 bottom-24 z-[30000] max-w-[calc(100vw-2rem)] rounded-xl border border-border bg-popover px-4 py-3 text-sm text-popover-foreground shadow-xl'
-          >
-            {musicNotice()}
-          </div>
-        </Portal>
-      </Show>
-    </>
-  )
-}
+        ) : null}
+        {notice ? (
+          <Portal>
+            <div
+              role='status'
+              class='fixed right-4 bottom-24 z-[30000] max-w-[calc(100vw-2rem)] rounded-xl border border-border bg-popover px-4 py-3 text-sm text-popover-foreground shadow-xl'
+            >
+              {notice}
+            </div>
+          </Portal>
+        ) : null}
+      </>
+    )
+  }),
+)

@@ -1,284 +1,103 @@
-import { useThumbnailWarmup } from './use-thumbnail-warmup'
+import { sequence } from 'effectweb'
+import { collection, domBinding, list, component, view, type JSX } from 'effectweb'
 import type { FileItem } from '@/lib/files/types'
-import { createVirtualizer, createWindowVirtualizer, type VirtualItem } from '@/lib/virtualizer'
-import type { Accessor } from 'solid-js'
-import type { JSX } from '@solidjs/web'
-import { createEffect, createMemo, createSignal, For, onSettled, Show, untrack } from 'solid-js'
-import { registerVirtualFileScroller } from './virtual-directory-scroll'
-
-const VIRTUALIZE_THRESHOLD = 100
-const MOBILE_ROW_HEIGHT_PX = 53
-const DESKTOP_ROW_HEIGHT_PX = 37
-
-function defaultRowHeight() {
-  if (typeof window === 'undefined') return 48
-  return window.matchMedia('(min-width: 640px)').matches
-    ? DESKTOP_ROW_HEIGHT_PX
-    : MOBILE_ROW_HEIGHT_PX
-}
-
-type ScrollTarget =
-  | { kind: 'window' }
-  | { kind: 'element'; getScrollElement: () => HTMLElement | undefined }
-
+import { directoryViewport } from './virtual-directory-binding'
 type VirtualDirectoryListProps = {
-  files: Accessor<FileItem[]>
-  includeParent: Accessor<boolean>
-  scrollTarget: ScrollTarget
-  colSpan: number | Accessor<number>
-  columns?: Accessor<{ class?: string }[]>
-  tableClass?: string | Accessor<string>
+  files: readonly FileItem[]
+  includeParent: boolean
+  scrollTarget:
+    | { kind: 'window' }
+    | { kind: 'element'; getScrollElement: () => HTMLElement | undefined }
+  colSpan: number
+  columns?: readonly { class?: string }[]
+  tableClass?: string
   estimateSize?: number
   overscan?: number
-  scrollScope?: Accessor<string | undefined>
+  scrollScope?: string | undefined
   sizeColumnClass?: string
   renderParentRow: () => JSX.Element
   renderFileRow: (file: FileItem) => JSX.Element
   renderEmptyRow?: () => JSX.Element
   class?: string
 }
-
-function fineTunePathIntoView(path: string) {
-  window.setTimeout(() => {
-    if (!path || typeof CSS === 'undefined' || typeof CSS.escape !== 'function') return
-    document
-      .querySelector<HTMLElement>(`[data-file-path="${CSS.escape(path)}"]`)
-      ?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' })
-  }, 0)
-}
-
-function makeVirtualizer(
-  props: VirtualDirectoryListProps,
-  accessors: { count: Accessor<number>; scrollMargin: Accessor<number> },
-) {
-  const getItemKey = (index: number) => {
-    return untrack(() => {
-      const parentCount = props.includeParent() ? 1 : 0
-      if (parentCount && index === 0) return '__parent__'
-      return props.files()[index - parentCount]?.path ?? index
-    })
-  }
-
-  const initialScrollTarget = untrack(() => props.scrollTarget)
-  if (initialScrollTarget.kind === 'element') {
-    const getScrollElement = initialScrollTarget.getScrollElement
-    return createVirtualizer<HTMLElement, HTMLTableRowElement>({
-      get count() {
-        return accessors.count()
-      },
-      getScrollElement: () => untrack(getScrollElement) ?? null,
-      get estimateSize() {
-        const size = props.estimateSize ?? 48
-        return () => size
-      },
-      getItemKey,
-      overscan: props.overscan ?? 12,
-    })
-  }
-
-  return createWindowVirtualizer<HTMLTableRowElement>({
-    get count() {
-      return accessors.count()
-    },
-    get estimateSize() {
-      return () => props.estimateSize ?? defaultRowHeight()
-    },
-    getItemKey,
-    overscan: props.overscan ?? 12,
-    get scrollMargin() {
-      return accessors.scrollMargin()
-    },
-  })
-}
-
-function VirtualDirectoryListItem(props: {
-  item: VirtualItem
-  files: Accessor<FileItem[]>
-  parentCount: Accessor<number>
-  renderParentRow: () => JSX.Element
-  renderFileRow: (file: FileItem) => JSX.Element
-}) {
-  const isParent = () => props.parentCount() > 0 && props.item.index === 0
-  const file = () => props.files()[props.item.index - props.parentCount()]
-
-  return (
-    <Show when={!isParent()} fallback={props.renderParentRow()}>
-      <Show keyed when={file()}>
-        {(rowFile) => props.renderFileRow(rowFile)}
-      </Show>
-    </Show>
-  )
-}
-
-export function VirtualDirectoryList(props: VirtualDirectoryListProps) {
-  const [warmupElement, setWarmupElement] = createSignal<HTMLDivElement>()
-  useThumbnailWarmup(() => props.files(), warmupElement)
-  let containerEl: HTMLDivElement | undefined
-  const [scrollMargin, setScrollMargin] = createSignal(0)
-  const windowScroll = createMemo(() => props.scrollTarget.kind === 'window')
-  const count = () => props.files().length + (props.includeParent() ? 1 : 0)
-  const colSpan = () => (typeof props.colSpan === 'function' ? props.colSpan() : props.colSpan)
-  const tableClass = () =>
-    typeof props.tableClass === 'function' ? props.tableClass() : props.tableClass
-  const virtualizer = makeVirtualizer(props, { count, scrollMargin })
-
-  createEffect(
-    () => {
-      const itemCount = count()
-      const scrollElement =
-        props.scrollTarget.kind === 'element'
-          ? props.scrollTarget.getScrollElement()
-          : document.documentElement
-      return itemCount && scrollElement ? { itemCount, scrollElement } : null
-    },
-    (state) => {
-      if (!state) return undefined
-
-      let cancelled = false
-      const measure = () => {
-        if (cancelled) return
-        virtualizer._willUpdate()
-        virtualizer.measure()
-      }
-      queueMicrotask(measure)
-      const frame = window.requestAnimationFrame(measure)
-      // eslint-disable-next-line solid/reactivity
-      return () => {
-        cancelled = true
-        window.cancelAnimationFrame(frame)
-      }
-    },
-  )
-
-  function updateScrollMargin() {
-    if (!windowScroll() || !containerEl) {
-      setScrollMargin(0)
-      return
-    }
-    setScrollMargin(containerEl.getBoundingClientRect().top + window.scrollY)
-  }
-
-  function topPadding() {
-    const first = virtualizer.getVirtualItems()[0]
-    if (!first) return 0
-    return Math.max(0, first.start - scrollMargin())
-  }
-
-  function bottomPadding() {
-    const items = virtualizer.getVirtualItems()
-    const last = items[items.length - 1]
-    if (!last) return 0
-    return Math.max(0, virtualizer.getTotalSize() - last.end)
-  }
-
-  createEffect(
-    () => {
-      const scope = props.scrollScope?.()
-      return scope
-        ? { scope, files: props.files(), parentCount: props.includeParent() ? 1 : 0 }
-        : null
-    },
-    (state) => {
-      if (!state) return undefined
-
-      const unregister = registerVirtualFileScroller(state.scope, {
-        hasPath: (path) => state.files.some((file) => file.path === path),
-        scrollToPath: (path) => {
-          const index = state.files.findIndex((file) => file.path === path)
-          if (index === -1) return
-          virtualizer.scrollToIndex(index + state.parentCount, { align: 'center' })
-          fineTunePathIntoView(path)
-        },
-      })
-
-      // eslint-disable-next-line solid/reactivity
-      return unregister
-    },
-  )
-
-  onSettled(() => {
-    updateScrollMargin()
-    if (!windowScroll()) return undefined
-
-    window.addEventListener('resize', updateScrollMargin)
-    window.addEventListener('scroll', updateScrollMargin, { passive: true })
-    // eslint-disable-next-line solid/reactivity
-    return () => {
-      window.removeEventListener('resize', updateScrollMargin)
-      window.removeEventListener('scroll', updateScrollMargin)
-    }
-  })
-
-  const table = (children: JSX.Element) => (
-    <div
-      ref={(el) => {
-        containerEl = el
-        setWarmupElement(el)
-        updateScrollMargin()
-      }}
-      class={props.class}
-    >
-      <table class={`w-full table-fixed caption-bottom text-sm ${tableClass() ?? ''}`}>
-        <colgroup>
-          <Show
-            when={props.columns}
-            fallback={
+const byPath = collection<FileItem>((file) => file.path)
+export const VirtualDirectoryList = component(
+  {
+    init: (_props: VirtualDirectoryListProps) => ({
+      start: 0,
+      end: 100,
+      columns: 1,
+      rowHeight: 48,
+    }),
+  },
+  view((model, patch) => {
+    const props = model.props
+    const files = props.files
+    const parent = props.includeParent
+    const count = files.length + (parent ? 1 : 0)
+    const span = props.colSpan
+    const tableClass = props.tableClass
+    const virtual = count > 100
+    const start = virtual ? model.start : 0
+    const end = virtual ? model.end : count
+    const rows = files.slice(
+      Math.max(0, start - (parent ? 1 : 0)),
+      Math.max(0, end - (parent ? 1 : 0)),
+    )
+    return (
+      <div
+        class={props.class}
+        use={domBinding(
+          {
+            files,
+            includeParent: parent,
+            target: props.scrollTarget,
+            scope: props.scrollScope,
+            grid: false,
+            estimateSize: props.estimateSize,
+            overscan: props.overscan,
+            range: model,
+            patch,
+          },
+          directoryViewport,
+        )}
+      >
+        <table class={`w-full table-fixed caption-bottom text-sm ${tableClass ?? ''}`}>
+          <colgroup>
+            {props.columns ? (
+              list(sequence(props.columns), (column) => <col class={column.class} />)
+            ) : (
               <>
                 <col class='w-[40px]' />
                 <col />
                 <col class={props.sizeColumnClass ?? 'w-24'} />
-                <Show when={colSpan() >= 4}>
-                  <col class='w-[52px]' />
-                </Show>
+                {span >= 4 ? <col class='w-[52px]' /> : null}
               </>
-            }
-          >
-            <For each={props.columns?.() ?? []}>{(column) => <col class={column.class} />}</For>
-          </Show>
-        </colgroup>
-        <tbody class='[&_tr:last-child]:border-0'>{children}</tbody>
-      </table>
-    </div>
-  )
-
-  const unvirtualizedRows = () => (
-    <>
-      <Show when={props.includeParent()}>{props.renderParentRow()}</Show>
-      <For each={props.files()}>{(file) => props.renderFileRow(file)}</For>
-      {props.renderEmptyRow?.()}
-    </>
-  )
-
-  return (
-    <Show when={count() > VIRTUALIZE_THRESHOLD} fallback={table(unvirtualizedRows())}>
-      {table(
-        <Show when={virtualizer.getVirtualItems().length > 0} fallback={unvirtualizedRows()}>
-          <>
-            <Show when={topPadding() > 0}>
+            )}
+          </colgroup>
+          <tbody class='[&_tr:last-child]:border-0'>
+            {start > 0 ? (
               <tr aria-hidden='true'>
-                <td colspan={colSpan()} style={{ height: `${topPadding()}px`, padding: '0' }} />
-              </tr>
-            </Show>
-            <For each={virtualizer.getVirtualItems()}>
-              {(item) => (
-                <VirtualDirectoryListItem
-                  item={item}
-                  files={props.files}
-                  parentCount={() => (props.includeParent() ? 1 : 0)}
-                  renderParentRow={props.renderParentRow}
-                  renderFileRow={props.renderFileRow}
+                <td
+                  colspan={span}
+                  style={{ height: `${start * model.rowHeight}px`, padding: '0' }}
                 />
-              )}
-            </For>
-            {props.renderEmptyRow?.()}
-            <Show when={bottomPadding() > 0}>
-              <tr aria-hidden='true'>
-                <td colspan={colSpan()} style={{ height: `${bottomPadding()}px`, padding: '0' }} />
               </tr>
-            </Show>
-          </>
-        </Show>,
-      )}
-    </Show>
-  )
-}
+            ) : null}
+            {parent && start === 0 ? props.renderParentRow() : null}
+            {list(byPath.from(rows), (file) => props.renderFileRow(file))}
+            {props.renderEmptyRow?.()}
+            {virtual && end < count ? (
+              <tr aria-hidden='true'>
+                <td
+                  colspan={span}
+                  style={{ height: `${(count - end) * model.rowHeight}px`, padding: '0' }}
+                />
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
+    )
+  }),
+)

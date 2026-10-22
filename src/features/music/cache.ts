@@ -1,8 +1,9 @@
-import type { QueryClient } from '@tanstack/solid-query'
+import { groups, queryCache } from '@/lib/api/cache'
+import { musicHomeQuery } from './queries'
 import type { MusicHomeData, MusicTrack } from './types'
 
-export function updateMusicFeedback(client: QueryClient, input: { path: string; kind: string }) {
-  const update = (items: MusicTrack[]) =>
+export function updateMusicFeedback(input: { path: string; kind: string }) {
+  const update = (items: readonly MusicTrack[]) =>
     items.flatMap((item) => {
       if (item.path !== input.path && !item.path.startsWith(`${input.path}/`)) return [item]
       if (input.kind === 'hide' || input.kind === 'later') return []
@@ -17,7 +18,7 @@ export function updateMusicFeedback(client: QueryClient, input: { path: string; 
       return { ...mix, items, count: items.length }
     }),
   })
-  client.setQueriesData<MusicHomeData>({ queryKey: ['music', 'home'] }, (home) =>
+  queryCache.updateQueryData(musicHomeQuery, '', (home) =>
     home
       ? {
           ...home,
@@ -32,4 +33,8 @@ export function updateMusicFeedback(client: QueryClient, input: { path: string; 
         }
       : home,
   )
+  queryCache.batch(() => {
+    queryCache.invalidateGroup(groups.mediaAi)
+    queryCache.invalidateGroup(groups.recommendations)
+  })
 }

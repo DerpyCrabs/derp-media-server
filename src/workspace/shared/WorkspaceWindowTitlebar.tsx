@@ -1,31 +1,32 @@
-import type { FileIconContext } from '@/features/explorer/use-file-icon'
+type Getter<T> = () => T
+import { view, domBinding } from 'effectweb'
+import type { FileIconContext } from '@/features/explorer/file-icon'
 import type { WindowDefinition as WorkspaceWindowDefinition } from '@/lib/models/window-model'
 import { WorkspaceTabStrip } from '@/workspace/tabs/WorkspaceTabStrip'
-import ChevronDown from 'lucide-solid/icons/chevron-down'
-import Maximize2 from 'lucide-solid/icons/maximize-2'
-import Minimize2 from 'lucide-solid/icons/minimize-2'
-import Minus from 'lucide-solid/icons/minus'
-import X from 'lucide-solid/icons/x'
-import { Show, type Accessor } from 'solid-js'
-
+import ChevronDown from '@effectweb/lucide/icons/chevron-down'
+import Maximize2 from '@effectweb/lucide/icons/maximize-2'
+import Minimize2 from '@effectweb/lucide/icons/minimize-2'
+import Minus from '@effectweb/lucide/icons/minus'
+import X from '@effectweb/lucide/icons/x'
 export type WorkspaceWindowTitlebarProps = {
   groupId: string
-  tabs: Accessor<WorkspaceWindowDefinition[]>
-  visibleTabId: Accessor<string>
+  tabs: Getter<readonly WorkspaceWindowDefinition[]>
+  visibleTabId: Getter<string>
   active: boolean
   fileIconContext: () => FileIconContext
-  maximized: Accessor<boolean>
+  maximized: Getter<boolean>
   onRoot?: (element: HTMLDivElement) => void
+  onPointerDownCapture?: (event: PointerEvent) => void
   onPointerDown?: (event: PointerEvent) => void
   testId?: string
   rootTestId?: string
-  height?: Accessor<number>
-  actionSize?: Accessor<number>
-  actionIconScale?: Accessor<number>
-  rounded?: Accessor<boolean>
-  showTabs?: Accessor<boolean>
-  mergeHighlightInsertIndex?: Accessor<number | null>
-  splitLeftTabId?: Accessor<string | null | undefined>
+  height?: Getter<number>
+  actionSize?: Getter<number>
+  actionIconScale?: Getter<number>
+  rounded?: Getter<boolean>
+  showTabs?: Getter<boolean>
+  mergeHighlightInsertIndex?: Getter<number | null>
+  splitLeftTabId?: Getter<string | null | undefined>
   onActivateTab?: (groupId: string, tabId: string) => void
   onFocusWindow: (windowId: string) => void
   onCloseTab?: (windowId: string) => void
@@ -39,26 +40,22 @@ export type WorkspaceWindowTitlebarProps = {
   onOpenLayoutPicker?: (rect: DOMRect) => void
   onClose?: () => void
 }
-
-export function WorkspaceWindowTitlebar(props: WorkspaceWindowTitlebarProps) {
+export const WorkspaceWindowTitlebar = view<WorkspaceWindowTitlebarProps>((props) => {
   const action =
     'inline-flex h-full w-8 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
   const actionStyle = () => ({ width: props.actionSize ? `${props.actionSize()}px` : undefined })
   const iconStyle = () => ({
     transform: props.actionIconScale ? `scale(${props.actionIconScale()})` : undefined,
   })
-
   return (
     <div
-      ref={(element) => props.onRoot?.(element)}
+      use={domBinding({ root: props.onRoot, capture: props.onPointerDownCapture }, titlebarRoot)}
       data-testid={props.rootTestId}
-      class={`relative z-10 flex shrink-0 items-stretch border-b border-border ${props.height ? '' : 'h-8'} ${
-        props.rounded?.() ? 'rounded-t-lg' : ''
-      } ${props.active ? 'bg-muted text-foreground' : 'bg-muted/50 text-muted-foreground'}`}
+      class={`relative z-10 flex shrink-0 items-stretch border-b border-border ${props.height ? '' : 'h-8'} ${props.rounded?.() ? 'rounded-t-lg' : ''} ${props.active ? 'bg-muted text-foreground' : 'bg-muted/50 text-muted-foreground'}`}
       style={{ height: props.height ? `${props.height()}px` : undefined }}
       onPointerDown={(event) => props.onPointerDown?.(event)}
     >
-      <Show when={props.showTabs?.() ?? true} fallback={<span class='flex-1' />}>
+      {(props.showTabs?.() ?? true) ? (
         <div
           data-testid={props.testId}
           class='workspace-window-drag-handle flex min-w-0 flex-1 cursor-grab items-center text-xs font-medium select-none active:cursor-grabbing'
@@ -81,7 +78,9 @@ export function WorkspaceWindowTitlebar(props: WorkspaceWindowTitlebarProps) {
             onUseAsSplitLeftTab={props.onUseAsSplitLeftTab}
           />
         </div>
-      </Show>
+      ) : (
+        <span class='flex-1' />
+      )}
       <div
         class='workspace-window-drag-handle min-w-[48px] shrink-0 cursor-grab active:cursor-grabbing'
         aria-hidden='true'
@@ -92,7 +91,7 @@ export function WorkspaceWindowTitlebar(props: WorkspaceWindowTitlebarProps) {
         onPointerDown={(event) => event.stopPropagation()}
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <Show when={props.onMinimize}>
+        {props.onMinimize ? (
           <button
             type='button'
             class={action}
@@ -104,33 +103,8 @@ export function WorkspaceWindowTitlebar(props: WorkspaceWindowTitlebarProps) {
               <Minus class='h-3.5 w-3.5' stroke-width={2} />
             </span>
           </button>
-        </Show>
-        <Show
-          when={props.onOpenLayoutPicker}
-          fallback={
-            <button
-              type='button'
-              class={action}
-              style={actionStyle()}
-              onClick={() => props.onToggleMaximize()}
-              aria-label={props.maximized() ? 'Restore' : 'Maximize'}
-              title={props.maximized() ? 'Restore window' : 'Maximize window'}
-            >
-              <Show
-                when={props.maximized()}
-                fallback={
-                  <span style={iconStyle()}>
-                    <Maximize2 class='h-3.5 w-3.5' stroke-width={2} />
-                  </span>
-                }
-              >
-                <span style={iconStyle()}>
-                  <Minimize2 class='h-3.5 w-3.5' stroke-width={2} />
-                </span>
-              </Show>
-            </button>
-          }
-        >
+        ) : null}
+        {props.onOpenLayoutPicker ? (
           <div class='flex h-full w-8'>
             <button
               type='button'
@@ -144,12 +118,11 @@ export function WorkspaceWindowTitlebar(props: WorkspaceWindowTitlebarProps) {
               aria-label='Maximize'
               title={props.maximized() ? 'Restore window' : 'Maximize window'}
             >
-              <Show
-                when={props.maximized()}
-                fallback={<Maximize2 class='h-3.5 w-3.5' stroke-width={2} />}
-              >
+              {props.maximized() ? (
                 <Minimize2 class='h-3.5 w-3.5' stroke-width={2} />
-              </Show>
+              ) : (
+                <Maximize2 class='h-3.5 w-3.5' stroke-width={2} />
+              )}
             </button>
             <button
               type='button'
@@ -164,8 +137,27 @@ export function WorkspaceWindowTitlebar(props: WorkspaceWindowTitlebarProps) {
               <ChevronDown class='h-2.5 w-2.5' stroke-width={2} />
             </button>
           </div>
-        </Show>
-        <Show when={props.onClose}>
+        ) : (
+          <button
+            type='button'
+            class={action}
+            style={actionStyle()}
+            onClick={() => props.onToggleMaximize()}
+            aria-label={props.maximized() ? 'Restore' : 'Maximize'}
+            title={props.maximized() ? 'Restore window' : 'Maximize window'}
+          >
+            {props.maximized() ? (
+              <span style={iconStyle()}>
+                <Minimize2 class='h-3.5 w-3.5' stroke-width={2} />
+              </span>
+            ) : (
+              <span style={iconStyle()}>
+                <Maximize2 class='h-3.5 w-3.5' stroke-width={2} />
+              </span>
+            )}
+          </button>
+        )}
+        {props.onClose ? (
           <button
             type='button'
             class={action}
@@ -177,8 +169,24 @@ export function WorkspaceWindowTitlebar(props: WorkspaceWindowTitlebarProps) {
               <X class='h-3.5 w-3.5' stroke-width={2} />
             </span>
           </button>
-        </Show>
+        ) : null}
       </div>
     </div>
   )
+})
+
+const titlebarRoot = (
+  element: HTMLDivElement,
+  current: () => {
+    root?: (element: HTMLDivElement) => void
+    capture?: (event: PointerEvent) => void
+  },
+) => {
+  current().root?.(element)
+  const capture = (event: PointerEvent) => current().capture?.(event)
+  element.addEventListener('pointerdown', capture, true)
+  return {
+    update: () => current().root?.(element),
+    dispose: () => element.removeEventListener('pointerdown', capture, true),
+  }
 }

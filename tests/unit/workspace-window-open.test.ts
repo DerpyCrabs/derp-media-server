@@ -144,11 +144,7 @@ test('reader plan owns reader kind and source-aware dedupe', () => {
         type: 'viewer',
         title: 'Manual',
         source,
-        initialState: {
-          dir: 'books',
-          viewing: 'books/Manual',
-          readerKind: 'folder',
-        },
+        initialState: { dir: 'books', viewing: 'books/Manual', readerKind: 'folder' },
       },
     ],
     id: workspaceWindowId(8),
@@ -164,11 +160,7 @@ test('reader plan owns reader kind and source-aware dedupe', () => {
         type: 'viewer',
         title: 'Manual',
         source,
-        initialState: {
-          dir: 'books',
-          viewing: 'books/Manual',
-          readerKind: 'folder',
-        },
+        initialState: { dir: 'books', viewing: 'books/Manual', readerKind: 'folder' },
       },
     ],
     id: workspaceWindowId(8),
@@ -200,12 +192,7 @@ test('Hermes plans dedupe durable sessions but never drafts', () => {
     intent: {
       kind: 'hermes',
       file: { ...image, name: 'Session A', path: 'Hermes Sessions/session/session-a' },
-      target: {
-        provider: 'hermes',
-        type: 'hermesSession',
-        sessionId: 'session-a',
-        readOnly: true,
-      },
+      target: { provider: 'hermes', type: 'hermesSession', sessionId: 'session-a', readOnly: true },
       source,
     },
   })
@@ -218,12 +205,7 @@ test('Hermes plans dedupe durable sessions but never drafts', () => {
     intent: {
       kind: 'hermes',
       file: { ...image, name: 'Draft', path: 'Hermes Sessions/draft' },
-      target: {
-        provider: 'hermes',
-        type: 'hermesDraft',
-        projectPath: 'books',
-        readOnly: false,
-      },
+      target: { provider: 'hermes', type: 'hermesDraft', projectPath: 'books', readOnly: false },
       draftId: 'draft-a',
       source,
     },
@@ -241,12 +223,7 @@ test('Hermes plans dedupe durable sessions but never drafts', () => {
       source,
       initialState: {},
       tabGroupId: null,
-      hermes: {
-        sessionId: undefined,
-        draftId: 'draft-a',
-        cwd: 'books',
-        readOnly: false,
-      },
+      hermes: { sessionId: undefined, draftId: 'draft-a', cwd: 'books', readOnly: false },
     },
   })
 })

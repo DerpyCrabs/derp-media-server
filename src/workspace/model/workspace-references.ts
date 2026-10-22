@@ -1,4 +1,4 @@
-import type { PersistedWorkspaceState } from './use-workspace'
+import type { PersistedWorkspaceState } from './workspace'
 import { workspaceValueEquals } from './workspace-equality'
 
 function clone<T>(value: T): T {

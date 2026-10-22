@@ -3,7 +3,7 @@ import {
   normalizePersistedWorkspaceState,
   serializeWorkspacePersistedState,
   type PersistedWorkspaceState,
-} from '@/workspace/model/use-workspace'
+} from '@/workspace/model/workspace'
 import type { WindowDefinition as WorkspaceWindowDefinition } from '@/lib/models/window-model'
 
 function hermesWindow(id: string, sessionId?: string): WorkspaceWindowDefinition {
@@ -52,9 +52,7 @@ describe('Hermes window persistence boundary', () => {
     expect(persisted.windows.map((window) => window.id)).toEqual(['saved'])
     expect(persisted.activeWindowId).toBe('saved')
     expect(persisted.activeTabMap).toEqual({})
-    const restored = normalizePersistedWorkspaceState(persisted, {
-      reconcileSnapZones: false,
-    })
+    const restored = normalizePersistedWorkspaceState(persisted, { reconcileSnapZones: false })
     expect(restored?.activeWindowId).toBe('saved')
     expect(restored?.activeTabMap).toEqual({})
   })

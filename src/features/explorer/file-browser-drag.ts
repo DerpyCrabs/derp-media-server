@@ -12,8 +12,8 @@ import {
   finePointerDragEnabled,
   subscribeFinePointerDragEnabled,
 } from '@/lib/ui/enable-fine-pointer-drag'
-import { createMemo, createSignal, onSettled, type Accessor } from 'solid-js'
-
+import { modelOwner } from 'effectweb'
+type Accessor<T> = () => T
 export type FileBrowserDragControllerProps = Readonly<{
   files: Accessor<FileItem[]>
   currentPath: Accessor<string>
@@ -21,35 +21,34 @@ export type FileBrowserDragControllerProps = Readonly<{
   allowMoveFile: Accessor<((sourcePath: string, destinationDir: string) => void) | undefined>
   virtualOpenTarget?: (file: FileItem) => VirtualOpenTarget | undefined
 }>
-
 function foldersFor(folders: Accessor<readonly string[]> | readonly string[]): readonly string[] {
   return typeof folders === 'function' ? folders() : folders
 }
-
 export function createFileBrowserDragController(props: FileBrowserDragControllerProps) {
-  const [draggedPath, setDraggedPath] = createSignal<string | null>(null)
-  const [dragOverPath, setDragOverPath] = createSignal<string | null>(null)
-  const [dragAllowsMove, setDragAllowsMove] = createSignal(false)
-  const [enableDrag, setEnableDrag] = createSignal(finePointerDragEnabled())
-  const parentDirForDrop = createMemo(() => parentPath(props.currentPath()))
-  const canDropOnParent = createMemo(
-    () =>
-      !!props.allowMoveFile() &&
-      !!props.currentPath() &&
-      isPathEditable(parentDirForDrop(), [...foldersFor(props.editableFolders)]),
-  )
-
-  onSettled(() => {
-    setEnableDrag(finePointerDragEnabled())
-    return subscribeFinePointerDragEnabled(setEnableDrag)
+  const owner = modelOwner({
+    draggedPath: null as string | null,
+    dragOverPath: null as string | null,
+    dragAllowsMove: false,
+    enableDrag: finePointerDragEnabled(),
   })
-
+  const draggedPath = () => owner.read().draggedPath
+  const dragOverPath = () => owner.read().dragOverPath
+  const dragAllowsMove = () => owner.read().dragAllowsMove
+  const enableDrag = () => owner.read().enableDrag
+  const setDraggedPath = (draggedPath: string | null) => owner.patch({ draggedPath })
+  const setDragOverPath = (dragOverPath: string | null) => owner.patch({ dragOverPath })
+  const setDragAllowsMove = (dragAllowsMove: boolean) => owner.patch({ dragAllowsMove })
+  owner.own(subscribeFinePointerDragEnabled((enableDrag) => owner.patch({ enableDrag })))
+  const parentDirForDrop = () => parentPath(props.currentPath())
+  const canDropOnParent = () =>
+    !!props.allowMoveFile() &&
+    !!props.currentPath() &&
+    isPathEditable(parentDirForDrop(), [...foldersFor(props.editableFolders)])
   function canDropOn(targetPath: string, sourcePath?: string | null) {
     const source = sourcePath ?? draggedPath()
     if (!source || source === targetPath) return false
     return !targetPath.startsWith(source + '/')
   }
-
   function nativeOver(event: globalThis.DragEvent, target: string) {
     if (!window.derpDesktop || !event.dataTransfer?.types.includes('Files')) return false
     event.stopPropagation()
@@ -59,17 +58,16 @@ export function createFileBrowserDragController(props: FileBrowserDragController
     } else event.dataTransfer.dropEffect = 'none'
     return true
   }
-
   function nativeDrop(event: globalThis.DragEvent, target: string) {
     const desktop = window.derpDesktop
     if (!desktop || !event.dataTransfer?.files.length) return false
     event.preventDefault()
     event.stopPropagation()
+    const files = Array.from(event.dataTransfer.files)
     if (isPathEditable(target, [...foldersFor(props.editableFolders)]))
-      runDesktopOperation(desktop.importDrop(Array.from(event.dataTransfer.files), target))
+      runDesktopOperation(() => desktop.importDrop(files, target))
     return true
   }
-
   function parentRowDragOver(event: globalThis.DragEvent) {
     if (nativeOver(event, parentDirForDrop())) return
     const move = props.allowMoveFile()
@@ -81,7 +79,6 @@ export function createFileBrowserDragController(props: FileBrowserDragController
     dataTransfer.dropEffect = 'move'
     setDragOverPath('__parent__')
   }
-
   function parentRowDragLeave(event: globalThis.DragEvent) {
     const current = event.currentTarget as Node | null
     if (
@@ -92,7 +89,6 @@ export function createFileBrowserDragController(props: FileBrowserDragController
       setDragOverPath(null)
     }
   }
-
   function parentRowDrop(event: globalThis.DragEvent) {
     if (nativeDrop(event, parentDirForDrop())) return
     event.preventDefault()
@@ -116,11 +112,10 @@ export function createFileBrowserDragController(props: FileBrowserDragController
       move(data.path, destination)
     }
   }
-
   function onFileDragStart(file: FileItem, event: globalThis.DragEvent) {
     if (window.derpDesktop && !file.isVirtual) {
       event.preventDefault()
-      runDesktopOperation(window.derpDesktop.drag([file.path]))
+      runDesktopOperation(() => window.derpDesktop!.drag([file.path]))
       return
     }
     const dataTransfer = event.dataTransfer
@@ -138,15 +133,12 @@ export function createFileBrowserDragController(props: FileBrowserDragController
     dataTransfer.effectAllowed = canMove ? 'copyMove' : 'copy'
     setDraggedPath(file.path)
   }
-
   function onFileDragEnd() {
     setDraggedPath(null)
     setDragOverPath(null)
     setDragAllowsMove(false)
   }
-
   const resetDrag = onFileDragEnd
-
   function onFolderDragOver(file: FileItem, event: globalThis.DragEvent) {
     if (file.isDirectory && nativeOver(event, file.path)) return
     const dataTransfer = event.dataTransfer
@@ -161,29 +153,24 @@ export function createFileBrowserDragController(props: FileBrowserDragController
     dataTransfer.dropEffect = 'move'
     setDragOverPath(file.path)
   }
-
   function onFolderDragLeave(file: FileItem, event: globalThis.DragEvent) {
     const current = event.currentTarget as Node | null
     if (current && !current.contains(event.relatedTarget as Node) && dragOverPath() === file.path) {
       setDragOverPath(null)
     }
   }
-
   function handleFolderRowDragOver(path: string, event: globalThis.DragEvent) {
     const file = props.files().find((candidate) => candidate.path === path)
     if (file?.isDirectory) onFolderDragOver(file, event)
   }
-
   function handleFolderRowDragLeave(path: string, event: globalThis.DragEvent) {
     const file = props.files().find((candidate) => candidate.path === path)
     if (file?.isDirectory) onFolderDragLeave(file, event)
   }
-
   function handleFolderRowDrop(path: string, event: globalThis.DragEvent) {
     const file = props.files().find((candidate) => candidate.path === path)
     if (file?.isDirectory) onFolderDrop(file, event)
   }
-
   function onFolderDrop(file: FileItem, event: globalThis.DragEvent) {
     if (file.isDirectory && nativeDrop(event, file.path)) return
     event.preventDefault()
@@ -207,8 +194,7 @@ export function createFileBrowserDragController(props: FileBrowserDragController
       move(data.path, file.path)
     }
   }
-
-  return {
+  const events = {
     draggedPath,
     dragOverPath,
     dragAllowsMove,
@@ -226,5 +212,24 @@ export function createFileBrowserDragController(props: FileBrowserDragController
     handleFolderRowDragOver,
     handleFolderRowDragLeave,
     handleFolderRowDrop,
+  }
+  return {
+    source: owner.source,
+    read: owner.read,
+    dispose: owner.dispose,
+    snapshot: (
+      state: ReturnType<typeof owner.read>,
+      input: { currentPath: string; editableFolders: readonly string[]; canMove: boolean },
+    ) => ({
+      ...events,
+      draggedPath: state.draggedPath,
+      dragOverPath: state.dragOverPath,
+      dragAllowsMove: state.dragAllowsMove,
+      enableDrag: state.enableDrag,
+      canDropOnParent:
+        input.canMove &&
+        !!input.currentPath &&
+        isPathEditable(parentPath(input.currentPath), [...input.editableFolders]),
+    }),
   }
 }

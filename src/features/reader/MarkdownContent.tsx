@@ -1,6 +1,6 @@
+import { view } from 'effectweb'
 import { LazyMarkdownDocument } from '@/lib/markdown/LazyMarkdownDocument'
-
-export function MarkdownContent(props: { content: string }) {
+export const MarkdownContent = view<{ content: string }>((props) => {
   return (
     <div class='reader-markdown'>
       <LazyMarkdownDocument
@@ -12,4 +12,4 @@ export function MarkdownContent(props: { content: string }) {
       />
     </div>
   )
-}
+})

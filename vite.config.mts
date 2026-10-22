@@ -1,44 +1,23 @@
 import { defineConfig } from 'vite'
-import solid from '@solidjs/vite-plugin'
+import { scopePdfViewerCss } from './tooling/pdf-viewer-css'
+import { effectweb } from '@effectweb/compiler/vite'
 import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
 import { fileURLToPath } from 'node:url'
 
 const configDir = path.dirname(fileURLToPath(import.meta.url))
-const solid1DependencyCompat = {
-  name: 'solid-1-dependency-compat',
-  enforce: 'pre' as const,
-  transform(code: string, id: string) {
-    const normalizedId = id.replaceAll('\\', '/')
-    if (!normalizedId.includes('/node_modules/lucide-solid/dist/source/')) return undefined
-    const match = code.match(/import \{([^}]*)\} from "solid-js";/)
-    if (!match?.[1].includes('splitProps')) return undefined
-    const imports = match[1]
-      .split(',')
-      .map((name) => name.trim())
-      .filter((name) => name && name !== 'splitProps')
-    const runtimeImport = imports.length ? `import { ${imports.join(', ')} } from "solid-js";` : ''
-    return {
-      code: code.replace(
-        match[0],
-        `${runtimeImport}\nimport { splitProps } from "@/lib/solid-1-compat";`,
-      ),
-      map: null,
-    }
-  },
-}
-
 export default defineConfig({
   cacheDir: process.env.BATCH_ID
     ? `node_modules/.vite-test-${process.env.BATCH_ID}-${process.env.PORT ?? 'build'}`
     : process.env.E2E_DEV === '1' || process.env.NODE_ENV === 'test'
       ? `node_modules/.vite-test-local-${process.env.PORT ?? 'build'}`
       : undefined,
-  plugins: [solid1DependencyCompat, solid(), tailwindcss()],
+  plugins: [scopePdfViewerCss(), effectweb(), tailwindcss()],
   server: {
     allowedHosts: true,
     hmr: process.env.VITE_HMR_PORT
       ? {
+          host: process.env.E2E_DEV === '1' ? '127.0.0.1' : undefined,
           port: Number(process.env.VITE_HMR_PORT),
           clientPort: Number(process.env.VITE_HMR_CLIENT_PORT ?? process.env.VITE_HMR_PORT),
         }
@@ -58,19 +37,6 @@ export default defineConfig({
       ],
     },
   },
-  resolve: {
-    alias: {
-      '@': path.resolve(configDir, 'src'),
-      // Keep Solid 1-only third-party packages on the Solid 2 runtime exports.
-      'solid-js/web': '@solidjs/web',
-    },
-  },
-  optimizeDeps: {
-    exclude: ['lucide-solid'],
-  },
-  build: {
-    outDir: 'dist/client',
-    emptyOutDir: true,
-    manifest: true,
-  },
+  resolve: { alias: { '@': path.resolve(configDir, 'src') } },
+  build: { outDir: 'dist/client', emptyOutDir: true, manifest: true },
 })

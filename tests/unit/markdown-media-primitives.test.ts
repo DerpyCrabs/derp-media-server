@@ -292,13 +292,7 @@ describe('Markdown link extraction and safety', () => {
   })
 
   test('adds external metadata only for HTTP(S) links', () => {
-    const base = {
-      from: 1,
-      to: 10,
-      labelFrom: 2,
-      labelTo: 5,
-      href: 'https://example.com',
-    }
+    const base = { from: 1, to: 10, labelFrom: 2, labelTo: 5, href: 'https://example.com' }
     expect(markdownLinkAttributes(base)).toEqual({
       role: 'link',
       tabindex: '0',
@@ -335,10 +329,7 @@ describe('Markdown link extraction and safety', () => {
       expect(calls).toEqual([['https://example.com', '_blank', 'noopener,noreferrer']])
       expect(opened.opener).toBeNull()
     } finally {
-      Object.defineProperty(globalThis, 'window', {
-        configurable: true,
-        value: previousWindow,
-      })
+      Object.defineProperty(globalThis, 'window', { configurable: true, value: previousWindow })
     }
   })
 })

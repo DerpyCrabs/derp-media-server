@@ -15,15 +15,19 @@ test.describe('Audio Player', () => {
 
   test('reserves bottom space for the fixed audio bar', async ({ page }) => {
     await page.goto(`/?dir=${MUSIC_DIR}&playing=${encodeURIComponent(AUDIO_FILE)}`)
-    const [paddingBottom, playerHeight] = await Promise.all([
-      page
-        .getByTestId('media-chrome-pad-root')
-        .evaluate((element) => Number.parseFloat(getComputedStyle(element).paddingBottom)),
-      page
-        .getByTestId('audio-player-chrome')
-        .evaluate((element) => element.getBoundingClientRect().height),
-    ])
-    expect(paddingBottom).toBeGreaterThanOrEqual(playerHeight)
+    await expect
+      .poll(async () => {
+        const [paddingBottom, playerHeight] = await Promise.all([
+          page
+            .getByTestId('media-chrome-pad-root')
+            .evaluate((element) => Number.parseFloat(getComputedStyle(element).paddingBottom)),
+          page
+            .getByTestId('audio-player-chrome')
+            .evaluate((element) => element.getBoundingClientRect().height),
+        ])
+        return paddingBottom >= playerHeight && playerHeight > 0
+      })
+      .toBe(true)
   })
 
   test('shows play/pause controls', async ({ page }) => {
@@ -82,25 +86,21 @@ test.describe('Audio Player', () => {
           },
         },
       })
-      type TestDehydratedState = {
-        queries?: Array<{ queryKey?: unknown[] }>
-      }
-      const removeAudioMetadata = (value: TestDehydratedState | undefined) => {
-        if (value?.queries) {
-          value.queries = value.queries.filter((query) => query.queryKey?.[0] !== 'audio-metadata')
+      type TestInitialData = { entries?: Array<{ key?: unknown[] }> }
+      const removeAudioMetadata = (value: TestInitialData | undefined) => {
+        if (value?.entries) {
+          value.entries = value.entries.filter((query) => query.key?.[0] !== 'audio-metadata')
         }
         return value
       }
-      const stateWindow = window as unknown as {
-        __DEHYDRATED_STATE__?: TestDehydratedState
-      }
-      let dehydrated: TestDehydratedState | undefined = stateWindow.__DEHYDRATED_STATE__
-      removeAudioMetadata(dehydrated)
-      Object.defineProperty(window, '__DEHYDRATED_STATE__', {
+      const stateWindow = window as unknown as { __INITIAL_DATA__?: TestInitialData }
+      let initialData: TestInitialData | undefined = stateWindow.__INITIAL_DATA__
+      removeAudioMetadata(initialData)
+      Object.defineProperty(window, '__INITIAL_DATA__', {
         configurable: true,
-        get: () => dehydrated,
-        set: (value: TestDehydratedState) => {
-          dehydrated = removeAudioMetadata(value)
+        get: () => initialData,
+        set: (value: TestInitialData) => {
+          initialData = removeAudioMetadata(value)
         },
       })
     })

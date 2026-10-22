@@ -19,24 +19,16 @@ export type VirtualCapability =
   | 'setAppearance'
   | 'pin'
 
-export type VirtualOpenTarget = {
-  provider: string
-  type: string
-  [key: string]: unknown
-}
+export type VirtualOpenTarget = { provider: string; type: string; [key: string]: unknown }
 
-export type VirtualEntryAppearance = {
-  icon: string
-  tone: string
-  color?: string
-}
+export type VirtualEntryAppearance = { icon: string; tone: string; color?: string }
 
 export type VirtualEntry = {
   provider: string
   kind: string
   id?: string
   archived?: boolean
-  capabilities: VirtualCapability[]
+  capabilities: readonly VirtualCapability[]
   openTarget?: VirtualOpenTarget
   metadata?: Record<string, unknown>
   appearance?: VirtualEntryAppearance
@@ -46,7 +38,7 @@ export type VirtualDirectory = {
   provider: string
   kind: string
   path: string
-  capabilities: VirtualCapability[]
+  capabilities: readonly VirtualCapability[]
   offset: number
   pageSize: number
   total: number

@@ -6,10 +6,7 @@ import path from 'path'
  * Batches aim for similar wall time and run concurrently with one Playwright worker each.
  */
 export const BATCHES = [
-  {
-    id: '1',
-    tests: ['workspace-layout-snap-resize', 'workspace-layout-chrome', 'media-ai-feed'],
-  },
+  { id: '1', tests: ['workspace-layout-snap-resize', 'workspace-layout-chrome', 'media-ai-feed'] },
   {
     id: '2',
     tests: [
@@ -43,7 +40,7 @@ export const BATCHES = [
     tests: [
       'editable-folders',
       'desktop',
-      'solid-reactivity',
+      'effectweb-reactivity',
       'url-state',
       'multiple-media-dirs',
       'stage2-playback-continuity',
@@ -112,10 +109,7 @@ function cleanupBatchConfig(batchId: string) {
 type JsonReport = {
   suites?: Array<{
     file?: string
-    specs?: Array<{
-      file?: string
-      tests?: Array<{ results?: Array<{ duration?: number }> }>
-    }>
+    specs?: Array<{ file?: string; tests?: Array<{ results?: Array<{ duration?: number }> }> }>
     suites?: JsonReport['suites']
   }>
 }
@@ -154,11 +148,9 @@ function extractFileTimesFromJsonReport(jsonPath: string): Record<string, number
   return out
 }
 
-function runBatch(batch: (typeof BATCHES)[number]): Promise<{
-  code: number
-  elapsedMs: number
-  fileTimes: Record<string, number>
-}> {
+function runBatch(
+  batch: (typeof BATCHES)[number],
+): Promise<{ code: number; elapsedMs: number; fileTimes: Record<string, number> }> {
   const port = 9200 + parseInt(batch.id)
   generateBatchConfig(batch.id, port)
 

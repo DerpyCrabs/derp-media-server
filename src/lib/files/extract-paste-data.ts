@@ -1,3 +1,4 @@
+import { Effect } from 'effect'
 import TurndownService from 'turndown'
 
 import type { PasteData } from '@/lib/files/paste-data'
@@ -67,40 +68,62 @@ function isTextFileType(mimeType: string, fileName: string): boolean {
   return extension ? textExtensions.includes(extension) : false
 }
 
-function readFileAsDataURL(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
+function readFile(file: File, mode: 'text' | 'dataURL') {
+  return Effect.callback<string, DOMException>((resume) => {
     const reader = new FileReader()
-    reader.onload = () => {
-      const r = reader.result
-      resolve(typeof r === 'string' ? r : '')
-    }
-    reader.onerror = () => reject(reader.error)
-    reader.readAsDataURL(file)
+    reader.onload = () =>
+      resume(Effect.succeed(typeof reader.result === 'string' ? reader.result : ''))
+    reader.onerror = () =>
+      resume(Effect.fail(reader.error ?? new DOMException('Could not read clipboard file')))
+    if (mode === 'text') reader.readAsText(file)
+    else reader.readAsDataURL(file)
+    return Effect.sync(() => {
+      reader.onload = null
+      reader.onerror = null
+      if (reader.readyState === FileReader.LOADING) reader.abort()
+    })
   })
 }
+const readFileAsDataURL = (file: File) => readFile(file, 'dataURL')
+const readFileAsText = (file: File) => readFile(file, 'text')
 
-function readFileAsText(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => {
-      const r = reader.result
-      resolve(typeof r === 'string' ? r : '')
+function pasteDataFromFile(file: File): Effect.Effect<PasteData, DOMException> {
+  return Effect.gen(function* () {
+    const fileName = file.name
+    const fileSize = file.size
+    const isTextFile = isTextFileType(file.type, fileName)
+
+    if (file.type.startsWith('image/')) {
+      const result = yield* readFileAsDataURL(file)
+      const base64 = result.split(',')[1] ?? ''
+      return {
+        type: 'image',
+        content: base64,
+        suggestedName: fileName,
+        fileType: file.type,
+        fileSize,
+        showPreview: true,
+        isTextContent: false,
+      }
     }
-    reader.onerror = () => reject(reader.error)
-    reader.readAsText(file)
-  })
-}
 
-async function pasteDataFromFile(file: File): Promise<PasteData> {
-  const fileName = file.name
-  const fileSize = file.size
-  const isTextFile = isTextFileType(file.type, fileName)
+    if (isTextFile) {
+      const text = yield* readFileAsText(file)
+      return {
+        type: 'file',
+        content: text,
+        suggestedName: fileName,
+        fileType: file.type,
+        fileSize,
+        showPreview: true,
+        isTextContent: true,
+      }
+    }
 
-  if (file.type.startsWith('image/')) {
-    const result = await readFileAsDataURL(file)
+    const result = yield* readFileAsDataURL(file)
     const base64 = result.split(',')[1] ?? ''
     return {
-      type: 'image',
+      type: 'file',
       content: base64,
       suggestedName: fileName,
       fileType: file.type,
@@ -108,37 +131,10 @@ async function pasteDataFromFile(file: File): Promise<PasteData> {
       showPreview: true,
       isTextContent: false,
     }
-  }
-
-  if (isTextFile) {
-    const text = await readFileAsText(file)
-    return {
-      type: 'file',
-      content: text,
-      suggestedName: fileName,
-      fileType: file.type,
-      fileSize,
-      showPreview: true,
-      isTextContent: true,
-    }
-  }
-
-  const result = await readFileAsDataURL(file)
-  const base64 = result.split(',')[1] ?? ''
-  return {
-    type: 'file',
-    content: base64,
-    suggestedName: fileName,
-    fileType: file.type,
-    fileSize,
-    showPreview: true,
-    isTextContent: false,
-  }
+  })
 }
 
-export type ExtractPasteDataOptions = {
-  textSuggestedExtension?: 'md' | 'txt'
-}
+export type ExtractPasteDataOptions = { textSuggestedExtension?: 'md' | 'txt' }
 
 function clipboardHtmlBodyLooksStructured(body: HTMLElement | null): boolean {
   if (!body) return false
@@ -213,92 +209,95 @@ export function textPasteSuggestedName(content: string, ext: 'md' | 'txt'): stri
 }
 
 /** Mirrors `usePaste` clipboard handling (first matching payload wins). */
-export async function extractPasteDataFromClipboardData(
+export function extractPasteDataFromClipboardData(
   clipboardData: DataTransfer | null,
   opts?: ExtractPasteDataOptions,
-): Promise<PasteData | null> {
-  if (!clipboardData) return null
+): Effect.Effect<PasteData | null, DOMException> {
+  if (!clipboardData) return Effect.succeed(null)
+  const files = Array.from(clipboardData.files ?? [])
+  const images = Array.from(clipboardData.items)
+    .filter((item) => item.type.startsWith('image/'))
+    .map((item) => ({ type: item.type, file: item.getAsFile() }))
+  const rawPlain = clipboardData.getData('text/plain')
+  const html = clipboardData.getData('text/html')
+  return Effect.gen(function* () {
+    const textExt = opts?.textSuggestedExtension ?? 'txt'
 
-  const textExt = opts?.textSuggestedExtension ?? 'txt'
+    if (files && files.length > 0) {
+      return yield* pasteDataFromFile(files[0]!)
+    }
 
-  const files = clipboardData.files
-  if (files && files.length > 0) {
-    return pasteDataFromFile(files[0])
-  }
+    const items = images
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i]
+      if (item.type.startsWith('image/')) {
+        const blob = item.file
+        if (blob) {
+          const result = yield* readFileAsDataURL(blob)
+          if (typeof result === 'string') {
+            const base64 = result.split(',')[1] ?? ''
+            const extension = item.type.split('/')[1] || 'png'
+            return {
+              type: 'image',
+              content: base64,
+              suggestedName: `image-${Date.now()}.${extension}`,
+              fileType: item.type,
+              fileSize: blob.size,
+              showPreview: true,
+              isTextContent: false,
+            }
+          }
+        }
+        return null
+      }
+    }
 
-  const items = clipboardData.items
-  for (let i = 0; i < items.length; i++) {
-    const item = items[i]
-    if (item.type.startsWith('image/')) {
-      const blob = item.getAsFile()
-      if (blob) {
-        const result = await readFileAsDataURL(blob)
-        if (typeof result === 'string') {
-          const base64 = result.split(',')[1] ?? ''
-          const extension = item.type.split('/')[1] || 'png'
+    if (textExt === 'md' && html && typeof DOMParser !== 'undefined') {
+      const doc = new DOMParser().parseFromString(html, 'text/html')
+      if (clipboardHtmlBodyLooksStructured(doc.body)) {
+        const md = documentBodyToMarkdown(doc)
+        if (md) {
+          const textSize = new Blob([md]).size
           return {
-            type: 'image',
-            content: base64,
-            suggestedName: `image-${Date.now()}.${extension}`,
-            fileType: item.type,
-            fileSize: blob.size,
+            type: 'text',
+            content: md,
+            suggestedName: textPasteSuggestedName(md, textExt),
+            fileSize: textSize,
             showPreview: true,
-            isTextContent: false,
+            isTextContent: true,
           }
         }
       }
-      return null
     }
-  }
 
-  const rawPlain = clipboardData.getData('text/plain')
-  const html = clipboardData.getData('text/html')
+    if (rawPlain.trim()) {
+      const textSize = new Blob([rawPlain]).size
+      return {
+        type: 'text',
+        content: rawPlain,
+        suggestedName: textPasteSuggestedName(rawPlain, textExt),
+        fileSize: textSize,
+        showPreview: true,
+        isTextContent: true,
+      }
+    }
 
-  if (textExt === 'md' && html && typeof DOMParser !== 'undefined') {
-    const doc = new DOMParser().parseFromString(html, 'text/html')
-    if (clipboardHtmlBodyLooksStructured(doc.body)) {
-      const md = documentBodyToMarkdown(doc)
-      if (md) {
-        const textSize = new Blob([md]).size
+    if (html) {
+      const fromHtml =
+        textExt === 'md' ? clipboardHtmlToMarkdown(html) : clipboardHtmlToPlainText(html)
+      if (fromHtml) {
+        const textSize = new Blob([fromHtml]).size
         return {
           type: 'text',
-          content: md,
-          suggestedName: textPasteSuggestedName(md, textExt),
+          content: fromHtml,
+          suggestedName: textPasteSuggestedName(fromHtml, textExt),
           fileSize: textSize,
           showPreview: true,
           isTextContent: true,
         }
       }
     }
-  }
 
-  if (rawPlain.trim()) {
-    const textSize = new Blob([rawPlain]).size
-    return {
-      type: 'text',
-      content: rawPlain,
-      suggestedName: textPasteSuggestedName(rawPlain, textExt),
-      fileSize: textSize,
-      showPreview: true,
-      isTextContent: true,
-    }
-  }
-
-  if (html) {
-    const fromHtml =
-      textExt === 'md' ? clipboardHtmlToMarkdown(html) : clipboardHtmlToPlainText(html)
-    if (fromHtml) {
-      const textSize = new Blob([fromHtml]).size
-      return {
-        type: 'text',
-        content: fromHtml,
-        suggestedName: textPasteSuggestedName(fromHtml, textExt),
-        fileSize: textSize,
-        showPreview: true,
-        isTextContent: true,
-      }
-    }
-  }
-
-  return null
+    return null
+  })
 }

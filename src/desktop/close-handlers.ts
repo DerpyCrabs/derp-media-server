@@ -1,6 +1,8 @@
-const handlers = new Set<() => Promise<unknown> | void>()
+import { Effect } from 'effect'
 
-export function registerDesktopCloseHandler(handler: () => Promise<unknown> | void) {
+const handlers = new Set<() => Effect.Effect<void, unknown>>()
+
+export function registerDesktopCloseHandler(handler: () => Effect.Effect<void, unknown>) {
   if (!window.derpDesktop) return undefined
   handlers.add(handler)
   return () => {
@@ -8,6 +10,11 @@ export function registerDesktopCloseHandler(handler: () => Promise<unknown> | vo
   }
 }
 
-export async function flushDesktopClose() {
-  await Promise.all([...handlers].map(async (handler) => handler()))
+export function flushDesktopClose() {
+  return Effect.suspend(() =>
+    Effect.all(
+      [...handlers].map((handler) => Effect.suspend(handler)),
+      { concurrency: 'unbounded', discard: true },
+    ),
+  )
 }

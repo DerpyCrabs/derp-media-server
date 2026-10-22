@@ -1,9 +1,4 @@
-export type VirtualAppearance = {
-  icon: string
-  tone: string
-  color?: string
-}
-
+export type VirtualAppearance = { icon: string; tone: string; color?: string }
 export function virtualAppearanceForPath(path: string): VirtualAppearance | undefined {
   const normalized = path.replace(/\\/g, '/').replace(/\/+$/, '')
   if (normalized === 'Hermes Sessions') return { icon: 'agent-directory', tone: 'violet' }

@@ -33,11 +33,7 @@ export function createCanvasPanController(options: CanvasPanControllerOptions) {
     }
     const move = (next: PointerEvent) => {
       next.preventDefault()
-      latest = {
-        ...start,
-        x: start.x + next.clientX - startX,
-        y: start.y + next.clientY - startY,
-      }
+      latest = { ...start, x: start.x + next.clientX - startX, y: start.y + next.clientY - startY }
       if (frame === undefined) frame = window.requestAnimationFrame(render)
     }
     const finish = (shouldCommit: boolean) => {
@@ -56,8 +52,5 @@ export function createCanvasPanController(options: CanvasPanControllerOptions) {
     })
   }
 
-  return {
-    begin,
-    dispose: () => disposeActive?.(),
-  }
+  return { begin, dispose: () => disposeActive?.() }
 }

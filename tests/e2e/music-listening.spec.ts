@@ -299,8 +299,11 @@ test('queue rows and missing artwork stay stable while radio continues without r
   await expect
     .poll(() => audio.evaluate((el: HTMLAudioElement) => el.readyState))
     .toBeGreaterThanOrEqual(2)
+  const chrome = page.getByTestId('audio-player-chrome')
+  const pause = chrome.getByRole('button', { name: 'Pause', exact: true })
+  if (await pause.isVisible()) await pause.click()
+  await expect.poll(() => audio.evaluate((el: HTMLAudioElement) => el.paused)).toBe(true)
   await audio.evaluate((el: HTMLAudioElement) => {
-    el.pause()
     el.currentTime = 8
   })
   await expect.poll(() => audio.evaluate((el: HTMLAudioElement) => el.seeking)).toBe(false)
@@ -362,10 +365,13 @@ test('starting and exhausting prepared radio makes no recommendation requests', 
   const release = library.pauseProvider()
   try {
     await page.goto('/?view=for-you')
+    await expect(
+      page.getByRole('button', { name: 'Music options for Listening 1', exact: true }).first(),
+    ).toBeVisible()
     const initial = await page.evaluate(
       () =>
-        window.__DEHYDRATED_STATE__?.queries.find((query) => query.queryKey[0] === 'music')?.state
-          .data as MusicHomeData,
+        window.__INITIAL_DATA__?.entries.find((query) => query.key[0] === 'music')
+          ?.data as MusicHomeData,
     )
     expect(initial.radio.stations.length).toBeGreaterThan(0)
     await page
@@ -507,9 +513,9 @@ test('music is hydrated without genre filters and cached results stay stable on 
   await expect(music).toBeVisible()
   const initial = await page.evaluate(
     () =>
-      window.__DEHYDRATED_STATE__?.queries.find(
-        (query) => query.queryKey[0] === 'music' && query.queryKey[1] === 'home',
-      )?.state.data as MusicHomeData,
+      window.__INITIAL_DATA__?.entries.find(
+        (query) => query.key[0] === 'music' && query.key[1] === 'home',
+      )?.data as MusicHomeData,
   )
   expect(initial.rows.length).toBeGreaterThan(0)
   await page

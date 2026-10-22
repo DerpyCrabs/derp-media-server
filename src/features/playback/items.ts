@@ -10,11 +10,7 @@ export type FilesystemPlaybackItemInput = Readonly<{
 }>
 
 export function createFilesystemPlaybackItem(input: FilesystemPlaybackItemInput): PlaybackItem {
-  return {
-    locator: input.locator,
-    name: input.name,
-    media: input.media,
-  }
+  return { locator: input.locator, name: input.name, media: input.media }
 }
 
 export function playbackItemFromFileItem(file: FileItem): PlaybackItem | null {

@@ -1,64 +1,33 @@
-import type { QueryClient } from '@tanstack/solid-query'
-import { api } from '@/lib/api/client'
-import { queryKeys } from '@/lib/api/query-keys'
+import { Effect } from 'effect'
+import { queryCache } from '@/lib/api/cache'
 import type { FileItem } from '@/lib/files/types'
-import { getKnowledgeBaseRoot } from '@/lib/files/path-utils'
-import {
-  fetchFileBrowserListing,
-  FILE_BROWSER_INITIAL_PAGE,
-  fileBrowserListingQueryKey,
-  nextFileBrowserListingPage,
-} from './file-browser-listing-query'
-
+import { fileBrowserQuery } from './file-browser-listing'
 export type PrefetchFolderHoverContext = {
-  queryClient: QueryClient
-  knowledgeBases?: string[]
+  run: (path: string, effect: Effect.Effect<unknown, Error>) => void
+  knowledgeBases?: readonly string[]
 }
-
-type RecentResult = { path: string; name: string; modifiedAt: string }
-
-function prefetchKbRecentForPath(queryClient: QueryClient, pathWithinKb: string) {
-  void queryClient.prefetchQuery({
-    queryKey: queryKeys.kbRecent(pathWithinKb),
-    queryFn: () =>
-      api<{ results: RecentResult[] }>(`/api/kb/recent?root=${encodeURIComponent(pathWithinKb)}`, {
-        notifyForbidden: false,
+const prefetch = (context: PrefetchFolderHoverContext, path: string) => {
+  const directory = path.replace(/\\/g, '/')
+  context.run(
+    directory,
+    Effect.suspend(() =>
+      queryCache.prefetch(fileBrowserQuery.query, directory, {
+        refresh: queryCache.getQueryData(fileBrowserQuery.query, directory) === undefined,
       }),
-  })
+    ),
+  )
 }
-
-function prefetchDirectoryListingAtPath(ctx: PrefetchFolderHoverContext, dirPath: string) {
-  const norm = dirPath.replace(/\\/g, '/')
-  void ctx.queryClient.prefetchInfiniteQuery({
-    queryKey: fileBrowserListingQueryKey(norm),
-    initialPageParam: FILE_BROWSER_INITIAL_PAGE,
-    queryFn: ({ pageParam }) =>
-      fetchFileBrowserListing(norm, pageParam, { notifyForbidden: false }),
-    getNextPageParam: nextFileBrowserListingPage,
-  })
-  const kbs = ctx.knowledgeBases
-  if (kbs?.length && getKnowledgeBaseRoot(norm, kbs)) {
-    prefetchKbRecentForPath(ctx.queryClient, norm)
-  }
+export function prefetchFolderContentsOnHover(context: PrefetchFolderHoverContext, file: FileItem) {
+  if (file.isDirectory) prefetch(context, file.path)
 }
-
-export function prefetchFolderContentsOnHover(ctx: PrefetchFolderHoverContext, file: FileItem) {
-  if (!file.isDirectory) return
-  prefetchDirectoryListingAtPath(ctx, file.path)
-}
-
 export function prefetchParentDirectoryHover(
-  ctx: PrefetchFolderHoverContext,
+  context: PrefetchFolderHoverContext,
   args: { currentPath: string; isVirtualFolder: boolean },
 ) {
-  const cur = args.currentPath.replace(/\\/g, '/')
-  if (!cur) return
-  let parentPath: string
-  if (args.isVirtualFolder) parentPath = ''
-  else {
-    const parts = cur.split(/[/\\]/).filter(Boolean)
-    if (parts.length === 0) return
-    parentPath = parts.slice(0, -1).join('/')
-  }
-  prefetchDirectoryListingAtPath(ctx, parentPath)
+  const path = args.currentPath.replace(/\\/g, '/')
+  if (path)
+    prefetch(
+      context,
+      args.isVirtualFolder ? '' : path.split('/').filter(Boolean).slice(0, -1).join('/'),
+    )
 }

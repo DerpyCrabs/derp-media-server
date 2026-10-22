@@ -1,3 +1,4 @@
+import { Effect } from 'effect'
 import { describe, expect, spyOn, test } from 'bun:test'
 import {
   createMediaElementHost,
@@ -9,11 +10,7 @@ import {
 
 function item(id: string, media: 'audio' | 'video' = 'audio'): PlaybackItem {
   const extension = media === 'audio' ? 'mp3' : 'mp4'
-  return {
-    locator: `${media}/${id}.${extension}`,
-    name: `${id}.${extension}`,
-    media,
-  }
+  return { locator: `${media}/${id}.${extension}`, name: `${id}.${extension}`, media }
 }
 
 class FakeMediaElement {
@@ -126,7 +123,9 @@ function attach(
 
 describe('PlaybackMediaHost', () => {
   test('autoplay permission denial leaves usable paused controls', async () => {
-    const session = createPlaybackSession({ sourceResolver: { resolve: resolver } })
+    const session = createPlaybackSession({
+      sourceResolver: { resolve: (request) => Effect.sync(() => resolver(request)) },
+    })
     const host = createMediaElementHost(session)
     const media = new FakeMediaElement()
     media.playError = new DOMException('Interaction required', 'NotAllowedError')
@@ -147,7 +146,8 @@ describe('PlaybackMediaHost', () => {
   test('audio can resume when codec timing places the first buffered sample just after a seek', () => {
     const session = createPlaybackSession({
       sourceResolver: {
-        resolve: (request) => ({ ...resolver(request), streaming: true, duration: 100 }),
+        resolve: (request) =>
+          Effect.sync(() => ({ ...resolver(request), streaming: true, duration: 100 })),
       },
     })
     const host = createMediaElementHost(session)
@@ -166,7 +166,9 @@ describe('PlaybackMediaHost', () => {
   })
 
   test('applies small audio seeks instead of accepting the previous nearby time', () => {
-    const session = createPlaybackSession({ sourceResolver: { resolve: resolver } })
+    const session = createPlaybackSession({
+      sourceResolver: { resolve: (request) => Effect.sync(() => resolver(request)) },
+    })
     const host = createMediaElementHost(session)
     const media = new FakeMediaElement()
     session.dispatch({ type: 'load', item: item('fine-seek'), autoplay: false })
@@ -181,7 +183,9 @@ describe('PlaybackMediaHost', () => {
   })
 
   test('loading a seek cannot report zero or finish at an earlier keyframe', () => {
-    const session = createPlaybackSession({ sourceResolver: { resolve: resolver } })
+    const session = createPlaybackSession({
+      sourceResolver: { resolve: (request) => Effect.sync(() => resolver(request)) },
+    })
     const host = createMediaElementHost(session)
     const media = new FakeMediaElement()
     session.dispatch({ type: 'load', item: item('keyframe', 'video'), autoplay: false })
@@ -202,7 +206,9 @@ describe('PlaybackMediaHost', () => {
   })
 
   test('an interrupted play request does not turn an intentional pause into an error', async () => {
-    const session = createPlaybackSession({ sourceResolver: { resolve: resolver } })
+    const session = createPlaybackSession({
+      sourceResolver: { resolve: (request) => Effect.sync(() => resolver(request)) },
+    })
     const host = createMediaElementHost(session)
     const media = new FakeMediaElement()
     media.playError = new DOMException('Interrupted by pause', 'AbortError')
@@ -222,14 +228,15 @@ describe('PlaybackMediaHost', () => {
     const requests: PlaybackSourceRequest[] = []
     const session = createPlaybackSession({
       sourceResolver: {
-        resolve: (request) => {
-          requests.push(request)
-          return {
-            kind: 'resolved',
-            url: `/video/${request.fallback}`,
-            compatibility: request.fallback,
-          }
-        },
+        resolve: (request) =>
+          Effect.sync(() => {
+            requests.push(request)
+            return {
+              kind: 'resolved',
+              url: `/video/${request.fallback}`,
+              compatibility: request.fallback,
+            }
+          }),
       },
     })
     const host = createMediaElementHost(session)
@@ -258,11 +265,12 @@ describe('PlaybackMediaHost', () => {
     )
     const session = createPlaybackSession({
       sourceResolver: {
-        resolve: (request) => ({
-          ...resolver(request),
-          compatibility: 'video',
-          requestId: request.item.locator,
-        }),
+        resolve: (request) =>
+          Effect.sync(() => ({
+            ...resolver(request),
+            compatibility: 'video',
+            requestId: request.item.locator,
+          })),
       },
     })
     const host = createMediaElementHost(session)
@@ -289,15 +297,16 @@ describe('PlaybackMediaHost', () => {
     const requests: PlaybackSourceRequest[] = []
     const session = createPlaybackSession({
       sourceResolver: {
-        resolve: (request) => {
-          requests.push(request)
-          return {
-            kind: 'resolved',
-            url: `/stream?start=${request.position}`,
-            streaming: true,
-            duration: 100,
-          }
-        },
+        resolve: (request) =>
+          Effect.sync(() => {
+            requests.push(request)
+            return {
+              kind: 'resolved',
+              url: `/stream?start=${request.position}`,
+              streaming: true,
+              duration: 100,
+            }
+          }),
       },
     })
     const host = createMediaElementHost(session)
@@ -315,7 +324,9 @@ describe('PlaybackMediaHost', () => {
   })
 
   test('owns one media element and mirrors source, transport, and position', () => {
-    const session = createPlaybackSession({ sourceResolver: { resolve: resolver } })
+    const session = createPlaybackSession({
+      sourceResolver: { resolve: (request) => Effect.sync(() => resolver(request)) },
+    })
     const host = createMediaElementHost(session)
     const media = new FakeMediaElement()
 
@@ -338,7 +349,9 @@ describe('PlaybackMediaHost', () => {
   })
 
   test('drops stale events when the host changes source or element', () => {
-    const session = createPlaybackSession({ sourceResolver: { resolve: resolver } })
+    const session = createPlaybackSession({
+      sourceResolver: { resolve: (request) => Effect.sync(() => resolver(request)) },
+    })
     const host = createMediaElementHost(session)
     const first = new FakeMediaElement()
     const second = new FakeMediaElement()
@@ -366,7 +379,9 @@ describe('PlaybackMediaHost', () => {
   })
 
   test('ignores a late play event after pause intent wins', () => {
-    const session = createPlaybackSession({ sourceResolver: { resolve: resolver } })
+    const session = createPlaybackSession({
+      sourceResolver: { resolve: (request) => Effect.sync(() => resolver(request)) },
+    })
     const host = createMediaElementHost(session)
     const media = new FakeMediaElement()
 
@@ -380,15 +395,14 @@ describe('PlaybackMediaHost', () => {
     media.emit('play')
 
     expect(media.paused).toBe(true)
-    expect(session.getSnapshot()).toMatchObject({
-      phase: 'paused',
-      desiredPlaying: false,
-    })
+    expect(session.getSnapshot()).toMatchObject({ phase: 'paused', desiredPlaying: false })
     host.dispose()
   })
 
   test('ignores a load pause while the first play request is pending', () => {
-    const session = createPlaybackSession({ sourceResolver: { resolve: resolver } })
+    const session = createPlaybackSession({
+      sourceResolver: { resolve: (request) => Effect.sync(() => resolver(request)) },
+    })
     const host = createMediaElementHost(session)
     const media = new FakeMediaElement()
     media.deferPlay = true
@@ -402,7 +416,9 @@ describe('PlaybackMediaHost', () => {
   })
 
   test('allows native video playback to resume after a native pause', async () => {
-    const session = createPlaybackSession({ sourceResolver: { resolve: resolver } })
+    const session = createPlaybackSession({
+      sourceResolver: { resolve: (request) => Effect.sync(() => resolver(request)) },
+    })
     const host = createMediaElementHost(session)
     const media = new FakeMediaElement()
 
@@ -425,7 +441,9 @@ describe('PlaybackMediaHost', () => {
   })
 
   test('native video Play recovers after the initial autoplay request is rejected', async () => {
-    const session = createPlaybackSession({ sourceResolver: { resolve: resolver } })
+    const session = createPlaybackSession({
+      sourceResolver: { resolve: (request) => Effect.sync(() => resolver(request)) },
+    })
     const host = createMediaElementHost(session)
     const media = new FakeMediaElement()
     media.rejectPlay = true
@@ -446,7 +464,9 @@ describe('PlaybackMediaHost', () => {
   })
 
   test('native video Play resumes after an application pause', async () => {
-    const session = createPlaybackSession({ sourceResolver: { resolve: resolver } })
+    const session = createPlaybackSession({
+      sourceResolver: { resolve: (request) => Effect.sync(() => resolver(request)) },
+    })
     const host = createMediaElementHost(session)
     const media = new FakeMediaElement()
     session.dispatch({ type: 'load', item: item('paused', 'video'), autoplay: true })
@@ -462,7 +482,9 @@ describe('PlaybackMediaHost', () => {
   })
 
   test('a pending programmatic video play cannot override a later pause', () => {
-    const session = createPlaybackSession({ sourceResolver: { resolve: resolver } })
+    const session = createPlaybackSession({
+      sourceResolver: { resolve: (request) => Effect.sync(() => resolver(request)) },
+    })
     const host = createMediaElementHost(session)
     const media = new FakeMediaElement()
     media.deferPlay = true
@@ -477,7 +499,9 @@ describe('PlaybackMediaHost', () => {
   })
 
   test('preserves the requested position through a native seek pause', () => {
-    const session = createPlaybackSession({ sourceResolver: { resolve: resolver } })
+    const session = createPlaybackSession({
+      sourceResolver: { resolve: (request) => Effect.sync(() => resolver(request)) },
+    })
     const host = createMediaElementHost(session)
     const media = new FakeMediaElement()
 
@@ -499,7 +523,9 @@ describe('PlaybackMediaHost', () => {
   })
 
   test('allows play to be retried after the media element rejects it', async () => {
-    const session = createPlaybackSession({ sourceResolver: { resolve: resolver } })
+    const session = createPlaybackSession({
+      sourceResolver: { resolve: (request) => Effect.sync(() => resolver(request)) },
+    })
     const host = createMediaElementHost(session)
     const media = new FakeMediaElement()
 
@@ -520,7 +546,9 @@ describe('PlaybackMediaHost', () => {
   })
 
   test('keeps native video volume and mute changes in session state', () => {
-    const session = createPlaybackSession({ sourceResolver: { resolve: resolver } })
+    const session = createPlaybackSession({
+      sourceResolver: { resolve: (request) => Effect.sync(() => resolver(request)) },
+    })
     const host = createMediaElementHost(session)
     const media = new FakeMediaElement()
 
@@ -538,7 +566,9 @@ describe('PlaybackMediaHost', () => {
   })
 
   test('does not clear an existing video when a duplicate pane attaches', () => {
-    const session = createPlaybackSession({ sourceResolver: { resolve: resolver } })
+    const session = createPlaybackSession({
+      sourceResolver: { resolve: (request) => Effect.sync(() => resolver(request)) },
+    })
     const host = createMediaElementHost(session)
     const first = new FakeMediaElement()
     const second = new FakeMediaElement()
@@ -559,7 +589,9 @@ describe('PlaybackMediaHost', () => {
   })
 
   test('resumes when a seek pause event arrives before seeking', () => {
-    const session = createPlaybackSession({ sourceResolver: { resolve: resolver } })
+    const session = createPlaybackSession({
+      sourceResolver: { resolve: (request) => Effect.sync(() => resolver(request)) },
+    })
     const host = createMediaElementHost(session)
     const media = new FakeMediaElement()
 
@@ -587,7 +619,9 @@ describe('PlaybackMediaHost', () => {
   })
 
   test('restarts the same source for repeat', () => {
-    const session = createPlaybackSession({ sourceResolver: { resolve: resolver } })
+    const session = createPlaybackSession({
+      sourceResolver: { resolve: (request) => Effect.sync(() => resolver(request)) },
+    })
     const host = createMediaElementHost(session)
     const media = new FakeMediaElement()
 
@@ -606,7 +640,9 @@ describe('PlaybackMediaHost', () => {
   })
 
   test('keeps repeat intent across native pause and ended events', () => {
-    const session = createPlaybackSession({ sourceResolver: { resolve: resolver } })
+    const session = createPlaybackSession({
+      sourceResolver: { resolve: (request) => Effect.sync(() => resolver(request)) },
+    })
     const host = createMediaElementHost(session)
     const media = new FakeMediaElement()
 

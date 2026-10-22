@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { createLatestPasteRequestGuard } from '@/features/explorer/use-paste-session'
+import { createLatestPasteRequestGuard } from '@/features/explorer/paste-session'
 
 describe('file browser paste request ordering', () => {
   test('only accepts the newest asynchronous extraction', () => {

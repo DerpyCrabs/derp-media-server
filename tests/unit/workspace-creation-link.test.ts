@@ -7,10 +7,7 @@ import {
 describe('workspace creation links', () => {
   test('parses the requested type and trimmed optional name', () => {
     expect(parseWorkspaceCreationLink(new URLSearchParams('new=canvas&name=%20Studio%20'))).toEqual(
-      {
-        type: 'canvas',
-        name: 'Studio',
-      },
+      { type: 'canvas', name: 'Studio' },
     )
     expect(parseWorkspaceCreationLink(new URLSearchParams('new=desktop'))).toEqual({
       type: 'desktop',

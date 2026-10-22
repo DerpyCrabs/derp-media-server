@@ -1,5 +1,6 @@
-import { createStore } from 'solid-js'
-import { createStoreListeners, readPersistedState, writePersistedState } from './client-store-utils'
+import { Schema } from 'effect'
+import { modelOwner } from 'effectweb'
+import { readPersistedState, writePersistedState } from './client-store-utils'
 
 export type ThemePalette = 'default' | 'caffeine' | 'cosmic-night'
 export type ThemeMode = 'light' | 'dark' | 'system'
@@ -9,13 +10,10 @@ const LEGACY_MODE = 'theme-mode'
 
 const THEME_PERSIST_KEY = 'app-theme'
 
-function isPalette(v: unknown): v is ThemePalette {
-  return v === 'default' || v === 'caffeine' || v === 'cosmic-night'
-}
-
-function isMode(v: unknown): v is ThemeMode {
-  return v === 'light' || v === 'dark' || v === 'system'
-}
+const themeSchema = Schema.Struct({
+  palette: Schema.Literals(['default', 'caffeine', 'cosmic-night']),
+  mode: Schema.Literals(['light', 'dark', 'system']),
+})
 
 function readLegacyPaletteMode(): { palette: ThemePalette; mode: ThemeMode } {
   if (typeof window === 'undefined') {
@@ -34,48 +32,22 @@ export function readSyncedPaletteMode(): { palette: ThemePalette; mode: ThemeMod
   if (typeof window === 'undefined') {
     return { palette: 'default', mode: 'dark' }
   }
-  const fromBlob = readPersistedState<{ palette?: unknown; mode?: unknown }>(THEME_PERSIST_KEY)
-  if (fromBlob) {
-    const p = fromBlob.palette
-    const m = fromBlob.mode
-    if (isPalette(p) && isMode(m)) return { palette: p, mode: m }
-  }
+  const fromBlob = readPersistedState(THEME_PERSIST_KEY, themeSchema)
+  if (fromBlob) return fromBlob
   return readLegacyPaletteMode()
 }
 
 const initialSync = readSyncedPaletteMode()
 
-const listeners = createStoreListeners()
-
-const [store, setStore] = createStore({
-  palette: initialSync.palette,
-  mode: initialSync.mode,
-})
+const owner = modelOwner({ palette: initialSync.palette, mode: initialSync.mode })
 
 function persist(palette: ThemePalette, mode: ThemeMode) {
   writePersistedState(THEME_PERSIST_KEY, { palette, mode })
 }
 
 function setTheme(palette: ThemePalette, mode: ThemeMode) {
-  setStore((state) => {
-    state.palette = palette
-    state.mode = mode
-  })
+  owner.patch({ palette, mode })
   persist(palette, mode)
-  listeners.notify()
 }
 
-const api = {
-  get palette() {
-    return store.palette
-  },
-  get mode() {
-    return store.mode
-  },
-  setTheme,
-}
-
-export const useThemeStore = {
-  getState: () => api,
-  subscribe: (fn: () => void) => listeners.subscribe(fn),
-}
+export const themeStore = { source: owner.source, read: owner.read, setTheme }

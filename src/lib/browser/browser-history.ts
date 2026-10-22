@@ -1,69 +1,38 @@
-import type { Accessor } from 'solid-js'
-import { createMemo, createSignal, onSettled } from 'solid-js'
+import { modelOwner } from 'effectweb'
 
 export type BrowserLocation = { pathname: string; search: string }
+const readLocation = (): BrowserLocation =>
+  typeof window === 'undefined'
+    ? { pathname: '/', search: '' }
+    : { pathname: window.location.pathname, search: window.location.search }
+const owner = modelOwner(readLocation())
+export const browserHistory = owner.source
 
-/**
- * Single reactive `URLSearchParams` per location update. Prefer this over repeating
- * `new URLSearchParams(history().search)` in multiple memos.
- */
-export function createUrlSearchParamsMemo(history: Accessor<BrowserLocation>) {
-  const memo = createMemo(() => {
-    const loc = history()
-    return new URLSearchParams(loc.search)
-  })
-  return memo
-}
-
-const subscribers = new Set<() => void>()
-
-function notify() {
-  for (const cb of subscribers) cb()
-}
-
-let patched = false
-
-function patchHistory() {
-  if (patched) return
-  patched = true
-  const origPush = history.pushState.bind(history)
-  const origReplace = history.replaceState.bind(history)
-  history.pushState = function (...args: Parameters<typeof origPush>) {
-    origPush(...args)
-    notify()
+export function createBrowserHistoryLifetime() {
+  const publish = () => owner.patch(readLocation())
+  // eslint-disable-next-line typescript/unbound-method
+  const previousPush = history.pushState
+  // eslint-disable-next-line typescript/unbound-method
+  const previousReplace = history.replaceState
+  const push: History['pushState'] = function (...args) {
+    previousPush.apply(history, args)
+    publish()
   }
-  history.replaceState = function (...args: Parameters<typeof origReplace>) {
-    origReplace(...args)
-    notify()
+  const replace: History['replaceState'] = function (...args) {
+    previousReplace.apply(history, args)
+    publish()
   }
-}
-
-patchHistory()
-
-/**
- * Reactive snapshot of pathname + search; updates on popstate and patched history.
- */
-export function useBrowserHistory() {
-  const [tick, setTick] = createSignal(0)
-
-  onSettled(() => {
-    const bump = () => setTick((t) => t + 1)
-    subscribers.add(bump)
-    window.addEventListener('popstate', bump)
-    return () => {
-      window.removeEventListener('popstate', bump)
-      subscribers.delete(bump)
-    }
-  })
-
-  const locationMemo = createMemo(() => {
-    void tick()
-    return {
-      pathname: window.location.pathname,
-      search: window.location.search,
-    }
-  })
-  return locationMemo
+  history.pushState = push
+  history.replaceState = replace
+  window.addEventListener('popstate', publish)
+  publish()
+  return {
+    dispose() {
+      window.removeEventListener('popstate', publish)
+      if (history.pushState === push) history.pushState = previousPush
+      if (history.replaceState === replace) history.replaceState = previousReplace
+    },
+  }
 }
 
 export function navigateSearchParams(
@@ -75,8 +44,8 @@ export function navigateSearchParams(
     if (value === null) params.delete(key)
     else params.set(key, value)
   }
-  const qs = params.toString()
-  const url = qs ? `${window.location.pathname}?${qs}` : window.location.pathname
+  const query = params.toString()
+  const url = query ? `${window.location.pathname}?${query}` : window.location.pathname
   if (mode === 'push') history.pushState(null, '', url)
   else history.replaceState(null, '', url)
 }

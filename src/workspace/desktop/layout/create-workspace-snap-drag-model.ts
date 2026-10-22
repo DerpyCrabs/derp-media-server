@@ -1,3 +1,4 @@
+import { modelOwner } from 'effectweb'
 import { computeSnappedResizeWindows } from '@/workspace/model/workspace-session-store'
 import {
   applyAssistCustomSnapToWindows,
@@ -10,7 +11,7 @@ import {
 } from '@/workspace/model/workspace-assist-grid'
 import { pickAssistSlotFromPoint, type AssistSlotPick } from '@/workspace/model/workspace-snap-pick'
 import { snapZonePreviewBoundsForDrag } from '@/workspace/model/workspace-snap-live'
-import { useWorkspacePreferredSnapStore } from '@/workspace/model/workspace-preferred-snap-store'
+import { workspaceLayoutPreferences } from '@/workspace/model/workspace-preferred-snap-store'
 import {
   createDefaultBounds,
   createFullscreenBounds,
@@ -21,12 +22,12 @@ import {
   type WorkspaceCanvasSize,
 } from '@/workspace/model/workspace-geometry'
 import type { SnapZone } from '@/lib/models/window-model'
-import type { PersistedWorkspaceState } from '@/workspace/model/use-workspace'
+import type { PersistedWorkspaceState } from '@/workspace/model/workspace'
 import {
   TOP_SNAP_ASSIST_HANDLE_HEIGHT_PX,
   snapAssistSurfaceWidth,
   type SnapDetectResult,
-} from '@/workspace/model/use-snap-zones'
+} from '@/workspace/model/snap-zones'
 import { layoutViewportClientSize } from '@/lib/ui/layout-viewport'
 import {
   findMergeTarget,
@@ -41,39 +42,125 @@ import {
   applySnapPreviewBounds,
   applySnapPreviewLayout,
 } from '@/workspace/desktop/layout/snap-preview'
-import { createEffect, createSignal, onSettled, type Accessor, type Setter } from 'solid-js'
+type Accessor<T> = () => T
+type Setter<T> = (value: T | ((current: T) => T)) => T
 import type { WorkspaceBounds } from '@/workspace/desktop/layout/WorkspaceWindowChrome'
-
 export function createWorkspaceSnapDragModel(options: {
   workspace: Accessor<PersistedWorkspaceState | null>
   setWorkspace: Setter<PersistedWorkspaceState | null>
   preferredSnapTick: () => void
 }) {
+  const initial = {
+    workspaceAreaNode: null as HTMLDivElement | null,
+    workspaceCanvasSize: null as WorkspaceCanvasSize | null,
+    dragSnapZone: null as SnapDetectResult | null,
+    dragSnapWindowId: null as string | null,
+    snapAssistShown: false,
+    snapAssistEngaged: false,
+    assistHoverPick: null as AssistSlotPick | null,
+    dragEdgeGridSpan: null as AssistGridSpan | null,
+    mergeTargetPreview: null as MergeTarget | null,
+    tilingPickerHoverSpan: null as AssistGridSpan | null,
+  }
+  const owner = modelOwner(initial)
   const { workspace, setWorkspace, preferredSnapTick } = options
-
   let workspaceAreaEl: HTMLDivElement | undefined
   let snapPreviewEl: HTMLDivElement | undefined
   let snapAssistRootEl: HTMLDivElement | undefined
   let snapAssistSticky = false
-  const [workspaceAreaNode, setWorkspaceAreaNode] = createSignal<HTMLDivElement | null>(null)
-  const [workspaceCanvasSize, setWorkspaceCanvasSize] = createSignal<WorkspaceCanvasSize | null>(
-    null,
-  )
-  const [dragSnapZone, setDragSnapZone] = createSignal<SnapDetectResult | null>(null)
-  const [dragSnapWindowId, setDragSnapWindowId] = createSignal<string | null>(null)
-  const [snapAssistShown, setSnapAssistShown] = createSignal(false)
-  const [snapAssistEngaged, setSnapAssistEngaged] = createSignal(false)
-  const [assistHoverPick, setAssistHoverPick] = createSignal<AssistSlotPick | null>(null)
-  const [dragEdgeGridSpan, setDragEdgeGridSpan] = createSignal<AssistGridSpan | null>(null)
-  const [mergeTargetPreview, setMergeTargetPreview] = createSignal<MergeTarget | null>(null)
-  const [tilingPickerHoverSpan, setTilingPickerHoverSpan] = createSignal<AssistGridSpan | null>(
-    null,
-  )
+  const workspaceAreaNode = (): HTMLDivElement | null =>
+    owner.read().workspaceAreaNode as HTMLDivElement | null
+  const setWorkspaceAreaNode = (
+    value: HTMLDivElement | null | ((current: HTMLDivElement | null) => HTMLDivElement | null),
+  ) => {
+    const next = typeof value === 'function' ? value(workspaceAreaNode()) : value
+    owner.patch({ workspaceAreaNode: next })
+    return next
+  }
+  const workspaceCanvasSize = (): WorkspaceCanvasSize | null =>
+    owner.read().workspaceCanvasSize as WorkspaceCanvasSize | null
+  const setWorkspaceCanvasSize = (
+    value:
+      | WorkspaceCanvasSize
+      | null
+      | ((current: WorkspaceCanvasSize | null) => WorkspaceCanvasSize | null),
+  ) => {
+    const next = typeof value === 'function' ? value(workspaceCanvasSize()) : value
+    owner.patch({ workspaceCanvasSize: next })
+    return next
+  }
+  const dragSnapZone = (): SnapDetectResult | null =>
+    owner.read().dragSnapZone as SnapDetectResult | null
+  const setDragSnapZone = (
+    value:
+      | SnapDetectResult
+      | null
+      | ((current: SnapDetectResult | null) => SnapDetectResult | null),
+  ) => {
+    const next = typeof value === 'function' ? value(dragSnapZone()) : value
+    owner.patch({ dragSnapZone: next })
+    return next
+  }
+  const dragSnapWindowId = (): string | null => owner.read().dragSnapWindowId as string | null
+  const setDragSnapWindowId = (
+    value: string | null | ((current: string | null) => string | null),
+  ) => {
+    const next = typeof value === 'function' ? value(dragSnapWindowId()) : value
+    owner.patch({ dragSnapWindowId: next })
+    return next
+  }
+  const snapAssistShown = (): boolean => owner.read().snapAssistShown as boolean
+  const setSnapAssistShown = (value: boolean | ((current: boolean) => boolean)) => {
+    const next = typeof value === 'function' ? value(snapAssistShown()) : value
+    owner.patch({ snapAssistShown: next })
+    return next
+  }
+  const snapAssistEngaged = (): boolean => owner.read().snapAssistEngaged as boolean
+  const setSnapAssistEngaged = (value: boolean | ((current: boolean) => boolean)) => {
+    const next = typeof value === 'function' ? value(snapAssistEngaged()) : value
+    owner.patch({ snapAssistEngaged: next })
+    return next
+  }
+  const assistHoverPick = (): AssistSlotPick | null =>
+    owner.read().assistHoverPick as AssistSlotPick | null
+  const setAssistHoverPick = (
+    value: AssistSlotPick | null | ((current: AssistSlotPick | null) => AssistSlotPick | null),
+  ) => {
+    const next = typeof value === 'function' ? value(assistHoverPick()) : value
+    owner.patch({ assistHoverPick: next })
+    return next
+  }
+  const dragEdgeGridSpan = (): AssistGridSpan | null =>
+    owner.read().dragEdgeGridSpan as AssistGridSpan | null
+  const setDragEdgeGridSpan = (
+    value: AssistGridSpan | null | ((current: AssistGridSpan | null) => AssistGridSpan | null),
+  ) => {
+    const next = typeof value === 'function' ? value(dragEdgeGridSpan()) : value
+    owner.patch({ dragEdgeGridSpan: next })
+    return next
+  }
+  const mergeTargetPreview = (): MergeTarget | null =>
+    owner.read().mergeTargetPreview as MergeTarget | null
+  const setMergeTargetPreview = (
+    value: MergeTarget | null | ((current: MergeTarget | null) => MergeTarget | null),
+  ) => {
+    const next = typeof value === 'function' ? value(mergeTargetPreview()) : value
+    owner.patch({ mergeTargetPreview: next })
+    return next
+  }
+  const tilingPickerHoverSpan = (): AssistGridSpan | null =>
+    owner.read().tilingPickerHoverSpan as AssistGridSpan | null
+  const setTilingPickerHoverSpan = (
+    value: AssistGridSpan | null | ((current: AssistGridSpan | null) => AssistGridSpan | null),
+  ) => {
+    const next = typeof value === 'function' ? value(tilingPickerHoverSpan()) : value
+    owner.patch({ tilingPickerHoverSpan: next })
+    return next
+  }
   let draggedWindowIdForSnap: string | null = null
   const layoutUndoStack: PersistedWorkspaceState[] = []
   let lastHistoryKind = ''
   let lastHistoryAt = 0
-
   function rememberLayout(state: PersistedWorkspaceState, kind: string) {
     const now = Date.now()
     if (kind === lastHistoryKind && now - lastHistoryAt < 500) return
@@ -82,7 +169,6 @@ export function createWorkspaceSnapDragModel(options: {
     lastHistoryKind = kind
     lastHistoryAt = now
   }
-
   const onLayoutUndoKey = (event: KeyboardEvent) => {
     const target = event.target as HTMLElement | null
     if (
@@ -98,17 +184,14 @@ export function createWorkspaceSnapDragModel(options: {
     setWorkspace(previous)
   }
   document.addEventListener('keydown', onLayoutUndoKey)
-  onSettled(() => () => document.removeEventListener('keydown', onLayoutUndoKey))
-
+  let disposeArea: (() => void) | undefined
   let mergeByGroupCache: {
     sig: string
     byGroup: ReturnType<typeof workspaceWindowsByGroupId>
   } | null = null
-
   function invalidateMergeGroupCache() {
     mergeByGroupCache = null
   }
-
   function mergePreviewForPointer(
     windows: PersistedWorkspaceState['windows'],
     windowId: string,
@@ -131,7 +214,6 @@ export function createWorkspaceSnapDragModel(options: {
       rect ? { canvasRect: rect } : undefined,
     )
   }
-
   function getWorkspaceCanvas(): WorkspaceCanvasSize {
     const s = workspaceCanvasSize()
     if (s && s.width > 0 && s.height > 0) return s
@@ -144,57 +226,49 @@ export function createWorkspaceSnapDragModel(options: {
     }
     return getViewportSize()
   }
-
   function clientInDomRect(clientX: number, clientY: number, r: DOMRect) {
     return clientX >= r.left && clientY >= r.top && clientX <= r.right && clientY <= r.bottom
   }
-
   function tiledWindowGap() {
     preferredSnapTick()
-    return useWorkspacePreferredSnapStore.getState().tiledWindowGap
+    return workspaceLayoutPreferences.read().tiledWindowGap
   }
-
-  createEffect(
-    () => workspaceAreaNode(),
-    (el) => {
-      if (!el) return undefined
-      let lastW = Math.round(el.clientWidth)
-      let lastH = Math.round(el.clientHeight)
-      if (lastW > 0 && lastH > 0) {
-        setWorkspaceCanvasSize({ width: lastW, height: lastH })
-      }
-      const ro = new ResizeObserver(() => {
-        const width = Math.round(el.clientWidth)
-        const height = Math.round(el.clientHeight)
-        if (width <= 0 || height <= 0) return
-        if (width === lastW && height === lastH) return
-        if (lastW <= 0 || lastH <= 0) {
-          lastW = width
-          lastH = height
-          setWorkspaceCanvasSize({ width, height })
-          return
-        }
-        setWorkspace((prev) => {
-          if (!prev) return prev
-          const scaled = scaleSnappedWindowsBoundsForCanvasResize(
-            prev.windows,
-            { width: lastW, height: lastH },
-            { width, height },
-          )
-          return { ...prev, windows: scaled }
-        })
+  const observeArea = (el: HTMLDivElement | null) => {
+    if (!el) return undefined
+    let lastW = Math.round(el.clientWidth)
+    let lastH = Math.round(el.clientHeight)
+    if (lastW > 0 && lastH > 0) {
+      setWorkspaceCanvasSize({ width: lastW, height: lastH })
+    }
+    const ro = new ResizeObserver(() => {
+      const width = Math.round(el.clientWidth)
+      const height = Math.round(el.clientHeight)
+      if (width <= 0 || height <= 0) return
+      if (width === lastW && height === lastH) return
+      if (lastW <= 0 || lastH <= 0) {
         lastW = width
         lastH = height
         setWorkspaceCanvasSize({ width, height })
+        return
+      }
+      setWorkspace((prev) => {
+        if (!prev) return prev
+        const scaled = scaleSnappedWindowsBoundsForCanvasResize(
+          prev.windows,
+          { width: lastW, height: lastH },
+          { width, height },
+        )
+        return { ...prev, windows: scaled }
       })
-      ro.observe(el)
-      // eslint-disable-next-line solid/reactivity
-      return () => ro.disconnect()
-    },
-  )
-
-  createEffect(
-    () => {
+      lastW = width
+      lastH = height
+      setWorkspaceCanvasSize({ width, height })
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }
+  function updatePreview() {
+    const input = (() => {
       const span = tilingPickerHoverSpan() ?? (snapAssistShown() ? assistHoverPick()?.span : null)
       void workspaceCanvasSize()
       const dragId = dragSnapWindowId()
@@ -212,8 +286,8 @@ export function createWorkspaceSnapDragModel(options: {
         gap: tiledWindowGap(),
         windows: workspace()?.windows ?? [],
       }
-    },
-    ({ span, canvas, preview, zone, zoneBounds, gap, windows }) => {
+    })()
+    ;(({ span, canvas, preview, zone, zoneBounds, gap, windows }) => {
       if (!canvas || !preview) return
       if (!span) {
         applySnapPreviewLayout(preview, zone, canvas, () => zoneBounds!, gap)
@@ -224,9 +298,10 @@ export function createWorkspaceSnapDragModel(options: {
       const existing = findSharedAssistGridLines(windows, span)
       const bounds = assistGridSpanToBounds(size, span, existing)
       applySnapPreviewBounds(preview, bounds, canvas, gap)
-    },
-  )
-
+    })(input)
+  }
+  const stopPreview = owner.source.subscribe(updatePreview)
+  const stopPreferences = workspaceLayoutPreferences.source.subscribe(updatePreview)
   function getZoneBoundsForDrag(zone: SnapZone): WorkspaceBounds {
     const edge = dragEdgeGridSpan()
     const canvas = getWorkspaceCanvas()
@@ -246,30 +321,23 @@ export function createWorkspaceSnapDragModel(options: {
           x.layout.bounds &&
           (excludeGid == null || groupIdForWindow(x) !== excludeGid),
       )
-      .map((x) => ({
-        bounds: x.layout!.bounds!,
-        snapZone: x.layout!.snapZone!,
-      }))
+      .map((x) => ({ bounds: x.layout!.bounds!, snapZone: x.layout!.snapZone! }))
     preferredSnapTick()
-    const shape = useWorkspacePreferredSnapStore.getState().assistGridShape
+    const shape = workspaceLayoutPreferences.read().assistGridShape
     return snapZonePreviewBoundsForDrag(zone, canvas, w.windows, occupied, shape)
   }
-
   function handleDragPointerMove(windowId: string, clientX: number, clientY: number) {
     draggedWindowIdForSnap = windowId
     setDragSnapWindowId(windowId)
     const c = workspaceAreaEl
     const p = snapPreviewEl
-
     const ws = workspace()
     const hit =
       !snapAssistEngaged() && !snapAssistSticky && ws && c
         ? mergePreviewForPointer(ws.windows, windowId, clientX, clientY)
         : null
     setMergeTargetPreview(hit)
-
     if (!c) return
-
     if (ws && hit) {
       setSnapAssistEngaged(false)
       setSnapAssistShown(false)
@@ -279,12 +347,11 @@ export function createWorkspaceSnapDragModel(options: {
       applySnapPreviewLayout(p, null, c, getZoneBoundsForDrag, tiledWindowGap())
       return
     }
-
     const rect = c.getBoundingClientRect()
     const lx = clientX - rect.left
     const ly = clientY - rect.top
     preferredSnapTick()
-    const st = useWorkspacePreferredSnapStore.getState()
+    const st = workspaceLayoutPreferences.read()
     const shape = st.assistGridShape
     const assistOn = st.snapAssistOnTopDrag
     const viewport = layoutViewportClientSize()
@@ -296,7 +363,6 @@ export function createWorkspaceSnapDragModel(options: {
     const overAssistPanel =
       assistOn && assistRect ? clientInDomRect(clientX, clientY, assistRect) : false
     let nextSnapAssistEngaged = snapAssistEngaged()
-
     if (snapAssistSticky && !overAssistPanel) {
       snapAssistSticky = false
       setSnapAssistEngaged(false)
@@ -304,13 +370,11 @@ export function createWorkspaceSnapDragModel(options: {
       setAssistHoverPick(null)
       nextSnapAssistEngaged = false
     }
-
     if (topInnerBand || overAssistPanel) {
       setSnapAssistEngaged(true)
       nextSnapAssistEngaged = true
     }
     if (overAssistPanel) snapAssistSticky = true
-
     const detectedEdgeSpan = detectEdgeAssistGridSpan(lx, ly, rect.width, rect.height, shape, {
       suppressTopEdgeSpans: false,
     })
@@ -325,18 +389,14 @@ export function createWorkspaceSnapDragModel(options: {
         )
       : null
     setDragEdgeGridSpan(edgeSpan)
-
     let z: SnapDetectResult | null = edgeSpan ? 'edge-grid' : null
-
     if (assistOn && (nextSnapAssistEngaged || snapAssistSticky)) {
       setSnapAssistShown(true)
     } else {
       setSnapAssistShown(false)
     }
-
     setDragSnapZone(z)
     if (p) applySnapPreviewLayout(p, z, c, getZoneBoundsForDrag, tiledWindowGap())
-
     const assistBarVisible = assistOn && (nextSnapAssistEngaged || snapAssistSticky)
     if (assistBarVisible && snapAssistRootEl) {
       setAssistHoverPick(pickAssistSlotFromPoint(clientX, clientY, snapAssistRootEl))
@@ -344,7 +404,6 @@ export function createWorkspaceSnapDragModel(options: {
       setAssistHoverPick(null)
     }
   }
-
   function restoreDrag(
     windowId: string,
     clientX: number,
@@ -369,7 +428,6 @@ export function createWorkspaceSnapDragModel(options: {
     unsnapWindow(windowId, { x: newX, y: newY })
     return { x: newX, y: newY, width: restoredW, height: restoredH }
   }
-
   function unsnapWindow(windowId: string, drop: { x: number; y: number } | null) {
     setWorkspace((prev) => {
       if (!prev) return prev
@@ -391,12 +449,7 @@ export function createWorkspaceSnapDragModel(options: {
               fullscreen: false,
               bounds:
                 drop && restored
-                  ? {
-                      x: drop.x,
-                      y: drop.y,
-                      width: restored.width,
-                      height: restored.height,
-                    }
+                  ? { x: drop.x, y: drop.y, width: restored.width, height: restored.height }
                   : (restored ?? w.layout?.bounds ?? null),
               restoreBounds: null,
             },
@@ -405,9 +458,7 @@ export function createWorkspaceSnapDragModel(options: {
       }
     })
   }
-
   function snapWindowToAssistCustom(windowId: string, span: AssistGridSpan) {
-    // oxlint-disable-next-line solid/reactivity -- setState functional update from snap/drag, not a tracked derivation
     setWorkspace((prev) => {
       if (!prev) return prev
       rememberLayout(prev, 'snap')
@@ -424,7 +475,6 @@ export function createWorkspaceSnapDragModel(options: {
       }
     })
   }
-
   function toggleFullscreenWindow(windowId: string) {
     setWorkspace((prev) => {
       if (!prev) return prev
@@ -460,7 +510,6 @@ export function createWorkspaceSnapDragModel(options: {
       }
     })
   }
-
   function setWindowMinimized(windowId: string, minimized: boolean) {
     setWorkspace((prev) => {
       if (!prev) return prev
@@ -473,9 +522,7 @@ export function createWorkspaceSnapDragModel(options: {
             ? { ...w, layout: { ...w.layout, minimized } }
             : w,
       )
-
       if (!minimized) return { ...prev, windows }
-
       const activeId = prev.activeWindowId
       if (activeId == null) return { ...prev, windows }
       const activeWin = windows.find((x) => x.id === activeId)
@@ -484,7 +531,6 @@ export function createWorkspaceSnapDragModel(options: {
       const minimizingActive =
         (gid != null && activeGid === gid) || (gid == null && activeId === windowId)
       if (!minimizingActive) return { ...prev, windows }
-
       let bestGid: string | null = null
       let bestZ = -Infinity
       const seen = new Set<string>()
@@ -501,14 +547,9 @@ export function createWorkspaceSnapDragModel(options: {
         }
       }
       if (!bestGid) return { ...prev, windows }
-
       const focusId =
         resolveGroupVisibleTabId(
-          {
-            windows,
-            activeTabMap: prev.activeTabMap,
-            tabGroupSplits: prev.tabGroupSplits,
-          },
+          { windows, activeTabMap: prev.activeTabMap, tabGroupSplits: prev.tabGroupSplits },
           bestGid,
         ) || bestGid
       const newZ = maxWorkspaceWindowZ(windows) + 1
@@ -522,7 +563,6 @@ export function createWorkspaceSnapDragModel(options: {
       }
     })
   }
-
   function updateWindowBounds(windowId: string, bounds: WorkspaceBounds) {
     setWorkspace((prev) => {
       if (!prev) return prev
@@ -540,7 +580,6 @@ export function createWorkspaceSnapDragModel(options: {
       }
     })
   }
-
   function resizeSnappedWindowBounds(windowId: string, bounds: WorkspaceBounds, direction: string) {
     const canvas = getWorkspaceCanvas()
     setWorkspace((prev) =>
@@ -553,7 +592,6 @@ export function createWorkspaceSnapDragModel(options: {
         : prev,
     )
   }
-
   function clearSnapAssistDragUi() {
     invalidateMergeGroupCache()
     snapAssistSticky = false
@@ -565,7 +603,6 @@ export function createWorkspaceSnapDragModel(options: {
     setMergeTargetPreview(null)
     draggedWindowIdForSnap = null
   }
-
   function cancelDrag() {
     if (workspaceAreaEl && snapPreviewEl) {
       applySnapPreviewLayout(
@@ -579,10 +616,9 @@ export function createWorkspaceSnapDragModel(options: {
     setDragSnapZone(null)
     clearSnapAssistDragUi()
   }
-
   function engageSnapAssistFromHandle() {
     preferredSnapTick()
-    if (!draggedWindowIdForSnap || !useWorkspacePreferredSnapStore.getState().snapAssistOnTopDrag) {
+    if (!draggedWindowIdForSnap || !workspaceLayoutPreferences.read().snapAssistOnTopDrag) {
       return
     }
     snapAssistSticky = true
@@ -590,14 +626,12 @@ export function createWorkspaceSnapDragModel(options: {
     setSnapAssistEngaged(true)
     setSnapAssistShown(true)
   }
-
   function disengageSnapAssistFromPanel() {
     snapAssistSticky = false
     setSnapAssistEngaged(false)
     setSnapAssistShown(false)
     setAssistHoverPick(null)
   }
-
   function onDragPointerEnd(
     windowId: string,
     bounds: WorkspaceBounds,
@@ -612,7 +646,6 @@ export function createWorkspaceSnapDragModel(options: {
     if (c && p) applySnapPreviewLayout(p, null, c, getZoneBoundsForDrag, tiledWindowGap())
     setDragSnapZone(null)
     setDragEdgeGridSpan(null)
-
     const wsMerge = workspace()
     if (wsMerge && !snapAssistEngaged() && !snapAssistSticky) {
       const rect = workspaceAreaEl?.getBoundingClientRect()
@@ -641,36 +674,30 @@ export function createWorkspaceSnapDragModel(options: {
         }
       }
     }
-
     if (hadAssistUi && assistRootAtEnd?.isConnected) {
       const picked = pickAssistSlotFromPoint(clientX, clientY, assistRootAtEnd)
       const assistRect = assistRootAtEnd.getBoundingClientRect()
       const inAssist = clientInDomRect(clientX, clientY, assistRect)
-
       if (inAssist && !picked) {
         clearSnapAssistDragUi()
         updateWindowBounds(windowId, bounds)
         return
       }
-
       if (picked) {
         clearSnapAssistDragUi()
         const matched = assistShapeMatchingSpan(picked.span)
         if (matched) {
-          useWorkspacePreferredSnapStore.getState().setAssistGridShape(matched)
+          workspaceLayoutPreferences.setAssistGridShape(matched)
         }
         snapWindowToAssistCustom(windowId, picked.span)
         return
       }
     }
-
     clearSnapAssistDragUi()
-
     if (edgeSpanEnd) {
       snapWindowToAssistCustom(windowId, edgeSpanEnd)
       return
     }
-
     const w = workspace()?.windows.find((x) => x.id === windowId)
     if (w?.layout?.tiling || w?.layout?.snapZone || w?.layout?.fullscreen) {
       unsnapWindow(windowId, { x: bounds.x, y: bounds.y })
@@ -678,29 +705,39 @@ export function createWorkspaceSnapDragModel(options: {
     }
     updateWindowBounds(windowId, bounds)
   }
-
   function bindWorkspaceAreaRoot(el: HTMLDivElement | null) {
     workspaceAreaEl = el ?? undefined
     setWorkspaceAreaNode(el)
+    disposeArea?.()
+    disposeArea = observeArea(el)
+    updatePreview()
   }
-
   function applyTilingPickerPick(windowId: string, span: AssistGridSpan) {
     setTilingPickerHoverSpan(null)
     if (!workspaceAreaEl) return
     const matched = assistShapeMatchingSpan(span)
     if (matched) {
-      useWorkspacePreferredSnapStore.getState().setAssistGridShape(matched)
+      workspaceLayoutPreferences.setAssistGridShape(matched)
     }
     snapWindowToAssistCustom(windowId, span)
   }
-
   return {
+    source: owner.source,
+    updatePreview,
+    dispose() {
+      disposeArea?.()
+      stopPreview()
+      stopPreferences()
+      document.removeEventListener('keydown', onLayoutUndoKey)
+      owner.dispose()
+    },
     workspaceAreaNode,
     bindWorkspaceAreaRoot,
-    bindSnapPreview(el: HTMLDivElement | null) {
+    bindSnapPreview(this: void, el: HTMLDivElement | null) {
       snapPreviewEl = el ?? undefined
+      updatePreview()
     },
-    bindSnapAssistRoot(el: HTMLDivElement | null) {
+    bindSnapAssistRoot(this: void, el: HTMLDivElement | null) {
       snapAssistRootEl = el ?? undefined
     },
     getWorkspaceAreaElement: () => workspaceAreaEl,
@@ -723,5 +760,4 @@ export function createWorkspaceSnapDragModel(options: {
     setTilingPickerHoverPreview: setTilingPickerHoverSpan,
   }
 }
-
 export type WorkspaceSnapDragModel = ReturnType<typeof createWorkspaceSnapDragModel>

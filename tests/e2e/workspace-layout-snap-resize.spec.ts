@@ -235,11 +235,7 @@ test.describe('Snap assist bar', () => {
       localStorage.setItem(
         'workspace-preferred-snap',
         JSON.stringify({
-          state: {
-            assistGridShape: '3x2',
-            snapAssistOnTopDrag: true,
-            tiledWindowGap: 12,
-          },
+          state: { assistGridShape: '3x2', snapAssistOnTopDrag: true, tiledWindowGap: 12 },
           version: 0,
         }),
       )
@@ -253,9 +249,7 @@ test.describe('Snap assist bar', () => {
 
     await page.mouse.move(hbox.x + hbox.width / 2, hbox.y + hbox.height / 2)
     await page.mouse.down()
-    await page.mouse.move(hbox.x + hbox.width / 2 + 20, hbox.y + hbox.height / 2 + 20, {
-      steps: 8,
-    })
+    await page.mouse.move(hbox.x + hbox.width / 2 + 20, hbox.y + hbox.height / 2 + 20, { steps: 8 })
 
     const assistHandle = page.locator('[data-workspace-snap-assist-handle]')
     await expect(assistHandle).toBeVisible()
@@ -315,11 +309,7 @@ test.describe('Snap assist bar', () => {
       localStorage.setItem(
         'workspace-preferred-snap',
         JSON.stringify({
-          state: {
-            assistGridShape: '3x2',
-            snapAssistOnTopDrag: true,
-            tiledWindowGap: 12,
-          },
+          state: { assistGridShape: '3x2', snapAssistOnTopDrag: true, tiledWindowGap: 12 },
           version: 0,
         }),
       )
@@ -347,9 +337,7 @@ test.describe('Snap assist bar', () => {
       steps: 12,
     })
 
-    await page.mouse.move(viewport.width / 2, Math.min(viewport.height - 80, 420), {
-      steps: 24,
-    })
+    await page.mouse.move(viewport.width / 2, Math.min(viewport.height - 80, 420), { steps: 24 })
     await expect(assist).toBeHidden()
     await expect(page.locator('[data-workspace-snap-assist-handle]')).toBeVisible()
     await page.mouse.up()

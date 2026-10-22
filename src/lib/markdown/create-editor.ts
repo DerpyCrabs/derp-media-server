@@ -1,3 +1,4 @@
+import { modelOwner } from 'effectweb'
 import { history, historyKeymap, invertedEffects, standardKeymap } from '@codemirror/commands'
 import {
   Annotation,
@@ -215,13 +216,7 @@ function sourceTrackingExtensions(initialText: string): Extension {
       ) {
         return null
       }
-      return {
-        effects: exactMarkdownSource.of({
-          text,
-          lineSeparator,
-          mixedLineEndings,
-        }),
-      }
+      return { effects: exactMarkdownSource.of({ text, lineSeparator, mixedLineEndings }) }
     }),
     invertedEffects.of((transaction) => {
       if (!transaction.docChanged || !exactSourceEffect(transaction)) return []
@@ -244,6 +239,10 @@ function selectionText(
 export function createMarkdownEditor(
   options: CreateMarkdownEditorOptions,
 ): MarkdownEditorController {
+  const commands = modelOwner({})
+  const saveSlot = 'markdown-save'
+  const pasteSlot = 'markdown-paste-image'
+
   const modeCompartment = new Compartment()
   const historyCompartment = new Compartment()
   const runtime = options.runtime
@@ -280,7 +279,7 @@ export function createMarkdownEditor(
         if (changedLocally) runtime.onChange?.(update.state.field(markdownSourceState).text)
       }),
       livePreviewExtension(runtime),
-      markdownClipboardExtension(runtime),
+      markdownClipboardExtension(runtime, (work) => commands.run(pasteSlot, work, 'parallel')),
       markdownLinkInteractionExtension(),
       EditorView.domEventHandlers({
         mousedown(event, view) {
@@ -338,7 +337,7 @@ export function createMarkdownEditor(
           preventDefault: true,
           run: (view) => {
             if (view.state.readOnly) return false
-            void runtime.onSave?.()
+            if (runtime.onSave) void commands.run(saveSlot, runtime.onSave(), 'latest-queued')
             return true
           },
         },
@@ -365,9 +364,9 @@ export function createMarkdownEditor(
       view.dispatch({ effects: modeCompartment.reconfigure(modeExtensions(mode, ariaLabel)) })
     },
     setContent(content) {
-      clearMarkdownImageActivation(view)
       const previousSource = view.state.field(markdownSourceState)
       if (content === previousSource.text) return
+      clearMarkdownImageActivation(view)
       const document = view.state.toText(content)
       const selection = view.state.selection.main
       const anchor = Math.min(selection.anchor, document.length)
@@ -401,6 +400,7 @@ export function createMarkdownEditor(
       view.dispatch({ effects: refreshMarkdownPreview.of(undefined) })
     },
     destroy() {
+      commands.dispose()
       clearMarkdownImageActivation(view)
       view.destroy()
     },

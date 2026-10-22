@@ -39,11 +39,7 @@ function tiledWindow(
     iconType: MediaType.FOLDER,
     source: { kind: 'local' },
     initialState: {},
-    layout: {
-      snapZone: null,
-      bounds: tilingPlacementToBounds(tiling, CANVAS),
-      tiling,
-    },
+    layout: { snapZone: null, bounds: tilingPlacementToBounds(tiling, CANVAS), tiling },
   }
 }
 
@@ -109,14 +105,7 @@ describe('semantic workspace tiling', () => {
     // Move the line between middle and right so the right column is narrower than 1/3.
     const resizedLines = [0, 1 / 3, 0.8, 1]
     const left = tiledWindow('left', 0, 1, resizedLines)
-    const rightSpan: AssistGridSpan = {
-      gridCols: 3,
-      gridRows: 1,
-      gc0: 2,
-      gc1: 2,
-      gr0: 0,
-      gr1: 0,
-    }
+    const rightSpan: AssistGridSpan = { gridCols: 3, gridRows: 1, gc0: 2, gc1: 2, gr0: 0, gr1: 0 }
 
     const equalRight = assistGridSpanToBounds(CANVAS, rightSpan)
     const next = applyAssistCustomSnapToWindows(
@@ -137,22 +126,8 @@ describe('semantic workspace tiling', () => {
   })
 
   test('resize then snap second window into remaining slot abuts with no gap', () => {
-    const leftSpan: AssistGridSpan = {
-      gridCols: 2,
-      gridRows: 1,
-      gc0: 0,
-      gc1: 0,
-      gr0: 0,
-      gr1: 0,
-    }
-    const rightSpan: AssistGridSpan = {
-      gridCols: 2,
-      gridRows: 1,
-      gc0: 1,
-      gc1: 1,
-      gr0: 0,
-      gr1: 0,
-    }
+    const leftSpan: AssistGridSpan = { gridCols: 2, gridRows: 1, gc0: 0, gc1: 0, gr0: 0, gr1: 0 }
+    const rightSpan: AssistGridSpan = { gridCols: 2, gridRows: 1, gc0: 1, gc1: 1, gr0: 0, gr1: 0 }
     const floating: WorkspaceWindowDefinition = {
       id: 'right',
       type: 'browser',
@@ -160,9 +135,7 @@ describe('semantic workspace tiling', () => {
       iconType: MediaType.FOLDER,
       source: { kind: 'local' },
       initialState: {},
-      layout: {
-        bounds: { x: 40, y: 40, width: 400, height: 300 },
-      },
+      layout: { bounds: { x: 40, y: 40, width: 400, height: 300 } },
     }
 
     let windows = applyAssistCustomSnapToWindows(
@@ -204,14 +177,7 @@ describe('semantic workspace tiling', () => {
   test('right edge expands across an empty track in a resized three-column grid', () => {
     const floating = tiledWindow('right', 2, 3)
     floating.layout = { bounds: { x: 40, y: 40, width: 400, height: 300 }, tiling: null }
-    const leftSpan: AssistGridSpan = {
-      gridCols: 3,
-      gridRows: 2,
-      gc0: 0,
-      gc1: 0,
-      gr0: 0,
-      gr1: 1,
-    }
+    const leftSpan: AssistGridSpan = { gridCols: 3, gridRows: 2, gc0: 0, gc1: 0, gr0: 0, gr1: 1 }
     const rightEdgeSpan: AssistGridSpan = {
       gridCols: 3,
       gridRows: 2,
@@ -245,7 +211,7 @@ describe('semantic workspace tiling', () => {
   })
 
   test('three-column resize keeps all shared edges flush', () => {
-    let windows = [
+    let windows: readonly WorkspaceWindowDefinition[] = [
       tiledWindow('left', 0, 1),
       tiledWindow('middle', 1, 2),
       tiledWindow('right', 2, 3),
@@ -260,12 +226,7 @@ describe('semantic workspace tiling', () => {
     windows = computeSnappedResizeWindows(
       windows,
       'middle',
-      {
-        x: windows[1]!.layout!.bounds!.x,
-        y: 0,
-        width: 300,
-        height: CANVAS.height,
-      },
+      { x: windows[1]!.layout!.bounds!.x, y: 0, width: 300, height: CANVAS.height },
       'right',
       CANVAS,
     )

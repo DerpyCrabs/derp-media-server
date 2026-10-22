@@ -27,7 +27,7 @@ function horizontalSpanOverlap(ax0: number, ax1: number, bx0: number, bx1: numbe
 }
 
 function inferTilingCanvasSize(
-  current: WindowDefinition[],
+  current: readonly WindowDefinition[],
   tiling: NonNullable<WindowLayout['tiling']>,
   canvas?: WorkspaceCanvasSize | null,
 ): WorkspaceCanvasSize {
@@ -56,12 +56,12 @@ function inferTilingCanvasSize(
 
 /** Pure layout update for snapped multi-window resize; `current` is the authoritative session windows. */
 export function computeSnappedResizeWindows(
-  current: WindowDefinition[],
+  current: readonly WindowDefinition[],
   windowId: string,
   newBounds: NonNullable<WindowLayout['bounds']>,
   direction: string,
   canvas?: WorkspaceCanvasSize | null,
-): WindowDefinition[] {
+): readonly WindowDefinition[] {
   const windows = current
   const target = windows.find((w) => w.id === windowId)
   if (!target?.layout?.bounds) {

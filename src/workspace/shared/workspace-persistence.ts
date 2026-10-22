@@ -1,169 +1,146 @@
-export type PendingWorkspaceSave<T> = {
-  id: string
-  state: T
-  revision: number
-}
+import { Deferred, Effect, Exit, Semaphore } from 'effect'
+import { modelOwner } from 'effectweb'
 
-export type WorkspaceSaveResult = {
-  revision?: number
-}
-
+export type PendingWorkspaceSave<T> = { id: string; state: T; revision: number }
+export type WorkspaceSaveResult = { revision?: number }
 export type WorkspaceSaveCoordinator<T> = {
   enqueue: (pending: PendingWorkspaceSave<T>) => void
-  flush: (pendingOrId: PendingWorkspaceSave<T> | string) => Promise<void>
-  retry: (id: string) => Promise<void>
+  flush: (pendingOrId: PendingWorkspaceSave<T> | string) => Effect.Effect<void, unknown>
+  retry: (id: string) => Effect.Effect<void, unknown>
   pending: (id: string) => PendingWorkspaceSave<T> | null
   clear: (id: string) => void
+  close: () => Effect.Effect<void, unknown>
+  dispose: () => void
 }
-
 export type WorkspaceOperationCoordinator = {
-  run: <T>(ids: string | readonly string[], operation: () => Promise<T>) => Promise<T>
+  run: <A, E>(
+    ids: string | readonly string[],
+    operation: () => Effect.Effect<A, E>,
+  ) => Effect.Effect<A, E>
 }
 
 export function createWorkspaceOperationCoordinator(): WorkspaceOperationCoordinator {
-  const tails = new Map<string, Promise<void>>()
-
-  function run<T>(ids: string | readonly string[], operation: () => Promise<T>): Promise<T> {
-    const keys = [...new Set(typeof ids === 'string' ? [ids] : ids)].filter(Boolean).sort()
-    const previous = keys.map((id) => tails.get(id)?.catch(() => undefined) ?? Promise.resolve())
-    const result = Promise.all(previous).then(operation)
-    const tail = result.then(
-      () => undefined,
-      () => undefined,
-    )
-    for (const id of keys) tails.set(id, tail)
-    void tail.then(() => {
-      for (const id of keys) {
-        if (tails.get(id) === tail) tails.delete(id)
-      }
-    })
-    return result
-  }
-
-  return { run }
-}
-
-function createQueue<T>() {
+  const locks = new Map<string, { gate: Semaphore.Semaphore; users: number }>()
   return {
-    pending: null as PendingWorkspaceSave<T> | null,
-    active: null as PendingWorkspaceSave<T> | null,
-    inFlight: null as Promise<void> | null,
-    error: null as unknown,
+    run: (ids, operation) =>
+      Effect.suspend(() => {
+        const keys = [...new Set(typeof ids === 'string' ? [ids] : ids)].filter(Boolean).sort()
+        const entries = keys.map((id) => {
+          const entry = locks.get(id) ?? { gate: Semaphore.makeUnsafe(1), users: 0 }
+          entry.users++
+          locks.set(id, entry)
+          return { id, entry }
+        })
+        const locked = entries.reduceRight(
+          (work, { entry }) => entry.gate.withPermits(1)(work),
+          Effect.suspend(operation),
+        )
+        return locked.pipe(
+          Effect.ensuring(
+            Effect.sync(() => {
+              for (const { id, entry } of entries) if (--entry.users === 0) locks.delete(id)
+            }),
+          ),
+        )
+      }),
   }
 }
 
-/**
- * Starts saves immediately and coalesces newer state behind each in-flight request.
- *
- * A save started for one id never replaces pending work for another id. If a
- * newer state arrives while a request is in flight, flush waits for it too.
- */
-export function createWorkspaceSaveCoordinator<T>(options: {
-  save: (pending: PendingWorkspaceSave<T>) => Promise<WorkspaceSaveResult>
-}): WorkspaceSaveCoordinator<T> {
-  const queues = new Map<string, ReturnType<typeof createQueue<T>>>()
+type Queue<T> = {
+  pending: PendingWorkspaceSave<T> | null
+  active: PendingWorkspaceSave<T> | null
+  completion: Deferred.Deferred<void, unknown> | null
+  failure: Exit.Exit<void, unknown> | null
+}
 
+export function createWorkspaceSaveCoordinator<T>(options: {
+  save: (pending: PendingWorkspaceSave<T>) => Effect.Effect<WorkspaceSaveResult, unknown>
+}): WorkspaceSaveCoordinator<T> {
+  const scope = modelOwner({})
+  const queues = new Map<string, Queue<T>>()
   function queueFor(id: string) {
     let queue = queues.get(id)
     if (!queue) {
-      queue = createQueue<T>()
+      queue = { pending: null, active: null, completion: null, failure: null }
       queues.set(id, queue)
     }
     return queue
   }
-
   function start(id: string) {
     const queue = queues.get(id)
-    if (!queue || queue.inFlight || queue.error || !queue.pending) return
-    const pending = queue.pending
-    queue.pending = null
-    queue.active = pending
-    const run = (async () => {
-      const result = await options.save(pending)
-      if (result.revision == null) return
-      const next = queue.pending
-      if (next) queue.pending = { ...next, revision: result.revision }
-    })()
-    queue.inFlight = run
-    void run.then(
-      () => finish(id, queue!, run),
-      (error) => {
-        if (!queue!.pending) queue!.pending = pending
-        queue!.error = error
-        finish(id, queue!, run)
-      },
+    if (!queue || queue.completion || queue.failure || !queue.pending) return
+    const completion = Deferred.makeUnsafe<void, unknown>()
+    queue.completion = completion
+    void scope.run(
+      ['workspace-save', id],
+      Effect.gen(function* () {
+        yield* Effect.yieldNow
+        while (queue.pending) {
+          const pending = queue.pending
+          queue.pending = null
+          queue.active = pending
+          const result = yield* Effect.exit(Effect.suspend(() => options.save(pending)))
+          queue.active = null
+          if (Exit.isFailure(result)) {
+            if (!queue.pending) queue.pending = pending
+            queue.failure = result
+            queue.completion = null
+            yield* Deferred.done(completion, result)
+            return
+          }
+          const next = queues.get(id)?.pending
+          if (next && result.value.revision != null) {
+            queue.pending = { ...next, revision: result.value.revision }
+          }
+        }
+        queue.completion = null
+        queues.delete(id)
+        yield* Deferred.succeed(completion, undefined)
+      }),
+      'drop',
     )
   }
-
-  function finish(id: string, queue: ReturnType<typeof createQueue<T>>, run: Promise<void>) {
-    if (queue.inFlight !== run) return
-    queue.inFlight = null
-    queue.active = null
-    if (queue.error) return
-    if (queue.pending) {
-      start(id)
-      return
-    }
-    queues.delete(id)
-  }
-
   function enqueue(pending: PendingWorkspaceSave<T>) {
-    const queue = queueFor(pending.id)
-    queue.pending = pending
+    queueFor(pending.id).pending = pending
     start(pending.id)
   }
-
-  async function waitForIdle(id: string) {
-    while (true) {
+  const waitForIdle = (id: string): Effect.Effect<void, unknown> =>
+    Effect.suspend(() => {
       const queue = queues.get(id)
-      if (!queue) return
-      if (queue.error) throw queue.error
-      if (queue.inFlight) {
-        await queue.inFlight
-        continue
-      }
-      if (queue.pending) {
-        start(id)
-        continue
-      }
-      return
-    }
-  }
-
-  async function flush(pendingOrId: PendingWorkspaceSave<T> | string) {
-    if (typeof pendingOrId !== 'string') {
-      const queue = queueFor(pendingOrId.id)
-      queue.pending = pendingOrId
-      start(pendingOrId.id)
-      await waitForIdle(pendingOrId.id)
-      return
-    }
-    await waitForIdle(pendingOrId)
-  }
-
-  async function retry(id: string) {
-    const queue = queues.get(id)
-    if (!queue) return
-    queue.error = null
-    start(id)
-    await waitForIdle(id)
-  }
-
+      if (!queue) return Effect.void
+      if (queue.failure && Exit.isFailure(queue.failure))
+        return Effect.failCause(queue.failure.cause)
+      start(id)
+      return queue.completion
+        ? Deferred.await(queue.completion).pipe(Effect.andThen(waitForIdle(id)))
+        : Effect.void
+    })
   return {
     enqueue,
-    flush,
-    retry,
-    pending: (id) => {
-      const queue = queues.get(id)
-      return queue?.pending ?? queue?.active ?? null
-    },
+    flush: (pendingOrId) =>
+      Effect.suspend(() => {
+        if (typeof pendingOrId !== 'string') enqueue(pendingOrId)
+        return waitForIdle(typeof pendingOrId === 'string' ? pendingOrId : pendingOrId.id)
+      }),
+    retry: (id) =>
+      Effect.suspend(() => {
+        const queue = queues.get(id)
+        if (queue) queue.failure = null
+        return waitForIdle(id)
+      }),
+    pending: (id) => queues.get(id)?.pending ?? queues.get(id)?.active ?? null,
     clear: (id) => {
       const queue = queues.get(id)
-      if (!queue || queue.inFlight) {
-        if (queue) queue.pending = null
-        return
-      }
-      queues.delete(id)
+      if (queue?.completion) queue.pending = null
+      else queues.delete(id)
     },
+    dispose: scope.dispose,
+    close: () =>
+      Effect.suspend(() =>
+        Effect.forEach([...queues.keys()], waitForIdle, {
+          concurrency: 'unbounded',
+          discard: true,
+        }),
+      ).pipe(Effect.ensuring(scope.close().pipe(Effect.orDie)), Effect.uninterruptible),
   }
 }

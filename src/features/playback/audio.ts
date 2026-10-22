@@ -1,23 +1,8 @@
-export type AudioMetadata = {
-  title?: string
-  artist?: string
-  album?: string
-  genre?: string[]
-  year?: number
-  trackNumber?: number
-  albumArtist?: string
-  coverArt?: string | null
-  duration?: number
-}
+import { apiSchemaEffect } from '@/lib/api/client'
+import { audioMetadataSchema } from './playback-schemas'
+export type AudioMetadata = typeof audioMetadataSchema.Type
 
-export async function fetchAudioMetadata(
-  url: string,
-  signal?: AbortSignal,
-): Promise<AudioMetadata> {
-  const response = await fetch(url, { signal })
-  if (!response.ok) throw new Error('Failed to fetch audio metadata')
-  return response.json() as Promise<AudioMetadata>
-}
+export const fetchAudioMetadataEffect = (url: string) => apiSchemaEffect(audioMetadataSchema, url)
 
 export function formatPlaybackTime(time: number): string {
   if (!Number.isFinite(time) || time < 0) return '0:00'

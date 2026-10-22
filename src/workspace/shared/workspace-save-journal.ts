@@ -1,5 +1,5 @@
-import type { PersistedWorkspaceState } from '@/workspace/model/use-workspace'
-import { sanitizePersistedWorkspaceState } from '@/workspace/model/use-workspace'
+import type { PersistedWorkspaceState } from '@/workspace/model/workspace'
+import { sanitizePersistedWorkspaceState } from '@/workspace/model/workspace'
 import { workspaceValueEquals } from '@/workspace/model/workspace-equality'
 import type { WorkspaceRecord } from '@/workspace/model/workspace-registry'
 import type { PendingWorkspaceSave } from './workspace-persistence'
@@ -65,10 +65,7 @@ export function createWorkspaceSaveJournal(storage: JournalStorage | null, clien
     clear,
     enqueue(pending: PendingSave) {
       const previous = read(pending.id)
-      write(pending.id, {
-        pending,
-        ...(previous?.inFlight ? { inFlight: previous.inFlight } : {}),
-      })
+      write(pending.id, { pending, ...(previous?.inFlight ? { inFlight: previous.inFlight } : {}) })
     },
     started(pending: PendingSave) {
       const entry = read(pending.id)

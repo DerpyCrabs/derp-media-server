@@ -1,18 +1,15 @@
-import FilePlus from 'lucide-solid/icons/file-plus'
-import FolderPlus from 'lucide-solid/icons/folder-plus'
-import type { Accessor } from 'solid-js'
+import { view } from 'effectweb'
+import FilePlus from '@effectweb/lucide/icons/file-plus'
+import FolderPlus from '@effectweb/lucide/icons/folder-plus'
 import { FloatingContextMenu } from './FloatingContextMenu'
-
 export type DirectoryBackgroundMenuState = { x: number; y: number }
-
 type Props = {
-  menu: Accessor<DirectoryBackgroundMenuState | null>
+  menu: DirectoryBackgroundMenuState | null
   onDismiss: () => void
   onNewFile: () => void
   onNewFolder: () => void
 }
-
-export function DirectoryBackgroundContextMenu(props: Props) {
+export const DirectoryBackgroundContextMenu = view<Props>((props) => {
   return (
     <FloatingContextMenu
       state={props.menu}
@@ -55,4 +52,4 @@ export function DirectoryBackgroundContextMenu(props: Props) {
       )}
     </FloatingContextMenu>
   )
-}
+})

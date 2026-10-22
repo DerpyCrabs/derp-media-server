@@ -39,11 +39,7 @@ describe('virtual-directory interface', () => {
     expect(
       virtualFileSizeVisible(
         { isDirectory: false },
-        {
-          provider: 'hermes',
-          kind: 'session',
-          capabilities: [],
-        },
+        { provider: 'hermes', kind: 'session', capabilities: [] },
       ),
     ).toBe(false)
   })

@@ -1,13 +1,8 @@
-import { createStore } from 'solid-js'
-import { createStoreListeners } from './client-store-utils'
+import { modelOwner } from 'effectweb'
 
 const DEBOUNCE_MS = 1500
 
-const listeners = createStoreListeners()
-
-const [store, setStore] = createStore({
-  message: null as string | null,
-})
+const owner = modelOwner({ message: null as string | null })
 
 let lastPushedMessage = ''
 let lastPushedAt = 0
@@ -19,24 +14,11 @@ export function pushForbiddenNotice(message: string) {
   if (trimmed === lastPushedMessage && now - lastPushedAt < DEBOUNCE_MS) return
   lastPushedMessage = trimmed
   lastPushedAt = now
-  setStore((state) => {
-    state.message = trimmed
-  })
-  listeners.notify()
+  owner.patch({ message: trimmed })
 }
 
 export function dismissForbiddenNotice() {
-  setStore((state) => {
-    state.message = null
-  })
-  listeners.notify()
+  owner.patch({ message: null })
 }
 
-export const useForbiddenNotifyStore = {
-  getState: () => ({
-    get message() {
-      return store.message
-    },
-  }),
-  subscribe: (fn: () => void) => listeners.subscribe(fn),
-}
+export const forbiddenNoticeSource = owner.source

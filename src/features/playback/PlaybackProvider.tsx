@@ -1,15 +1,5 @@
-import { RadioContinuation } from '@/features/music/RadioContinuation'
-import { MusicDialogs } from '@/features/music/MusicDialogs'
+import { modelOwner } from 'effectweb'
 import { restoreActivityQueue } from '@/features/media-ai/activity'
-import {
-  createContext,
-  createSignal,
-  untrack,
-  onSettled,
-  useContext,
-  type Accessor,
-} from 'solid-js'
-import type { JSX } from '@solidjs/web'
 import {
   createMediaElementHost,
   type MediaElementHost,
@@ -17,63 +7,51 @@ import {
   type PlaybackSnapshot,
 } from './index'
 
-type PlaybackContextValue = Readonly<{
-  session: PlaybackSession
-  snapshot: Accessor<PlaybackSnapshot>
-  mediaHost: MediaElementHost
-}>
-
-type PlaybackProviderProps = Readonly<{
-  session: PlaybackSession
-  children: JSX.Element
-}>
-
-const PlaybackContext = createContext<PlaybackContextValue>()
-
-export function PlaybackProvider(props: PlaybackProviderProps) {
-  const session = untrack(() => props.session)
-  const mediaHost = createMediaElementHost(session)
-  const [snapshot, setSnapshot] = createSignal(session.getSnapshot(), { equals: false })
-  const value = Object.freeze({ session, snapshot, mediaHost })
-
-  onSettled(() => {
-    const stopActivityQueue = restoreActivityQueue()
-    const unsubscribe = session.subscribe(() => setSnapshot(session.getSnapshot()))
-    setSnapshot(session.getSnapshot())
-    const checkpoint = () => session.dispatch({ type: 'checkpoint' })
-    window.addEventListener('pagehide', checkpoint)
-    return () => {
+let session: PlaybackSession | undefined
+let mediaHost: MediaElementHost | undefined
+const owner = modelOwner<{ snapshot: PlaybackSnapshot | undefined }>({ snapshot: undefined })
+export const playbackSource = {
+  model: (): PlaybackSnapshot => {
+    const snapshot = owner.read().snapshot
+    if (!snapshot) throw new Error('Playback has not been initialized')
+    return snapshot
+  },
+  subscribe: (listener: (snapshot: PlaybackSnapshot) => void) =>
+    owner.source.subscribe(({ snapshot }) => {
+      if (snapshot) listener(snapshot)
+    }),
+}
+export function getPlaybackSession() {
+  if (!session) throw new Error('Playback has not been initialized')
+  return session
+}
+export function getPlaybackMediaHost() {
+  if (!mediaHost) throw new Error('Playback has not been initialized')
+  return mediaHost
+}
+export function initializePlayback(next: PlaybackSession) {
+  session = next
+  mediaHost = createMediaElementHost(next)
+  const host = mediaHost
+  owner.patch({ snapshot: next.getSnapshot() })
+  const unsubscribe = next.subscribe(() => owner.patch({ snapshot: next.getSnapshot() }))
+  const stopActivityQueue = restoreActivityQueue()
+  const checkpoint = () => next.dispatch({ type: 'checkpoint' })
+  window.addEventListener('pagehide', checkpoint)
+  return {
+    source: playbackSource,
+    session: next,
+    mediaHost: host,
+    dispose() {
       stopActivityQueue()
       window.removeEventListener('pagehide', checkpoint)
       unsubscribe()
-      mediaHost.dispose()
-      session.dispatch({ type: 'destroy' })
-    }
-  })
-
-  return (
-    <PlaybackContext value={value}>
-      <RadioContinuation />
-      <MusicDialogs />
-      {props.children}
-    </PlaybackContext>
-  )
-}
-
-function requiredPlaybackContext(): PlaybackContextValue {
-  const context = useContext(PlaybackContext)
-  if (!context) throw new Error('Playback context is unavailable')
-  return context
-}
-
-export function usePlaybackSession(): PlaybackSession {
-  return requiredPlaybackContext().session
-}
-
-export function usePlaybackSnapshot(): Accessor<PlaybackSnapshot> {
-  return requiredPlaybackContext().snapshot
-}
-
-export function usePlaybackMediaHost(): MediaElementHost {
-  return requiredPlaybackContext().mediaHost
+      host.dispose()
+      next.dispatch({ type: 'destroy' })
+      if (session === next) {
+        session = undefined
+        mediaHost = undefined
+      }
+    },
+  }
 }

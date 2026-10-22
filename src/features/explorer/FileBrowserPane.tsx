@@ -1,9 +1,7 @@
+import { view, type JSX } from 'effectweb'
 import type { FileItem } from '@/lib/files/types'
-import type { Accessor } from 'solid-js'
-import type { JSX } from '@solidjs/web'
 import type { FileColumnVisibility } from '@/lib/models/settings-types'
-import ArrowUp from 'lucide-solid/icons/arrow-up'
-import { createMemo, Show } from 'solid-js'
+import ArrowUp from '@effectweb/lucide/icons/arrow-up'
 import { cn } from '@/lib/ui/cn'
 import { FileExplorerListing } from './FileExplorerListing'
 import { VirtualDirectoryGrid } from '@/features/explorer/VirtualDirectoryGrid'
@@ -14,23 +12,19 @@ import {
 } from '@/features/explorer/DirectoryListingFeedback'
 import type { FileExplorerScrollTarget } from './FileExplorerView'
 import { formatCreatedDate } from './file-display-settings'
-
-export type FileBrowserElementAttributes<Element extends HTMLElement> =
-  JSX.HTMLAttributes<Element> & {
-    [attribute: string]: unknown
-  }
-
+export type FileBrowserElementAttributes<Element extends HTMLElement> = JSX.Attributes<Element> & {
+  [attribute: string]: unknown
+}
 export type FileBrowserPaneListing = Readonly<{
-  files: Accessor<FileItem[]>
-  viewMode: Accessor<'list' | 'grid'>
-  columns: Accessor<FileColumnVisibility>
-  includeParent: Accessor<boolean>
+  files: readonly FileItem[]
+  viewMode: 'list' | 'grid'
+  columns: FileColumnVisibility
+  includeParent: boolean
   scrollTarget: FileExplorerScrollTarget
-  scrollScope?: Accessor<string | undefined>
-  showEmpty: Accessor<boolean>
-  canUpload: Accessor<boolean>
+  scrollScope?: string | undefined
+  showEmpty: boolean
+  canUpload: boolean
 }>
-
 export type FileBrowserPaneLayout = Readonly<{
   gridContainerClass?: string
   listContainerClass?: string
@@ -38,13 +32,12 @@ export type FileBrowserPaneLayout = Readonly<{
   listClass?: string
   listSizeColumnClass?: string
 }>
-
 export type FileBrowserPaneRows = Readonly<{
   onParentClick: () => void
   onFileClick: (file: FileItem, event?: MouseEvent | KeyboardEvent) => void
   onFileActivate?: (file: FileItem) => void
-  parentGridAttributes?: Accessor<FileBrowserElementAttributes<HTMLDivElement>>
-  parentRowAttributes?: Accessor<FileBrowserElementAttributes<HTMLTableRowElement>>
+  parentGridAttributes?: FileBrowserElementAttributes<HTMLDivElement>
+  parentRowAttributes?: FileBrowserElementAttributes<HTMLTableRowElement>
   fileGridAttributes?: (file: FileItem) => FileBrowserElementAttributes<HTMLDivElement>
   fileRowAttributes?: (file: FileItem) => FileBrowserElementAttributes<HTMLTableRowElement>
   renderGridIcon: (file: FileItem) => JSX.Element
@@ -58,37 +51,32 @@ export type FileBrowserPaneRows = Readonly<{
   parentGridSubtitle?: JSX.Element
   renderParentRowEnd?: () => JSX.Element
 }>
-
 export type FileBrowserPaneProps = Readonly<{
   listing: FileBrowserPaneListing
   layout?: FileBrowserPaneLayout
   rows: FileBrowserPaneRows
 }>
-
 /** Shared directory surface used by all application hosts. */
-export function FileBrowserPane(props: FileBrowserPaneProps) {
-  const parentGridAttributes = () => props.rows.parentGridAttributes?.() ?? {}
-  const parentRowAttributes = () => props.rows.parentRowAttributes?.() ?? {}
+export const FileBrowserPane = view<FileBrowserPaneProps>((props) => {
+  const parentGridAttributes = () => props.rows.parentGridAttributes ?? {}
+  const parentRowAttributes = () => props.rows.parentRowAttributes ?? {}
   const fileGridAttributes = (file: FileItem) => props.rows.fileGridAttributes?.(file) ?? {}
   const fileRowAttributes = (file: FileItem) => props.rows.fileRowAttributes?.(file) ?? {}
   const tableColumns = () => [
     { class: 'w-[40px]' },
     {},
-    ...(props.listing.columns().createdDate ? [{ class: 'w-40' }] : []),
-    ...(props.listing.columns().size
-      ? [{ class: props.layout?.listSizeColumnClass ?? 'w-24' }]
-      : []),
+    ...(props.listing.columns.createdDate ? [{ class: 'w-40' }] : []),
+    ...(props.listing.columns.size ? [{ class: props.layout?.listSizeColumnClass ?? 'w-24' }] : []),
     ...(props.rows.renderListActions || props.rows.renderParentRowEnd
       ? [{ class: 'w-[52px] sm:w-0' }]
       : []),
   ]
   const listColSpan = () => tableColumns().length
   const tableClass = () => {
-    if (props.listing.columns().createdDate) return 'min-w-[32rem]'
-    if (props.listing.columns().size) return 'min-w-[22rem]'
+    if (props.listing.columns.createdDate) return 'min-w-[32rem]'
+    if (props.listing.columns.size) return 'min-w-[22rem]'
     return ''
   }
-
   const parentCard = () => {
     const attributes = parentGridAttributes()
     return (
@@ -106,12 +94,11 @@ export function FileBrowserPane(props: FileBrowserPaneProps) {
         <div class='bg-muted/80 flex aspect-video flex-col items-center justify-center p-4'>
           <ArrowUp class='mb-2 h-12 w-12 text-muted-foreground' size={48} stroke-width={2} />
           <p class='text-center text-sm font-medium'>..</p>
-          <Show when={props.rows.parentGridSubtitle}>{props.rows.parentGridSubtitle}</Show>
+          {props.rows.parentGridSubtitle ? props.rows.parentGridSubtitle : null}
         </div>
       </div>
     )
   }
-
   const parentRow = () => {
     const attributes = parentRowAttributes()
     return (
@@ -129,20 +116,19 @@ export function FileBrowserPane(props: FileBrowserPaneProps) {
           </div>
         </td>
         <td class='min-w-0 p-3 align-middle font-medium sm:p-2'>..</td>
-        <Show when={props.listing.columns().createdDate}>
+        {props.listing.columns.createdDate ? (
           <td class='min-w-0 p-3 align-middle text-muted-foreground sm:p-2' />
-        </Show>
-        <Show when={props.listing.columns().size}>
+        ) : null}
+        {props.listing.columns.size ? (
           <td class='min-w-0 p-3 align-middle text-right text-muted-foreground sm:p-2' />
-        </Show>
-        <Show when={props.rows.renderParentRowEnd}>{props.rows.renderParentRowEnd?.()}</Show>
+        ) : null}
+        {props.rows.renderParentRowEnd ? props.rows.renderParentRowEnd?.() : null}
       </tr>
     )
   }
-
   const FileCard = (rowProps: { file: FileItem }) => {
-    const file = createMemo(() => rowProps.file)
-    const attributes = createMemo(() => fileGridAttributes(file()))
+    const file = () => rowProps.file
+    const attributes = () => fileGridAttributes(file())
     return (
       <div
         {...attributes()}
@@ -176,10 +162,9 @@ export function FileBrowserPane(props: FileBrowserPaneProps) {
       </div>
     )
   }
-
   const FileRow = (rowProps: { file: FileItem }) => {
-    const file = createMemo(() => rowProps.file)
-    const attributes = createMemo(() => fileRowAttributes(file()))
+    const file = () => rowProps.file
+    const attributes = () => fileRowAttributes(file())
     return (
       <tr
         {...attributes()}
@@ -201,20 +186,18 @@ export function FileBrowserPane(props: FileBrowserPaneProps) {
                 <span class='block truncate'>{file().name}</span>
               )}
             </div>
-            <Show when={props.rows.renderListNameTrailing}>
-              {props.rows.renderListNameTrailing?.(file())}
-            </Show>
+            {props.rows.renderListNameTrailing ? props.rows.renderListNameTrailing?.(file()) : null}
           </div>
         </td>
-        <Show when={props.listing.columns().createdDate}>
+        {props.listing.columns.createdDate ? (
           <td
             class='min-w-0 p-3 align-middle text-muted-foreground tabular-nums sm:p-2'
             data-column='created-date'
           >
             {formatCreatedDate(file().createdDate)}
           </td>
-        </Show>
-        <Show when={props.listing.columns().size}>
+        ) : null}
+        {props.listing.columns.size ? (
           <td
             class='min-w-0 p-3 align-middle text-right text-muted-foreground sm:p-2'
             data-column='size'
@@ -225,12 +208,11 @@ export function FileBrowserPane(props: FileBrowserPaneProps) {
               </span>
             )}
           </td>
-        </Show>
-        <Show when={props.rows.renderListActions}>{props.rows.renderListActions?.(file())}</Show>
+        ) : null}
+        {props.rows.renderListActions ? props.rows.renderListActions?.(file()) : null}
       </tr>
     )
   }
-
   return (
     <FileExplorerListing
       viewMode={props.listing.viewMode}
@@ -243,11 +225,11 @@ export function FileBrowserPane(props: FileBrowserPaneProps) {
             scrollScope={props.listing.scrollScope}
             class={props.layout?.gridClass}
             renderParentCard={parentCard}
-            renderFileCard={(file) => <FileCard file={file} />}
+            renderFileCard={(file) => FileCard({ file })}
           />
           <DirectoryListingEmpty
-            show={props.listing.showEmpty()}
-            canUpload={props.listing.canUpload()}
+            show={props.listing.showEmpty}
+            canUpload={props.listing.canUpload}
           />
         </div>
       )}
@@ -259,16 +241,16 @@ export function FileBrowserPane(props: FileBrowserPaneProps) {
             scrollTarget={props.listing.scrollTarget}
             scrollScope={props.listing.scrollScope}
             class={props.layout?.listClass}
-            colSpan={listColSpan}
-            columns={tableColumns}
-            tableClass={tableClass}
+            colSpan={listColSpan()}
+            columns={tableColumns()}
+            tableClass={tableClass()}
             sizeColumnClass={props.layout?.listSizeColumnClass}
             renderParentRow={parentRow}
-            renderFileRow={(file) => <FileRow file={file} />}
+            renderFileRow={(file) => FileRow({ file })}
             renderEmptyRow={() => (
               <DirectoryListingEmptyTableRow
-                show={props.listing.showEmpty()}
-                canUpload={props.listing.canUpload()}
+                show={props.listing.showEmpty}
+                canUpload={props.listing.canUpload}
                 colSpan={listColSpan()}
               />
             )}
@@ -277,4 +259,4 @@ export function FileBrowserPane(props: FileBrowserPaneProps) {
       )}
     />
   )
-}
+})

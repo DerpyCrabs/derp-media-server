@@ -1,22 +1,24 @@
-import ZoomIn from 'lucide-solid/icons/zoom-in'
-import ZoomOut from 'lucide-solid/icons/zoom-out'
+import { nextAnimationFrame } from '@/lib/browser/animation-frame'
+import { cn } from '@/lib/ui/cn'
+import { Effect, Semaphore } from 'effect'
 import {
-  For,
-  Show,
-  createEffect,
-  createMemo,
-  createSignal,
-  onCleanup,
-  onSettled,
-  untrack,
-} from 'solid-js'
-import { createStore } from 'solid-js'
-import type { JSX } from '@solidjs/web'
+  domMount,
+  entities,
+  list,
+  component,
+  modelOwner,
+  view,
+  type JSX,
+  controllerView,
+  type ControllerModel,
+} from 'effectweb'
+import ZoomIn from '@effectweb/lucide/icons/zoom-in'
+import ZoomOut from '@effectweb/lucide/icons/zoom-out'
 import { buildMediaUrl } from '@/lib/media/build-media-url'
 import { ReaderFrame, type ReaderFrameContent } from '../../ReaderFrame'
 import { ReaderOutline, type ReaderOutlineItem } from '../../ReaderOutline'
 import { ReaderSetting, Segmented } from '../../ReaderSettings'
-import { useReaderPreferences } from '../../ReaderPreferences'
+import { readerPreferences } from '../../ReaderPreferences'
 import {
   normalizePagedReaderPosition,
   type PagedReaderPosition,
@@ -26,18 +28,14 @@ import {
   type ReaderViewMode,
 } from '../../reader-position'
 import { createReaderPositionSync } from '../../reader-position-sync'
-import type { ReaderSyncedState } from '../../reader-state-client'
 import type { ReaderContentProps } from '../../reader-types'
-import { createAsyncValue } from '../../create-async-value'
-
 export type PagedDocument<TPage extends ReaderPage = ReaderPage> = {
   pages: TPage[]
   outline: ReaderOutlineItem[]
-  release?: () => void | Promise<void>
+  release?: () => Effect.Effect<void>
 }
-
-type PagedReaderProps<TDocument extends PagedDocument> = ReaderContentProps & {
-  load: (path: string, signal: AbortSignal) => Promise<TDocument>
+type Props<TDocument extends PagedDocument> = ReaderContentProps & {
+  load: (path: string) => Effect.Effect<TDocument, unknown>
   selectionModes: readonly ReaderSelectionMode[]
   renderPage: (input: {
     document: TDocument
@@ -47,382 +45,396 @@ type PagedReaderProps<TDocument extends PagedDocument> = ReaderContentProps & {
     frame: ReaderFrameContent
   }) => JSX.Element
 }
-
 const clampZoom = (value: number) => Math.max(0.35, Math.min(3, Number(value.toFixed(2))))
-const estimatedPageBlockHeight = (page: ReaderPage | undefined, zoom: number) =>
-  (page?.height ?? 900) * zoom + (page?.kind === 'pdf' ? 10 : 8)
-const estimateOffsetForPage = (pages: ReaderPage[], pageIndex: number, zoom: number) =>
-  pages
-    .slice(0, Math.min(pageIndex, pages.length))
-    .reduce((offset, page) => offset + estimatedPageBlockHeight(page, zoom), 0)
-const pageFromScroll = (pages: ReaderPage[], scrollTop: number, zoom: number) => {
+const blockHeight = (page: ReaderPage, zoom: number) =>
+  page.height * zoom + (page.kind === 'pdf' ? 10 : 8)
+const offsetForPage = (pages: readonly ReaderPage[], index: number, zoom: number) =>
+  pages.slice(0, index).reduce((offset, page) => offset + blockHeight(page, zoom), 0)
+const pageFromScroll = (pages: readonly ReaderPage[], scrollTop: number, zoom: number) => {
   let offset = 0
-  for (let index = 0; index < pages.length; index += 1) {
-    offset += estimatedPageBlockHeight(pages[index], zoom)
-    if (scrollTop < offset) return index
+  for (let i = 0; i < pages.length; i++) {
+    offset += blockHeight(pages[i]!, zoom)
+    if (scrollTop < offset) return i
   }
   return Math.max(0, pages.length - 1)
 }
-
-function PageIndicator(props: {
-  page: number
-  count: number
-  open: boolean
-  setOpen: (open: boolean) => void
-  onNavigate: (page: number) => void
-}) {
-  let input: HTMLInputElement | undefined
-  const commit = () => {
-    const page = Number.parseInt(input?.value ?? '', 10)
-    props.setOpen(false)
-    if (Number.isFinite(page)) props.onNavigate(page - 1)
-  }
-  return (
+const loadSlot = 'reader-document-load'
+const saveSlot = 'reader-position-save'
+const debounceSlot = 'reader-position-debounce'
+const restoreSlot = 'reader-position-restore'
+const focusPageInput = domMount((element: HTMLInputElement) => {
+  element.focus()
+  element.select()
+})
+const PageIndicator = component<
+  { page: number; count: number; onNavigate: (page: number) => void },
+  { open: boolean; draft: string }
+>(
+  { init: () => ({ open: false, draft: '' }) },
+  view((model, patch) => (
     <div class='relative'>
       <button
         type='button'
         data-testid='reader-page-indicator'
         class='flex h-8 min-w-[104px] items-center justify-center rounded-lg border border-[#3a3a3a] bg-[#181818] px-2 text-sm tabular-nums hover:border-[#777]'
         title='Go to page'
-        onClick={() => props.setOpen(true)}
+        onClick={() => patch({ open: true, draft: String(model.props.page + 1) })}
       >
-        Page {Math.min(props.page + 1, Math.max(1, props.count))} / {Math.max(1, props.count)}
+        Page {Math.min(model.props.page + 1, Math.max(1, model.props.count))} /{' '}
+        {Math.max(1, model.props.count)}
       </button>
-      <Show when={props.open}>
+      {model.open ? (
         <div class='absolute top-[38px] left-1/2 z-50 -translate-x-1/2 rounded-lg border border-[#3a3a3a] bg-[#181818] p-[5px] shadow-[0_14px_34px_rgb(0_0_0/42%)]'>
           <input
-            ref={(element) => {
-              input = element
-            }}
+            use={focusPageInput}
             data-testid='reader-page-input'
             class='h-8 w-20 rounded-md border border-[#3a3a3a] bg-[#202020] px-2 text-center text-sm outline-none focus:border-[#777]'
-            value={String(props.page + 1)}
+            value={model.draft}
             inputmode='numeric'
             autofocus
+            onInput={(event) => patch({ draft: event.currentTarget.value })}
             onFocus={(event) => event.currentTarget.select()}
-            onBlur={commit}
+            onBlur={() => {
+              patch({ open: false })
+              const page = Number.parseInt(model.draft, 10)
+              if (Number.isFinite(page)) model.props.onNavigate(page - 1)
+            }}
             onKeyDown={(event) => {
               if (event.key === 'Enter') event.currentTarget.blur()
               if (event.key === 'Escape') {
                 event.stopPropagation()
-                props.setOpen(false)
+                patch({ open: false })
               }
             }}
           />
         </div>
-      </Show>
+      ) : null}
     </div>
-  )
-}
-
-export function PagedReader<TDocument extends PagedDocument>(props: PagedReaderProps<TDocument>) {
-  const preferences = useReaderPreferences()
-  const document = createAsyncValue(
-    () => props.sourcePath,
-    (path, signal) => props.load(path, signal),
-    (loaded) => loaded.release?.(),
-  )
-  const [state, setState] = createStore({
-    currentPage: 0,
-    scrollTop: 0,
-    zoom: 1,
-    viewMode: 'continuous' as ReaderViewMode,
-    fitMode: 'manual' as ReaderFitMode,
-    outlineExpanded: [] as string[],
-  })
-  const [viewport, setViewport] = createSignal<HTMLDivElement>()
-  const [viewportSize, setViewportSize] = createSignal({ width: 0, height: 0 })
-  const [pageJumpOpen, setPageJumpOpen] = createSignal(false)
+  )),
+)
+function createPagedReader(props: Props<PagedDocument>) {
+  const saveGate = Semaphore.makeUnsafe(1)
+  let viewport: HTMLDivElement | undefined
+  let resize: ResizeObserver | undefined
+  let released: (() => Effect.Effect<void>) | undefined
   let restored = false
-  let saveTimer: number | undefined
+  let closing = false
+  let finalPosition: PagedReaderPosition | undefined
   let blockedUntil = 0
-
-  const positionSync = createReaderPositionSync(
-    () => props.sourcePath,
+  const sync = createReaderPositionSync(
+    props.sourcePath,
     normalizePagedReaderPosition,
-    (position) =>
-      ({
-        kind: 'paged',
-        pageIndex: position.pageIndex,
-        scrollTop: position.scrollTop,
-        zoom: position.zoom,
-        viewMode: position.viewMode,
-        fitMode: position.fitMode,
-        outlineExpanded: position.outlineExpanded,
-      }) satisfies ReaderSyncedState,
+    (position) => ({ ...position, kind: 'paged' }),
   )
-  const pages = createMemo(() => document.value()?.pages ?? [])
-  const zoom = createMemo(() => {
-    if (state.fitMode === 'manual') return state.zoom
-    const page = pages()[state.currentPage] ?? pages()[0]
-    if (!page) return state.zoom
-    const size = viewportSize()
-    const widthScale = Math.max(320, size.width - 24) / page.width
-    const heightScale = Math.max(320, size.height - 28) / page.height
-    return clampZoom(state.fitMode === 'width' ? widthScale : heightScale)
+  const owner = modelOwner({
+    props,
+    document: null as PagedDocument | null,
+    error: '',
+    loading: true,
+    position: normalizePagedReaderPosition({}),
+    size: { width: 0, height: 0 },
   })
-  const renderedPages = createMemo(() =>
-    state.viewMode === 'page' ? pages().slice(state.currentPage, state.currentPage + 1) : pages(),
-  )
-  const capture = (): PagedReaderPosition => ({
-    kind: 'paged',
-    pageIndex: state.currentPage,
-    scrollTop: viewport()?.scrollTop ?? state.scrollTop,
-    zoom: state.zoom,
-    viewMode: state.viewMode,
-    fitMode: state.fitMode,
-    outlineExpanded: [...state.outlineExpanded],
-  })
-  const applyPosition = (position: PagedReaderPosition, count = pages().length) => {
-    setState((draft) => {
-      draft.currentPage = Math.max(0, Math.min(Math.max(0, count - 1), position.pageIndex))
-      draft.scrollTop = position.scrollTop
-      draft.zoom = position.zoom
-      draft.viewMode = position.viewMode
-      draft.fitMode = position.fitMode
-      draft.outlineExpanded = position.outlineExpanded
+  const actions = {
+    navigate: (index: number) => navigate(index),
+    change: (changes: Partial<PagedReaderPosition>) => {
+      owner.patch({ position: { ...owner.read().position, ...changes } })
+      schedule()
+    },
+    attach: (element: HTMLDivElement) => {
+      if (viewport === element) return
+      viewport = element
+      resize?.disconnect()
+      const measure = () =>
+        owner.patch({ size: { width: element.clientWidth, height: element.clientHeight } })
+      resize = new ResizeObserver(measure)
+      resize.observe(element)
+      measure()
+    },
+    scroll: (element: HTMLDivElement) => {
+      const current = owner.read()
+      const pages = current.document?.pages ?? []
+      owner.patch({
+        position: {
+          ...current.position,
+          scrollTop: element.scrollTop,
+          pageIndex:
+            current.position.viewMode === 'continuous'
+              ? pageFromScroll(
+                  pages,
+                  element.scrollTop,
+                  zoomFor(current.position, pages, current.size),
+                )
+              : current.position.pageIndex,
+        },
+      })
+      schedule()
+    },
+    persist: () =>
+      Effect.gen(function* () {
+        owner.cancel(debounceSlot)
+        yield* owner.awaitIdle(saveSlot)
+        yield* persist()
+      }),
+  }
+  const apply = (position: PagedReaderPosition) => {
+    const count = owner.read().document?.pages.length ?? 0
+    owner.patch({
+      position: {
+        ...position,
+        pageIndex: Math.max(0, Math.min(Math.max(0, count - 1), position.pageIndex)),
+      },
     })
-    requestAnimationFrame(() =>
-      requestAnimationFrame(() => viewport()?.scrollTo({ top: position.scrollTop })),
+    owner.run(
+      restoreSlot,
+      nextAnimationFrame.pipe(
+        Effect.andThen(nextAnimationFrame),
+        Effect.andThen(Effect.sync(() => viewport?.scrollTo({ top: position.scrollTop }))),
+      ),
+      'replace',
     )
   }
-  const persist = async () => {
-    window.clearTimeout(saveTimer)
-    if (!restored || Date.now() < blockedUntil) return
-    const remote = await positionSync.save(capture())
-    if (remote) {
-      blockedUntil = Date.now() + 1_500
-      applyPosition(remote)
-    }
+  const persist = () =>
+    saveGate.withPermit(
+      Effect.gen(function* () {
+        if (!restored || Date.now() < blockedUntil) return
+        const current = owner.read().position
+        const remote = yield* sync.save(
+          finalPosition ?? {
+            ...current,
+            outlineExpanded: [...current.outlineExpanded],
+            scrollTop: viewport?.scrollTop ?? current.scrollTop,
+          },
+        )
+        if (remote && !closing && !owner.disposed) {
+          blockedUntil = Date.now() + 1500
+          apply(remote)
+        }
+      }),
+    )
+  const schedule = () => {
+    if (closing) return
+    owner.run(
+      debounceSlot,
+      Effect.sleep(1000).pipe(
+        Effect.andThen(Effect.sync(() => owner.run(saveSlot, persist(), 'latest-queued'))),
+      ),
+      'replace',
+    )
   }
-  const schedulePersist = () => {
-    if (!restored || Date.now() < blockedUntil) return
-    window.clearTimeout(saveTimer)
-    saveTimer = window.setTimeout(() => untrack(() => void persist()), 1_000)
-  }
-  const goToPage = (index: number) => {
-    const next = Math.max(0, Math.min(pages().length - 1, index))
-    setState((draft) => {
-      draft.currentPage = next
+  const navigate = (index: number) => {
+    const current = owner.read()
+    const pages = current.document?.pages ?? []
+    const next = Math.max(0, Math.min(pages.length - 1, index))
+    owner.patch({ position: { ...current.position, pageIndex: next } })
+    viewport?.scrollTo({
+      top:
+        current.position.viewMode === 'continuous'
+          ? offsetForPage(pages, next, zoomFor(current.position, pages, current.size))
+          : 0,
+      behavior: 'smooth',
     })
-    if (state.viewMode === 'continuous') {
-      requestAnimationFrame(() =>
-        viewport()?.scrollTo({
-          top: estimateOffsetForPage(pages(), next, zoom()),
-          behavior: 'smooth',
-        }),
-      )
-    } else viewport()?.scrollTo({ top: 0 })
-    schedulePersist()
+    schedule()
   }
-
-  createEffect(
-    () => ({
-      ready: positionSync.ready(),
-      position: positionSync.loaded(),
-      count: pages().length,
-      outline: document.value()?.outline,
-    }),
-    ({ ready, position, count, outline }) => {
-      if (!ready || !count || restored) return
+  owner.run(
+    loadSlot,
+    Effect.gen(function* () {
+      const [document, position] = yield* Effect.all(
+        [
+          props.load(props.sourcePath).pipe(
+            Effect.tap((loaded) =>
+              Effect.sync(() => {
+                released = loaded.release
+              }),
+            ),
+          ),
+          sync.load,
+        ],
+        { concurrency: 'unbounded' },
+      )
+      owner.patch({ document, loading: false })
       const initial =
         position ??
         normalizePagedReaderPosition({
-          outlineExpanded: outline?.flatMap(function collect(item): string[] {
+          outlineExpanded: document.outline.flatMap(function collect(item): string[] {
             return [item.id, ...item.children.flatMap(collect)]
           }),
         })
-      applyPosition(initial, count)
+      apply(initial)
       restored = true
+      return yield* Effect.never
+    }).pipe(
+      Effect.catch((error) =>
+        Effect.sync(() => owner.patch({ loading: false, error: String(error) })),
+      ),
+      Effect.ensuring(Effect.suspend(() => released?.() ?? Effect.void)),
+    ),
+    'replace',
+  )
+  return {
+    source: owner.source,
+    ...actions,
+    receive: (next: Props<PagedDocument>) => owner.patch({ props: next }),
+    beforeDispose: () => {
+      const current = owner.read().position
+      finalPosition = {
+        ...current,
+        outlineExpanded: [...current.outlineExpanded],
+        scrollTop: viewport?.scrollTop ?? current.scrollTop,
+      }
     },
+    lifetime: {
+      close: () => {
+        closing = true
+        const save = persist()
+        owner.cancel(debounceSlot)
+        owner.cancel(restoreSlot)
+        resize?.disconnect()
+        return owner
+          .awaitIdle(saveSlot)
+          .pipe(Effect.andThen(save), Effect.ensuring(owner.close().pipe(Effect.orDie)))
+      },
+      dispose: () => {
+        resize?.disconnect()
+        owner.dispose()
+      },
+    },
+  }
+}
+function zoomFor(
+  position: PagedReaderPosition,
+  pages: readonly ReaderPage[],
+  size: { width: number; height: number },
+) {
+  if (position.fitMode === 'manual') return position.zoom
+  const page = pages[position.pageIndex] ?? pages[0]
+  if (!page) return position.zoom
+  return clampZoom(
+    position.fitMode === 'width'
+      ? Math.max(320, size.width - 24) / page.width
+      : Math.max(320, size.height - 28) / page.height,
   )
-
-  onSettled(() => {
-    const element = viewport()
-    if (!element) return undefined
-    let frame = 0
-    const resize = new ResizeObserver(() => {
-      cancelAnimationFrame(frame)
-      frame = requestAnimationFrame(() => {
-        setViewportSize({ width: element.clientWidth, height: element.clientHeight })
-      })
-    })
-    resize.observe(element)
-    setViewportSize({ width: element.clientWidth, height: element.clientHeight })
-    // eslint-disable-next-line solid/reactivity
-    return () => {
-      resize.disconnect()
-      cancelAnimationFrame(frame)
-    }
-  })
-
-  onCleanup(() => {
-    window.clearTimeout(saveTimer)
-  })
-
-  const settings = (close: () => void) => (
-    <>
-      <ReaderSetting label='View'>
-        <Segmented
-          values={['continuous', 'page']}
-          value={state.viewMode}
-          onChange={(value) => {
-            setState((draft) => {
-              draft.viewMode = value as ReaderViewMode
-            })
-            schedulePersist()
-            close()
-          }}
-        />
-      </ReaderSetting>
-      <ReaderSetting label='Fit'>
-        <Segmented
-          values={['width', 'height']}
-          value={state.fitMode}
-          onChange={(value) => {
-            setState((draft) => {
-              draft.fitMode = value as ReaderFitMode
-            })
-            schedulePersist()
-            close()
-          }}
-        />
-      </ReaderSetting>
-      <ReaderSetting label='Zoom'>
-        <div class='grid grid-cols-[minmax(0,1fr)_72px_minmax(0,1fr)] items-center'>
-          <button
-            type='button'
-            aria-label='Reader zoom out'
-            class='flex h-8 w-full items-center justify-center rounded-lg border border-[#3a3a3a] bg-[#202020] hover:border-[#777]'
-            onClick={() => {
-              setState((draft) => {
-                draft.fitMode = 'manual'
-                draft.zoom = clampZoom(draft.zoom - 0.1)
-              })
-              schedulePersist()
-            }}
-          >
-            <ZoomOut size={17} />
-          </button>
-          <span class='text-center text-sm text-[#b8b8b8] tabular-nums'>
-            {Math.round(zoom() * 100)}%
-          </span>
-          <button
-            type='button'
-            aria-label='Reader zoom in'
-            class='flex h-8 w-full items-center justify-center rounded-lg border border-[#3a3a3a] bg-[#202020] hover:border-[#777]'
-            onClick={() => {
-              setState((draft) => {
-                draft.fitMode = 'manual'
-                draft.zoom = clampZoom(draft.zoom + 0.1)
-              })
-              schedulePersist()
-            }}
-          >
-            <ZoomIn size={17} />
-          </button>
-        </div>
-      </ReaderSetting>
-    </>
-  )
-
-  const outline = createMemo(() => {
-    const items = document.value()?.outline ?? []
-    if (!items.length) return undefined
-    return (
-      <ReaderOutline
-        title='Contents'
-        items={items}
-        active={state.currentPage}
-        onNavigate={(target) => typeof target === 'number' && goToPage(target)}
-        onClose={() => preferences.setOutlineOpen(false)}
-        expanded={state.outlineExpanded}
-        onToggle={(id) => {
-          setState((draft) => {
-            draft.outlineExpanded = draft.outlineExpanded.includes(id)
-              ? draft.outlineExpanded.filter((item) => item !== id)
-              : [...draft.outlineExpanded, id]
-          })
-          schedulePersist()
-        }}
-      />
-    )
-  })
-
+}
+const PagedReaderView = view<ControllerModel<typeof createPagedReader>>((model) => {
+  const props = model.props,
+    state = model.position,
+    actions = model.actions
+  const pages = model.document?.pages ?? []
+  const zoom = zoomFor(state, pages, model.size)
+  const renderedPages =
+    state.viewMode === 'page' ? pages.slice(state.pageIndex, state.pageIndex + 1) : pages
   return (
     <ReaderFrame
       {...props}
       title={props.sourcePath}
       selectionModes={props.selectionModes}
       toolbar={
-        <PageIndicator
-          page={state.currentPage}
-          count={pages().length}
-          open={pageJumpOpen()}
-          setOpen={setPageJumpOpen}
-          onNavigate={goToPage}
-        />
+        <PageIndicator page={state.pageIndex} count={pages.length} onNavigate={actions.navigate} />
       }
-      settings={settings}
-      outline={outline()}
-      onViewport={setViewport}
-      onScroll={(element) => {
-        setState((draft) => {
-          draft.scrollTop = element.scrollTop
-        })
-        if (state.viewMode === 'continuous') {
-          setState((draft) => {
-            draft.currentPage = pageFromScroll(pages(), element.scrollTop, zoom())
-          })
-        }
-        schedulePersist()
-      }}
+      settings={(close) => (
+        <>
+          <ReaderSetting label='View'>
+            <Segmented
+              values={['continuous', 'page']}
+              value={state.viewMode}
+              onChange={(value) => {
+                actions.change({ viewMode: value as ReaderViewMode })
+                close()
+              }}
+            />
+          </ReaderSetting>
+          <ReaderSetting label='Fit'>
+            <Segmented
+              values={['width', 'height']}
+              value={state.fitMode}
+              onChange={(value) => {
+                actions.change({ fitMode: value as ReaderFitMode })
+                close()
+              }}
+            />
+          </ReaderSetting>
+          <ReaderSetting label='Zoom'>
+            <div class='grid grid-cols-[minmax(0,1fr)_72px_minmax(0,1fr)] items-center'>
+              <button
+                type='button'
+                aria-label='Reader zoom out'
+                class='flex h-8 w-full items-center justify-center rounded-lg border border-[#3a3a3a] bg-[#202020] hover:border-[#777]'
+                onClick={() =>
+                  actions.change({ fitMode: 'manual', zoom: clampZoom(state.zoom - 0.1) })
+                }
+              >
+                <ZoomOut size={17} />
+              </button>
+              <span class='text-center text-sm text-[#b8b8b8] tabular-nums'>
+                {Math.round(zoom * 100)}%
+              </span>
+              <button
+                type='button'
+                aria-label='Reader zoom in'
+                class='flex h-8 w-full items-center justify-center rounded-lg border border-[#3a3a3a] bg-[#202020] hover:border-[#777]'
+                onClick={() =>
+                  actions.change({ fitMode: 'manual', zoom: clampZoom(state.zoom + 0.1) })
+                }
+              >
+                <ZoomIn size={17} />
+              </button>
+            </div>
+          </ReaderSetting>
+        </>
+      )}
+      outline={
+        model.document?.outline.length ? (
+          <ReaderOutline
+            title='Contents'
+            items={model.document.outline}
+            active={state.pageIndex}
+            onNavigate={(target) => typeof target === 'number' && actions.navigate(target)}
+            onClose={() => readerPreferences.patch({ outlineOpen: false })}
+            expanded={state.outlineExpanded}
+            onToggle={(id) =>
+              actions.change({
+                outlineExpanded: state.outlineExpanded.includes(id)
+                  ? state.outlineExpanded.filter((item) => item !== id)
+                  : [...state.outlineExpanded, id],
+              })
+            }
+          />
+        ) : undefined
+      }
+      onViewport={actions.attach}
+      onScroll={actions.scroll}
+      beforeClose={actions.persist}
       onKeyDown={(event, element) => {
         if (event.key === 'PageUp' || event.key === 'PageDown') {
           event.preventDefault()
-          if (state.viewMode === 'page') {
-            goToPage(state.currentPage + (event.key === 'PageDown' ? 1 : -1))
-          } else {
-            element.scrollBy({
-              top: (event.key === 'PageDown' ? 1 : -1) * element.clientHeight,
-            })
-          }
+          if (state.viewMode === 'page')
+            actions.navigate(state.pageIndex + (event.key === 'PageDown' ? 1 : -1))
+          else element.scrollBy({ top: (event.key === 'PageDown' ? 1 : -1) * element.clientHeight })
           return true
         }
         const targets: Record<string, number> = {
-          ArrowRight: state.currentPage + 1,
-          ArrowLeft: state.currentPage - 1,
+          ArrowRight: state.pageIndex + 1,
+          ArrowLeft: state.pageIndex - 1,
           Home: 0,
-          End: pages().length - 1,
+          End: pages.length - 1,
         }
         if (targets[event.key] === undefined) return false
         event.preventDefault()
-        goToPage(targets[event.key]!)
+        actions.navigate(targets[event.key]!)
         return true
       }}
-      onEscape={() => {
-        if (!pageJumpOpen()) return false
-        setPageJumpOpen(false)
-        return true
-      }}
-      beforeClose={persist}
       content={(frame) => (
         <>
-          <Show when={document.loading()}>
+          {model.loading ? (
             <div class='flex h-full items-center justify-center text-sm text-white/60'>
               Opening...
             </div>
-          </Show>
-          <Show when={document.error()}>
+          ) : null}
+          {model.error ? (
             <div
               role='alert'
               class='flex h-full flex-col items-center justify-center gap-3 p-8 text-center text-red-300'
             >
-              <p>
-                {document.error() instanceof Error
-                  ? (document.error() as Error).message
-                  : 'Could not open document'}
-              </p>
+              <p>{model.error}</p>
               <a
                 class='rounded border border-white/25 px-3 py-1.5 text-sm text-white hover:border-white/60'
                 href={buildMediaUrl(props.sourcePath.replace(/\\/g, '/'))}
@@ -431,38 +443,35 @@ export function PagedReader<TDocument extends PagedDocument>(props: PagedReaderP
                 Download original
               </a>
             </div>
-          </Show>
-          <Show when={document.value()}>
-            {(loaded) => (
-              <For each={renderedPages()}>
-                {(page) => {
-                  const pageIndex = () => pages().indexOf(page)
-                  return (
-                    <article
-                      data-page-id={page.id}
-                      data-page-index={pageIndex()}
-                      data-reader-page-index={pageIndex()}
-                      class={[
-                        'mx-auto mb-2 w-fit scroll-mt-1',
-                        { 'max-w-none': page.kind === 'pdf', 'max-w-full': page.kind !== 'pdf' },
-                      ]}
-                      aria-label={`Page ${pageIndex() + 1}`}
-                    >
-                      {props.renderPage({
-                        document: loaded(),
-                        page,
-                        pageIndex: pageIndex(),
-                        zoom: zoom(),
-                        frame,
-                      })}
-                    </article>
-                  )
-                }}
-              </For>
-            )}
-          </Show>
+          ) : null}
+          {model.document
+            ? list(entities(renderedPages), (page) => (
+                <article
+                  data-page-id={page.id}
+                  data-page-index={pages.indexOf(page)}
+                  data-reader-page-index={pages.indexOf(page)}
+                  class={cn('mx-auto mb-2 w-fit scroll-mt-1', {
+                    'max-w-none': page.kind === 'pdf',
+                    'max-w-full': page.kind !== 'pdf',
+                  })}
+                  aria-label={`Page ${pages.indexOf(page) + 1}`}
+                >
+                  {props.renderPage({
+                    document: model.document!,
+                    page,
+                    pageIndex: pages.indexOf(page),
+                    zoom,
+                    frame,
+                  })}
+                </article>
+              ))
+            : null}
         </>
       )}
     />
   )
-}
+})
+export const PagedReader = controllerView(
+  { controller: createPagedReader, identity: (props) => props.sourcePath },
+  PagedReaderView,
+)

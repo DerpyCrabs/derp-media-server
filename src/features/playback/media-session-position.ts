@@ -20,11 +20,7 @@ export function setPlaybackMediaSessionPosition(
   const position = Math.min(Math.max(input.position, 0), input.duration)
   const playbackRate = input.playbackRate > 0 ? input.playbackRate : 1
   try {
-    target.setPositionState({
-      duration: input.duration,
-      position,
-      playbackRate,
-    })
+    target.setPositionState({ duration: input.duration, position, playbackRate })
   } catch {
     // Browsers throw when a media element changes duration between events.
   }

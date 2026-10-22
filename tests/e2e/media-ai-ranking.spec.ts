@@ -122,7 +122,9 @@ test('refresh discards a late response from the previous feed', async ({ page })
   release()
   await expect(page.getByRole('button', { name: 'Play Second song', exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Play First song', exact: true })).toHaveCount(0)
-  await expect(page.locator('article')).toHaveCount(2)
+  await expect(
+    page.getByRole('region', { name: 'Recommended media' }).locator('article'),
+  ).toHaveCount(2)
 })
 
 test('Books stops polling and does not automatically traverse unrelated pages', async ({
@@ -137,12 +139,7 @@ test('Books stops polling and does not automatically traverse unrelated pages', 
   })
   await page.route('**/api/media-ai/refresh', (route) =>
     route.fulfill({
-      json: {
-        ...homePage(videos, 24),
-        feedId: 'books-refreshed',
-        resumeCursor: 24,
-        warming: true,
-      },
+      json: { ...homePage(videos, 24), feedId: 'books-refreshed', resumeCursor: 24, warming: true },
     }),
   )
   await page.goto('/')
@@ -229,9 +226,7 @@ test('progress distinguishes discovery and keeps a fixed queue across background
     completed: 3,
   }
   await page.route('**/api/media-ai/status', (route) =>
-    route.fulfill({
-      json: { enabled: true, progress, job: { phase }, analyzed: 0, total: 99999 },
-    }),
+    route.fulfill({ json: { enabled: true, progress, job: { phase }, analyzed: 0, total: 99999 } }),
   )
   await page.goto('/')
   const indicator = page.getByTestId('indexing-progress')

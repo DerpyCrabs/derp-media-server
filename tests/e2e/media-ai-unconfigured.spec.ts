@@ -19,9 +19,9 @@ for (const viewport of [
     expect(
       await page.evaluate(
         () =>
-          window.__DEHYDRATED_STATE__?.queries.find(
-            (query) => query.queryKey[0] === 'media-ai' && query.queryKey[1] === 'status',
-          )?.state.data,
+          window.__INITIAL_DATA__?.entries.find(
+            (query) => query.key[0] === 'media-ai' && query.key[1] === 'status',
+          )?.data,
       ),
     ).toMatchObject({ enabled: false })
     await expect(page.locator('table')).toBeVisible()

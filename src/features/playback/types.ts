@@ -1,3 +1,4 @@
+import type { Effect } from 'effect'
 export type PlaybackMedia = 'audio' | 'video'
 export type PlaybackMode = 'audio' | 'video'
 export type PlaybackPhase =
@@ -74,7 +75,6 @@ export type PlaybackSourceRequest = Readonly<{
   item: PlaybackItem
   mode: PlaybackMode
   reason: PlaybackResolveReason
-  signal: AbortSignal
   position?: number
   fallback?: PlaybackFallback
 }>
@@ -89,9 +89,7 @@ export type PlaybackSourceResolution =
   | Readonly<{ kind: 'error'; message: string }>
 
 export interface PlaybackSourceResolver {
-  resolve(
-    request: PlaybackSourceRequest,
-  ): PlaybackSourceResolution | Promise<PlaybackSourceResolution>
+  resolve(request: PlaybackSourceRequest): Effect.Effect<PlaybackSourceResolution, unknown>
 }
 
 export type PlaybackCommand =
@@ -120,18 +118,10 @@ export type PlaybackCommand =
   | Readonly<{ type: 'seek'; position: number }>
   | Readonly<{ type: 'mediaTime'; generation: number; position: number; duration?: number }>
   | Readonly<{ type: 'mediaSeeked'; generation: number; seekId: number; position: number }>
-  | Readonly<{
-      type: 'mediaVolume'
-      generation: number
-      volume: number
-      muted: boolean
-    }>
+  | Readonly<{ type: 'mediaVolume'; generation: number; volume: number; muted: boolean }>
   | Readonly<{ type: 'mediaDuration'; generation: number; duration: number }>
   | Readonly<{ type: 'mediaBuffering'; generation: number; buffering: boolean }>
-  | Readonly<{
-      type: 'mediaReady' | 'mediaPlay' | 'mediaPause' | 'mediaEnded'
-      generation: number
-    }>
+  | Readonly<{ type: 'mediaReady' | 'mediaPlay' | 'mediaPause' | 'mediaEnded'; generation: number }>
   | Readonly<{ type: 'mediaError'; generation: number; message?: string }>
   | Readonly<{ type: 'setMode'; mode: PlaybackMode }>
   | Readonly<{ type: 'setVolume'; volume: number }>

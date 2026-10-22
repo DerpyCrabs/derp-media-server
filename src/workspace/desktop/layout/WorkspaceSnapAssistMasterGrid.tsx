@@ -1,11 +1,9 @@
+import { view, list, collection } from 'effectweb'
 import type { AssistGridShape, AssistGridSpan } from '@/workspace/model/workspace-assist-grid'
 import { assistShapeToDims, assistSpanToGridLines } from '@/workspace/model/workspace-assist-grid'
 import type { AssistSlotPick } from '@/workspace/model/workspace-snap-pick'
 import { assistPickMatchesGridSpan } from '@/workspace/model/workspace-snap-pick'
 import { cn } from '@/lib/ui/cn'
-import { For, Show } from '@solidjs/web'
-import { createMemo } from 'solid-js'
-
 type Placement = {
   kind: 'cell' | 'vgutter' | 'hgutter' | 'junction'
   gridColumn: number
@@ -13,7 +11,6 @@ type Placement = {
   zIndex?: number
   span: AssistGridSpan
 }
-
 function buildPlacements(cols: number, rows: number): Placement[] {
   const out: Placement[] = []
   for (let r = 0; r < rows; r++) {
@@ -24,14 +21,7 @@ function buildPlacements(cols: number, rows: number): Placement[] {
         kind: 'cell',
         gridColumn: gc,
         gridRow: gr,
-        span: {
-          gridCols: cols,
-          gridRows: rows,
-          gc0: c,
-          gc1: c,
-          gr0: r,
-          gr1: r,
-        },
+        span: { gridCols: cols, gridRows: rows, gc0: c, gc1: c, gr0: r, gr1: r },
       })
     }
   }
@@ -43,14 +33,7 @@ function buildPlacements(cols: number, rows: number): Placement[] {
         kind: 'vgutter',
         gridColumn: gc,
         gridRow: gr,
-        span: {
-          gridCols: cols,
-          gridRows: rows,
-          gc0: c,
-          gc1: c + 1,
-          gr0: r,
-          gr1: r,
-        },
+        span: { gridCols: cols, gridRows: rows, gc0: c, gc1: c + 1, gr0: r, gr1: r },
       })
     }
   }
@@ -62,14 +45,7 @@ function buildPlacements(cols: number, rows: number): Placement[] {
         kind: 'hgutter',
         gridColumn: gc,
         gridRow: gr,
-        span: {
-          gridCols: cols,
-          gridRows: rows,
-          gc0: c,
-          gc1: c,
-          gr0: r,
-          gr1: r + 1,
-        },
+        span: { gridCols: cols, gridRows: rows, gc0: c, gc1: c, gr0: r, gr1: r + 1 },
       })
     }
   }
@@ -82,20 +58,12 @@ function buildPlacements(cols: number, rows: number): Placement[] {
         gridColumn: gc,
         gridRow: gr,
         zIndex: 10,
-        span: {
-          gridCols: cols,
-          gridRows: rows,
-          gc0: c,
-          gc1: c + 1,
-          gr0: r,
-          gr1: r + 1,
-        },
+        span: { gridCols: cols, gridRows: rows, gc0: c, gc1: c + 1, gr0: r, gr1: r + 1 },
       })
     }
   }
   return out
 }
-
 function defaultShapeLabel(shape: AssistGridShape): string {
   switch (shape) {
     default:
@@ -110,7 +78,6 @@ function defaultShapeLabel(shape: AssistGridShape): string {
       return '2×3'
   }
 }
-
 function placementLabel(span: AssistGridSpan): string {
   const columns =
     span.gc0 === span.gc1 ? `column ${span.gc0 + 1}` : `columns ${span.gc0 + 1} to ${span.gc1 + 1}`
@@ -118,7 +85,6 @@ function placementLabel(span: AssistGridSpan): string {
     span.gr0 === span.gr1 ? `row ${span.gr0 + 1}` : `rows ${span.gr0 + 1} to ${span.gr1 + 1}`
   return `${columns}, ${rows}`
 }
-
 export type WorkspaceSnapAssistMasterGridProps = {
   shape: AssistGridShape
   /** Read on each reactive pass so hover updates (plain props + inner `<For>` do not). */
@@ -131,16 +97,13 @@ export type WorkspaceSnapAssistMasterGridProps = {
   onPickSpan?: (span: AssistGridSpan) => void
   isSpanDisabled?: (span: AssistGridSpan) => boolean
 }
-
-export function WorkspaceSnapAssistMasterGrid(props: WorkspaceSnapAssistMasterGridProps) {
-  const pick = createMemo(() => props.getHoverPick())
-
-  const placements = createMemo(() => {
+export const WorkspaceSnapAssistMasterGrid = view<WorkspaceSnapAssistMasterGridProps>((props) => {
+  const pick = () => props.getHoverPick()
+  const placements = () => {
     const { cols, rows } = assistShapeToDims(props.shape)
     return buildPlacements(cols, rows)
-  })
-
-  const gridTemplate = createMemo(() => {
+  }
+  const gridTemplate = () => {
     const { cols, rows } = assistShapeToDims(props.shape)
     const colT = Array.from({ length: cols * 2 - 1 }, (_, i) =>
       i % 2 === 0 ? 'minmax(0,1fr)' : '6px',
@@ -149,20 +112,16 @@ export function WorkspaceSnapAssistMasterGrid(props: WorkspaceSnapAssistMasterGr
       i % 2 === 0 ? 'minmax(0,1fr)' : '6px',
     ).join(' ')
     return { colT, rowT }
-  })
-
-  const hoverSpan = createMemo(() => pick()?.span ?? null)
-
-  const hoverLines = createMemo(() => {
+  }
+  const hoverSpan = () => pick()?.span ?? null
+  const hoverLines = () => {
     const h = hoverSpan()
     if (!h) return null
     if (h.gridCols !== assistShapeToDims(props.shape).cols) return null
     if (h.gridRows !== assistShapeToDims(props.shape).rows) return null
     return assistSpanToGridLines(h)
-  })
-
-  const title = createMemo(() => props.layoutLabel ?? defaultShapeLabel(props.shape))
-
+  }
+  const title = () => props.layoutLabel ?? defaultShapeLabel(props.shape)
   return (
     <div
       class={cn(
@@ -187,99 +146,88 @@ export function WorkspaceSnapAssistMasterGrid(props: WorkspaceSnapAssistMasterGr
           'grid-template-rows': gridTemplate().rowT,
         }}
       >
-        <For keyed={false} each={placements()}>
-          {(p) => {
-            const active = createMemo(() => assistPickMatchesGridSpan(pick(), p().span))
-            const disabled = createMemo(() => props.isSpanDisabled?.(p().span) ?? false)
-            const isFirstCell = createMemo(
-              () =>
-                p().kind === 'cell' &&
-                p().span.gc0 === 0 &&
-                p().span.gr0 === 0 &&
-                p().span.gc1 === 0,
-            )
-            const isFirstColumnHgutter = createMemo(
-              () =>
-                p().kind === 'hgutter' &&
-                p().span.gc0 === 0 &&
-                p().span.gc1 === 0 &&
-                p().span.gr0 === 0 &&
-                p().span.gr1 === 1,
-            )
-            const isVgutterTwoColsTopRow = createMemo(
-              () =>
-                p().kind === 'vgutter' &&
-                p().span.gc0 === 0 &&
-                p().span.gc1 === 1 &&
-                p().span.gr0 === 0 &&
-                p().span.gr1 === 0,
-            )
-            const tileClass = createMemo(() =>
-              p().kind === 'cell'
-                ? 'rounded-sm border border-border bg-muted shadow-sm'
-                : p().kind === 'junction'
-                  ? 'rounded-sm bg-background'
-                  : 'bg-background',
-            )
-            return (
-              <button
-                type='button'
-                tabindex={props.pickMode && !disabled() ? 0 : -1}
-                disabled={disabled()}
-                aria-label={`${title()}: ${placementLabel(p().span)}`}
-                data-assist-grid-span
-                data-gc0={String(p().span.gc0)}
-                data-gc1={String(p().span.gc1)}
-                data-gr0={String(p().span.gr0)}
-                data-gr1={String(p().span.gr1)}
-                data-grid-cols={String(p().span.gridCols)}
-                data-grid-rows={String(p().span.gridRows)}
-                data-testid={
-                  isFirstCell()
-                    ? 'snap-assist-master-cell'
-                    : isFirstColumnHgutter()
-                      ? 'snap-assist-hgutter-col0'
-                      : isVgutterTwoColsTopRow()
-                        ? 'snap-assist-vgutter-two-cols-top'
-                        : undefined
-                }
-                data-snap-assist-hover-active={active() ? '' : undefined}
-                class={cn(
-                  'border-0 p-0 transition-all duration-100 focus-visible:z-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
-                  tileClass(),
-                  props.pickMode && p().kind === 'cell' && !disabled()
-                    ? 'hover:border-primary/70 hover:bg-primary/15'
-                    : '',
-                  disabled() ? 'cursor-not-allowed opacity-25' : '',
-                  !props.pickMode &&
-                    (p().kind === 'vgutter' || p().kind === 'hgutter' || p().kind === 'junction')
-                    ? 'cursor-default'
-                    : '',
-                )}
-                style={{
-                  'grid-column': p().gridColumn,
-                  'grid-row': p().gridRow,
-                  ...(p().zIndex != null ? { 'z-index': p().zIndex } : {}),
-                }}
-                onClick={() => {
-                  if (props.pickMode && !disabled()) props.onPickSpan?.(p().span)
-                }}
-              />
-            )
-          }}
-        </For>
-        <Show when={hoverLines()}>
-          {(lines) => (
+        {list(placementCollection.from(placements()), (p) => {
+          const active = () => assistPickMatchesGridSpan(pick(), p.span)
+          const disabled = () => props.isSpanDisabled?.(p.span) ?? false
+          const isFirstCell = () =>
+            p.kind === 'cell' && p.span.gc0 === 0 && p.span.gr0 === 0 && p.span.gc1 === 0
+          const isFirstColumnHgutter = () =>
+            p.kind === 'hgutter' &&
+            p.span.gc0 === 0 &&
+            p.span.gc1 === 0 &&
+            p.span.gr0 === 0 &&
+            p.span.gr1 === 1
+          const isVgutterTwoColsTopRow = () =>
+            p.kind === 'vgutter' &&
+            p.span.gc0 === 0 &&
+            p.span.gc1 === 1 &&
+            p.span.gr0 === 0 &&
+            p.span.gr1 === 0
+          const tileClass = () =>
+            p.kind === 'cell'
+              ? 'rounded-sm border border-border bg-muted shadow-sm'
+              : p.kind === 'junction'
+                ? 'rounded-sm bg-background'
+                : 'bg-background'
+          return (
+            <button
+              type='button'
+              tabindex={props.pickMode && !disabled() ? 0 : -1}
+              disabled={disabled()}
+              aria-label={`${title()}: ${placementLabel(p.span)}`}
+              data-assist-grid-span
+              data-gc0={String(p.span.gc0)}
+              data-gc1={String(p.span.gc1)}
+              data-gr0={String(p.span.gr0)}
+              data-gr1={String(p.span.gr1)}
+              data-grid-cols={String(p.span.gridCols)}
+              data-grid-rows={String(p.span.gridRows)}
+              data-testid={
+                isFirstCell()
+                  ? 'snap-assist-master-cell'
+                  : isFirstColumnHgutter()
+                    ? 'snap-assist-hgutter-col0'
+                    : isVgutterTwoColsTopRow()
+                      ? 'snap-assist-vgutter-two-cols-top'
+                      : undefined
+              }
+              data-snap-assist-hover-active={active() ? '' : undefined}
+              class={cn(
+                'border-0 p-0 transition-all duration-100 focus-visible:z-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+                tileClass(),
+                props.pickMode && p.kind === 'cell' && !disabled()
+                  ? 'hover:border-primary/70 hover:bg-primary/15'
+                  : '',
+                disabled() ? 'cursor-not-allowed opacity-25' : '',
+                !props.pickMode &&
+                  (p.kind === 'vgutter' || p.kind === 'hgutter' || p.kind === 'junction')
+                  ? 'cursor-default'
+                  : '',
+              )}
+              style={{
+                'grid-column': p.gridColumn,
+                'grid-row': p.gridRow,
+                ...(p.zIndex != null ? { 'z-index': p.zIndex } : {}),
+              }}
+              onClick={() => {
+                if (props.pickMode && !disabled()) props.onPickSpan?.(p.span)
+              }}
+            />
+          )
+        })}
+        {((lines) =>
+          lines ? (
             <div
               class='pointer-events-none z-20 rounded-md border-2 border-primary bg-primary/20 shadow-md ring-2 ring-primary/25'
               style={{
-                'grid-column': `${lines().colStart} / ${lines().colEnd}`,
-                'grid-row': `${lines().rowStart} / ${lines().rowEnd}`,
+                'grid-column': `${lines.colStart} / ${lines.colEnd}`,
+                'grid-row': `${lines.rowStart} / ${lines.rowEnd}`,
               }}
             />
-          )}
-        </Show>
+          ) : null)(hoverLines())}
       </div>
     </div>
   )
-}
+})
+
+const placementCollection = collection<Placement>((p) => `${p.kind}:${p.gridColumn}:${p.gridRow}`)

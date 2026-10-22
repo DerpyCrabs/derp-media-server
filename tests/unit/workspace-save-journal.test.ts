@@ -38,13 +38,7 @@ function payload(seed: string): WorkspaceSavePayload {
 }
 
 function record(state: WorkspaceSavePayload, revision = 1): WorkspaceRecord {
-  return {
-    id: 'workspace',
-    snapshot: state.document,
-    revision,
-    updatedAt: 1,
-    lastOpenedAt: 1,
-  }
+  return { id: 'workspace', snapshot: state.document, revision, updatedAt: 1, lastOpenedAt: 1 }
 }
 
 test('reload recovers the latest queued shuffle and an older acknowledgement cannot erase it', () => {

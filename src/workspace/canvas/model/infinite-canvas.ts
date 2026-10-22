@@ -18,11 +18,7 @@ export type CanvasWindowSizeKey =
   | 'viewer-other'
 export type CanvasWindowSize = Pick<CanvasRect, 'width' | 'height'>
 
-export type CanvasWindow = {
-  id: string
-  bounds: CanvasRect
-  zIndex: number
-}
+export type CanvasWindow = { id: string; bounds: CanvasRect; zIndex: number }
 
 export type InfiniteCanvasState = {
   windows: CanvasWindow[]
@@ -51,10 +47,7 @@ export function cloneInfiniteCanvasState(state: InfiniteCanvasState): InfiniteCa
     windowSizeByType: Object.fromEntries(
       Object.entries(state.windowSizeByType).map(([key, size]) => [key, { ...size }]),
     ),
-    windows: state.windows.map((window) => ({
-      ...window,
-      bounds: { ...window.bounds },
-    })),
+    windows: state.windows.map((window) => ({ ...window, bounds: { ...window.bounds } })),
   }
 }
 

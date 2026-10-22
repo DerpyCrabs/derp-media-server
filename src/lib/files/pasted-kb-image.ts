@@ -1,3 +1,5 @@
+import { Effect } from 'effect'
+
 /** Obsidian-style pasted image name: `Pasted image YYYYMMDDHHmmss.ext` */
 export function formatObsidianPastedImageFileName(mimeType: string): string {
   const d = new Date()
@@ -12,15 +14,21 @@ export function formatObsidianPastedImageFileName(mimeType: string): string {
   return `Pasted image ${stamp}.${ext}`
 }
 
-export async function blobToBase64(blob: Blob): Promise<string> {
-  const buf = await blob.arrayBuffer()
-  const bytes = new Uint8Array(buf)
-  let binary = ''
-  const chunk = 0x8000
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk) as unknown as number[])
-  }
-  return btoa(binary)
+export function blobToBase64(blob: Blob) {
+  return Effect.tryPromise({ try: () => blob.arrayBuffer(), catch: (cause) => cause }).pipe(
+    Effect.map((buf) => {
+      const bytes = new Uint8Array(buf)
+      let binary = ''
+      const chunk = 0x8000
+      for (let i = 0; i < bytes.length; i += chunk) {
+        binary += String.fromCharCode.apply(
+          null,
+          bytes.subarray(i, i + chunk) as unknown as number[],
+        )
+      }
+      return btoa(binary)
+    }),
+  )
 }
 
 export function spliceString(s: string, start: number, end: number, insert: string): string {

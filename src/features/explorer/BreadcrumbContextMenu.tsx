@@ -1,15 +1,12 @@
+import { view } from 'effectweb'
 import type { BreadcrumbFolderMenuTarget } from '@/features/explorer/breadcrumb-floating-store'
 import { FloatingContextMenu } from './FloatingContextMenu'
-import AppWindow from 'lucide-solid/icons/app-window'
-import ExternalLink from 'lucide-solid/icons/external-link'
-import Pencil from 'lucide-solid/icons/pencil'
-import type { Accessor } from 'solid-js'
-import { Show } from 'solid-js'
-
+import AppWindow from '@effectweb/lucide/icons/app-window'
+import ExternalLink from '@effectweb/lucide/icons/external-link'
+import Pencil from '@effectweb/lucide/icons/pencil'
 export type BreadcrumbMenuTarget = BreadcrumbFolderMenuTarget
-
 type Props = {
-  target: Accessor<BreadcrumbMenuTarget | null>
+  target: BreadcrumbMenuTarget | null
   onDismiss: () => void
   showOpenInNewTab?: boolean
   onOpenInNewTab?: () => void
@@ -21,8 +18,7 @@ type Props = {
   showDownloadAsZip?: boolean
   onDownloadAsZip?: () => void
 }
-
-export function BreadcrumbContextMenu(props: Props) {
+export const BreadcrumbContextMenu = view<Props>((props) => {
   return (
     <FloatingContextMenu
       state={props.target}
@@ -33,7 +29,7 @@ export function BreadcrumbContextMenu(props: Props) {
     >
       {(ctx) => (
         <>
-          <Show when={props.showSetIcon && !ctx.isHome}>
+          {props.showSetIcon && !ctx.isHome ? (
             <button
               type='button'
               data-slot='context-menu-item'
@@ -48,8 +44,8 @@ export function BreadcrumbContextMenu(props: Props) {
               <Pencil class='h-4 w-4 shrink-0' stroke-width={2} />
               Set icon
             </button>
-          </Show>
-          <Show when={props.showOpenInNewTab && !ctx.isHome}>
+          ) : null}
+          {props.showOpenInNewTab && !ctx.isHome ? (
             <button
               type='button'
               data-slot='context-menu-item'
@@ -64,8 +60,8 @@ export function BreadcrumbContextMenu(props: Props) {
               <ExternalLink class='h-4 w-4 shrink-0' stroke-width={2} />
               Open in new tab
             </button>
-          </Show>
-          <Show when={props.showOpenInOtherSurface}>
+          ) : null}
+          {props.showOpenInOtherSurface ? (
             <button
               type='button'
               data-slot='context-menu-item'
@@ -80,8 +76,8 @@ export function BreadcrumbContextMenu(props: Props) {
               <AppWindow class='h-4 w-4 shrink-0' stroke-width={2} />
               {props.openInOtherSurfaceLabel ?? 'Open in other view'}
             </button>
-          </Show>
-          <Show when={props.showDownloadAsZip}>
+          ) : null}
+          {props.showDownloadAsZip ? (
             <button
               type='button'
               data-slot='context-menu-item'
@@ -95,9 +91,9 @@ export function BreadcrumbContextMenu(props: Props) {
             >
               Download as ZIP
             </button>
-          </Show>
+          ) : null}
         </>
       )}
     </FloatingContextMenu>
   )
-}
+})

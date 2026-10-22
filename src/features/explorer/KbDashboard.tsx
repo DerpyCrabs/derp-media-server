@@ -1,22 +1,20 @@
-import { queryData } from '@/lib/api/query-data'
+import { knowledgeBaseRecentSchema } from '@/lib/files/file-schemas'
+import { list, available, clock, domMount, modelOwner, view, controllerView } from 'effectweb'
+import { AsyncResult } from 'effect/reactivity'
+import { groups, queryCache } from '@/lib/api/cache'
 import { setFileDragData } from '@/lib/files/file-drag-data'
 import {
   finePointerDragEnabled,
   subscribeFinePointerDragEnabled,
 } from '@/lib/ui/enable-fine-pointer-drag'
-import { useQuery } from '@tanstack/solid-query'
-import { api } from '@/lib/api/client'
-import { queryKeys } from '@/lib/api/query-keys'
+import { apiSchemaEffect } from '@/lib/api/client'
 import { cn } from '@/lib/ui/cn'
-import FileText from 'lucide-solid/icons/file-text'
-import { For, Show, createEffect, createMemo, createSignal, onSettled } from 'solid-js'
-
+import FileText from '@effectweb/lucide/icons/file-text'
+import { observeQuery, query } from '@effectweb/query'
 type RecentFile = { path: string; name: string; modifiedAt: string }
-
-function formatRelativeTime(dateStr: string): string {
+function formatRelativeTime(dateStr: string, now: number): string {
   const date = new Date(dateStr)
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
+  const diffMs = now - date.getTime()
   const diffMins = Math.floor(diffMs / 60000)
   const diffHours = Math.floor(diffMs / 3600000)
   const diffDays = Math.floor(diffMs / 86400000)
@@ -26,7 +24,6 @@ function formatRelativeTime(dateStr: string): string {
   if (diffDays < 7) return `${diffDays}d ago`
   return date.toLocaleDateString()
 }
-
 type Props = {
   scopePath: string
   onFileClick: (path: string) => void
@@ -36,62 +33,62 @@ type Props = {
   /** When set, recent chips use copyMove when true for this path; otherwise copy only (e.g. tab bar). */
   recentDragCanMove?: (filePath: string) => boolean
 }
-
-export function KbDashboard(props: Props) {
-  const compact = () => props.compact === true || props.mode === 'Workspace'
-  const [enableDrag, setEnableDrag] = createSignal(finePointerDragEnabled())
-
-  onSettled(() => {
-    setEnableDrag(finePointerDragEnabled())
-    return subscribeFinePointerDragEnabled(setEnableDrag)
-  })
-
-  const directQuery = useQuery(() => ({
-    queryKey: queryKeys.kbRecent(props.scopePath),
-    queryFn: () =>
-      api<{ results: RecentFile[] }>(`/api/kb/recent?root=${encodeURIComponent(props.scopePath)}`),
-    enabled: !!props.scopePath,
-  }))
-
-  const recent = createMemo(() => (queryData(directQuery)?.results ?? []) as RecentFile[])
-
-  const isLoading = createMemo(() => directQuery.isLoading)
-
-  const [scrollEl, setScrollEl] = createSignal<HTMLDivElement | null>(null)
-
-  function handleWheel(e: WheelEvent) {
-    const el = scrollEl()
-    if (!el || el.scrollWidth <= el.clientWidth) return
-    e.preventDefault()
-    el.scrollLeft += e.deltaY
+const recentQuery = query({
+  name: 'kb-recent',
+  groups: [groups.files],
+  load: (path: string) =>
+    apiSchemaEffect(knowledgeBaseRecentSchema, `/api/kb/recent?root=${encodeURIComponent(path)}`),
+})
+const minute = clock(60000)
+const wheelBinding = domMount((element: HTMLDivElement) => {
+  const handler = (event: WheelEvent) => {
+    if (element.scrollWidth > element.clientWidth) {
+      event.preventDefault()
+      element.scrollLeft += event.deltaY
+    }
   }
-
-  createEffect(
-    () => scrollEl(),
-    (el) => {
-      if (!el) return undefined
-      el.addEventListener('wheel', handleWheel, { passive: false })
-      // eslint-disable-next-line solid/reactivity
-      return () => el.removeEventListener('wheel', handleWheel)
+  element.addEventListener('wheel', handler, { passive: false })
+  return () => element.removeEventListener('wheel', handler)
+})
+export const KbDashboard = controllerView(
+  {
+    controller: (props: Props) => {
+      const owner = modelOwner({
+        props,
+        result: AsyncResult.initial<{ results: RecentFile[] }, Error>(),
+        enableDrag: finePointerDragEnabled(),
+        now: Date.now(),
+      })
+      owner.own(subscribeFinePointerDragEnabled((enableDrag) => owner.patch({ enableDrag })))
+      owner.own(minute.subscribe((now) => owner.patch({ now })))
+      const recent = observeQuery(owner, queryCache, recentQuery, 'result')
+      recent.select(props.scopePath || undefined)
+      return {
+        source: owner.source,
+        receive: (next: Props) => {
+          owner.patch({ props: next })
+          recent.select(next.scopePath || undefined)
+        },
+        lifetime: owner,
+      }
     },
-  )
-
-  function onRecentDragStart(file: RecentFile, e: globalThis.DragEvent) {
-    const dtr = e.dataTransfer
-    if (!dtr || !enableDrag()) return
-    const canMove = props.recentDragCanMove?.(file.path) ?? false
-    setFileDragData(dtr, {
-      path: file.path,
-      isDirectory: false,
-      sourceKind: 'local',
-    })
-    dtr.effectAllowed = canMove ? 'copyMove' : 'copy'
-  }
-
-  return (
-    <Show when={!isLoading() && recent().length > 0}>
+  },
+  view((model) => {
+    const props = model.props
+    const compact = () => props.compact === true || props.mode === 'Workspace'
+    const recent = () => available(model.result)?.results ?? []
+    const isLoading = () => model.result.waiting && !available(model.result)
+    const enableDrag = model.enableDrag
+    function onRecentDragStart(file: RecentFile, e: globalThis.DragEvent) {
+      const dtr = e.dataTransfer
+      if (!dtr || !enableDrag) return
+      const canMove = props.recentDragCanMove?.(file.path) ?? false
+      setFileDragData(dtr, { path: file.path, isDirectory: false, sourceKind: 'local' })
+      dtr.effectAllowed = canMove ? 'copyMove' : 'copy'
+    }
+    return !isLoading() && recent().length > 0 ? (
       <div
-        ref={setScrollEl}
+        use={wheelBinding}
         data-testid='kb-recent-strip'
         class={cn(
           'min-w-0 shrink-0 overflow-x-auto scrollbar-none border-b border-border',
@@ -103,8 +100,10 @@ export function KbDashboard(props: Props) {
         <div
           class={cn('flex w-max min-w-full flex-nowrap', compact() ? 'gap-1' : 'gap-1 md:gap-1.5')}
         >
-          <For each={recent()}>
-            {(file) => (
+          {list(
+            recent(),
+            (file) => file.path,
+            (file) => (
               <div
                 role='button'
                 tabindex={0}
@@ -115,7 +114,7 @@ export function KbDashboard(props: Props) {
                     ? 'gap-1 px-1.5 py-0.5'
                     : 'gap-1 px-1.5 py-1 md:gap-1.5 md:px-2 md:py-1.5',
                 )}
-                draggable={enableDrag() ? 'true' : 'false'}
+                draggable={enableDrag ? 'true' : 'false'}
                 onClick={() => props.onFileClick(file.path)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
@@ -146,13 +145,13 @@ export function KbDashboard(props: Props) {
                     compact() ? 'text-[10px] leading-none' : 'text-xs',
                   )}
                 >
-                  {formatRelativeTime(file.modifiedAt)}
+                  {formatRelativeTime(file.modifiedAt, model.now)}
                 </span>
               </div>
-            )}
-          </For>
+            ),
+          )}
         </div>
       </div>
-    </Show>
-  )
-}
+    ) : null
+  }),
+)

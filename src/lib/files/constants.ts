@@ -1,9 +1,6 @@
 // Virtual folder identifiers - shared between client and server
 // These are used as actual paths, so they should be display-friendly
-export const VIRTUAL_FOLDERS = {
-  MOST_PLAYED: 'Most Played',
-  FAVORITES: 'Favorites',
-} as const
+export const VIRTUAL_FOLDERS = { MOST_PLAYED: 'Most Played', FAVORITES: 'Favorites' } as const
 
 export function isVirtualFolderPath(relativePath: string): boolean {
   const norm = relativePath.replace(/\\/g, '/')

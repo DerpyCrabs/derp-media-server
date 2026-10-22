@@ -1,81 +1,52 @@
+import { playbackStatusSchema } from './playback-schemas'
+import { Effect, Schema, Option, Cause } from 'effect'
+import { modelOwner } from 'effectweb'
 import type { PlaybackMediaElement } from './media-element-host'
 import type { PlaybackSource } from './types'
 
-function waitForEvent(target: EventTarget, name: string, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
+const streamSlot = 'media-stream'
+class StreamResponseError extends Error {}
+
+function waitForEvent(
+  target: Pick<EventTarget, 'addEventListener' | 'removeEventListener'>,
+  names: readonly string[],
+) {
+  return Effect.callback<void>((resume) => {
     const cleanup = () => {
-      target.removeEventListener(name, finish)
-      signal.removeEventListener('abort', cancel)
+      for (const name of names) target.removeEventListener(name, finish)
     }
     const finish = () => {
       cleanup()
-      resolve()
+      resume(Effect.void)
     }
-    const cancel = () => {
-      cleanup()
-      reject(signal.reason)
-    }
-    target.addEventListener(name, finish, { once: true })
-    signal.addEventListener('abort', cancel, { once: true })
-    if (signal.aborted) cancel()
+    for (const name of names) target.addEventListener(name, finish)
+    return Effect.sync(cleanup)
   })
 }
 
-function updateBuffer(
-  buffer: SourceBuffer,
-  signal: AbortSignal,
-  action: () => void,
-): Promise<void> {
-  return new Promise((resolve, reject) => {
+function updateBuffer(buffer: SourceBuffer, action: () => void) {
+  return Effect.callback<void, unknown>((resume) => {
     const cleanup = () => {
       buffer.removeEventListener('updateend', finish)
       buffer.removeEventListener('error', fail)
-      signal.removeEventListener('abort', cancel)
     }
     const finish = () => {
       cleanup()
-      resolve()
+      resume(Effect.void)
     }
     const fail = () => {
       cleanup()
-      reject(new Error('The browser could not decode the playback stream.'))
-    }
-    const cancel = () => {
-      cleanup()
-      reject(signal.reason)
+      resume(Effect.fail(new Error('The browser could not decode the playback stream.')))
     }
     buffer.addEventListener('updateend', finish, { once: true })
     buffer.addEventListener('error', fail, { once: true })
-    signal.addEventListener('abort', cancel, { once: true })
     try {
-      signal.throwIfAborted()
       action()
     } catch (error) {
       cleanup()
-      reject(error)
+      resume(Effect.fail(error))
     }
-  })
-}
-
-function waitForPlayback(element: PlaybackMediaElement, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const cleanup = () => {
-      element.removeEventListener('timeupdate', finish)
-      element.removeEventListener('seeking', finish)
-      signal.removeEventListener('abort', cancel)
-    }
-    const finish = () => {
-      cleanup()
-      resolve()
-    }
-    const cancel = () => {
-      cleanup()
-      reject(signal.reason)
-    }
-    element.addEventListener('timeupdate', finish)
-    element.addEventListener('seeking', finish)
-    signal.addEventListener('abort', cancel, { once: true })
-    if (signal.aborted) cancel()
+    return Effect.sync(cleanup)
   })
 }
 
@@ -84,65 +55,82 @@ export function createStreamingMediaSource(
   source: PlaybackSource,
   onBuffer: () => void,
   onError: (message?: string) => void,
-): { url: string; readonly duration: number | undefined; dispose: () => void } {
+) {
   const media = new MediaSource()
-  const controller = new AbortController()
-  const { signal } = controller
+  const owner = modelOwner({})
   const url = URL.createObjectURL(media)
   let finalDuration: number | undefined
-  const closed = () => controller.abort()
+  const closed = () => owner.cancel(streamSlot)
   media.addEventListener('sourceclose', closed, { once: true })
-
-  async function read() {
-    await waitForEvent(media, 'sourceopen', signal)
+  owner.own(() => {
+    media.removeEventListener('sourceclose', closed)
+    URL.revokeObjectURL(url)
+  })
+  const read = Effect.gen(function* () {
+    yield* waitForEvent(media, ['sourceopen'])
     const buffer = media.addSourceBuffer(source.mimeType!)
     if (source.duration) media.duration = source.duration
-    const response = await fetch(source.url, { signal })
+    const response = yield* Effect.tryPromise({
+      try: (signal) => fetch(source.url, { signal }),
+      catch: (error) => error,
+    })
     if (!response.ok) {
-      const result = (await response.json().catch(() => null)) as { error?: string } | null
-      onError(result?.error ?? `Playback request failed (${response.status}).`)
-      return
+      const body = yield* Effect.tryPromise({ try: () => response.json(), catch: () => null }).pipe(
+        Effect.catch(() => Effect.succeed(null)),
+      )
+      const result = Option.getOrUndefined(Schema.decodeUnknownOption(playbackStatusSchema)(body))
+      return yield* Effect.fail(
+        new StreamResponseError(result?.error ?? `Playback request failed (${response.status}).`),
+      )
     }
-    if (!response.body) throw new Error('The playback stream is empty.')
-    const reader = response.body.getReader()
-    try {
-      while (!signal.aborted) {
-        const ranges = buffer.buffered
-        const position = Math.max(element.currentTime, source.initialPosition ?? 0)
-        if (ranges.length && ranges.end(ranges.length - 1) - position > 45) {
-          await waitForPlayback(element, signal)
-          continue
-        }
-        if (ranges.length && position - ranges.start(0) > 30) {
-          await updateBuffer(buffer, signal, () => buffer.remove(ranges.start(0), position - 15))
-        }
-        const { value, done } = await reader.read()
-        if (done) break
-        await updateBuffer(buffer, signal, () => buffer.appendBuffer(value))
-        onBuffer()
+    if (!response.body) return yield* Effect.fail(new Error('The playback stream is empty.'))
+    const reader = yield* Effect.acquireRelease(
+      Effect.sync(() => response.body!.getReader()),
+      (reader) =>
+        Effect.tryPromise({ try: () => reader.cancel(), catch: (error) => error }).pipe(
+          Effect.ignore,
+          Effect.ensuring(Effect.sync(() => reader.releaseLock())),
+        ),
+    )
+    while (true) {
+      const ranges = buffer.buffered
+      const position = Math.max(element.currentTime, source.initialPosition ?? 0)
+      if (ranges.length && ranges.end(ranges.length - 1) - position > 45) {
+        yield* waitForEvent(element, ['timeupdate', 'seeking'])
+        continue
       }
-      if (!signal.aborted && media.readyState === 'open') {
-        media.endOfStream()
-        if (Number.isFinite(media.duration)) finalDuration = media.duration
-        onBuffer()
-      }
-    } finally {
-      await reader.cancel().catch(() => undefined)
-      reader.releaseLock()
+      if (ranges.length && position - ranges.start(0) > 30)
+        yield* updateBuffer(buffer, () => buffer.remove(ranges.start(0), position - 15))
+      const { value, done } = yield* Effect.tryPromise({
+        try: () => reader.read(),
+        catch: (error) => error,
+      })
+      if (done) break
+      yield* updateBuffer(buffer, () => buffer.appendBuffer(value))
+      onBuffer()
     }
-  }
-  void read().catch(() => {
-    if (!signal.aborted) onError()
-  })
+    if (media.readyState === 'open') {
+      media.endOfStream()
+      if (Number.isFinite(media.duration)) finalDuration = media.duration
+      onBuffer()
+    }
+    return undefined
+  }).pipe(
+    Effect.catchCause((cause) => {
+      if (Cause.hasInterruptsOnly(cause)) return Effect.void
+      const error = Cause.squash(cause)
+      return Effect.sync(() =>
+        onError(error instanceof StreamResponseError ? error.message : undefined),
+      )
+    }),
+  )
+  owner.run(streamSlot, read, 'replace')
   return {
     url,
     get duration() {
       return finalDuration
     },
-    dispose() {
-      controller.abort()
-      media.removeEventListener('sourceclose', closed)
-      URL.revokeObjectURL(url)
-    },
+    dispose: owner.dispose,
+    close: owner.close,
   }
 }

@@ -23,7 +23,7 @@ function mergeCloseSorted(sorted: number[]): number[] {
 }
 
 function collectEdgeCoordinates(
-  windows: WindowDefinition[],
+  windows: readonly WindowDefinition[],
   canvas: WorkspaceCanvasSize,
   axis: 'x' | 'y',
   span: number,
@@ -71,19 +71,9 @@ const LIVE_GRID: Record<string, Partial<Record<SnapZone, [number, number]>>> = {
     'bottom-left': [0, 1],
     'bottom-right': [1, 1],
   },
-  leftRight: {
-    left: [0, 0],
-    right: [1, 0],
-  },
-  topBottom: {
-    'top-half': [0, 0],
-    'bottom-half': [0, 1],
-  },
-  verticalThirds: {
-    'top-third': [0, 0],
-    'middle-third': [0, 1],
-    'bottom-third': [0, 2],
-  },
+  leftRight: { left: [0, 0], right: [1, 0] },
+  topBottom: { 'top-half': [0, 0], 'bottom-half': [0, 1] },
+  verticalThirds: { 'top-third': [0, 0], 'middle-third': [0, 1], 'bottom-third': [0, 2] },
   /** 2×3 grid: named zones not mapped; live preview falls back to template bounds. */
   grid2x3: {},
   grid3x3: {},
@@ -131,7 +121,7 @@ function gridDims(key: keyof typeof LIVE_GRID): { cols: number; rows: number } {
 function liveCellBounds(
   zone: SnapZone,
   canvas: WorkspaceCanvasSize,
-  windows: WindowDefinition[],
+  windows: readonly WindowDefinition[],
   assistGridShape: AssistGridShape | null | undefined,
 ): WorkspaceBounds | null {
   const gk = shapeToLiveGridKey(assistGridShape)
@@ -159,7 +149,7 @@ function liveCellBounds(
 export function snapZonePreviewBoundsForDrag(
   zone: SnapZone,
   canvas: WorkspaceCanvasSize,
-  windows: WindowDefinition[],
+  windows: readonly WindowDefinition[],
   occupied: ReadonlyArray<{ bounds: WorkspaceBounds; snapZone: SnapZone }>,
   preferredAssistGridShape: AssistGridShape | null | undefined,
 ): WorkspaceBounds {

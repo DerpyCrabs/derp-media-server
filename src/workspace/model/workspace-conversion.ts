@@ -1,4 +1,4 @@
-import type { PersistedWorkspaceState } from './use-workspace'
+import type { PersistedWorkspaceState } from './workspace'
 import { clampWorkspaceBoundsToViewport, type WorkspaceViewport } from './workspace-placement'
 
 export type WorkspaceType = PersistedWorkspaceState['workspaceType']

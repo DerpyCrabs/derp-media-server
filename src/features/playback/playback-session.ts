@@ -1,3 +1,6 @@
+import { Effect, Cause } from 'effect'
+import { modelOwner } from 'effectweb'
+const resolutionSlot = 'playback-source'
 import type {
   CreatePlaybackSessionOptions,
   PersistedPlaybackState,
@@ -205,10 +208,6 @@ function restore(persistence: PlaybackPersistence | undefined): PersistedPlaybac
   }
 }
 
-function isPromiseLike<T>(value: T | Promise<T>): value is Promise<T> {
-  return !!value && typeof (value as Promise<T>).then === 'function'
-}
-
 export function createPlaybackSession(options: CreatePlaybackSessionOptions): PlaybackSession {
   const restored = restore(options.persistence)
   const queue = dedupeQueue(restored?.queue ?? [])
@@ -240,7 +239,7 @@ export function createPlaybackSession(options: CreatePlaybackSessionOptions): Pl
   let generation = 0
   let seekId = 0
   let rateRevision = 0
-  let sourceAbort: AbortController | null = null
+  const owner = modelOwner({})
   let fallback: PlaybackFallback = 'original'
   let lastCheckpointPosition = playbackPosition(state)
   let notifying = false
@@ -326,8 +325,7 @@ export function createPlaybackSession(options: CreatePlaybackSessionOptions): Pl
       state.timeline.pending = Object.freeze({ ...state.timeline.pending, position: duration })
   }
   function stopResolution() {
-    sourceAbort?.abort()
-    sourceAbort = null
+    owner.cancel(resolutionSlot)
     generation += 1
   }
   function currentGeneration(value: number) {
@@ -360,7 +358,6 @@ export function createPlaybackSession(options: CreatePlaybackSessionOptions): Pl
     requestedRateRevision: number,
   ) {
     if (state.transport.kind === 'destroyed' || generation !== resolvedGeneration) return
-    sourceAbort = null
     if (result.kind !== 'resolved' || !result.url) {
       state.transport = {
         kind: 'error',
@@ -401,38 +398,34 @@ export function createPlaybackSession(options: CreatePlaybackSessionOptions): Pl
     if (!item) return reject('emptyQueue')
     const previous = keepSource ? playbackSource(state.transport) : null
     stopResolution()
-    const abort = new AbortController()
-    sourceAbort = abort
     const sourceGeneration = generation
     const position = playbackPosition(state)
     const requestedRateRevision = rateRevision
     if (!state.timeline.pending && position > 0) requestSeek(position)
     state.transport = { kind: 'resolving', previous }
     state.buffering = false
+    const request = { item, mode: state.mode, reason, position, fallback }
     notify()
-    const finish = (result: PlaybackSourceResolution) => {
-      if (!abort.signal.aborted)
-        applyResolution(result, sourceGeneration, position, requestedRateRevision)
-    }
-    const fail = (error: unknown) =>
-      finish({
-        kind: 'error',
-        message: error instanceof Error ? error.message : 'Playback source resolution failed.',
-      })
-    try {
-      const result = options.sourceResolver.resolve({
-        item,
-        mode: state.mode,
-        reason,
-        signal: abort.signal,
-        position,
-        fallback,
-      })
-      if (isPromiseLike(result)) void result.then(finish, fail)
-      else finish(result)
-    } catch (error) {
-      fail(error)
-    }
+    if (sourceGeneration !== generation || owner.disposed) return changed()
+    owner.run(
+      resolutionSlot,
+      Effect.suspend(() => options.sourceResolver.resolve(request)).pipe(
+        Effect.catchCause((cause) => {
+          if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause)
+          const error = Cause.squash(cause)
+          return Effect.succeed({
+            kind: 'error' as const,
+            message: error instanceof Error ? error.message : 'Playback source resolution failed.',
+          })
+        }),
+        Effect.tap((result) =>
+          Effect.sync(() =>
+            applyResolution(result, sourceGeneration, position, requestedRateRevision),
+          ),
+        ),
+      ),
+      'replace',
+    )
     return changed()
   }
 
@@ -792,6 +785,7 @@ export function createPlaybackSession(options: CreatePlaybackSessionOptions): Pl
         return changed()
       case 'destroy':
         stopResolution()
+        owner.dispose()
         persist(true)
         state.desiredPlaying = false
         state.transport = { kind: 'destroyed' }

@@ -3,21 +3,11 @@ import { clientPreferencesStore } from '@/workspace/shared/client-preferences-st
 
 export type { FileOpenTarget } from '@/lib/models/open-target'
 
-const api = {
-  get target() {
-    return clientPreferencesStore.getState().fileOpenTarget
-  },
-  setTarget(value: FileOpenTarget) {
-    clientPreferencesStore.getState().setFileOpenTarget(value)
-  },
-}
-
 export const fileOpenTargetStore = {
-  getState: () => api,
-  subscribe: clientPreferencesStore.subscribe,
+  source: clientPreferencesStore.source,
+  setTarget: clientPreferencesStore.setFileOpenTarget,
 }
 
-/** Non-reactive workspace preference read for event handlers. */
 export function getFileOpenTarget(): FileOpenTarget {
-  return fileOpenTargetStore.getState().target
+  return clientPreferencesStore.read().fileOpenTarget
 }

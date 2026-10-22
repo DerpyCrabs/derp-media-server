@@ -350,12 +350,20 @@ try {
     parent.kill()
     await parent.exited
   }
-  if (browser) await browser.close()
+  let nativeExit: number | undefined
+  // Qt owns the browser process; its CDP connection closes when the native app exits.
   if (native) {
     native.kill()
-    await native.exited
+    nativeExit = await native.exited
   }
+  if (browser) await browser.close()
   server.kill()
   await server.exited
   if (process.env.KEEP_DESKTOP_TEST_FILES !== '1') await rm(temp, { recursive: true, force: true })
+  if (nativeExit !== undefined) {
+    expect(nativeExit).toBe(0)
+    console.log(
+      'PASS: native shutdown exits normally after flushing windows and closing the warm spare',
+    )
+  }
 }

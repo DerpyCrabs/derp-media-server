@@ -1,6 +1,7 @@
+import { Effect } from 'effect'
 import { describe, expect, test } from 'bun:test'
 import { createCrossWorkspaceTransferController } from '@/workspace/shared/cross-workspace-transfer-controller'
-import type { PersistedWorkspaceState } from '@/workspace/model/use-workspace'
+import type { PersistedWorkspaceState } from '@/workspace/model/workspace'
 
 function workspace(id: string, x = 0): PersistedWorkspaceState {
   return {
@@ -41,14 +42,15 @@ describe('cross-workspace transfer controller', () => {
           },
         },
         transfer: {
-          windows: async (input) => {
-            transfers.push(input.destinationId)
-            return {
-              kind: 'failed' as const,
-              rollback: true,
-              message: 'Workspace changed on server',
-            }
-          },
+          windows: (input) =>
+            Effect.sync(() => {
+              transfers.push(input.destinationId)
+              return {
+                kind: 'failed' as const,
+                rollback: true,
+                message: 'Workspace changed on server',
+              }
+            }),
         },
       },
       emptyDestination: () => destination,
@@ -61,7 +63,7 @@ describe('cross-workspace transfer controller', () => {
     current.windows[0]!.layout!.bounds!.x = 400
     controller.hover('destination')
 
-    expect(await controller.drop('destination')).toBe(false)
+    expect(await Effect.runPromise(controller.drop('destination'))).toBe(false)
     expect(transfers).toEqual(['destination'])
     expect(navigated).toEqual(['source'])
     expect(current.windows[0]!.layout!.bounds!.x).toBe(0)

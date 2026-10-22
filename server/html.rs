@@ -1,5 +1,5 @@
 use crate::{
-    app::{AppState, Shared, knowledge_base_root, timestamp_ms},
+    app::{AppState, Shared, knowledge_base_root},
     error::AppResult,
     media,
     routes::{media as media_routes, settings},
@@ -28,13 +28,11 @@ use tower::ServiceExt;
 use tower_http::services::ServeFile;
 
 fn query(key: Value, data: Value) -> Value {
-    let now = timestamp_ms();
-    json!({"dehydratedAt":now,"queryKey":key,"queryHash":serde_json::to_string(&key).unwrap(),"state":{"data":data,"dataUpdateCount":1,"dataUpdatedAt":now,"error":null,"errorUpdateCount":0,"errorUpdatedAt":0,"fetchFailureCount":0,"fetchFailureReason":null,"fetchMeta":null,"isInvalidated":false,"status":"success","fetchStatus":"idle"}})
+    json!({"key":key,"data":data})
 }
 
 fn infinite_query(key: Value, first_page: Value) -> Value {
-    let mut value = query(key, json!({"pages":[first_page],"pageParams":[0]}));
-    value["queryType"] = json!("infinite");
+    let value = query(key, json!({"pages":[first_page],"pageParams":[0]}));
     value
 }
 
@@ -102,7 +100,7 @@ fn kb_recent(state: &AppState, scope: &str) -> Value {
     })).collect::<Vec<_>>()})
 }
 
-async fn dehydrated(state: &Shared, uri: &axum::http::Uri) -> AppResult<Value> {
+async fn initial_data(state: &Shared, uri: &axum::http::Uri) -> AppResult<Value> {
     let path = uri.path();
     let params = url::form_urlencoded::parse(uri.query().unwrap_or("").as_bytes())
         .into_owned()
@@ -120,7 +118,7 @@ async fn dehydrated(state: &Shared, uri: &axum::http::Uri) -> AppResult<Value> {
             )?;
             queries.push(query(json!(["music", "home", ""]), music));
             let mut entry = infinite_query(json!(["media-ai", "home"]), home.clone());
-            entry["state"]["data"]["pageParams"] = json!([{"cursor":0,"feedId":home["feedId"]}]);
+            entry["data"]["pageParams"] = json!([{"cursor":0,"feedId":home["feedId"]}]);
             queries.push(entry);
         }
         let dir = params.get("dir").cloned().unwrap_or_default();
@@ -194,15 +192,15 @@ async fn dehydrated(state: &Shared, uri: &axum::http::Uri) -> AppResult<Value> {
             }
         }
     }
-    Ok(json!({"mutations":[],"queries":queries}))
+    Ok(json!({"entries":queries}))
 }
 
 async fn inject(html: String, state: &Shared, uri: &axum::http::Uri) -> AppResult<String> {
     Ok(html.replace(
-        "<!--DEHYDRATED-->",
+        "<!--INITIAL_DATA-->",
         &format!(
-            "<script>window.__DEHYDRATED_STATE__={}</script>",
-            dehydrated(state, uri)
+            "<script>window.__INITIAL_DATA__={}</script>",
+            initial_data(state, uri)
                 .await?
                 .to_string()
                 .replace('<', "\\u003c")

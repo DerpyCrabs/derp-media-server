@@ -1,158 +1,90 @@
+import { Effect, Semaphore } from 'effect'
+import { modelOwner, observe, view, type JSX } from 'effectweb'
 import { ApiError } from '@/lib/api/client'
 import {
-  createContext,
-  createEffect,
-  createSignal,
-  Show,
-  onCleanup,
-  untrack,
-  useContext,
-  type Accessor,
-  type Setter,
-} from 'solid-js'
-import type { JSX } from '@solidjs/web'
-import {
   DEFAULT_READER_PREFERENCES,
-  loadReaderPreferences,
+  loadReaderPreferencesEffect,
   mergeReaderPreferenceChanges,
-  saveReaderPreferences,
-  type BookAppearance,
-  type ReaderAiDetail,
+  saveReaderPreferencesEffect,
   type ReaderPreferences,
 } from './reader-state-client'
-import type { ReaderDefaultAction, ReaderSelectionMode } from './reader-position'
+const loadSlot = 'reader-preferences-load'
+const saveSlot = 'reader-preferences-save'
+const debounceSlot = 'reader-preferences-debounce'
+const owner = modelOwner({ ready: false, preferences: DEFAULT_READER_PREFERENCES })
+let revision = 0
+let base: ReaderPreferences = DEFAULT_READER_PREFERENCES
+let started = false
+const saveGate = Semaphore.makeUnsafe(1)
+const save = saveGate.withPermit(
+  Effect.gen(function* () {
+    const desired = owner.read().preferences
+    if (JSON.stringify(desired) === JSON.stringify(base)) return
+    const original = base
+    let next = desired
+    revision = yield* saveReaderPreferencesEffect(next, revision).pipe(
+      Effect.catch((reason) => {
+        if (!(reason instanceof ApiError) || reason.status !== 409) return Effect.fail(reason)
+        return loadReaderPreferencesEffect.pipe(
+          Effect.flatMap((latest) => {
+            next = mergeReaderPreferenceChanges(latest.preferences, original, desired)
+            return saveReaderPreferencesEffect(next, latest.revision)
+          }),
+        )
+      }),
+    )
+    base = next
+    if (owner.read().preferences === desired) owner.patch({ preferences: next })
+  }),
+)
 
-type ReaderPreferencesContextValue = {
-  bookAppearance: Accessor<BookAppearance>
-  setBookAppearance: Setter<BookAppearance>
-  selectionMode: Accessor<ReaderSelectionMode>
-  setSelectionMode: Setter<ReaderSelectionMode>
-  defaultAction: Accessor<ReaderDefaultAction>
-  setDefaultAction: Setter<ReaderDefaultAction>
-  aiDetail: Accessor<ReaderAiDetail>
-  setAiDetail: Setter<ReaderAiDetail>
-  outlineOpen: Accessor<boolean>
-  setOutlineOpen: Setter<boolean>
-  flush: () => Promise<void>
+export const readerPreferences = {
+  source: owner.source,
+  read: () => owner.read().preferences,
+  start: () => {
+    if (started) return
+    started = true
+    owner.run(
+      loadSlot,
+      loadReaderPreferencesEffect.pipe(
+        Effect.tap((envelope) =>
+          Effect.sync(() => {
+            revision = envelope.revision
+            base = envelope.preferences
+            owner.patch({ ready: true, preferences: base })
+          }),
+        ),
+        Effect.catch(() => Effect.sync(() => owner.patch({ ready: true }))),
+      ),
+      'drop',
+    )
+  },
+  patch: (changes: Partial<ReaderPreferences>) => {
+    owner.patch({ preferences: { ...owner.read().preferences, ...changes } })
+    owner.run(
+      debounceSlot,
+      Effect.sleep(350).pipe(
+        Effect.andThen(Effect.sync(() => owner.run(saveSlot, save, 'latest-queued'))),
+      ),
+      'replace',
+    )
+  },
+  flush: () =>
+    Effect.gen(function* () {
+      owner.cancel(debounceSlot)
+      yield* owner.awaitIdle(saveSlot)
+      yield* save
+    }),
+  close: () =>
+    Effect.sync(() => owner.cancel(debounceSlot)).pipe(
+      Effect.andThen(owner.awaitIdle(saveSlot)),
+      Effect.andThen(Effect.suspend(() => (started && owner.read().ready ? save : Effect.void))),
+      Effect.ensuring(owner.close().pipe(Effect.orDie)),
+    ),
+  dispose: () => owner.dispose(),
 }
-
-const ReaderPreferencesContext = createContext<ReaderPreferencesContextValue>()
-
-export function ReaderPreferencesProvider(props: { children: JSX.Element }) {
-  const [ready, setReady] = createSignal(false)
-  const [bookAppearance, setBookAppearance] = createSignal({
-    ...DEFAULT_READER_PREFERENCES.bookAppearance,
-  })
-  const [selectionMode, setSelectionMode] = createSignal<ReaderSelectionMode>('text')
-  const [defaultAction, setDefaultAction] = createSignal<ReaderDefaultAction>('define')
-  const [aiDetail, setAiDetail] = createSignal<ReaderAiDetail>('compact')
-  const [outlineOpen, setOutlineOpen] = createSignal(true)
-  let revision = 0
-  let generation = 0
-  let timer: number | undefined
-  let disposed = false
-  let queue: Promise<void> = Promise.resolve()
-  let base: ReaderPreferences = {
-    ...DEFAULT_READER_PREFERENCES,
-    bookAppearance: { ...DEFAULT_READER_PREFERENCES.bookAppearance },
-  }
-
-  const read = (): ReaderPreferences => ({
-    bookAppearance: { ...bookAppearance() },
-    selectionMode: selectionMode(),
-    defaultAction: defaultAction(),
-    aiDetail: aiDetail(),
-    outlineOpen: outlineOpen(),
-  })
-  const apply = (preferences: ReaderPreferences) => {
-    setBookAppearance(preferences.bookAppearance)
-    setSelectionMode(preferences.selectionMode)
-    setDefaultAction(preferences.defaultAction)
-    setAiDetail(preferences.aiDetail)
-    setOutlineOpen(preferences.outlineOpen)
-  }
-  const save = (desired = read(), expectedGeneration = ++generation) => {
-    const persist = async () => {
-      if (expectedGeneration !== generation) return
-      if (JSON.stringify(desired) === JSON.stringify(base)) return
-      const original = base
-      let next = desired
-      try {
-        revision = await saveReaderPreferences(next, revision)
-      } catch (reason) {
-        if (!(reason instanceof ApiError) || reason.status !== 409) throw reason
-        const latest = await loadReaderPreferences()
-        next = mergeReaderPreferenceChanges(latest.preferences, original, desired)
-        revision = await saveReaderPreferences(next, latest.revision)
-      }
-      base = next
-      if (
-        !disposed &&
-        expectedGeneration === generation &&
-        JSON.stringify(next) !== JSON.stringify(desired)
-      ) {
-        apply(next)
-      }
-    }
-    const pending = queue.then(persist, persist)
-    queue = pending.catch(() => {})
-    return pending
-  }
-  const flush = () => {
-    window.clearTimeout(timer)
-    return save()
-  }
-
-  void loadReaderPreferences()
-    .then((envelope) => {
-      if (disposed) return
-      revision = envelope.revision
-      base = envelope.preferences
-      apply(envelope.preferences)
-      setReady(true)
-    })
-    .catch(() => {
-      if (!disposed) setReady(true)
-    })
-
-  createEffect(
-    () => (ready() ? read() : null),
-    (desired) => {
-      if (!desired) return
-      const expectedGeneration = ++generation
-      window.clearTimeout(timer)
-      timer = window.setTimeout(() => untrack(() => void save(desired, expectedGeneration)), 350)
-    },
-  )
-
-  onCleanup(() => {
-    disposed = true
-    window.clearTimeout(timer)
-    if (ready()) void save()
-  })
-
-  const value: ReaderPreferencesContextValue = {
-    bookAppearance,
-    setBookAppearance,
-    selectionMode,
-    setSelectionMode,
-    defaultAction,
-    setDefaultAction,
-    aiDetail,
-    setAiDetail,
-    outlineOpen,
-    setOutlineOpen,
-    flush,
-  }
-  return (
-    <ReaderPreferencesContext value={value}>
-      <Show when={ready()} fallback={<div class='absolute inset-0 bg-neutral-900' />}>
-        {props.children}
-      </Show>
-    </ReaderPreferencesContext>
-  )
-}
-
-export function useReaderPreferences() {
-  return useContext(ReaderPreferencesContext)
-}
+export const ReaderPreferencesProvider = view<{ children: JSX.Element }>((props) =>
+  observe(owner.source, (state) =>
+    state.ready ? props.children : <div class='absolute inset-0 bg-neutral-900' />,
+  ),
+)

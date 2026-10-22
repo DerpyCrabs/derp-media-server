@@ -1,15 +1,15 @@
+import { Effect } from 'effect'
 import { describe, expect, test } from 'bun:test'
-import { createRoot, createSignal } from 'solid-js'
-import type { PersistedWorkspaceState } from '@/workspace/model/use-workspace'
+import type { PersistedWorkspaceState } from '@/workspace/model/workspace'
 import type {
   WorkspaceOpenResult,
   WorkspaceRecord,
   WorkspaceRegistry,
 } from '@/workspace/model/workspace-registry'
 import {
-  useWorkspaceRegistry,
+  createWorkspaceRegistry,
   type WorkspaceRegistryHttp,
-} from '@/workspace/shared/use-workspace-registry'
+} from '@/workspace/shared/workspace-registry'
 import { ApiError } from '@/lib/api/client'
 import { WorkspaceDocumentCommands } from '@/workspace/model/workspace-document-commands'
 
@@ -53,11 +53,7 @@ function record(id: string, snapshot: PersistedWorkspaceState, revision: number)
 }
 
 function registry(records: Record<string, WorkspaceRecord>): WorkspaceRegistry {
-  return {
-    version: 1,
-    order: Object.keys(records),
-    records: structuredClone(records),
-  }
+  return { version: 1, order: Object.keys(records), records: structuredClone(records) }
 }
 
 function createHarness(input: {
@@ -68,44 +64,72 @@ function createHarness(input: {
   api?: () => Promise<WorkspaceRegistry>
   post: (url: string, body: Record<string, unknown>) => Promise<unknown>
 }) {
-  let dispose = () => {}
-  const harness = createRoot((rootDispose) => {
-    dispose = rootDispose
-    const [id, setId] = createSignal(input.id)
-    const http = {
-      api: input.api ?? (async () => registry(input.records)),
-      post: input.post,
-    } as unknown as WorkspaceRegistryHttp
-    const registrySession = useWorkspaceRegistry({
-      workspaceId: id,
-      clientId: 'test-client',
-      http,
-      savingBlocked: input.savingBlocked,
-      waitUntilSavingUnblocked: input.waitUntilSavingUnblocked,
-    })
-    const session = {
-      activate: registrySession.lifecycle.activate,
-      active: registrySession.state.active,
-      deleteWorkspace: registrySession.catalog.delete,
-      deleted: registrySession.state.deleted,
-      document: registrySession.document.value,
-      editable: registrySession.state.editable,
-      flush: registrySession.document.flush,
-      reconcileRemoteChange: registrySession.catalog.reconcileRemoteChange,
-      refresh: registrySession.catalog.refresh,
-      registry: registrySession.catalog.value,
-      retrySave: registrySession.document.retrySave,
-      revision: registrySession.state.revision,
-      saveError: registrySession.state.saveError,
-      takeControl: registrySession.lifecycle.takeControl,
-      transferWindows: registrySession.transfer.windows,
-      transition: registrySession.lifecycle.transition,
-      update: registrySession.document.update,
-      updateMetadataFor: registrySession.catalog.updateMetadataFor,
-    }
-    return { id, setId, session }
+  let activeId = input.id
+  const id = () => activeId
+  const setId = (value: string) => {
+    activeId = value
+  }
+  const http: WorkspaceRegistryHttp = {
+    api: () =>
+      Effect.tryPromise({
+        try: input.api ?? (async () => registry(input.records)),
+        catch: (error) => error,
+      }),
+    post: (url, body) =>
+      Effect.tryPromise({
+        try: () => input.post(url, body as Record<string, unknown>),
+        catch: (error) => error,
+      }),
+  }
+  const registrySession = createWorkspaceRegistry({
+    workspaceId: id,
+    clientId: 'test-client',
+    http,
+    savingBlocked: input.savingBlocked,
+    waitUntilSavingUnblocked: input.waitUntilSavingUnblocked
+      ? () => Effect.promise(input.waitUntilSavingUnblocked!)
+      : undefined,
   })
-  return { ...harness, dispose }
+  const session = {
+    activate: (...args: Parameters<typeof registrySession.lifecycle.activate>) =>
+      Effect.runPromise(registrySession.lifecycle.activate(...args)),
+    active: registrySession.state.active,
+    deleteWorkspace: (...args: Parameters<typeof registrySession.catalog.delete>) =>
+      Effect.runPromise(registrySession.catalog.delete(...args)),
+    deleted: registrySession.state.deleted,
+    document: registrySession.document.value,
+    editable: registrySession.state.editable,
+    flush: (...args: Parameters<typeof registrySession.document.flush>) =>
+      Effect.runPromise(registrySession.document.flush(...args)),
+    reconcileRemoteChange: (
+      ...args: Parameters<typeof registrySession.catalog.reconcileRemoteChange>
+    ) => Effect.runPromise(registrySession.catalog.reconcileRemoteChange(...args)),
+    refresh: (...args: Parameters<typeof registrySession.catalog.refresh>) =>
+      Effect.runPromise(registrySession.catalog.refresh(...args)),
+    registry: registrySession.catalog.value,
+    retrySave: (...args: Parameters<typeof registrySession.document.retrySave>) =>
+      Effect.runPromise(registrySession.document.retrySave(...args)),
+    revision: registrySession.state.revision,
+    saveError: registrySession.state.saveError,
+    takeControl: (...args: Parameters<typeof registrySession.lifecycle.takeControl>) =>
+      Effect.runPromise(registrySession.lifecycle.takeControl(...args)),
+    transferWindows: (...args: Parameters<typeof registrySession.transfer.windows>) =>
+      Effect.runPromise(registrySession.transfer.windows(...args)),
+    transition: (...args: Parameters<typeof registrySession.lifecycle.transition>) =>
+      Effect.runPromise(registrySession.lifecycle.transition(...args)),
+    update: registrySession.document.update,
+    updateMetadataFor: (...args: Parameters<typeof registrySession.catalog.updateMetadataFor>) =>
+      Effect.runPromise(registrySession.catalog.updateMetadataFor(...args)),
+  }
+  return {
+    id,
+    setId,
+    session,
+    source: registrySession.source,
+    savingBlockChanged: registrySession.savingBlockChanged,
+    dispose: registrySession.dispose,
+    close: registrySession.close,
+  }
 }
 
 describe('workspace session authority', () => {
@@ -133,7 +157,7 @@ describe('workspace session authority', () => {
     try {
       await harness.session.activate('a', server.snapshot)
       harness.session.update((current) => {
-        const next = structuredClone(current!)
+        const next: PersistedWorkspaceState = structuredClone(current!)
         next.windows[0]!.title = 'Unsaved'
         return next
       })
@@ -190,7 +214,7 @@ describe('workspace session authority', () => {
     try {
       await harness.session.activate('a', base.snapshot)
       harness.session.update((current) => {
-        const next = structuredClone(current!)
+        const next: PersistedWorkspaceState = structuredClone(current!)
         next.windows[0]!.title = 'Pending after restart'
         return next
       })
@@ -242,21 +266,13 @@ describe('workspace session authority', () => {
     try {
       await harness.session.activate('a', workspace('Local'))
 
-      expect(harness.session.active()).toMatchObject({
-        id: 'a',
-        phase: 'failed',
-        editable: false,
-      })
+      expect(harness.session.active()).toMatchObject({ id: 'a', phase: 'failed', editable: false })
       expect(harness.session.document()).toBeNull()
 
       rejectOpen = false
       await harness.session.reconcileRemoteChange()
 
-      expect(harness.session.active()).toMatchObject({
-        id: 'a',
-        phase: 'open',
-        editable: true,
-      })
+      expect(harness.session.active()).toMatchObject({ id: 'a', phase: 'open', editable: true })
       expect(harness.session.document()?.windows[0].title).toBe('Server')
     } finally {
       harness.dispose()
@@ -379,7 +395,7 @@ describe('workspace session authority', () => {
     try {
       await harness.session.activate('a', base.snapshot)
       harness.session.update((current) => {
-        const next = structuredClone(current!)
+        const next: PersistedWorkspaceState = structuredClone(current!)
         next.windows[0].title = 'Final edit'
         return next
       })
@@ -392,7 +408,7 @@ describe('workspace session authority', () => {
 
       expect(harness.session.editable()).toBe(false)
       harness.session.update((current) => {
-        const next = structuredClone(current!)
+        const next: PersistedWorkspaceState = structuredClone(current!)
         next.windows[0].title = 'Too late'
         return next
       })
@@ -411,7 +427,11 @@ describe('workspace session authority', () => {
   test('transition waits for blocked geometry and saves its final document before release', async () => {
     const base = record('a', workspace('Base'), 1)
     const records = { a: base }
-    const [blocked, setBlocked] = createSignal(true)
+    let blockedValue = true
+    const blocked = () => blockedValue
+    const setBlocked = (value: boolean) => {
+      blockedValue = value
+    }
     const unblocked = deferred<void>()
     const events: string[] = []
     const harness = createHarness({
@@ -438,7 +458,7 @@ describe('workspace session authority', () => {
     try {
       await harness.session.activate('a', base.snapshot)
       harness.session.update((current) => {
-        const next = structuredClone(current!)
+        const next: PersistedWorkspaceState = structuredClone(current!)
         next.windows[0].title = 'Final geometry'
         return next
       })
@@ -545,7 +565,7 @@ describe('workspace session authority', () => {
     try {
       await harness.session.activate('a', base.snapshot)
       harness.session.update((current) => {
-        const next = structuredClone(current!)
+        const next: PersistedWorkspaceState = structuredClone(current!)
         next.windows[0].title = 'Before metadata'
         return next
       })
@@ -554,7 +574,7 @@ describe('workspace session authority', () => {
       await harness.session.refresh()
 
       harness.session.update((current) => {
-        const next = structuredClone(current!)
+        const next: PersistedWorkspaceState = structuredClone(current!)
         next.windows[0].title = 'During metadata'
         return next
       })
@@ -579,19 +599,21 @@ describe('workspace session authority', () => {
   test('save acknowledgement and SSE preserve a blocked tab-pull document', async () => {
     const grouped = workspace('Left')
     grouped.windows[0].tabGroupId = 'group'
-    grouped.windows.push({
-      ...structuredClone(grouped.windows[0]),
-      id: 'right',
-      title: 'Right',
-      tabGroupId: 'group',
-    })
+    grouped.windows = [
+      ...grouped.windows,
+      { ...structuredClone(grouped.windows[0]), id: 'right', title: 'Right', tabGroupId: 'group' },
+    ]
     grouped.activeWindowId = 'right'
     grouped.activeTabMap = { group: 'right' }
     const base = record('a', grouped, 1)
     const records: Record<string, WorkspaceRecord> = { a: base }
     const save = deferred<{ revision: number }>()
     const saveStarted = deferred<void>()
-    const [blocked, setBlocked] = createSignal(false)
+    let blockedValue = false
+    const blocked = () => blockedValue
+    const setBlocked = (value: boolean) => {
+      blockedValue = value
+    }
     const harness = createHarness({
       id: 'a',
       records,
@@ -612,7 +634,7 @@ describe('workspace session authority', () => {
     try {
       await harness.session.activate('a', grouped)
       harness.session.update((current) => {
-        const next = structuredClone(current!)
+        const next: PersistedWorkspaceState = structuredClone(current!)
         next.windows[0].title = 'Prior save'
         return next
       })
@@ -720,7 +742,7 @@ describe('workspace session authority', () => {
     try {
       await harness.session.activate('a', base.snapshot)
       harness.session.update((current) => {
-        const next = structuredClone(current!)
+        const next: PersistedWorkspaceState = structuredClone(current!)
         next.windows[0].title = 'Dirty'
         return next
       })
@@ -743,4 +765,80 @@ describe('workspace session authority', () => {
       harness.dispose()
     }
   })
+})
+
+test('unblocking saves remains safe when source subscribers flush synchronously', async () => {
+  const server = record('a', workspace('Server'), 1)
+  let blocked = true
+  let revision = 1
+  let requests = 0
+  const harness = createHarness({
+    id: 'a',
+    records: { a: server },
+    savingBlocked: () => blocked,
+    post: async (url, body) => {
+      if (url === '/api/workspaces/open')
+        return { record: server, editable: true, leaseDurationMs: 10_000 }
+      if (url === '/api/workspaces/save') {
+        expect(body.revision).toBe(revision)
+        requests += 1
+        return { revision: ++revision }
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    },
+  })
+  const unsubscribe = harness.source.subscribe(() => harness.savingBlockChanged())
+  try {
+    await harness.session.activate('a', server.snapshot)
+    harness.session.update((current) => {
+      const next: PersistedWorkspaceState = structuredClone(current!)
+      next.windows[0]!.title = 'Latest'
+      return next
+    })
+    blocked = false
+    harness.savingBlockChanged()
+    await harness.session.flush()
+    expect(requests).toBe(1)
+    expect(harness.session.editable()).toBe(true)
+    expect(harness.session.document()?.windows[0]?.title).toBe('Latest')
+  } finally {
+    unsubscribe()
+    harness.dispose()
+  }
+})
+
+test('workspace close drains durable saves before releasing its lease', async () => {
+  const base = record('closing', workspace('Original'), 1)
+  const saving = deferred<{ revision: number }>()
+  const started = deferred<void>()
+  let released = false
+  const harness = createHarness({
+    id: 'closing',
+    records: { closing: base },
+    post: async (url) => {
+      if (url.endsWith('/open')) return { record: base, editable: true, leaseDurationMs: 15_000 }
+      if (url.endsWith('/save')) {
+        started.resolve()
+        return saving.promise
+      }
+      if (url.endsWith('/release')) {
+        released = true
+        return {}
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    },
+  })
+  await harness.session.activate('closing', base.snapshot)
+  expect(harness.session.registry()).toBe(harness.source.model().registry)
+  expect(harness.session.document()).toBe(harness.source.model().active.document)
+  harness.session.update((current) => ({
+    ...current!,
+    windows: current!.windows.map((window) => ({ ...window, title: 'Final edit' })),
+  }))
+  await started.promise
+  const closing = Effect.runPromise(harness.close())
+  expect(released).toBe(false)
+  saving.resolve({ revision: 2 })
+  await closing
+  expect(released).toBe(true)
 })

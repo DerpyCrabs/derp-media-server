@@ -1,4 +1,3 @@
-import type { Accessor } from 'solid-js'
 import { isPathEditable } from '@/lib/files/path-utils'
 import { MediaType, type FileItem } from '@/lib/files/types'
 import type { FileOpenTarget } from '@/lib/models/open-target'
@@ -7,13 +6,11 @@ import {
   type VirtualCapability,
   type VirtualEntry,
 } from '@/lib/files/virtual-directory'
-
 export type ExplorerFileRowMenuApi = {
-  menu: Accessor<{ x: number; y: number; file: FileItem } | null>
+  menu: { x: number; y: number; file: FileItem } | null
   dismiss: () => void
   confirmDelete: (file: FileItem) => void
 }
-
 export type ExplorerRowAction =
   | 'set-icon'
   | 'pick-new-tab-target'
@@ -32,20 +29,18 @@ export type ExplorerRowAction =
   | 'move'
   | 'rename'
   | 'delete'
-
 type ExplorerRowLabelAction =
   | 'primary-open'
   | 'other-surface'
   | 'favorite'
   | 'knowledge-base'
   | 'download'
-
 export type ExplorerRowMenuConfig = {
   api: ExplorerFileRowMenuApi
   permissions: {
-    editableFolders: Accessor<string[]>
-    currentDirectoryEditable: Accessor<boolean>
-    hasEditableFolders: Accessor<boolean>
+    editableFolders: readonly string[]
+    currentDirectoryEditable: boolean
+    hasEditableFolders: boolean
   }
   edit: {
     download: (file: FileItem) => void
@@ -66,7 +61,7 @@ export type ExplorerRowMenuConfig = {
     withBrowser?: (file: FileItem) => void
     withReader?: (file: FileItem) => void
     pickNewTabTarget?: () => void
-    defaultFileOpen?: Accessor<FileOpenTarget>
+    defaultFileOpen?: FileOpenTarget
     fileInNewWindow?: (file: FileItem) => void
   }
   metadata: {
@@ -80,11 +75,10 @@ export type ExplorerRowMenuConfig = {
     run: (action: VirtualCapability, file: FileItem) => void
   }
 }
-
 export type ExplorerRowMenu = {
   menu: ExplorerFileRowMenuApi['menu']
   dismiss: () => void
-  editableFolders: Accessor<string[]>
+  editableFolders: readonly string[]
   canVirtual: (capability: VirtualCapability, file: FileItem) => boolean
   runVirtual: (capability: VirtualCapability, file: FileItem) => void
   available: (action: ExplorerRowAction, file: FileItem) => boolean
@@ -93,18 +87,15 @@ export type ExplorerRowMenu = {
   active: (action: ExplorerRowAction, file: FileItem) => boolean
   primaryOpenUsesNewWindow: (file: FileItem) => boolean
 }
-
 export function createExplorerRowMenu(config: ExplorerRowMenuConfig): ExplorerRowMenu {
   const virtualEntry = (file: FileItem) => config.virtual?.entry(file)
   const canVirtual = (capability: VirtualCapability, file: FileItem) =>
     hasVirtualCapability(virtualEntry(file), capability)
-
   const primaryOpenUsesNewWindow = (file: FileItem) =>
     !file.isDirectory &&
     config.open.showNewTabForFiles === true &&
-    config.open.defaultFileOpen?.() === 'new-tab' &&
+    config.open.defaultFileOpen === 'new-tab' &&
     !!config.open.fileInNewWindow
-
   function available(action: ExplorerRowAction, file: FileItem): boolean {
     switch (action) {
       case 'set-icon':
@@ -140,23 +131,20 @@ export function createExplorerRowMenu(config: ExplorerRowMenuConfig): ExplorerRo
       case 'download':
         return !file.isVirtual || canVirtual('download', file)
       case 'copy':
-        return config.permissions.hasEditableFolders() && !file.isVirtual && !!config.edit.copy
+        return config.permissions.hasEditableFolders && !file.isVirtual && !!config.edit.copy
       case 'copy-native':
         return !file.isVirtual && !!config.edit.copyToClipboard
       case 'move':
-        return (
-          config.permissions.currentDirectoryEditable() && !file.isVirtual && !!config.edit.move
-        )
+        return config.permissions.currentDirectoryEditable && !file.isVirtual && !!config.edit.move
       case 'rename':
         return (
-          config.permissions.currentDirectoryEditable() && !file.isVirtual && !!config.edit.rename
+          config.permissions.currentDirectoryEditable && !file.isVirtual && !!config.edit.rename
         )
       case 'delete':
-        return !file.isVirtual && isPathEditable(file.path, config.permissions.editableFolders())
+        return !file.isVirtual && isPathEditable(file.path, config.permissions.editableFolders)
     }
     return false
   }
-
   function run(action: ExplorerRowAction, file: FileItem) {
     switch (action) {
       case 'set-icon':
@@ -213,7 +201,6 @@ export function createExplorerRowMenu(config: ExplorerRowMenuConfig): ExplorerRo
     }
     config.api.dismiss()
   }
-
   function label(action: ExplorerRowLabelAction, file: FileItem): string {
     switch (action) {
       case 'primary-open':
@@ -233,13 +220,11 @@ export function createExplorerRowMenu(config: ExplorerRowMenuConfig): ExplorerRo
     }
     return ''
   }
-
   function active(action: ExplorerRowAction, file: FileItem): boolean {
     if (action === 'favorite') return config.metadata.isFavorite?.(file) ?? false
     if (action === 'knowledge-base') return config.metadata.isKnowledgeBase?.(file) ?? false
     return false
   }
-
   return {
     menu: config.api.menu,
     dismiss: config.api.dismiss,

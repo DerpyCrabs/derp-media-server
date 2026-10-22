@@ -1,20 +1,27 @@
 import { randomId } from '@/lib/random-id'
-import { createSignal } from 'solid-js'
-import type { QueryClient } from '@tanstack/solid-query'
+import { Effect } from 'effect'
+import { modelOwner } from 'effectweb'
+import { queryCache } from '@/lib/api/cache'
+import { musicHomeQuery } from './queries'
 import { radioTracks, recordingKey } from './radio'
 import { navigateSearchParams } from '@/lib/browser/browser-history'
 import type { PlaybackSession, QueueContext, RadioOptions } from '@/features/playback/types'
-import type { MusicHomeData, MusicTrack } from './types'
+import type { MusicTrack } from './types'
 
 export type MusicDialog = { kind: 'collection'; title: string; items: MusicTrack[] }
 
-export const [musicDialog, setMusicDialog] = createSignal<MusicDialog | null>(null)
-export const [musicNotice, setMusicNotice] = createSignal('')
-let noticeTimer: ReturnType<typeof setTimeout> | undefined
-export function notifyMusic(message: string) {
-  setMusicNotice(message)
-  clearTimeout(noticeTimer)
-  noticeTimer = setTimeout(() => setMusicNotice(''), 5000)
+const owner = modelOwner({ dialog: null as MusicDialog | null, notice: '' })
+const noticeSlot = 'music-notice'
+export const musicUiSource = owner.source
+export const musicUiLifetime = { dispose: owner.dispose, close: owner.close }
+export const setMusicDialog = (dialog: MusicDialog | null) => owner.patch({ dialog })
+export function notifyMusic(notice: string) {
+  owner.patch({ notice })
+  owner.run(
+    noticeSlot,
+    Effect.sleep(5000).pipe(Effect.andThen(Effect.sync(() => owner.patch({ notice: '' })))),
+    'replace',
+  )
 }
 
 export function musicItem(track: Pick<MusicTrack, 'path' | 'title'>) {
@@ -23,7 +30,7 @@ export function musicItem(track: Pick<MusicTrack, 'path' | 'title'>) {
 
 export function playMusic(
   session: PlaybackSession,
-  tracks: MusicTrack[],
+  tracks: readonly MusicTrack[],
   context: QueueContext,
   index = 0,
 ) {
@@ -75,11 +82,10 @@ export function continueRadio(session: PlaybackSession) {
 
 export function startRadio(
   session: PlaybackSession,
-  client: QueryClient,
   options: Partial<RadioOptions>,
   title: string,
 ) {
-  const home = client.getQueryData<MusicHomeData>(['music', 'home', ''])
+  const home = queryCache.getQueryData(musicHomeQuery, '')
   const radio = { ...defaultRadio, ...options }
   const selected = radioTracks(home, radio)
   if (!selected.length) {

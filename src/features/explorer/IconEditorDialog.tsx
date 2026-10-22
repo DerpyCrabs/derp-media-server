@@ -1,10 +1,8 @@
-import { For, Show, createMemo, createSignal } from 'solid-js'
-import type { JSX } from '@solidjs/web'
-import { getSolidIconComponent, SOLID_AVAILABLE_ICONS } from '@/lib/ui/solid-available-icons'
-import X from 'lucide-solid/icons/x'
+import { component, view, list, type JSX } from 'effectweb'
+import { getIconComponent, AVAILABLE_ICONS } from '@/lib/ui/available-icons'
+import X from '@effectweb/lucide/icons/x'
 import type { ModalOverlayScope } from './modal-overlay-scope'
 import { modalDialogBackdropClass } from './modal-overlay-scope'
-
 type Props = {
   overlayScope?: ModalOverlayScope
   isOpen: boolean
@@ -14,45 +12,43 @@ type Props = {
   onSave: (iconName: string | null) => void
   isPending?: boolean
 }
-
-export function IconEditorDialog(props: Props) {
-  const [selection, setSelection] = createSignal<{
-    key: string
-    icon: string | null
-  }>({ key: '', icon: null })
-  const selectionKey = () => `${props.fileName}\0${props.currentIcon ?? ''}`
-  const selectedIcon = () =>
-    selection().key === selectionKey() ? selection().icon : props.currentIcon
-  const setSelectedIcon = (icon: string | null) => setSelection({ key: selectionKey(), icon })
-
-  function close() {
-    setSelection({ key: '', icon: null })
-    props.onClose()
-  }
-
-  function handleSave() {
-    props.onSave(selectedIcon())
-    close()
-  }
-
-  function handleRemove() {
-    props.onSave(null)
-    close()
-  }
-
-  const previewEl = createMemo((): JSX.Element => {
-    const n = selectedIcon()
-    if (!n) return <span class='text-xs text-muted-foreground'>None</span>
-    const I = getSolidIconComponent(n)
-    return I ? (
-      <I class='h-6 w-6 text-primary' size={24} />
-    ) : (
-      <span class='text-xs text-muted-foreground'>None</span>
-    )
-  })
-
-  return (
-    <Show when={props.isOpen}>
+export const IconEditorDialog = component(
+  {
+    init: (_props: Props) => ({
+      selection: { key: '', icon: null } as { key: string; icon: string | null },
+    }),
+  },
+  view((local, patch) => {
+    const props = local.props
+    const selection = () => local.selection,
+      setSelection = (value: { key: string; icon: string | null }) => patch({ selection: value })
+    const selectionKey = () => `${props.fileName}\0${props.currentIcon ?? ''}`
+    const selectedIcon = () =>
+      selection().key === selectionKey() ? selection().icon : props.currentIcon
+    const setSelectedIcon = (icon: string | null) => setSelection({ key: selectionKey(), icon })
+    function close() {
+      setSelection({ key: '', icon: null })
+      props.onClose()
+    }
+    function handleSave() {
+      props.onSave(selectedIcon())
+      close()
+    }
+    function handleRemove() {
+      props.onSave(null)
+      close()
+    }
+    const previewEl = (): JSX.Element => {
+      const n = selectedIcon()
+      if (!n) return <span class='text-xs text-muted-foreground'>None</span>
+      const I = getIconComponent(n)
+      return I ? (
+        <I class='h-6 w-6 text-primary' size={24} />
+      ) : (
+        <span class='text-xs text-muted-foreground'>None</span>
+      )
+    }
+    return props.isOpen ? (
       <div class={modalDialogBackdropClass(props.overlayScope)} role='presentation' onClick={close}>
         <div
           data-slot='dialog-content'
@@ -90,8 +86,10 @@ export function IconEditorDialog(props: Props) {
             </button>
 
             <div class='grid grid-cols-4 gap-2 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8'>
-              <For each={SOLID_AVAILABLE_ICONS}>
-                {(icon) => {
+              {list(
+                AVAILABLE_ICONS,
+                (icon) => icon.name,
+                (icon) => {
                   const Icon = icon.Icon
                   return (
                     <button
@@ -107,8 +105,8 @@ export function IconEditorDialog(props: Props) {
                       <Icon class='h-6 w-6' size={24} stroke-width={2} />
                     </button>
                   )
-                }}
-              </For>
+                },
+              )}
             </div>
           </div>
 
@@ -132,6 +130,6 @@ export function IconEditorDialog(props: Props) {
           </div>
         </div>
       </div>
-    </Show>
-  )
-}
+    ) : null
+  }),
+)

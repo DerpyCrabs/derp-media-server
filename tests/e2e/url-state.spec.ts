@@ -7,7 +7,7 @@ const TEXT_FILE = 'Documents/readme.txt'
 test.describe('URL State – Main Page', () => {
   test('viewing a file preserves playing param', async ({ page }) => {
     await page.goto(`/?dir=Documents&playing=${encodeURIComponent(AUDIO_FILE)}`)
-    await page.locator('table').getByText('readme.txt').click()
+    await page.getByText('readme.txt', { exact: true }).click()
     await expect(page).toHaveURL(/viewing=/)
     await expect(page).toHaveURL(/playing=/)
   })

@@ -1,6 +1,5 @@
+import { view } from 'effectweb'
 import type { FileItem } from '@/lib/files/types'
-import type { Accessor } from 'solid-js'
-import { Show } from 'solid-js'
 import { CreateFileDialog, type CreateFileDialogProps } from './CreateFileDialog'
 import { CreateFolderDialog } from './CreateFolderDialog'
 import {
@@ -17,48 +16,42 @@ import {
 import { MoveToDialog } from './MoveToDialog'
 import type { ModalOverlayScope } from './modal-overlay-scope'
 import type { VirtualDirectoryModal } from './virtual-directory-feature'
-
 export type FileBrowserCreateFileDialog = {
-  open: Accessor<boolean>
+  open: boolean
   submit: (name: string) => void
   cancel: () => void
-  pending: Accessor<boolean>
-  error: Accessor<Error | null | undefined>
+  pending: boolean
+  error: Error | null | undefined
   exists: (name: string) => boolean
-  defaultExtension: Accessor<CreateFileDialogProps['defaultExtension']>
+  defaultExtension: CreateFileDialogProps['defaultExtension']
 }
-
 export type FileBrowserCreateFolderDialog = {
-  open: Accessor<boolean>
+  open: boolean
   submit: (name: string) => void
   cancel: () => void
-  pending: Accessor<boolean>
-  error: Accessor<Error | null | undefined>
+  pending: boolean
+  error: Error | null | undefined
   exists: (name: string) => boolean
 }
-
 export type FileBrowserCopyDialog = {
-  target: Accessor<FileItem | null>
+  target: FileItem | null
   close: () => void
   confirm: (destination: string) => void
-  pending: Accessor<boolean>
-  error: Accessor<Error | null | undefined>
-  editableFolders: Accessor<string[]>
+  pending: boolean
+  error: Error | null | undefined
+  editableFolders: readonly string[]
 }
-
 export type FileBrowserModalLayerProps = {
   overlayScope?: ModalOverlayScope
   chrome: FileBrowserModalChrome
   dialogs: FileBrowserDialogs
 }
-
 export type FileBrowserModalChrome = {
   icon: ExplorerIconDialog
   upload: ExplorerUploadNotice
   breadcrumbs: ExplorerBreadcrumbMenu
   rowMenu: ExplorerRowMenu
 }
-
 export type FileBrowserDialogs = {
   rename: ExplorerRenameDialog
   move: ExplorerMoveDialog
@@ -67,10 +60,9 @@ export type FileBrowserDialogs = {
   createFile: FileBrowserCreateFileDialog
   createFolder: FileBrowserCreateFolderDialog
   copy?: FileBrowserCopyDialog
-  virtual?: Accessor<VirtualDirectoryModal | undefined>
+  virtual?: VirtualDirectoryModal | undefined
 }
-
-export function FileBrowserModalLayer(props: FileBrowserModalLayerProps) {
+export const FileBrowserModalLayer = view<FileBrowserModalLayerProps>((props) => {
   return (
     <ExplorerCommonModalLayer
       overlayScope={props.overlayScope}
@@ -85,41 +77,37 @@ export function FileBrowserModalLayer(props: FileBrowserModalLayerProps) {
     >
       <CreateFolderDialog
         overlayScope={props.overlayScope}
-        isOpen={props.dialogs.createFolder.open()}
+        isOpen={props.dialogs.createFolder.open}
         onCreate={props.dialogs.createFolder.submit}
         onCancel={props.dialogs.createFolder.cancel}
-        isPending={props.dialogs.createFolder.pending()}
-        error={props.dialogs.createFolder.error()}
+        isPending={props.dialogs.createFolder.pending}
+        error={props.dialogs.createFolder.error}
         folderExists={props.dialogs.createFolder.exists}
       />
       <CreateFileDialog
         overlayScope={props.overlayScope}
-        isOpen={props.dialogs.createFile.open()}
+        isOpen={props.dialogs.createFile.open}
         onCreate={props.dialogs.createFile.submit}
         onCancel={props.dialogs.createFile.cancel}
-        isPending={props.dialogs.createFile.pending()}
-        error={props.dialogs.createFile.error()}
+        isPending={props.dialogs.createFile.pending}
+        error={props.dialogs.createFile.error}
         fileExists={props.dialogs.createFile.exists}
-        defaultExtension={props.dialogs.createFile.defaultExtension()}
+        defaultExtension={props.dialogs.createFile.defaultExtension}
       />
-      <Show when={props.dialogs.copy?.target()} keyed>
-        {(file) => (
-          <MoveToDialog
-            overlayScope={props.overlayScope}
-            mode='copy'
-            onClose={props.dialogs.copy!.close}
-            fileName={file.name}
-            filePath={file.path}
-            onConfirm={props.dialogs.copy!.confirm}
-            isPending={props.dialogs.copy!.pending()}
-            error={props.dialogs.copy!.error()}
-            editableFolders={props.dialogs.copy!.editableFolders()}
-          />
-        )}
-      </Show>
-      <Show when={props.dialogs.virtual?.()} keyed>
-        {(virtual) => virtual.render(props.overlayScope)}
-      </Show>
+      {props.dialogs.copy?.target ? (
+        <MoveToDialog
+          overlayScope={props.overlayScope}
+          mode='copy'
+          onClose={props.dialogs.copy!.close}
+          fileName={props.dialogs.copy?.target.name}
+          filePath={props.dialogs.copy?.target.path}
+          onConfirm={props.dialogs.copy!.confirm}
+          isPending={props.dialogs.copy!.pending}
+          error={props.dialogs.copy!.error}
+          editableFolders={props.dialogs.copy!.editableFolders}
+        />
+      ) : null}
+      {props.dialogs.virtual?.render(props.overlayScope) ?? null}
     </ExplorerCommonModalLayer>
   )
-}
+})

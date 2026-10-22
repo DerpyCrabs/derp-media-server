@@ -6,18 +6,15 @@ import type {
   SortDirection,
 } from '@/lib/models/settings-types'
 import { isVirtualFolderPath } from '@/lib/files/constants'
-
 export const DEFAULT_FILE_SORT: FileSortOrder = { field: 'name', direction: 'asc' }
 export const DEFAULT_FILE_COLUMNS: Record<'media' | 'workspace', FileColumnVisibility> = {
   media: { createdDate: false, size: true, favorite: true, views: true },
   workspace: { createdDate: false, size: true, favorite: false, views: false },
 }
-
 export type FileSortMetadata = Readonly<{
   isFavorite: (file: FileItem) => boolean
   viewCount: (file: FileItem) => number
 }>
-
 export function createFileSortMetadata(
   favorites: readonly string[] | undefined,
   views: Readonly<Record<string, number>> | undefined,
@@ -28,20 +25,13 @@ export function createFileSortMetadata(
     viewCount: (file) => views?.[file.path] ?? 0,
   }
 }
-
-const naturalNameCollator = new Intl.Collator(undefined, {
-  numeric: true,
-  sensitivity: 'base',
-})
-
+const naturalNameCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
 export function defaultDirection(field: FileSortField): SortDirection {
   return field === 'name' ? 'asc' : 'desc'
 }
-
 function compareNames(a: FileItem, b: FileItem): number {
   return naturalNameCollator.compare(a.name, b.name)
 }
-
 function compareOptionalNumbers(
   a: number | undefined,
   b: number | undefined,
@@ -56,19 +46,16 @@ function compareOptionalNumbers(
   const result = a - b
   return direction === 'asc' ? result : -result
 }
-
 export function sortFileItems(
-  files: FileItem[],
+  files: readonly FileItem[],
   order: FileSortOrder,
   metadata?: FileSortMetadata,
 ): FileItem[] {
   return [...files].sort((a, b) => {
     const virtualOrder = Number(Boolean(b.isVirtual)) - Number(Boolean(a.isVirtual))
     if (virtualOrder !== 0) return virtualOrder
-
     const directoryOrder = Number(b.isDirectory) - Number(a.isDirectory)
     if (directoryOrder !== 0) return directoryOrder
-
     let result = 0
     if (order.field === 'name') result = compareNames(a, b)
     if (order.field === 'size') {
@@ -91,30 +78,26 @@ export function sortFileItems(
         order.direction,
       )
     }
-
     if (result !== 0) {
       return order.field === 'name' && order.direction === 'desc' ? -result : result
     }
     return compareNames(a, b)
   })
 }
-
 export function sortFilesForPath(
-  files: FileItem[],
+  files: readonly FileItem[],
   path: string,
   sortOrders?: Record<string, FileSortOrder>,
   sortingDisabled = false,
   metadata?: FileSortMetadata,
 ): FileItem[] {
-  if (sortingDisabled || isVirtualFolderPath(path)) return files
+  if (sortingDisabled || isVirtualFolderPath(path)) return [...files]
   return sortFileItems(files, sortOrders?.[path] ?? DEFAULT_FILE_SORT, metadata)
 }
-
 const createdDateFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: 'short',
   timeStyle: 'short',
 })
-
 export function formatCreatedDate(value: number | undefined): string {
   return value === undefined ? '—' : createdDateFormatter.format(value)
 }

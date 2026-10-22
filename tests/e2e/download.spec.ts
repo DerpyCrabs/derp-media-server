@@ -14,9 +14,9 @@ test.describe('File Download', () => {
 
     const downloadPromise = page.waitForEvent('download')
     await page.locator('table tr').filter({ hasText: 'readme.txt' }).click({ button: 'right' })
-    const downloadItem = page.locator('[data-slot="context-menu-item"]').getByText('Download', {
-      exact: true,
-    })
+    const downloadItem = page
+      .locator('[data-slot="context-menu-item"]')
+      .getByText('Download', { exact: true })
     await expect(downloadItem).toBeVisible()
     await downloadItem.click({ noWaitAfter: true })
     const download = await downloadPromise

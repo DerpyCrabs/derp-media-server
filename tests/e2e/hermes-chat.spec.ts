@@ -234,10 +234,12 @@ test('renders parity controls and native export, then archives read-only', async
   await chat.getByTestId('hermes-message-actions').last().locator('summary').click()
   await expect
     .poll(() =>
-      chat.getByTestId('hermes-transcript').evaluate((element) => ({
-        scrollHeight: element.scrollHeight,
-        scrollTop: element.scrollTop,
-      })),
+      chat
+        .getByTestId('hermes-transcript')
+        .evaluate((element) => ({
+          scrollHeight: element.scrollHeight,
+          scrollTop: element.scrollTop,
+        })),
     )
     .toEqual(transcriptBeforeActions)
   const actionsBox = (await chat.getByTestId('hermes-message-actions').last().boundingBox())!
@@ -268,11 +270,13 @@ test('renders parity controls and native export, then archives read-only', async
   await expect(chat.getByRole('button', { name: 'Record voice prompt' })).toHaveCount(0)
   await expect(chat.getByRole('button', { name: 'Refresh' })).toHaveCount(0)
 
-  await chat.locator('input[type=file]').setInputFiles({
-    name: 'notes.txt',
-    mimeType: 'text/plain',
-    buffer: Buffer.from('Hermes attachment'),
-  })
+  await chat
+    .locator('input[type=file]')
+    .setInputFiles({
+      name: 'notes.txt',
+      mimeType: 'text/plain',
+      buffer: Buffer.from('Hermes attachment'),
+    })
   await expect(chat.getByLabel('Attachments').getByText('notes.txt')).toBeVisible()
   await page.evaluate(() => {
     ;(window as any).__emitHermesEvent({
@@ -718,10 +722,10 @@ test('uses in-window Hermes project actions with gateway-backed choices', async 
 
 test('opens Hermes sessions from Media Center in a fullscreen chat dialog', async () => {
   await page.addInitScript(() => {
-    Object.defineProperty(window, '__DEHYDRATED_STATE__', {
+    Object.defineProperty(window, '__INITIAL_DATA__', {
       configurable: true,
       get: () => undefined,
-      set: () => undefined,
+      set: () => {},
     })
   })
   await page.route('**/api/files?*', async (route) => {
@@ -870,4 +874,46 @@ test('opens Hermes sessions from Media Center in a fullscreen chat dialog', asyn
   await draftDialog.getByRole('button', { name: 'Close Hermes chat' }).click()
   await discardDialog.getByRole('button', { name: 'Discard' }).click()
   await expect(draftDialog).toBeHidden()
+})
+
+test('reports failed slash commands without losing the draft or raising unhandled errors', async () => {
+  await mockHermesEvents()
+  const errors: string[] = []
+  page.on('pageerror', (error) => errors.push(error.message))
+  await page.route('**/api/hermes/**', async (route) => {
+    const path = new URL(route.request().url()).pathname
+    if (path.endsWith('/messages')) return route.fulfill({ json: { messages: [] } })
+    if (path === '/api/hermes/sessions/command-errors')
+      return route.fulfill({ json: { title: 'Command errors', archived: false } })
+    if (path.endsWith('/export') || path.endsWith('/rename') || path.endsWith('/branch'))
+      return route.fulfill({ status: 503, json: { error: `Failed ${path.split('/').at(-1)}` } })
+    return route.fulfill({ json: { providers: [], items: [] } })
+  })
+  const id = `hermes-command-errors-${Date.now()}`
+  await seedWorkspace(id, [
+    {
+      id: 'hermes-command-errors-window',
+      type: 'hermes',
+      title: 'Command errors',
+      source: { kind: 'local' },
+      initialState: {},
+      hermes: { sessionId: 'command-errors', readOnly: false },
+      layout: { bounds: { x: 40, y: 40, width: 760, height: 620 }, zIndex: 1 },
+    },
+  ])
+  await page.goto(`/workspace?ws=${id}`)
+  const chat = page.getByTestId('hermes-chat-pane')
+  const composer = chat.getByPlaceholder('Message Hermes…')
+  await expect(composer).toBeEnabled()
+  for (const [command, operation] of [
+    ['/title New title', 'rename'],
+    ['/branch New branch', 'branch'],
+    ['/export', 'export'],
+  ]) {
+    await composer.fill(command!)
+    await chat.getByRole('button', { name: 'Send', exact: true }).click()
+    await expect(chat.getByText(`Failed ${operation}`, { exact: true })).toBeVisible()
+    await expect(composer).toHaveValue(command!)
+  }
+  expect(errors).toEqual([])
 })

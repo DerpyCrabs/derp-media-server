@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test'
 
-async function useListView(page: Page) {
+async function switchToListView(page: Page) {
   await page.getByRole('button', { name: 'Display options' }).click()
   await page.getByRole('menuitem', { name: 'List view' }).click()
   await expect(page.locator('table')).toBeVisible()
@@ -89,7 +89,7 @@ test.describe('Image Viewer', () => {
     ).toBeVisible()
     await page.getByRole('button', { name: 'Close', exact: true }).click()
     expect(new URL(page.url()).searchParams.has('imageSeed')).toBe(false)
-    await useListView(page)
+    await switchToListView(page)
     await page.locator('table').getByText('photo.jpg').click()
     await expect(shuffle).toBeVisible()
     expect(new URL(page.url()).searchParams.has('imageSeed')).toBe(false)
@@ -101,9 +101,7 @@ test.describe('Image Viewer', () => {
     await page.getByRole('menuitem', { name: 'Grid view' }).click()
     const card = page
       .locator('[data-testid=file-browser] .file-browser-grid [role=button]')
-      .filter({
-        hasText: 'photo.jpg',
-      })
+      .filter({ hasText: 'photo.jpg' })
     const thumb = card.locator('[data-testid=file-browser-image-thumbnail]')
     await expect(thumb).toBeVisible()
     await expect(thumb).toHaveAttribute('src', /\/api\/thumbnail\//)
@@ -117,7 +115,7 @@ test.describe('Image Viewer', () => {
 
   test('opens image viewer when clicking an image file', async ({ page }) => {
     await page.goto('/?dir=Images')
-    await useListView(page)
+    await switchToListView(page)
     await page.locator('table').getByText('photo.jpg').click()
     const image = page.locator('img[alt="photo.jpg"]')
     await expect(image).toBeVisible()
@@ -126,7 +124,7 @@ test.describe('Image Viewer', () => {
 
   test('reflects viewing image in URL', async ({ page }) => {
     await page.goto('/?dir=Images')
-    await useListView(page)
+    await switchToListView(page)
     await page.locator('table').getByText('photo.jpg').click()
     await expect(page).toHaveURL(/viewing=Images.*photo\.jpg/)
   })
@@ -248,7 +246,7 @@ test.describe('Image Viewer', () => {
 
   test('navigates to next image with ArrowRight key', async ({ page }) => {
     await page.goto('/?dir=Images')
-    await useListView(page)
+    await switchToListView(page)
     await page.locator('table').getByText('photo.jpg').click()
     await expect(page.locator('img[alt="photo.jpg"]')).toBeVisible()
     await expect(page.getByText('1 of 2')).toBeVisible()
@@ -262,7 +260,7 @@ test.describe('Image Viewer', () => {
 
   test('navigates to previous image with ArrowLeft key', async ({ page }) => {
     await page.goto('/?dir=Images')
-    await useListView(page)
+    await switchToListView(page)
     await page.locator('table').getByText('photo.png').click()
     await expect(page.locator('img[alt="photo.png"]')).toBeVisible()
 
@@ -315,7 +313,7 @@ test.describe('Image Viewer', () => {
 
     await page.locator('button:has(.lucide-x)').click()
     await expect(page.locator('img[alt="photo.jpg"]')).not.toBeVisible()
-    await useListView(page)
+    await switchToListView(page)
     await expect(page.locator('table').getByText('photo.jpg')).toBeVisible()
     await expect(page).not.toHaveURL(/viewing=/)
   })

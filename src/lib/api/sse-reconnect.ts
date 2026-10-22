@@ -1,70 +1,54 @@
-const INITIAL_DELAY_MS = 5000
-const MAX_DELAY_MS = 60000
-const BACKOFF_MULTIPLIER = 2
+import { Effect, Schedule, Schema } from 'effect'
+import { sseEventSchema, type SseEventPayload } from './sse-protocol'
 
-function getDelayMs(retryCount: number): number {
-  const delay = INITIAL_DELAY_MS * Math.pow(BACKOFF_MULTIPLIER, retryCount)
-  return Math.min(delay, MAX_DELAY_MS)
-}
+export function createAdminStream(onData: (data: SseEventPayload) => void) {
+  let interrupt: (() => void) | undefined
+  let connected = false
 
-function isTabVisible(): boolean {
-  return typeof document !== 'undefined' && !document.hidden
-}
+  const stream = Effect.suspend(() => {
+    let retryCount = 0
+    const connection = Effect.acquireUseRelease(
+      Effect.sync(() => new EventSource('/api/events/stream')),
+      (source) =>
+        Effect.callback<never, 'Disconnected'>((resume) => {
+          source.onmessage = (event) => {
+            try {
+              const decoded = Schema.decodeUnknownExit(sseEventSchema)(JSON.parse(event.data))
+              if (decoded._tag === 'Failure') return
+              retryCount = 0
+              if (decoded.value.type === 'connected') connected = true
+              onData(decoded.value)
+            } catch {
+              // Ignore malformed events and listener failures.
+            }
+          }
+          source.onerror = () => resume(Effect.fail('Disconnected'))
+        }),
+      (source) =>
+        Effect.sync(() => {
+          connected = false
+          source.onmessage = null
+          source.onerror = null
+          source.close()
+        }),
+    )
+    return Effect.retry(connection, {
+      schedule: Schedule.forever.pipe(
+        Schedule.modifyDelay(() => Effect.sync(() => Math.min(5000 * 2 ** retryCount++, 60000))),
+      ),
+    })
+  })
 
-/**
- * Schedules SSE reconnection with exponential backoff.
- * Pauses reconnection attempts when tab is hidden to save resources.
- * Resumes when tab becomes visible again.
- */
-export function createReconnectScheduler(connect: () => void): {
-  schedule: () => void
-  cleanup: () => void
-} {
-  let retryCount = 0
-  let timeoutId: ReturnType<typeof setTimeout> | null = null
-
-  const schedule = () => {
-    if (timeoutId) return
-    if (!isTabVisible()) return
-    const delay = getDelayMs(retryCount)
-    retryCount++
-    timeoutId = setTimeout(() => {
-      timeoutId = null
-      if (isTabVisible()) connect()
-    }, delay)
+  return {
+    get connected() {
+      return connected
+    },
+    start() {
+      interrupt ??= Effect.runCallback(stream)
+    },
+    stop() {
+      interrupt?.()
+      interrupt = undefined
+    },
   }
-
-  const cancel = () => {
-    if (timeoutId) {
-      clearTimeout(timeoutId)
-      timeoutId = null
-    }
-  }
-
-  const reset = () => {
-    cancel()
-    retryCount = 0
-  }
-
-  const handleVisibilityChange = () => {
-    if (isTabVisible()) {
-      reset()
-      connect()
-    } else {
-      cancel()
-    }
-  }
-
-  if (typeof document !== 'undefined') {
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-  }
-
-  const cleanup = () => {
-    cancel()
-    if (typeof document !== 'undefined') {
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
-    }
-  }
-
-  return { schedule, cleanup }
 }

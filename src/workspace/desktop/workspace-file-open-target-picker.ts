@@ -2,7 +2,7 @@ import type { WindowDefinition as WorkspaceWindowDefinition } from '@/lib/models
 import { groupIdForWindow, tabsInGroup } from '../tabs/tab-group-ops'
 
 export function pickWorkspaceWindowAtClientPoint(
-  windows: WorkspaceWindowDefinition[],
+  windows: readonly WorkspaceWindowDefinition[],
   containerRect: DOMRect,
   clientX: number,
   clientY: number,
@@ -23,7 +23,7 @@ export function pickWorkspaceWindowAtClientPoint(
 }
 
 export function layoutBoundsForWindowHighlight(
-  windows: WorkspaceWindowDefinition[],
+  windows: readonly WorkspaceWindowDefinition[],
   windowId: string,
 ): NonNullable<WorkspaceWindowDefinition['layout']>['bounds'] | null {
   const win = windows.find((w) => w.id === windowId)

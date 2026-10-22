@@ -1,7 +1,10 @@
-import type { QueryClient } from '@tanstack/solid-query'
-import { api } from '@/lib/api/client'
+import { videoInfoSchema, videoPreferencesSchema } from './playback-schemas'
+import { Effect } from 'effect'
+import { groups, queryCache } from '@/lib/api/cache'
+import { apiSchemaEffect } from '@/lib/api/client'
 import { buildMediaUrl } from '@/lib/media/build-media-url'
 import type { PlaybackFallback, PlaybackSourceRequest, PlaybackSourceResolution } from './types'
+import { query } from '@effectweb/query'
 
 export type VideoTrack = {
   id: string
@@ -42,26 +45,25 @@ export type VideoPreferences = {
   }
 }
 
-export function videoInfoQuery(path: string) {
-  return {
-    queryKey: ['video-info', path] as const,
-    queryFn: ({ signal }: { signal: AbortSignal }) =>
-      api<VideoInfo>(`/api/playback/info?${new URLSearchParams({ path })}`, { signal }),
-    staleTime: 30_000,
-    retry: false,
-  }
-}
-
-export function videoPreferencesQuery(path: string) {
-  return {
-    queryKey: ['playback-preferences', path] as const,
-    queryFn: ({ signal }: { signal: AbortSignal }) =>
-      api<VideoPreferences>(`/api/playback/preferences?${new URLSearchParams({ path })}`, {
-        signal,
-      }),
-    staleTime: 0,
-  }
-}
+export const videoInfoQuery = query({
+  name: 'video-info',
+  unused: 'cancel',
+  groups: [groups.playback],
+  staleTime: 30_000,
+  load: (path: string) =>
+    apiSchemaEffect(videoInfoSchema, `/api/playback/info?${new URLSearchParams({ path })}`),
+})
+export const videoPreferencesQuery = query({
+  name: 'playback-preferences',
+  unused: 'cancel',
+  groups: [groups.playback],
+  staleTime: 0,
+  load: (path: string) =>
+    apiSchemaEffect(
+      videoPreferencesSchema,
+      `/api/playback/preferences?${new URLSearchParams({ path })}`,
+    ),
+})
 
 const languageAliases: Record<string, string> = {
   en: 'eng',
@@ -83,7 +85,7 @@ export function normalizedLanguage(language: string) {
 }
 
 export function preferredTrack(
-  tracks: VideoTrack[],
+  tracks: readonly VideoTrack[],
   override: string | null | undefined,
   language: string | undefined,
   defaultAudio = false,
@@ -171,102 +173,111 @@ export function chooseCompatibility(
   return 'original'
 }
 
-export async function resolveVideoSource(
-  queryClient: QueryClient,
+export function resolveVideoSource(
   request: PlaybackSourceRequest,
-): Promise<PlaybackSourceResolution> {
-  const path = request.item.locator
-  const [info, preferences] = await Promise.all([
-    queryClient.fetchQuery(videoInfoQuery(path)).catch(() => null),
-    queryClient
-      .fetchQuery(videoPreferencesQuery(path))
-      .catch(() => ({ global: {}, video: {} }) as VideoPreferences),
-  ])
-  const playbackRate = preferences.video.speed ?? 1
-  if (!info) {
+): Effect.Effect<PlaybackSourceResolution> {
+  return Effect.gen(function* () {
+    const path = request.item.locator
+    const [info, preferences] = yield* Effect.all(
+      [
+        queryCache.prefetch(videoInfoQuery, path).pipe(Effect.catch(() => Effect.succeed(null))),
+        queryCache
+          .prefetch(videoPreferencesQuery, path)
+          .pipe(Effect.catch(() => Effect.succeed<VideoPreferences>({ global: {}, video: {} }))),
+      ],
+      { concurrency: 'unbounded' },
+    )
+    const playbackRate = preferences.video.speed ?? 1
+    if (!info) {
+      return {
+        kind: 'resolved',
+        url:
+          request.mode === 'audio'
+            ? `/api/audio/extract/${path.split('/').map(encodeURIComponent).join('/')}`
+            : buildMediaUrl(path),
+        playbackRate,
+      }
+    }
+    const audio = preferredTrack(
+      info.audio,
+      preferences.video.audioTrack,
+      preferences.global.audioLanguage,
+      true,
+    )
+    const compatibility =
+      request.mode === 'audio'
+        ? 'audio'
+        : chooseCompatibility(
+            info,
+            audio,
+            request.fallback ?? 'original',
+            supportsVideo(info),
+            !audio || supportsAudio(audio.codec),
+          )
+    if (compatibility === 'video' && !info.allowVideoTranscoding) {
+      return {
+        kind: 'error',
+        message:
+          'This video needs conversion. Enable playback.allowVideoTranscoding in config.jsonc and restart the server.',
+      }
+    }
+    const common = {
+      duration: info.duration || undefined,
+      playbackRate,
+      expectedVideo: request.mode === 'video' && !!info.video,
+      expectedAudio: !!audio,
+      compatibility,
+    }
+    if (compatibility === 'original')
+      return { kind: 'resolved', url: buildMediaUrl(path), ...common }
+    const start = Math.max(
+      0,
+      Math.min(
+        request.position ?? 0,
+        info.duration > 0 ? Math.max(0, info.duration - 2) : Infinity,
+      ),
+    )
+    const requestId = Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) =>
+      byte.toString(16).padStart(2, '0'),
+    ).join('')
+    const webm =
+      request.mode === 'audio' ||
+      (compatibility !== 'video' && ['vp8', 'vp9'].includes(info.video?.codec_name ?? ''))
+    const copyAudio =
+      !!audio &&
+      supportsAudio(audio.codec) &&
+      (webm
+        ? ['opus', 'vorbis'].includes(audio.codec)
+        : ['aac', 'mp3', 'flac', 'opus'].includes(audio.codec)) &&
+      compatibility !== 'audio'
+    const params = new URLSearchParams({
+      path,
+      video: String(compatibility === 'video'),
+      audioOnly: String(request.mode === 'audio'),
+      copyAudio: String(copyAudio),
+      start: start.toFixed(3),
+      id: requestId,
+    })
+    if (audio?.index !== null && audio?.index !== undefined)
+      params.set('audio', String(audio.index))
+    const outputVideoCodec =
+      request.mode === 'audio' ? '' : compatibility === 'video' ? 'avc1.640033' : videoCodec(info)
+    const outputAudioCodec = !audio
+      ? ''
+      : copyAudio
+        ? ({ aac: 'mp4a.40.2', mp3: 'mp4a.69' }[audio.codec] ?? audio.codec)
+        : webm
+          ? 'opus'
+          : 'mp4a.40.2'
+    const codecs = [outputVideoCodec, outputAudioCodec].filter(Boolean).join(',')
+    const mimeType = `${request.mode === 'audio' ? 'audio' : 'video'}/${webm ? 'webm' : 'mp4'}; codecs="${codecs}"`
     return {
       kind: 'resolved',
-      url:
-        request.mode === 'audio'
-          ? `/api/audio/extract/${path.split('/').map(encodeURIComponent).join('/')}`
-          : buildMediaUrl(path),
-      playbackRate,
+      url: `/api/playback/stream?${params}`,
+      streaming: true,
+      mimeType,
+      requestId,
+      ...common,
     }
-  }
-  const audio = preferredTrack(
-    info.audio,
-    preferences.video.audioTrack,
-    preferences.global.audioLanguage,
-    true,
-  )
-  const compatibility =
-    request.mode === 'audio'
-      ? 'audio'
-      : chooseCompatibility(
-          info,
-          audio,
-          request.fallback ?? 'original',
-          supportsVideo(info),
-          !audio || supportsAudio(audio.codec),
-        )
-  if (compatibility === 'video' && !info.allowVideoTranscoding) {
-    return {
-      kind: 'error',
-      message:
-        'This video needs conversion. Enable playback.allowVideoTranscoding in config.jsonc and restart the server.',
-    }
-  }
-  const common = {
-    duration: info.duration || undefined,
-    playbackRate,
-    expectedVideo: request.mode === 'video' && !!info.video,
-    expectedAudio: !!audio,
-    compatibility,
-  }
-  if (compatibility === 'original') return { kind: 'resolved', url: buildMediaUrl(path), ...common }
-  const start = Math.max(
-    0,
-    Math.min(request.position ?? 0, info.duration > 0 ? Math.max(0, info.duration - 2) : Infinity),
-  )
-  const requestId = Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) =>
-    byte.toString(16).padStart(2, '0'),
-  ).join('')
-  const webm =
-    request.mode === 'audio' ||
-    (compatibility !== 'video' && ['vp8', 'vp9'].includes(info.video?.codec_name ?? ''))
-  const copyAudio =
-    !!audio &&
-    supportsAudio(audio.codec) &&
-    (webm
-      ? ['opus', 'vorbis'].includes(audio.codec)
-      : ['aac', 'mp3', 'flac', 'opus'].includes(audio.codec)) &&
-    compatibility !== 'audio'
-  const params = new URLSearchParams({
-    path,
-    video: String(compatibility === 'video'),
-    audioOnly: String(request.mode === 'audio'),
-    copyAudio: String(copyAudio),
-    start: start.toFixed(3),
-    id: requestId,
   })
-  if (audio?.index !== null && audio?.index !== undefined) params.set('audio', String(audio.index))
-  const outputVideoCodec =
-    request.mode === 'audio' ? '' : compatibility === 'video' ? 'avc1.640033' : videoCodec(info)
-  const outputAudioCodec = !audio
-    ? ''
-    : copyAudio
-      ? ({ aac: 'mp4a.40.2', mp3: 'mp4a.69' }[audio.codec] ?? audio.codec)
-      : webm
-        ? 'opus'
-        : 'mp4a.40.2'
-  const codecs = [outputVideoCodec, outputAudioCodec].filter(Boolean).join(',')
-  const mimeType = `${request.mode === 'audio' ? 'audio' : 'video'}/${webm ? 'webm' : 'mp4'}; codecs="${codecs}"`
-  return {
-    kind: 'resolved',
-    url: `/api/playback/stream?${params}`,
-    streaming: true,
-    mimeType,
-    requestId,
-    ...common,
-  }
 }
