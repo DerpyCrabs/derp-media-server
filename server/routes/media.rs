@@ -517,6 +517,161 @@ pub(crate) async fn extract_audio_path(
 #[cfg(test)]
 mod playback_regression_tests {
     use super::*;
+    use crate::test_support::TestApp;
+    use axum::body::to_bytes;
+
+    #[tokio::test]
+    async fn ranged_responses_return_exact_bytes_and_headers() {
+        let app = TestApp::new();
+        app.write("media.bin", b"0123456789");
+        let path = app.media.join("media.bin");
+        for (range, expected, content_range) in [
+            (None, "0123456789", None),
+            (Some("bytes=0-0"), "0", Some("bytes 0-0/10")),
+            (Some("bytes=3-6"), "3456", Some("bytes 3-6/10")),
+            (Some("bytes=7-"), "789", Some("bytes 7-9/10")),
+            (Some("bytes=-3"), "789", Some("bytes 7-9/10")),
+            (Some("bytes=-100"), "0123456789", Some("bytes 0-9/10")),
+            (Some("bytes=8-100"), "89", Some("bytes 8-9/10")),
+        ] {
+            let mut headers = HeaderMap::new();
+            if let Some(range) = range {
+                headers.insert(header::RANGE, HeaderValue::from_static(range));
+            }
+            let response = ranged_file_response(
+                &path,
+                "application/octet-stream",
+                &headers,
+                "private, no-cache",
+                "\"version\"",
+            )
+            .await
+            .unwrap();
+            assert_eq!(
+                response.status(),
+                if range.is_some() {
+                    StatusCode::PARTIAL_CONTENT
+                } else {
+                    StatusCode::OK
+                }
+            );
+            assert_eq!(
+                response.headers()[header::CONTENT_LENGTH],
+                expected.len().to_string()
+            );
+            assert_eq!(response.headers()[header::ACCEPT_RANGES], "bytes");
+            assert_eq!(response.headers()[header::ETAG], "\"version\"");
+            assert_eq!(
+                response
+                    .headers()
+                    .get(header::CONTENT_RANGE)
+                    .map(|v| v.to_str().unwrap()),
+                content_range
+            );
+            assert_eq!(
+                to_bytes(response.into_body(), 1024).await.unwrap(),
+                expected.as_bytes()
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn invalid_and_empty_file_ranges_are_rejected() {
+        let app = TestApp::new();
+        app.write("file", b"0123456789");
+        for range in [
+            "bytes=10-",
+            "bytes=5-2",
+            "bytes=-0",
+            "bytes=a-b",
+            "bytes=0-1,3-4",
+            "bytes=",
+            "bytes=18446744073709551616-",
+        ] {
+            let mut headers = HeaderMap::new();
+            headers.insert(header::RANGE, HeaderValue::from_static(range));
+            let error = ranged_file_response(
+                &app.media.join("file"),
+                "application/octet-stream",
+                &headers,
+                "no-cache",
+                "v1",
+            )
+            .await
+            .unwrap_err();
+            assert_eq!(error.0, StatusCode::RANGE_NOT_SATISFIABLE, "{range}");
+        }
+        app.write("empty", b"");
+        let response = ranged_file_response(
+            &app.media.join("empty"),
+            "application/octet-stream",
+            &HeaderMap::new(),
+            "no-cache",
+            "empty",
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[header::CONTENT_LENGTH], "0");
+        assert!(
+            to_bytes(response.into_body(), 1024)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        let mut headers = HeaderMap::new();
+        headers.insert(header::RANGE, HeaderValue::from_static("bytes=0-"));
+        assert_eq!(
+            ranged_file_response(
+                &app.media.join("empty"),
+                "application/octet-stream",
+                &headers,
+                "no-cache",
+                "empty"
+            )
+            .await
+            .unwrap_err()
+            .0,
+            StatusCode::RANGE_NOT_SATISFIABLE
+        );
+    }
+
+    #[tokio::test]
+    async fn conditional_media_requests_revalidate_after_content_replacement() {
+        let app = TestApp::new();
+        app.write("file.txt", b"old");
+        filetime::set_file_mtime(
+            app.media.join("file.txt"),
+            filetime::FileTime::from_unix_time(100, 0),
+        )
+        .unwrap();
+        let first = media_path(&app.state, "file.txt", &HeaderMap::new())
+            .await
+            .unwrap();
+        let etag = first.headers()[header::ETAG].clone();
+        assert_eq!(to_bytes(first.into_body(), 1024).await.unwrap(), "old");
+        let mut headers = HeaderMap::new();
+        headers.insert(header::IF_NONE_MATCH, etag.clone());
+        let unchanged = media_path(&app.state, "file.txt", &headers).await.unwrap();
+        assert_eq!(unchanged.status(), StatusCode::NOT_MODIFIED);
+        assert!(
+            to_bytes(unchanged.into_body(), 1024)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        app.write("file.txt", b"new");
+        filetime::set_file_mtime(
+            app.media.join("file.txt"),
+            filetime::FileTime::from_unix_time(101, 0),
+        )
+        .unwrap();
+        let changed = media_path(&app.state, "file.txt", &headers).await.unwrap();
+        assert_eq!(changed.status(), StatusCode::OK);
+        assert_ne!(changed.headers()[header::ETAG], etag);
+        assert_eq!(to_bytes(changed.into_body(), 1024).await.unwrap(), "new");
+    }
+
     #[tokio::test]
     async fn cached_audio_supports_byte_ranges() {
         let directory = std::env::temp_dir().join(format!("derp-audio-{}", uuid::Uuid::new_v4()));

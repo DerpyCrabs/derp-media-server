@@ -6,13 +6,23 @@ import path from 'path'
  * Batches aim for similar wall time and run concurrently with one Playwright worker each.
  */
 export const BATCHES = [
-  { id: '1', tests: ['workspace-layout-snap-resize', 'workspace-layout-chrome', 'media-ai-feed'] },
+  {
+    id: '1',
+    tests: [
+      'workspace-layout-snap-resize',
+      'workspace-layout-chrome',
+      'media-ai-feed',
+      'media-ai-ranking',
+    ],
+  },
   {
     id: '2',
     tests: [
       'workspace-controls',
       'navigation',
       'breadcrumbs-adaptive',
+      'server-recovery',
+      'keyboard-navigation',
       'upload',
       'file-browser-misc',
       'file-browser-directory-ux',
@@ -33,6 +43,7 @@ export const BATCHES = [
       'workspace-file-open-target',
       'workspace-split-view',
       'hermes-chat',
+      'reader',
     ],
   },
   {
@@ -47,7 +58,6 @@ export const BATCHES = [
       'stage2-playback-continuity',
       'media-ai-interactions',
       'media-ai-unconfigured',
-      'media-ai-ranking',
       'media-ai-regressions',
     ],
   },
@@ -74,7 +84,6 @@ export const BATCHES = [
       'image-viewer',
       'media-warmup',
       'pdf-viewer',
-      'reader',
       'download',
       'text-editor',
       'knowledge-base',

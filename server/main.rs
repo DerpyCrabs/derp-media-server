@@ -24,6 +24,8 @@ mod settings_persistence;
 mod state_db;
 mod stats_persistence;
 mod store;
+#[cfg(test)]
+mod test_support;
 mod thumbnails;
 mod video_playback;
 mod virtual_directory;

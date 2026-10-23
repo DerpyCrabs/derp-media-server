@@ -239,6 +239,150 @@ async fn write_file_with_rollback(
 mod tests {
     use super::*;
 
+    use crate::test_support::TestApp;
+    use axum::http::StatusCode;
+
+    #[tokio::test]
+    async fn failed_rename_and_delete_restore_files_and_metadata() {
+        let app = TestApp::new();
+        app.write("folder/note.txt", b"keep me");
+        app.state
+            .database
+            .update("settings", "test", serde_json::json!({}), |settings| {
+                settings["favorites"] = serde_json::json!(["folder/note.txt"]);
+                Ok(())
+            })
+            .unwrap();
+        let before = app.state.settings.read().unwrap();
+        // Fail after settings have been rewritten, inside the shared transaction.
+        app.state
+            .database
+            .connection()
+            .unwrap()
+            .execute_batch(
+                "CREATE TRIGGER fail_stats BEFORE INSERT ON state_documents WHEN NEW.kind='stats'
+             BEGIN SELECT RAISE(ABORT, 'injected metadata failure'); END;",
+            )
+            .unwrap();
+        let mutations = FileMutation::new(&app.state);
+        assert!(mutations.rename("folder", "renamed").await.is_err());
+        assert!(!app.media.join("renamed").exists());
+        assert_eq!(
+            std::fs::read(app.media.join("folder/note.txt")).unwrap(),
+            b"keep me"
+        );
+        assert_eq!(app.state.settings.read().unwrap(), before);
+        assert!(mutations.delete("folder").await.is_err());
+        assert_eq!(
+            std::fs::read(app.media.join("folder/note.txt")).unwrap(),
+            b"keep me"
+        );
+        assert_eq!(app.state.settings.read().unwrap(), before);
+        assert_eq!(std::fs::read_dir(&app.media).unwrap().count(), 1);
+    }
+
+    #[tokio::test]
+    async fn failed_create_and_edit_leave_no_partial_content() {
+        let app = TestApp::new();
+        app.write("existing.txt", b"original");
+        app.state
+            .database
+            .connection()
+            .unwrap()
+            .execute_batch("DROP TABLE media_catalog")
+            .unwrap();
+        let mutations = FileMutation::new(&app.state);
+        assert!(mutations.create_file("new.txt", b"new").await.is_err());
+        assert!(!app.media.join("new.txt").exists());
+        assert!(
+            mutations
+                .edit_file("existing.txt", b"replacement", None, None)
+                .await
+                .is_err()
+        );
+        assert_eq!(
+            std::fs::read(app.media.join("existing.txt")).unwrap(),
+            b"original"
+        );
+    }
+
+    #[tokio::test]
+    async fn collisions_and_concurrent_creates_never_overwrite_existing_data() {
+        let app = TestApp::new();
+        app.write("source.txt", b"source");
+        app.write("destination.txt", b"destination");
+        let mutations = FileMutation::new(&app.state);
+        assert_eq!(
+            mutations
+                .rename("source.txt", "destination.txt")
+                .await
+                .unwrap_err()
+                .0,
+            StatusCode::CONFLICT
+        );
+        assert_eq!(
+            mutations
+                .copy("source.txt", "destination.txt")
+                .await
+                .unwrap_err()
+                .0,
+            StatusCode::CONFLICT
+        );
+        assert_eq!(
+            std::fs::read(app.media.join("source.txt")).unwrap(),
+            b"source"
+        );
+        assert_eq!(
+            std::fs::read(app.media.join("destination.txt")).unwrap(),
+            b"destination"
+        );
+        let (first, second) = tokio::join!(
+            mutations.create_file("race.txt", b"first"),
+            mutations.create_file("race.txt", b"second")
+        );
+        assert_ne!(first.is_ok(), second.is_ok());
+        let expected = if first.is_ok() {
+            b"first".as_slice()
+        } else {
+            b"second".as_slice()
+        };
+        assert_eq!(std::fs::read(app.media.join("race.txt")).unwrap(), expected);
+        assert_eq!(
+            first.err().or_else(|| second.err()).unwrap().0,
+            StatusCode::CONFLICT
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn failed_recursive_copy_removes_destination_and_preserves_source() {
+        let app = TestApp::new();
+        app.write("source/nested/note.txt", b"original");
+        let outside = app.directory.join("private.txt");
+        std::fs::write(&outside, b"private").unwrap();
+        std::os::unix::fs::symlink(&outside, app.media.join("source/nested/escape")).unwrap();
+        let mutations = FileMutation::new(&app.state);
+        assert_eq!(
+            mutations.copy("source", "copy").await.unwrap_err().0,
+            StatusCode::FORBIDDEN
+        );
+        assert!(!app.media.join("copy").exists());
+        assert_eq!(
+            std::fs::read(app.media.join("source/nested/note.txt")).unwrap(),
+            b"original"
+        );
+        assert_eq!(std::fs::read(outside).unwrap(), b"private");
+        assert_eq!(
+            mutations
+                .copy("source", "source/child")
+                .await
+                .unwrap_err()
+                .0,
+            StatusCode::BAD_REQUEST
+        );
+        assert!(!app.media.join("source/child").exists());
+    }
+
     #[tokio::test]
     async fn failed_metadata_update_restores_previous_file_content() {
         let path =

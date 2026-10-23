@@ -494,6 +494,36 @@ fn io_err(error: std::io::Error) -> String {
 mod tests {
     use super::*;
     use crate::config::FileSearchConfig;
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn full_and_targeted_scans_do_not_follow_nested_symlinks() {
+        let app = crate::test_support::TestApp::new();
+        app.write("nested/Visible.txt", b"visible");
+        let outside = app.directory.join("outside");
+        std::fs::create_dir(&outside).unwrap();
+        std::fs::write(outside.join("Secret.txt"), b"secret").unwrap();
+        std::os::unix::fs::symlink(&outside, app.media.join("nested/escape")).unwrap();
+        std::os::unix::fs::symlink(
+            outside.join("Secret.txt"),
+            app.media.join("nested/Secret.txt"),
+        )
+        .unwrap();
+        let root = Root {
+            id: "root".into(),
+            name: "Media".into(),
+            path: app.media.clone(),
+            source: "config".into(),
+        };
+        let mut db = IndexDb::open_or_recover(&app.state.config.file_search).unwrap();
+        db.sync_roots(std::slice::from_ref(&root)).unwrap();
+        full_scan(&mut db, &root).unwrap();
+        assert_eq!(db.search_rows("\"visible\"").unwrap().len(), 1);
+        assert!(db.search_rows("\"secret\"").unwrap().is_empty());
+        rescan_directory(&mut db, &root, "nested", 10).unwrap();
+        assert_eq!(db.search_rows("\"visible\"").unwrap().len(), 1);
+        assert!(db.search_rows("\"secret\"").unwrap().is_empty());
+    }
+
     #[test]
     fn exclusions_match_backend_policy() {
         assert!(excluded("node_modules/a.js", false));

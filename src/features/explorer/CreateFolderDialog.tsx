@@ -1,4 +1,5 @@
 import { component, view } from 'effectweb'
+import { modalFocus } from '@/lib/ui/modal-focus'
 import { cn } from '@/lib/ui/cn'
 import type { ModalOverlayScope } from './modal-overlay-scope'
 import { modalDialogBackdropClass } from './modal-overlay-scope'
@@ -30,6 +31,7 @@ const CreateFolderDialogContent = component(
         onClick={() => props.onCancel()}
       >
         <div
+          use={modalFocus({ onEscape: () => props.onCancel() })}
           role='dialog'
           aria-modal='true'
           aria-labelledby='create-folder-dialog-title'

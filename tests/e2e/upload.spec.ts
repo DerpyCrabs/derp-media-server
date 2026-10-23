@@ -24,40 +24,29 @@ test.describe('File Upload', () => {
     await expect(page.getByText('Upload folder')).toBeVisible()
   })
 
-  test('uploads a file via file picker', async ({ page }) => {
-    await page.goto(`/?dir=${UPLOAD_DIR}`)
-
-    const tmpFile = path.resolve(mediaDir, 'upload-test-file.txt')
-    fs.writeFileSync(tmpFile, 'uploaded content for testing')
-
+  test('uploads exact bytes through the picker and keeps them after reload', async ({ page }) => {
+    const name = `upload-${crypto.randomUUID()}.bin`
+    const bytes = Buffer.from(Array.from({ length: 4096 }, (_, i) => i % 256))
+    const destination = path.resolve(mediaDir, UPLOAD_DIR, name)
     try {
-      const fileChooserPromise = page.waitForEvent('filechooser')
+      await page.goto(`/?dir=${UPLOAD_DIR}`)
+      const chosen = page.waitForEvent('filechooser')
       await page.locator('button[title="Upload"]').click()
-      await page.getByText('Upload files').click()
-      const fileChooser = await fileChooserPromise
-      await fileChooser.setFiles(tmpFile)
-
-      await expect(page.getByText('Upload complete')).toBeVisible({ timeout: 15_000 })
-      await expect(page.locator('table').getByText('upload-test-file.txt')).toBeVisible()
+      await page.getByText('Upload files', { exact: true }).click()
+      await (await chosen).setFiles({ name, mimeType: 'application/octet-stream', buffer: bytes })
+      await expect(page.getByText('Upload complete')).toBeVisible()
+      await expect(page.locator('table').getByText(name, { exact: true })).toBeVisible()
+      expect(fs.readFileSync(destination)).toEqual(bytes)
+      await page.reload()
+      await expect(page.locator('table').getByText(name, { exact: true })).toBeVisible()
+      const downloaded = await page.request.get(
+        `/api/files/download?path=${encodeURIComponent(`${UPLOAD_DIR}/${name}`)}`,
+      )
+      expect(downloaded.ok()).toBe(true)
+      expect(await downloaded.body()).toEqual(bytes)
     } finally {
-      fs.rmSync(tmpFile, { force: true })
+      fs.rmSync(destination, { force: true })
     }
-  })
-
-  test('uploaded file appears in file list', async ({ page }) => {
-    await page.goto(`/?dir=${UPLOAD_DIR}`)
-    await expect(page.locator('table').getByText('upload-test-file.txt')).toBeVisible()
-
-    // Cleanup: delete the uploaded file via context menu
-    await page
-      .locator('table tr')
-      .filter({ hasText: 'upload-test-file.txt' })
-      .click({ button: 'right' })
-    await page.locator('[data-slot="context-menu-item"]').getByText('Delete').click()
-    const confirmBtn = page.getByRole('alertdialog').getByRole('button', { name: /Delete/i })
-    await confirmBtn.waitFor({ state: 'visible' })
-    await confirmBtn.click()
-    await expect(page.locator('table').getByText('upload-test-file.txt')).not.toBeVisible()
   })
 
   test('shows uploading progress toast', async ({ page }) => {

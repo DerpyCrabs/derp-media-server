@@ -5,7 +5,7 @@ const originalObserver = globalThis.IntersectionObserver
 const callbacks: IntersectionObserverCallback[] = []
 const resources: ReturnType<typeof thumbnailBinding>[] = []
 
-function mountThumbnail(initial = { url: 'thumbnail.jpg', generated: false }) {
+function mountThumbnail(initial = { url: 'thumbnail.jpg' }) {
   let state = initial
   globalThis.IntersectionObserver = class {
     constructor(callback: IntersectionObserverCallback) {
@@ -105,18 +105,25 @@ describe('thumbnail queue permits', () => {
     const waiting = mountThumbnail()
     waiting.visibility(true)
     await new Promise((resolve) => setTimeout(resolve, 160))
-    waiting.change({ url: 'replacement.jpg', generated: false })
+    waiting.change({ url: 'replacement.jpg' })
     active[0]!.target.dispatchEvent(new Event('load'))
     await new Promise((resolve) => setTimeout(resolve, 160))
     expect(waiting.loaded).toEqual(['replacement.jpg'])
   })
 
-  test('shows generated thumbnails immediately without consuming a permit', async () => {
-    const generated = mountThumbnail({ url: 'data:image/png;base64,AA==', generated: true })
-    expect(generated.loaded).toEqual(['data:image/png;base64,AA=='])
-    const queued = Array.from({ length: 4 }, () => mountThumbnail())
-    for (const item of queued) item.visibility(true)
+  test('offscreen thumbnails wait for visibility and share the concurrency limit', async () => {
+    const hidden = mountThumbnail({ url: 'cached-thumbnail.jpg' })
+    expect(hidden.loaded).toEqual([])
+    const active = Array.from({ length: 4 }, () => mountThumbnail())
+    for (const item of active) item.visibility(true)
     await new Promise((resolve) => setTimeout(resolve, 160))
-    expect(queued.map((item) => item.loaded.length)).toEqual([1, 1, 1, 1])
+    expect(active.map((item) => item.loaded.length)).toEqual([1, 1, 1, 1])
+    expect(hidden.loaded).toEqual([])
+    hidden.visibility(true)
+    await new Promise((resolve) => setTimeout(resolve, 160))
+    expect(hidden.loaded).toEqual([])
+    active[0]!.target.dispatchEvent(new Event('load'))
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(hidden.loaded).toEqual(['cached-thumbnail.jpg'])
   })
 })
