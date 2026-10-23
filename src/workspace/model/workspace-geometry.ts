@@ -173,12 +173,7 @@ export function createFullscreenBounds(
 ): NonNullable<WindowLayout['bounds']> {
   const viewport = resolveCanvas(canvas)
 
-  return {
-    x: 0,
-    y: 0,
-    width: Math.max(viewport.width, 360),
-    height: Math.max(viewport.height, 240),
-  }
+  return { x: 0, y: 0, width: Math.max(viewport.width, 1), height: Math.max(viewport.height, 1) }
 }
 
 export function createWindowLayout(
@@ -358,51 +353,65 @@ export function snapZoneToBoundsWithOccupied(
 
 const EDGE_FLUSH_TOL = 4
 
+export function floatingWindowMinimumSize(type: WindowDefinition['type']): WorkspaceCanvasSize {
+  switch (type) {
+    case 'browser':
+      return { width: 420, height: 300 }
+    case 'hermes':
+      return { width: 480, height: 320 }
+    case 'viewer':
+      return { width: 360, height: 260 }
+  }
+  throw new Error('Unhandled window type')
+}
+
+// Only viewport-produced bounds retain their preferred geometry. A user move/resize
+// creates new bounds and therefore becomes the new preference; closed windows are collectible.
+const floatingResizePreferences = new WeakMap<WorkspaceBounds, WorkspaceBounds>()
+
 export function adaptFloatingBoundsForCanvasResize(
   bounds: WorkspaceBounds,
   prev: WorkspaceCanvasSize,
   next: WorkspaceCanvasSize,
+  minimum: WorkspaceCanvasSize = floatingWindowMinimumSize('viewer'),
 ): WorkspaceBounds {
   if (prev.width <= 0 || prev.height <= 0 || next.width <= 0 || next.height <= 0) {
     return bounds
   }
-
-  const widthRatio = next.width / prev.width
-  const heightRatio = next.height / prev.height
-  const fitScale = Math.min(next.width / bounds.width, next.height / bounds.height)
-  const scale = Math.min(widthRatio, fitScale)
-  const width = Math.max(1, Math.round(bounds.width * scale))
-  const height = Math.max(1, Math.round(bounds.height * scale))
-  const x = Math.max(
-    0,
-    Math.min(Math.round(bounds.x * widthRatio), Math.max(0, next.width - width)),
-  )
-  const y = Math.max(
-    0,
-    Math.min(Math.round(bounds.y * heightRatio), Math.max(0, next.height - height)),
-  )
-
-  return { x, y, width, height }
+  const preferred = floatingResizePreferences.get(bounds) ?? bounds
+  const width = Math.min(next.width, Math.max(minimum.width, preferred.width))
+  const height = Math.min(next.height, Math.max(minimum.height, preferred.height))
+  const result = {
+    x: Math.max(0, Math.min(preferred.x, next.width - width)),
+    y: Math.max(0, Math.min(preferred.y, next.height - height)),
+    width,
+    height,
+  }
+  floatingResizePreferences.set(result, preferred)
+  return result
 }
 
-/**
- * Adapt every window to a resized workspace canvas. Maximized/tiled windows stay flush,
- * snapped ratios scale. Floating positions follow each canvas axis while size follows only
- * canvas width, preserving each floating window's aspect ratio.
- */
+/** Tiles follow canvas ratios; floating windows keep their preferred pixel geometry. */
 export function scaleSnappedWindowsBoundsForCanvasResize(
   windows: readonly WindowDefinition[],
   prev: WorkspaceCanvasSize,
   next: WorkspaceCanvasSize,
 ): readonly WindowDefinition[] {
-  if (prev.width <= 0 || prev.height <= 0) return windows
+  if (prev.width <= 0 || prev.height <= 0 || next.width <= 0 || next.height <= 0) return windows
   const sx = next.width / prev.width
   const sy = next.height / prev.height
   const scaled = windows.map((w) => {
     const lz = w.layout
     if (!lz) return w
+    const minimum = windows
+      .filter((peer) => (peer.tabGroupId ?? peer.id) === (w.tabGroupId ?? w.id))
+      .map((peer) => floatingWindowMinimumSize(peer.type))
+      .reduce((a, b) => ({
+        width: Math.max(a.width, b.width),
+        height: Math.max(a.height, b.height),
+      }))
     const restoreBounds = lz.restoreBounds
-      ? adaptFloatingBoundsForCanvasResize(lz.restoreBounds, prev, next)
+      ? adaptFloatingBoundsForCanvasResize(lz.restoreBounds, prev, next, minimum)
       : lz.restoreBounds
     if (lz?.fullscreen) {
       return { ...w, layout: { ...lz, bounds: createFullscreenBounds(next), restoreBounds } }
@@ -413,7 +422,7 @@ export function scaleSnappedWindowsBoundsForCanvasResize(
         ...w,
         layout: {
           ...lz,
-          bounds: adaptFloatingBoundsForCanvasResize(lz.bounds, prev, next),
+          bounds: adaptFloatingBoundsForCanvasResize(lz.bounds, prev, next, minimum),
           restoreBounds,
         },
       }

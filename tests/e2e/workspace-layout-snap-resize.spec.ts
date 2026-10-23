@@ -931,3 +931,39 @@ test.describe('Resizing Snapped Windows', () => {
     expect(bottomBounds.height).toBeGreaterThan(120)
   })
 })
+
+test('floating windows retain pixel sizes through viewport transitions and recover after constraints', async () => {
+  await page.setViewportSize({ width: 1600, height: 1000 })
+  await gotoWorkspace(page)
+  await openBrowserWindow(page)
+  await openBrowserWindow(page)
+  const groups = getWindowGroups(page)
+  const original = await Promise.all([1, 2].map((i) => getWindowBounds(groups.nth(i))))
+  for (const viewport of [
+    { width: 900, height: 1200 },
+    { width: 420, height: 1900 },
+    { width: 320, height: 240 },
+    { width: 1200, height: 450 },
+    { width: 1600, height: 1000 },
+    { width: 420, height: 1900 },
+    { width: 1600, height: 1000 },
+  ]) {
+    await page.setViewportSize(viewport)
+    for (const [index, preferred] of original.entries()) {
+      await expect
+        .poll(async () => {
+          const b = await getWindowBounds(groups.nth(index + 1))
+          return { x: b.x, y: b.y, width: b.width, height: b.height }
+        })
+        .toEqual({
+          x: Math.max(0, Math.min(preferred.x, viewport.width - preferred.width)),
+          y: Math.max(
+            0,
+            Math.min(preferred.y, viewport.height - TASKBAR_HEIGHT - preferred.height),
+          ),
+          width: Math.min(preferred.width, viewport.width),
+          height: Math.min(preferred.height, viewport.height - TASKBAR_HEIGHT),
+        })
+    }
+  }
+})

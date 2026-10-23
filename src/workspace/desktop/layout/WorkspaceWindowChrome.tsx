@@ -2,7 +2,10 @@ import { component, view, domBinding, observe, type JSX } from 'effectweb'
 import type { FileDragData } from '@/lib/files/file-drag-data'
 import type { WindowDefinition as WorkspaceWindowDefinition } from '@/lib/models/window-model'
 import type { FileIconContext } from '@/features/explorer/file-icon'
-import { createDefaultBounds } from '@/workspace/model/workspace-geometry'
+import {
+  createDefaultBounds,
+  floatingWindowMinimumSize,
+} from '@/workspace/model/workspace-geometry'
 import { WORKSPACE_WINDOW_MIN_VISIBLE_PX } from '@/workspace/model/workspace-geometry'
 type Accessor<T> = () => T
 import {
@@ -14,8 +17,6 @@ import { WorkspaceWindowTitlebar } from '@/workspace/shared/WorkspaceWindowTitle
 import { workspaceLayoutPreferences } from '@/workspace/model/workspace-preferred-snap-store'
 import { applyWorkspaceTileGap } from '@/workspace/model/workspace-tile-gaps'
 import { startPointerGesture } from '@/lib/ui/start-pointer-gesture'
-const MIN_W = 360
-const MIN_H = 260
 const WINDOW_DRAG_START_THRESHOLD_PX = 5
 export type WorkspaceBounds = { x: number; y: number; width: number; height: number }
 export type WorkspacePointerGesture = { commit: () => void; cancel: () => void }
@@ -223,6 +224,9 @@ export const WorkspaceWindowChrome = component<
         e.stopPropagation()
         props.commands.focus(props.window.visibleTabId())
         const cRect = container.getBoundingClientRect()
+        const minimums = props.window.tabs().map((tab) => floatingWindowMinimumSize(tab.type))
+        const MIN_W = Math.min(cRect.width, Math.max(...minimums.map((size) => size.width)))
+        const MIN_H = Math.min(cRect.height, Math.max(...minimums.map((size) => size.height)))
         const initialBounds = { ...b() }
         const startX = e.clientX
         const startY = e.clientY
