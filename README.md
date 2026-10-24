@@ -37,18 +37,18 @@ Open [http://localhost:3000](http://localhost:3000).
 
 Path: `CONFIG_PATH` or `--config-path=...`. Options can also be set via environment variables (and `.env`).
 
-| Config              | Env                | Purpose                                                                     |
-| ------------------- | ------------------ | --------------------------------------------------------------------------- |
-| `mediaDir`          | `MEDIA_DIR`        | Media root for legacy/single-root configs                                   |
-| `port`              | `PORT`             | App port; Workspace is served at `/workspace` (default `3000`)              |
-| `mediaDirs`         |                    | Multiple named media roots, each with optional editable folders             |
-| `writeAccess`       | —                  | `editableFolders` (default) or `filesystem`                                 |
-| `editableFolders`   | `EDITABLE_FOLDERS` | Comma-separated paths under single-root `mediaDir` where writes are allowed |
-| `fileSearch`        |                    | Persistent filename/path search index settings                              |
-| `imageOptimization` |                    | Responsive viewer variants and disk-cache settings                          |
-| `playback`          |                    | Video conversion permission, shared playback cache, and CPU thread limit    |
-| `mediaAi`           |                    | Optional recommendations and natural-language search                        |
-| `hermes`            |                    | Optional Hermes gateway, profile, and filesystem integration                |
+| Config              | Env                | Purpose                                                                                    |
+| ------------------- | ------------------ | ------------------------------------------------------------------------------------------ |
+| `mediaDir`          | `MEDIA_DIR`        | Media root for legacy/single-root configs                                                  |
+| `port`              | `PORT`             | App port (`3000` by default; `0` assigns a free port); Workspace is served at `/workspace` |
+| `mediaDirs`         |                    | Multiple named media roots, each with optional editable folders                            |
+| `writeAccess`       | —                  | `editableFolders` (default) or `filesystem`                                                |
+| `editableFolders`   | `EDITABLE_FOLDERS` | Comma-separated paths under single-root `mediaDir` where writes are allowed                |
+| `fileSearch`        |                    | Persistent filename/path search index settings                                             |
+| `imageOptimization` |                    | Responsive viewer variants and disk-cache settings                                         |
+| `playback`          |                    | Video conversion permission, shared playback cache, and CPU thread limit                   |
+| `mediaAi`           |                    | Optional recommendations and natural-language search                                       |
+| `hermes`            |                    | Optional Hermes gateway, profile, and filesystem integration                               |
 
 `dataPath` is config-file only and contains app-created settings, stats, search index,
 thumbnails, and optimized image variants. It defaults to `app-data` next to the config file.
@@ -206,7 +206,7 @@ In filesystem mode the UI offers write actions throughout the configured media r
 
 ## Desktop client
 
-An optional Electron client opens library folders, images, videos, text, PDFs and books in native
+An optional Qt WebEngine client opens library folders, images, videos, text, PDFs and books in native
 windows managed by your desktop. It includes a tray process, CLI opener, cross-app file copying,
 and Arch packaging with a user systemd service. See [desktop setup and packaging](desktop/README.md).
 

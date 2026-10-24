@@ -39,7 +39,8 @@ int main(int argc, char **argv) {
     }
     QDir().mkpath(configDir);
     const QString socketName = configDir + "/desktop.sock";
-    // Construct the Qt event loop before using local sockets, but do not initialize a webview for CLI forwarding.
+    // Construct the Qt event loop before using local sockets, but do not
+    // initialize a webview for CLI forwarding.
     QApplication app(argc, argv);
     app.setQuitOnLastWindowClosed(false);
     app.setWindowIcon(QIcon(":/desktop/icon.svg"));
@@ -110,6 +111,14 @@ int main(int argc, char **argv) {
     QSystemTrayIcon tray(QIcon(":/desktop/icon.svg"));
     QMenu menu;
     menu.addAction("New browser window", &client, [&] { client.handleArguments({}, QDir::currentPath()); });
+    menu.addAction("Reopen closed window", &client, &Client::reopenClosed);
+    auto *restore = menu.addAction("Restore windows on startup");
+    restore->setCheckable(true);
+    restore->setChecked(client.restoreEnabled);
+    QObject::connect(restore, &QAction::triggered, &client, [&](bool enabled) {
+        if (!client.setRestoreEnabled(enabled))
+            restore->setChecked(client.restoreEnabled);
+    });
     menu.addAction("Quit", &client, &Client::quit);
     tray.setContextMenu(&menu);
     tray.setToolTip("Derp Media Server");
@@ -126,7 +135,8 @@ int main(int argc, char **argv) {
             client.quit();
     });
     client.prepareSpare();
-    client.handleArguments(arguments, QDir::currentPath());
+    if (!arguments.isEmpty() || !client.restoreSession())
+        client.handleArguments(arguments, QDir::currentPath());
     const int result = app.exec();
     const auto windows = client.windows;
     for (auto *window : windows)

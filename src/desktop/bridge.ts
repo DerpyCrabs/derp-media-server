@@ -8,6 +8,15 @@ export interface DesktopTarget {
 export interface DesktopBridge {
   onPicker?(callback: (request: PickerRequest) => void): () => void
   pick?(selection: PickerSelection): Promise<{ overwrite?: string[] }>
+  nativeJobs?(): Promise<unknown>
+  cancelNativeJob?(id: string): Promise<void>
+  decideNativeJob?(id: string, choice: string, all: boolean): Promise<void>
+  places?(): Promise<{ name: string; path: string }[]>
+  resolvePath?(path: string): Promise<string>
+  applications?(path: string): Promise<{ id: string; name: string }[]>
+  openWith?(path: string, application: string): Promise<void>
+  terminal?(path: string): Promise<void>
+  cut?(paths: string[]): Promise<void>
   ready(): Promise<void>
   onBeforeClose(callback: () => Promise<void>): () => void
   onOpen(callback: (target: DesktopTarget) => void): () => void

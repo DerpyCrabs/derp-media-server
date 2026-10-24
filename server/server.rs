@@ -7,68 +7,46 @@ use crate::{
 use axum::{Router, extract::DefaultBodyLimit};
 use std::{
     collections::{HashMap, HashSet},
+    io::Write,
     process::Stdio,
     sync::Arc,
 };
 use tokio::{
+    io::{AsyncBufReadExt, BufReader},
     process::{Child, Command},
     sync::Mutex,
 };
 use tower_http::compression::CompressionLayer;
 
-fn start_vite(port: u16, client_port: u16) -> Child {
-    let mut command = Command::new("bun");
-    command
-        .args([
-            "node_modules/vite/bin/vite.js",
-            "--host",
-            "0.0.0.0",
-            "--port",
-        ])
-        .arg(port.to_string())
-        .arg("--strictPort")
-        .env("VITE_HMR_PORT", port.to_string())
+async fn start_vite(client_port: u16) -> Result<(Child, u16), String> {
+    let mut child = Command::new("bun")
+        .arg("tooling/dev-server.ts")
+        .env("PORT", client_port.to_string())
         .env("VITE_HMR_CLIENT_PORT", client_port.to_string())
+        .env_remove("VITE_HMR_PORT")
         .kill_on_drop(true)
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit());
-    command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
         .spawn()
-        .unwrap_or_else(|error| panic!("Failed to start Vite: {error}"))
-}
-
-async fn wait_for_vite(child: &mut Child, port: u16) -> Result<(), String> {
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
-    loop {
-        if let Some(status) = child.try_wait().map_err(|error| error.to_string())? {
-            return Err(format!("Vite exited before becoming ready: {status}"));
+        .map_err(|error| format!("Failed to start Vite: {error}"))?;
+    let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
+    let port = tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        while let Some(line) = lines.next_line().await.map_err(|error| error.to_string())? {
+            if let Some(value) = line.strip_prefix("DERP_VITE_READY=") {
+                return value.parse::<u16>().map_err(|error| error.to_string());
+            }
+            println!("{line}");
         }
-        if tokio::net::TcpStream::connect(("127.0.0.1", port))
-            .await
-            .is_ok()
-        {
-            return Ok(());
+        Err("Vite exited before becoming ready".to_string())
+    })
+    .await
+    .map_err(|_| "Vite did not become ready within 30 seconds".to_string())??;
+    tokio::spawn(async move {
+        while let Ok(Some(line)) = lines.next_line().await {
+            println!("{line}");
         }
-        if tokio::time::Instant::now() >= deadline {
-            return Err("Vite did not become ready within 30 seconds".into());
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
-    }
-}
-
-fn vite_port(server_port: u16) -> u16 {
-    let preferred = if server_port <= u16::MAX - 10_000 {
-        server_port + 10_000
-    } else {
-        server_port - 10_000
-    };
-    if std::net::TcpListener::bind(("127.0.0.1", preferred)).is_ok() {
-        return preferred;
-    }
-    std::net::TcpListener::bind(("127.0.0.1", 0))
-        .and_then(|listener| listener.local_addr())
-        .map(|address| address.port())
-        .unwrap_or(preferred)
+    });
+    Ok((child, port))
 }
 
 fn router(state: Shared) -> Router {
@@ -79,6 +57,7 @@ fn router(state: Shared) -> Router {
         .merge(routes::config::router())
         .merge(routes::desktop::router())
         .merge(routes::files::router())
+        .merge(crate::file_jobs::router())
         .merge(routes::hermes_chat::router())
         .merge(routes::settings::router())
         .merge(routes::search::router())
@@ -95,18 +74,28 @@ fn router(state: Shared) -> Router {
 }
 
 pub(crate) async fn run() {
-    let config = Config::load().unwrap_or_else(|error| panic!("Failed to load config: {error}"));
+    let mut config =
+        Config::load().unwrap_or_else(|error| panic!("Failed to load config: {error}"));
+    let address = format!("0.0.0.0:{}", config.port);
+    let listener = tokio::net::TcpListener::bind(&address)
+        .await
+        .unwrap_or_else(|error| panic!("Failed to bind HTTP server at {address}: {error}"));
+    config.port = listener
+        .local_addr()
+        .expect("HTTP listener has no local address")
+        .port();
     state_db::initialize(&config)
         .unwrap_or_else(|error| panic!("Failed to initialize app database: {error}"));
     let dev = std::env::var("NODE_ENV").unwrap_or_default() != "production"
         && !std::env::args().any(|argument| argument == "--production");
-    let vite_port = vite_port(config.port);
-    let mut vite = dev.then(|| start_vite(vite_port, config.port));
-    if let Some(child) = vite.as_mut() {
-        wait_for_vite(child, vite_port)
+    let (mut vite, vite_port) = if dev {
+        let (child, port) = start_vite(config.port)
             .await
-            .unwrap_or_else(|error| panic!("Failed to start Vite: {error}"));
-    }
+            .unwrap_or_else(|error| panic!("{error}"));
+        (Some(child), port)
+    } else {
+        (None, 0)
+    };
     let search_roots = config.roots.clone();
     let (events, _) = tokio::sync::broadcast::channel(256);
     let (admin_events, _) = tokio::sync::broadcast::channel(256);
@@ -140,6 +129,7 @@ pub(crate) async fn run() {
         )) as Arc<dyn crate::hermes::HermesTransport>
     });
     let state = Arc::new(AppState {
+        file_jobs: Default::default(),
         config: config.clone(),
         media_ai: crate::media_ai::Runtime::new(),
         dev,
@@ -172,13 +162,18 @@ pub(crate) async fn run() {
     crate::media_ai::start(&state);
     crate::music::start(&state);
     routes::hermes_chat::start_event_bridge(&state, hermes_transport_events.subscribe());
-    let address = format!("0.0.0.0:{}", config.port);
-    let listener = tokio::net::TcpListener::bind(&address).await.unwrap();
     println!("Media server listening on http://localhost:{}", config.port);
     println!(
         "Workspace available at http://localhost:{}/workspace",
         config.port
     );
+    println!(
+        "DERP_SERVER_READY={}",
+        serde_json::json!({"port": config.port, "pid": std::process::id()})
+    );
+    std::io::stdout()
+        .flush()
+        .expect("Failed to flush server readiness");
     axum::serve(listener, router(state))
         .with_graceful_shutdown(async {
             #[cfg(unix)]

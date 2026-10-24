@@ -716,7 +716,7 @@ impl Config {
             .as_ref()
             .and_then(serde_json::Value::as_f64)
             .filter(|port| {
-                port.is_finite() && port.fract() == 0.0 && *port > 0.0 && *port <= u16::MAX as f64
+                port.is_finite() && port.fract() == 0.0 && *port >= 0.0 && *port <= u16::MAX as f64
             })
             .map(|port| port as u16)
             .unwrap_or(3000);
@@ -731,7 +731,7 @@ impl Config {
             if let Some(parsed) = parsed.filter(|value| {
                 value.is_finite()
                     && value.fract() == 0.0
-                    && *value > 0.0
+                    && *value >= 0.0
                     && *value <= u16::MAX as f64
             }) {
                 port = parsed as u16;

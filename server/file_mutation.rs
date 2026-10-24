@@ -166,6 +166,167 @@ impl<'a> FileMutation<'a> {
         }
     }
 
+    pub async fn transfer(
+        &self,
+        source_path: &str,
+        destination_path: &str,
+        moving: bool,
+        replace: bool,
+        cancelled: &(dyn Fn() -> bool + Send + Sync),
+        progress: &(dyn Fn(u64) + Send + Sync),
+    ) -> AppResult<()> {
+        let _guard = self.begin().await;
+        let source = if moving {
+            resolve_mutable_entry(self.state, source_path)?
+        } else {
+            resolve(self.state, source_path)?
+        };
+        let destination = resolve_mutable_entry(self.state, destination_path)?;
+        if source == destination
+            || destination.starts_with(&source)
+            || source.starts_with(&destination)
+        {
+            return Err(AppError::bad(
+                "Source and destination must not contain each other",
+            ));
+        }
+        let metadata = fs::symlink_metadata(&source).await.map_err(AppError::io)?;
+        if metadata.file_type().is_symlink() {
+            return Err(AppError::forbidden("Cannot transfer symbolic links"));
+        }
+        let existing = fs::symlink_metadata(&destination).await.ok();
+        if existing
+            .as_ref()
+            .is_some_and(|m| m.file_type().is_symlink())
+        {
+            return Err(AppError::forbidden("Cannot replace symbolic links"));
+        }
+        if existing.is_some() && !replace {
+            return Err(AppError::conflict("Destination already exists"));
+        }
+        if cancelled() {
+            return Err(AppError::bad("Cancelled"));
+        }
+        prepare_parent(&destination).await?;
+        let backup = sibling_artifact(&destination, "backup")?;
+        let update_metadata = || {
+            self.state.database.transaction(|transaction| {
+                if existing.is_some() {
+                    path_metadata::removed_in_transaction(
+                        self.state,
+                        transaction,
+                        destination_path,
+                    )?;
+                }
+                if moving {
+                    path_metadata::moved_in_transaction(
+                        self.state,
+                        transaction,
+                        source_path,
+                        destination_path,
+                    )?;
+                } else {
+                    path_metadata::content_replaced_in_transaction(transaction, destination_path)?;
+                }
+                Ok(())
+            })
+        };
+        if moving {
+            if existing.is_some() {
+                fs::rename(&destination, &backup)
+                    .await
+                    .map_err(AppError::io)?;
+            }
+            match fs::rename(&source, &destination).await {
+                Ok(()) => {
+                    if let Err(error) = update_metadata() {
+                        fs::rename(&destination, &source)
+                            .await
+                            .map_err(AppError::io)?;
+                        if existing.is_some() {
+                            fs::rename(&backup, &destination)
+                                .await
+                                .map_err(AppError::io)?;
+                        }
+                        return Err(error);
+                    }
+                    if let Some(old) = existing {
+                        remove_path(&backup, old.is_dir()).await?;
+                    }
+                    return Ok(());
+                }
+                Err(error) => {
+                    if existing.is_some() {
+                        fs::rename(&backup, &destination)
+                            .await
+                            .map_err(AppError::io)?;
+                    }
+                    if error.kind() != std::io::ErrorKind::CrossesDevices {
+                        return Err(AppError::io(error));
+                    }
+                }
+            }
+        }
+        let staged = sibling_artifact(&destination, "copy")?;
+        if let Err(error) = copy_cancellable(&source, &staged, cancelled, progress).await {
+            let _ = remove_path(&staged, metadata.is_dir()).await;
+            return Err(error);
+        }
+        if cancelled() {
+            remove_path(&staged, metadata.is_dir()).await?;
+            return Err(AppError::bad("Cancelled"));
+        }
+        let source_backup = sibling_artifact(&source, "move")?;
+        let mut backed_up = false;
+        let mut source_staged = false;
+        let mut installed = false;
+        let result = async {
+            if existing.is_some() {
+                fs::rename(&destination, &backup)
+                    .await
+                    .map_err(AppError::io)?;
+                backed_up = true;
+            }
+            if moving {
+                fs::rename(&source, &source_backup)
+                    .await
+                    .map_err(AppError::io)?;
+                source_staged = true;
+            }
+            fs::rename(&staged, &destination)
+                .await
+                .map_err(AppError::io)?;
+            installed = true;
+            update_metadata()
+        }
+        .await;
+        if let Err(error) = result {
+            if installed {
+                remove_path(&destination, metadata.is_dir()).await?;
+            } else {
+                let _ = remove_path(&staged, metadata.is_dir()).await;
+            }
+            if source_staged {
+                fs::rename(&source_backup, &source)
+                    .await
+                    .map_err(AppError::io)?;
+            }
+            if backed_up {
+                fs::rename(&backup, &destination)
+                    .await
+                    .map_err(AppError::io)?;
+            }
+            return Err(error);
+        }
+        if source_staged {
+            remove_path(&source_backup, metadata.is_dir()).await?;
+        }
+        if let Some(old) = existing {
+            remove_path(&backup, old.is_dir()).await?;
+        }
+        Ok(())
+    }
+
     pub async fn copy(&self, source_path: &str, destination_path: &str) -> AppResult<()> {
         let _guard = self.begin().await;
         let source = resolve(self.state, source_path)?;
@@ -444,5 +605,64 @@ async fn copy_directory_tree(source: &Path, destination: &Path) -> AppResult<()>
             return Err(AppError::bad("Unsupported file type in copied directory"));
         }
     }
+    Ok(())
+}
+
+async fn copy_cancellable(
+    source: &Path,
+    destination: &Path,
+    cancelled: &(dyn Fn() -> bool + Send + Sync),
+    progress: &(dyn Fn(u64) + Send + Sync),
+) -> AppResult<()> {
+    use tokio::io::AsyncReadExt;
+    if cancelled() {
+        return Err(AppError::bad("Cancelled"));
+    }
+    let metadata = fs::symlink_metadata(source).await.map_err(AppError::io)?;
+    if metadata.file_type().is_symlink() {
+        return Err(AppError::forbidden("Cannot transfer symbolic links"));
+    }
+    if metadata.is_dir() {
+        fs::create_dir(destination).await.map_err(AppError::io)?;
+        let mut entries = fs::read_dir(source).await.map_err(AppError::io)?;
+        while let Some(entry) = entries.next_entry().await.map_err(AppError::io)? {
+            Box::pin(copy_cancellable(
+                &entry.path(),
+                &destination.join(entry.file_name()),
+                cancelled,
+                progress,
+            ))
+            .await?;
+        }
+    } else if metadata.is_file() {
+        let mut input = fs::File::open(source).await.map_err(AppError::io)?;
+        let mut output = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(destination)
+            .await
+            .map_err(AppError::io)?;
+        let mut buffer = vec![0; 256 * 1024];
+        loop {
+            if cancelled() {
+                return Err(AppError::bad("Cancelled"));
+            }
+            let count = input.read(&mut buffer).await.map_err(AppError::io)?;
+            if count == 0 {
+                break;
+            }
+            output
+                .write_all(&buffer[..count])
+                .await
+                .map_err(AppError::io)?;
+            progress(count as u64);
+        }
+        output.flush().await.map_err(AppError::io)?;
+    } else {
+        return Err(AppError::bad("Unsupported file type"));
+    }
+    fs::set_permissions(destination, metadata.permissions())
+        .await
+        .map_err(AppError::io)?;
     Ok(())
 }

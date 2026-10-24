@@ -259,6 +259,14 @@ pub fn list(
     input: &str,
     cached: &mut dyn FnMut(&Path, std::time::SystemTime) -> bool,
 ) -> AppResult<Vec<FileItem>> {
+    list_with_hidden(config, input, cached, false)
+}
+pub fn list_with_hidden(
+    config: &Config,
+    input: &str,
+    cached: &mut dyn FnMut(&Path, std::time::SystemTime) -> bool,
+    hidden: bool,
+) -> AppResult<Vec<FileItem>> {
     let logical = clean_logical(input)?;
     let mut items = if logical.is_empty() {
         vec![virtual_item("Favorites"), virtual_item("Most Played")]
@@ -294,7 +302,11 @@ pub fn list(
         let Ok(entry) = entry else { continue };
         let Ok(meta) = entry.metadata() else { continue };
         let name = entry.file_name().to_string_lossy().into_owned();
-        if (meta.is_dir() && excluded_dir(&name)) || (!meta.is_dir() && excluded_file(&name)) {
+        if name.starts_with(".derp-")
+            || (!hidden
+                && ((meta.is_dir() && excluded_dir(&name))
+                    || (!meta.is_dir() && excluded_file(&name))))
+        {
             continue;
         }
         let rel = if resolved.relative.is_empty() {

@@ -463,6 +463,7 @@ export const FileBrowserView = component(
     const toolbarExtras = () => props.toolbar.extras?.()
     return (
       <div
+        onKeyDown={(event) => props.host.selectionKeyDown?.(event)}
         data-explorer-surface
         use={domBinding(props.listing, listingScrollBinding)}
         data-testid={props.layout === 'media' ? 'file-browser' : undefined}

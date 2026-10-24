@@ -22,6 +22,7 @@ export const BATCHES = [
       'navigation',
       'breadcrumbs-adaptive',
       'server-recovery',
+      'server-startup',
       'keyboard-navigation',
       'upload',
       'file-browser-misc',
@@ -50,6 +51,7 @@ export const BATCHES = [
     id: '4',
     tests: [
       'editable-folders',
+      'file-tools',
       'desktop',
       'effectweb-reactivity',
       'url-state',

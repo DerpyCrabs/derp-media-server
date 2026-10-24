@@ -1,4 +1,5 @@
 #pragma once
+#include "native-jobs.h"
 #include "server.h"
 #include <QApplication>
 #include <QJsonArray>
@@ -16,6 +17,11 @@ class ClientWindow : public QWebEngineView {
     ClientWindow(Client *client, QJsonObject target, QJsonObject picker = {}, QString parentHandle = {},
                  QString title = {});
     Bridge *bridge;
+    Client *client;
+    QWidget *recovery = nullptr;
+    void checkConnection();
+    void setRecovery(const QString &message);
+    bool checking = false, offline = false;
     QJsonObject target, picker;
     QStringList dropPaths;
     QString parentHandle;
@@ -26,6 +32,7 @@ class ClientWindow : public QWebEngineView {
 
   protected:
     void closeEvent(QCloseEvent *event) override;
+    void resizeEvent(QResizeEvent *event) override;
     bool eventFilter(QObject *object, QEvent *event) override;
 };
 class Bridge : public QObject {
@@ -46,6 +53,7 @@ class Client : public QObject {
   public:
     explicit Client(QString origin);
     Server server;
+    NativeJobs *nativeJobs;
     QWebEngineProfile *profile;
     QSet<ClientWindow *> windows;
     QPointer<ClientWindow> spare;
@@ -54,6 +62,13 @@ class Client : public QObject {
     void handleArguments(const QStringList &args, const QString &cwd);
     void prepareSpare();
     void quit();
+    void saveSession();
+    bool setRestoreEnabled(bool enabled);
+    void reopenClosed();
+    bool restoreSession();
+    bool restoreEnabled = false, quitting = false;
+    QString sessionFile, serverService;
+    QJsonArray closed;
     void error(const QString &message);
 };
 void background(QObject *context, std::function<QJsonObject()> work, std::function<void(QJsonObject)> done);

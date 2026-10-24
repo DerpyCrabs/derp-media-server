@@ -1,20 +1,9 @@
 import { test, expect } from '@playwright/test'
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
-import net from 'node:net'
+import { serverOrigin } from '../fixtures/server-ready'
 import os from 'node:os'
 import path from 'node:path'
-
-async function freePort(): Promise<number> {
-  const server = net.createServer()
-  return new Promise((resolve, reject) => {
-    server.once('error', reject)
-    server.listen(0, '127.0.0.1', () => {
-      const address = server.address() as net.AddressInfo
-      server.close(() => resolve(address.port))
-    })
-  })
-}
 
 for (const multiple of [false, true]) {
   test(`filesystem write access honors OS permissions (${multiple ? 'multiple roots' : 'single root'})`, async ({
@@ -35,7 +24,7 @@ for (const multiple of [false, true]) {
     fs.writeFileSync(path.join(locked, 'note.txt'), 'locked child')
     fs.chmodSync(locked, 0o555)
     fs.symlinkSync(second, path.join(media, 'escape'))
-    const port = await freePort()
+    const port = 0
     const config = path.join(temporary, 'config.json')
     fs.writeFileSync(
       config,
@@ -66,13 +55,15 @@ for (const multiple of [false, true]) {
       process.env.TEST_SERVER_TARGET_DIR ?? 'target',
       'release/derp-media-server',
     )
-    const server = spawn(binary, ['--production'], { env, stdio: 'ignore' })
+    const server = spawn(binary, ['--production'], { env, stdio: ['ignore', 'pipe', 'pipe'] })
     const exited = new Promise<void>((resolve) => server.once('exit', () => resolve()))
-    const base = `http://127.0.0.1:${port}`
+    const ready = serverOrigin(server)
+    let base: string
     const prefix = multiple ? 'First/' : ''
     const post = (operation: string, data: object) =>
       page.request.post(`${base}/api/files/${operation}`, { data })
     try {
+      base = await ready
       await expect
         .poll(
           async () => {

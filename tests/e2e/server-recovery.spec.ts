@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { once } from 'node:events'
 import fs from 'node:fs'
-import net from 'node:net'
+import { serverOrigin } from '../fixtures/server-ready'
 import os from 'node:os'
 import path from 'node:path'
 
@@ -14,12 +14,8 @@ for (const signal of ['SIGTERM', 'SIGKILL'] as const) {
     const media = path.join(directory, 'media')
     fs.mkdirSync(media)
     fs.writeFileSync(path.join(media, 'book.txt'), 'persistent document')
-    const listener = net.createServer()
-    listener.listen(0, '127.0.0.1')
-    await once(listener, 'listening')
-    const port = (listener.address() as net.AddressInfo).port
-    await new Promise<void>((resolve) => listener.close(() => resolve()))
-    const origin = `http://127.0.0.1:${port}`
+    const port = 0
+    let origin = ''
     const config = path.join(directory, 'config.json')
     fs.writeFileSync(
       config,
@@ -57,6 +53,7 @@ for (const signal of ['SIGTERM', 'SIGKILL'] as const) {
       server.stderr!.on('data', (chunk) => {
         output += chunk.toString()
       })
+      origin = await serverOrigin(server)
       await expect
         .poll(
           async () => {
@@ -86,8 +83,7 @@ for (const signal of ['SIGTERM', 'SIGKILL'] as const) {
     try {
       await start()
       const id = `recovery-${crypto.randomUUID()}`
-      const url = `${origin}/workspace?ws=${id}`
-      await page.goto(url)
+      await page.goto(`${origin}/workspace?ws=${id}`)
       await expect(page.locator('[data-workspace-opened]')).toBeAttached()
       const registry = await page.request
         .get(`${origin}/api/workspaces`)
@@ -139,7 +135,7 @@ for (const signal of ['SIGTERM', 'SIGKILL'] as const) {
         revision: reader.revision + 1,
         fingerprint: reader.fingerprint,
       })
-      await page.goto(url)
+      await page.goto(`${origin}/workspace?ws=${id}`)
       await expect(page.locator('[data-workspace-opened]')).toBeAttached()
       await expect(page.getByText('book.txt', { exact: true })).toBeVisible()
     } finally {

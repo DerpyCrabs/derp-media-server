@@ -1,3 +1,4 @@
+import { serverOrigin } from '../fixtures/server-ready'
 import { test as base, expect } from '@playwright/test'
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
@@ -108,15 +109,6 @@ function modelReply(request: ProviderRequest) {
   return properties.message ? { items, message: 'Fixture matches' } : { items }
 }
 
-async function freePort() {
-  const listener = net.createServer()
-  listener.listen(0, '127.0.0.1')
-  await once(listener, 'listening')
-  const port = (listener.address() as net.AddressInfo).port
-  await new Promise<void>((resolve) => listener.close(() => resolve()))
-  return port
-}
-
 export const test = base.extend<{ library: Library; aiEnabled: boolean; aiPaused: boolean }>({
   aiEnabled: [true, { option: true }],
   aiPaused: [true, { option: true }],
@@ -163,7 +155,7 @@ export const test = base.extend<{ library: Library; aiEnabled: boolean; aiPaused
     provider.listen(0, '127.0.0.1')
     await once(provider, 'listening')
     const providerPort = (provider.address() as net.AddressInfo).port
-    const port = await freePort()
+    const port = 0
     const config = path.join(directory, 'config.jsonc')
     fs.writeFileSync(
       config,
@@ -197,9 +189,11 @@ export const test = base.extend<{ library: Library; aiEnabled: boolean; aiPaused
       output += chunk.toString()
     })
     const exited = once(server, 'exit')
-    const url = `http://127.0.0.1:${port}`
+    const ready = serverOrigin(server)
+    let url: string
     let database: DatabaseSync | undefined
     try {
+      url = await ready
       await expect
         .poll(
           async () => {

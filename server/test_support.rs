@@ -49,6 +49,7 @@ impl TestApp {
         state_db::initialize(&config).unwrap();
         let database = state_db::AppDatabase::from_config(&config);
         let state = Arc::new(AppState {
+            file_jobs: Default::default(),
             media_ai: crate::media_ai::Runtime::new(),
             dev: false,
             vite_port: 0,

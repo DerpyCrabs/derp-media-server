@@ -1,3 +1,5 @@
+import { createFileTools } from './file-tools-controller'
+import { FileToolsPanel } from './FileToolsPanel'
 import { available, modelOwner, view, controllerView, type JSX } from 'effectweb'
 import { Effect } from 'effect'
 import { breadcrumbFloating } from './breadcrumb-floating-store'
@@ -109,6 +111,13 @@ export const FileBrowser = controllerView(
         !(Object.values(VIRTUAL_FOLDERS) as string[]).includes(path) &&
         !currentListing().virtualDirectory &&
         isPathEditable(path, currentHost.editableFolders, currentHost.mediaRoots)
+      const tools = createFileTools(
+        () => currentHost,
+        () =>
+          tools.read().hidden
+            ? (tools.read().hiddenFiles ?? currentListing().files)
+            : currentListing().files,
+      )
       const stats = createViewStats()
       const presentCreated = (filePath: string, displayName?: string) => {
         const file = fileItemFromPath(filePath, displayName)
@@ -166,6 +175,8 @@ export const FileBrowser = controllerView(
           settings?.favorites,
           views,
           currentHost.selection?.visible,
+          tools.read().hidden,
+          tools.read().hiddenFiles,
         ]
         if (
           previousPresentation &&
@@ -176,7 +187,7 @@ export const FileBrowser = controllerView(
         const metadata = createFileSortMetadata(settings?.favorites, views)
         const sortingDisabled =
           (Object.values(VIRTUAL_FOLDERS) as string[]).includes(path) || !!data.virtualDirectory
-        const files = data.files
+        const files = tools.read().hidden ? (tools.read().hiddenFiles ?? data.files) : data.files
         const orderedFiles = sortFilesForPath(
           files.filter((file) => currentHost.selection?.visible(file) ?? true),
           path,
@@ -189,6 +200,8 @@ export const FileBrowser = controllerView(
       }
       const owner = modelOwner({
         host: props.host,
+        tools,
+        toolsState: tools.read(),
         listing: listing.read(),
         presentation: presentation(),
         browser: browser.read(),
@@ -212,12 +225,14 @@ export const FileBrowser = controllerView(
         prefetch: (path: string, effect: Effect.Effect<unknown, Error>) =>
           owner.run(hoverSlots(path), effect.pipe(Effect.catch(() => Effect.void)), 'drop'),
       })
-      for (const child of [listing, browser, actions, chrome, virtual, stats]) owner.own(child)
+      for (const child of [listing, browser, actions, chrome, virtual, stats, tools])
+        owner.own(child)
       const publishPresentation = (changes: Partial<ReturnType<typeof owner.read>> = {}) => {
         const next = presentation()
         owner.patch({ ...changes, presentation: next })
         currentHost.onListingChange?.(next)
       }
+      owner.own(tools.source.subscribe((toolsState) => publishPresentation({ toolsState })))
       owner.own(listing.source.subscribe((listing) => publishPresentation({ listing })))
       owner.own(browser.source.subscribe((browser) => publishPresentation({ browser })))
       owner.own(actions.source.subscribe((actions) => owner.patch({ actions })))
@@ -448,12 +463,17 @@ export const FileBrowser = controllerView(
           host={{
             openParent: () => host.navigate(isVirtualFolder() ? '' : parentPath(currentPath())),
             openFile: (file, event) =>
-              host.selection ? host.selection.click(file, event, displayedFiles) : openFile(file),
-            activateFile: host.selection?.activate,
-            selected: host.selection?.includes,
+              host.selection
+                ? host.selection.click(file, event, displayedFiles)
+                : model.tools.click(file, event, displayedFiles)
+                  ? undefined
+                  : openFile(file),
+            activateFile: host.selection?.activate ?? openFile,
+            selected:
+              host.selection?.includes ?? ((file) => model.toolsState.selected.includes(file.path)),
             selectionKeyDown: host.selection
               ? (event) => host.selection?.keyDown(event, displayedFiles)
-              : undefined,
+              : (event) => model.tools.keyDown(event, displayedFiles),
             setViewMode,
             navigateBreadcrumb: host.navigate,
             openBreadcrumbMenu: chrome.openBreadcrumbMenu,
@@ -473,13 +493,32 @@ export const FileBrowser = controllerView(
               onCreateFolder: fileActions.openCreateFolder,
               onCreateFile: fileActions.openCreateFile,
             },
-            extras: host.toolbarExtras,
+            extras: () => (
+              <>
+                {host.toolbarExtras?.()}
+                {!host.selection ? (
+                  <button
+                    type='button'
+                    class='h-8 rounded-md border border-input px-2 text-xs hover:bg-accent'
+                    onClick={() => model.tools.open('menu')}
+                  >
+                    Files
+                    {model.toolsState.selected.length
+                      ? ` (${model.toolsState.selected.length})`
+                      : ''}
+                  </button>
+                ) : null}
+              </>
+            ),
           }}
           fileRowMenu={fileActions.rowMenu}
           rows={rows}
         >
           {host.children}
         </FileBrowserView>
+        {!host.selection ? (
+          <FileToolsPanel tools={model.tools} state={model.toolsState} host={host} />
+        ) : null}
         <FileBrowserModalLayer
           overlayScope={host.layout === 'workspace' ? 'window' : 'viewport'}
           chrome={chrome.modal}

@@ -3,6 +3,7 @@
 - This is a single-user app installed as a personal instance. Multiple browser tabs belong to the same user; they are not collaborators
 - Use `bun run lint` for lint and TypeScript checks. Oxlint config enables `typeAware` and `typeCheck`.
 - Check `bun run lint` after changes.
+- Do not run native desktop tests (`bun run test:desktop` or `tests/desktop/smoke.ts`). They interfere with the user’s active desktop and clipboard. Use build-only checks for the native client.
 - After larger changes, run `bun run test:batch`.
 - The UI is **Effect + EffectWeb** under [`src/`](src/), compiled by `@effectweb/compiler` through Vite, with Tailwind in [`src/globals.css`](src/globals.css).
 - Views render immutable snapshots; use `view`, `observe`, keyed `list`/`collection`, and `localComponent` for view-local state. Controllers own effects, queries, subscriptions, and DOM lifetimes.

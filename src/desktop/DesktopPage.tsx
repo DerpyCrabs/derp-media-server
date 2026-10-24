@@ -1,3 +1,4 @@
+import { fileJobs } from '@/features/explorer/file-jobs'
 import { Effect } from 'effect'
 import ClipboardPaste from '@effectweb/lucide/icons/clipboard-paste'
 import { flushDesktopClose } from './close-handlers'
@@ -67,8 +68,11 @@ function desktopController() {
   const stopOpen = bridge?.onOpen(receive),
     stopClose = bridge?.onBeforeClose(() => Effect.runPromise(flushDesktopClose()))
   if (bridge) runDesktopOperation(() => bridge.ready())
-  const operation = (event: Event) =>
-    owner.patch({ status: (event as CustomEvent<{ pending?: boolean; error?: string }>).detail })
+  const operation = (event: Event) => {
+    const status = (event as CustomEvent<{ pending?: boolean; error?: string }>).detail
+    owner.patch({ status })
+    if (!status.pending && !status.error) fileJobs.refresh()
+  }
   const escape = (event: KeyboardEvent) => {
     if (
       owner.read().pickerRequest &&

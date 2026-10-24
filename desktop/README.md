@@ -15,7 +15,7 @@ bun run desktop --tray
 bun run desktop -- /absolute/path/to/library/book.pdf
 ```
 
-`bun run desktop` builds the Qt shell with CMake; it does not rebuild or start the server. `bun run dev` also serves the desktop page. Every CLI file/directory argument opens a new native window, including repeated paths. Relative paths and local `file://` URIs are accepted. Use `--` before filenames starting with a dash. No arguments opens the library; `--tray` starts without a visible window. The tray's New browser window action always opens a new window. Close discards a window; Quit exits the resident process.
+`bun run desktop` builds the Qt shell with CMake; it does not rebuild or start the server. `bun run dev` also serves the desktop page. Every CLI file/directory argument opens a new native window, including repeated paths. Relative paths and local `file://` URIs are accepted. Use `--` before filenames starting with a dash. No arguments opens the library; `--tray` starts without a visible window. The tray's New browser window action always opens a new window. Close closes a window; Ctrl+Shift+T or the tray’s Reopen closed window action reopens it. Quit flushes documents and exits the resident process.
 
 ## Configuration
 
@@ -67,7 +67,7 @@ A default applies to that MIME type everywhere. Paths outside the configured med
 ## File exchange
 
 - Right-click a file/folder and choose Copy, then paste in Nautilus. Ctrl+C also copies a focused file row. Existing Copy to… and Move to… operations remain available.
-- Copy in Nautilus, then use Paste files or Ctrl+V in an editable folder. A Nautilus cut payload is treated as a copy; the source is never deleted.
+- Copy in Nautilus, then use Paste files or Ctrl+V in an editable folder. A Nautilus cut payload performs a move; originals are removed only after successful placement. Conflicts and cancellation are available in Files → Operations.
 - Drag files/folders out to other applications, or into an editable folder to copy them. Native desktop drags are copies; Move to… performs internal moves.
 - Dropping files onto a viewer opens each in a new window if it belongs to the library. Import outside files through a browser folder first.
 - Existing names are not overwritten. Imports stop on the first error; files already copied remain. Empty directories are preserved. Symbolic links and special files are not imported.
@@ -90,3 +90,17 @@ org.freedesktop.impl.portal.FileChooser=derp
 ```
 
 Restart `xdg-desktop-portal.service` after changing the preference. Applications must use the FileChooser portal to reach this picker. Requests supplying a Wayland parent token are attached to that window through XDG Foreign. Window placement for requests without a parent is compositor-controlled.
+
+### File tools and recovery
+
+The Files button adds Ctrl/Cmd-click and Shift-click selection, Ctrl/Cmd+A, bulk copy/move/delete, copy/cut/paste, properties (including Unix permission bits), and an editable location dialog (Ctrl/Cmd+L). Ordinary clicks still open media. Hidden files are opt-in; internal operation staging files remain hidden. Operations show progress, cancellation, partial failures, and replace/skip/keep-both conflict choices with an apply-to-remaining option. Deletion is explicitly permanent.
+
+Browse ZIP opens an archive without extracting it. Select entries to extract, or extract all; Create ZIP archives the selection. Archive paths and symbolic links are validated before extraction. ZIP is the supported archive format.
+
+The native client adds Home, Downloads, Documents, and mounted devices that are inside configured media roots, Open terminal here (`xdg-terminal-exec`), and installed Open with applications (`gio`). These capabilities are not exposed in ordinary browsers. All destination writes still require the server’s `editableFolders` or configured filesystem write access. This does not grant access outside media roots.
+
+External clipboard imports use cancellable staging and the same server conflict queue. Cut originals are removed only after successful placement and a check that the source did not change. Skipped, cancelled, or partially failed external moves retain originals and report this in Operations. Already completed destinations remain on cancellation. If the server disconnects during final placement, originals and staging are retained for inspection. Operations survive closing their browser window; Quit cancels native imports. Server operations remain available until the server restarts.
+
+A connection panel offers retry while the server is unavailable. Existing windows retain their live editor state when reconnecting. To offer a Start server button, set `"serverService": "your-server.service"` in `~/.config/derp-media-server/desktop.json`; it starts that user systemd unit. This option does not install or configure a server service.
+
+Native session restoration is off by default. Enable Restore windows on startup in the tray menu, or set `"restoreSession": true` in `desktop.json`. A normal launch then restores document/folder windows and geometry; explicit CLI paths and `--tray` retain their existing behavior. Session state is stored under `$XDG_STATE_HOME/derp-media-server/desktop-session.json` (default `~/.local/state`). This restores saved locations, not crash recovery for unsaved drafts.

@@ -2,7 +2,7 @@ import { dragPlaybackPosition } from './playback-seek-helpers'
 import { test, expect, type Page } from '@playwright/test'
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process'
 import fs from 'node:fs'
-import net from 'node:net'
+import { serverOrigin } from '../fixtures/server-ready'
 import os from 'node:os'
 import path from 'node:path'
 
@@ -11,19 +11,15 @@ let baseUrl: string
 const servers: ChildProcess[] = []
 
 async function startServer(playback: Record<string, unknown>): Promise<string> {
-  const port = await new Promise<number>((resolve) => {
-    const listener = net.createServer().listen(0, '127.0.0.1', () => {
-      const port = (listener.address() as net.AddressInfo).port
-      listener.close(() => resolve(port))
-    })
-  })
-  const config = path.join(directory, `config-${port}.jsonc`)
+  const port = 0
+  const instance = crypto.randomUUID()
+  const config = path.join(directory, `config-${instance}.jsonc`)
   fs.writeFileSync(
     config,
     JSON.stringify({
       port,
       mediaDir: path.join(directory, 'media'),
-      dataPath: path.join(directory, `data-${port}`),
+      dataPath: path.join(directory, `data-${instance}`),
       fileSearch: { enabled: false },
       playback,
     }),
@@ -50,7 +46,7 @@ async function startServer(playback: Record<string, unknown>): Promise<string> {
   server.stderr!.on('data', (chunk) => {
     output += String(chunk)
   })
-  const url = `http://127.0.0.1:${port}`
+  const url = await serverOrigin(server)
   await expect
     .poll(
       async () => {

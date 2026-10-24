@@ -15,13 +15,14 @@ export default defineConfig({
   plugins: [scopePdfViewerCss(), effectweb(), tailwindcss()],
   server: {
     allowedHosts: true,
-    hmr: process.env.VITE_HMR_PORT
-      ? {
-          host: process.env.E2E_DEV === '1' ? '127.0.0.1' : undefined,
-          port: Number(process.env.VITE_HMR_PORT),
-          clientPort: Number(process.env.VITE_HMR_CLIENT_PORT ?? process.env.VITE_HMR_PORT),
-        }
-      : undefined,
+    hmr:
+      process.env.VITE_HMR_CLIENT_PORT || process.env.VITE_HMR_PORT
+        ? {
+            host: process.env.E2E_DEV === '1' ? '127.0.0.1' : undefined,
+            port: process.env.VITE_HMR_PORT ? Number(process.env.VITE_HMR_PORT) : undefined,
+            clientPort: Number(process.env.VITE_HMR_CLIENT_PORT ?? process.env.VITE_HMR_PORT),
+          }
+        : undefined,
     watch: {
       ignored: [
         '**/test-media/**',

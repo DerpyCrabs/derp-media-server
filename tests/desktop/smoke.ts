@@ -38,7 +38,10 @@ await writeFile(
 )
 const configHome = path.join(temp, 'config')
 await mkdir(path.join(configHome, 'derp-media-server'), { recursive: true })
-await writeFile(path.join(configHome, 'derp-media-server/desktop.json'), JSON.stringify({ port }))
+await writeFile(
+  path.join(configHome, 'derp-media-server/desktop.json'),
+  JSON.stringify({ port, restoreSession: true }),
+)
 const env = {
   ...process.env,
   XDG_CONFIG_HOME: configHome,
@@ -48,15 +51,17 @@ const env = {
   DERP_PORTAL_BUS_NAME: `org.freedesktop.impl.portal.desktop.derp.test${process.pid}`,
 }
 const executable = path.resolve('dist/desktop/derp-media-client')
-const server = Bun.spawn(
-  [
-    path.resolve(process.env.TEST_SERVER_BINARY || 'target/test-batch/release/derp-media-server'),
-    '--production',
-    '--config-path',
-    path.join(temp, 'server.json'),
-  ],
-  { stdout: 'ignore', stderr: Bun.file(path.join(temp, 'server.log')) },
-)
+const launchServer = () =>
+  Bun.spawn(
+    [
+      path.resolve(process.env.TEST_SERVER_BINARY || 'target/test-batch/release/derp-media-server'),
+      '--production',
+      '--config-path',
+      path.join(temp, 'server.json'),
+    ],
+    { stdout: 'ignore', stderr: Bun.file(path.join(temp, 'server.log')) },
+  )
+let server = launchServer()
 let native: ReturnType<typeof Bun.spawn> | undefined
 let browser: Browser | undefined
 let parent: ReturnType<typeof Bun.spawn> | undefined
@@ -329,21 +334,140 @@ try {
   expect(copied).toContain(pathToFileURL(path.join(media, 'Notes/note.txt')).href)
   const outside = path.join(temp, 'incoming')
   await mkdir(path.join(outside, 'empty'), { recursive: true })
-  await writeFile(path.join(outside, 'outside.txt'), 'copied, not moved')
+  await writeFile(path.join(outside, 'outside.txt'), 'moved after successful transfer')
   const copy = Bun.spawn(['wl-copy', '--type', 'x-special/gnome-copied-files'], {
     stdin: new Blob(['cut\n' + pathToFileURL(outside).href]),
     stdout: 'ignore',
   })
   expect(await copy.exited).toBe(0)
   expect(await page.evaluate(() => window.derpDesktop!.paste('Notes'))).toBe(1)
-  expect(await readFile(path.join(media, 'Notes/incoming/outside.txt'), 'utf8')).toBe(
-    'copied, not moved',
-  )
-  expect(await readFile(path.join(outside, 'outside.txt'), 'utf8')).toBe('copied, not moved')
+  await expect
+    .poll(() => readFile(path.join(media, 'Notes/incoming/outside.txt'), 'utf8').catch(() => ''))
+    .toBe('moved after successful transfer')
+  await expect
+    .poll(() =>
+      stat(outside)
+        .then(() => true)
+        .catch(() => false),
+    )
+    .toBe(false)
   expect((await stat(path.join(media, 'Notes/incoming/empty'))).isDirectory()).toBe(true)
   console.log(
-    'PASS: Wayland clipboard exports file URIs and imports Nautilus cut as copy with empty folders',
+    'PASS: Wayland clipboard exports file URIs and moves Nautilus cut only after success, including empty folders',
   )
+  const conflictSource = path.join(temp, 'note.txt')
+  await writeFile(conflictSource, 'external conflict source')
+  const setExternalCut = async () => {
+    const copy = Bun.spawn(['wl-copy', '--type', 'x-special/gnome-copied-files'], {
+      stdin: new Blob(['cut\n' + pathToFileURL(conflictSource).href]),
+      stdout: 'ignore',
+    })
+    expect(await copy.exited).toBe(0)
+  }
+  await setExternalCut()
+  await page.evaluate(() => window.derpDesktop!.paste('Notes'))
+  const nativeJobs = () =>
+    page.evaluate(
+      async () =>
+        (await window.derpDesktop!.nativeJobs!()) as {
+          jobs: { id: string; status: string; conflict: string | null }[]
+        },
+    )
+  await expect
+    .poll(async () => (await nativeJobs()).jobs.some((job) => job.status === 'conflict'))
+    .toBe(true)
+  const conflict = (await nativeJobs()).jobs.find((job) => job.status === 'conflict')!
+  await page.evaluate(
+    (id) => window.derpDesktop!.decideNativeJob!(id, 'keepBoth', true),
+    conflict.id,
+  )
+  await expect
+    .poll(async () => (await nativeJobs()).jobs.find((job) => job.id === conflict.id)?.status)
+    .toBe('completed')
+  expect(await readFile(path.join(media, 'Notes/note (2).txt'), 'utf8')).toBe(
+    'external conflict source',
+  )
+  expect(
+    await stat(conflictSource)
+      .then(() => true)
+      .catch(() => false),
+  ).toBe(false)
+  await writeFile(conflictSource, 'cancelled external cut')
+  await setExternalCut()
+  await page.evaluate(() => window.derpDesktop!.paste('Notes'))
+  await expect
+    .poll(async () => (await nativeJobs()).jobs.some((job) => job.status === 'conflict'))
+    .toBe(true)
+  const cancelled = (await nativeJobs()).jobs.find((job) => job.status === 'conflict')!
+  await page.evaluate((id) => window.derpDesktop!.cancelNativeJob!(id), cancelled.id)
+  await expect
+    .poll(async () => (await nativeJobs()).jobs.find((job) => job.id === cancelled.id)?.status)
+    .toBe('cancelled')
+  expect(await readFile(conflictSource, 'utf8')).toBe('cancelled external cut')
+  console.log('PASS: external cut supports keep both and cancellation without source loss')
+
+  await invoke('second.txt')
+  const editor = await waitPage((page) => page.url().includes('viewing=Notes%2Fsecond.txt'))
+  await expect(editor.getByRole('textbox', { name: 'Enter text…' })).toHaveValue('Second selection')
+  server.kill()
+  await server.exited
+  const draft = 'Draft preserved during server restart'
+  await editor.getByRole('textbox', { name: 'Enter text…' }).fill(draft)
+  await editor.evaluate(() => Object.assign(window, { recoveryIdentity: 'same-document' }))
+  await new Promise((resolve) => setTimeout(resolve, 3500))
+  server = launchServer()
+  await expect
+    .poll(() =>
+      fetch(`http://127.0.0.1:${port}/api/config`)
+        .then((r) => r.ok)
+        .catch(() => false),
+    )
+    .toBe(true)
+  await new Promise((resolve) => setTimeout(resolve, 3500))
+  expect(
+    await editor.evaluate(
+      () => (window as unknown as { recoveryIdentity: string }).recoveryIdentity,
+    ),
+  ).toBe('same-document')
+  await expect(editor.getByRole('textbox', { name: 'Enter text…' })).toHaveValue(draft)
+  await editor.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect.poll(() => readFile(path.join(media, 'Notes/second.txt'), 'utf8')).toBe(draft)
+  await editor.evaluate(() => window.derpDesktop!.close())
+  await expect.poll(() => editor.isClosed()).toBe(true)
+  await page.bringToFront()
+  await page.keyboard.press('Control+Shift+t')
+  const reopenedDocument = await waitPage((page) =>
+    page.url().includes('viewing=Notes%2Fsecond.txt'),
+  )
+  await expect(reopenedDocument.getByRole('textbox', { name: 'Enter text…' })).toHaveValue(draft)
+  console.log('PASS: reconnect preserves the live editor and Ctrl+Shift+T reopens closed documents')
+
+  native.kill()
+  expect(await native.exited).toBe(0)
+  await browser.close()
+  browser = undefined
+  native = Bun.spawn([executable], {
+    env,
+    stdout: 'ignore',
+    stderr: Bun.file(path.join(temp, 'restored.log')),
+  })
+  await expect
+    .poll(() =>
+      fetch(`http://127.0.0.1:${debugPort}/json/version`)
+        .then((r) => r.ok)
+        .catch(() => false),
+    )
+    .toBe(true)
+  browser = await chromium.connectOverCDP(`http://127.0.0.1:${debugPort}`, { noDefaults: true })
+  await expect
+    .poll(() =>
+      browser!
+        .contexts()[0]!
+        .pages()
+        .some((page) => page.url().includes('viewing=Notes%2Fsecond.txt')),
+    )
+    .toBe(true)
+  console.log('PASS: opt-in native session restoration reopens saved windows')
 } finally {
   for (const request of requests) if (request.exitCode === null) request.kill()
   if (parent) {

@@ -46,6 +46,20 @@ async fn text_document(
     ))
 }
 
+async fn hidden(
+    State(state): State<Shared>,
+    Query(query): Query<DirQuery>,
+) -> AppResult<Json<Value>> {
+    let files = tokio::task::spawn_blocking(move || {
+        state.thumbnails.with_cache_lookup(|cached| {
+            media::list_with_hidden(&state.config, &query.dir, cached, true)
+        })
+    })
+    .await
+    .map_err(|e| AppError::internal(e.to_string()))??;
+    Ok(Json(json!({"files":files})))
+}
+
 async fn list(
     State(state): State<Shared>,
     Query(query): Query<DirQuery>,
@@ -619,6 +633,7 @@ fn zip_body(source: std::path::PathBuf) -> Body {
 pub fn router() -> Router<Shared> {
     Router::new()
         .route("/api/files", get(list))
+        .route("/api/files/hidden", get(hidden))
         .route("/api/files/text", get(text_document))
         .route("/api/files/create", post(create))
         .route("/api/files/edit", post(edit))

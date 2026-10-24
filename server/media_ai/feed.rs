@@ -691,6 +691,7 @@ mod tests {
             crate::state_db::initialize(&config).unwrap();
             let database = crate::state_db::AppDatabase::from_config(&config);
             let state = Arc::new(AppState {
+                file_jobs: Default::default(),
                 media_ai: super::super::Runtime::new(),
                 dev: false,
                 vite_port: 0,

@@ -2,6 +2,7 @@ mod activity;
 mod app;
 mod config;
 mod error;
+mod file_jobs;
 mod file_mutation;
 mod file_search;
 mod hermes;
