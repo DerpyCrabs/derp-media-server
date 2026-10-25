@@ -15,6 +15,8 @@ import Download from '@effectweb/lucide/icons/download'
 import LoaderCircle from '@effectweb/lucide/icons/loader-circle'
 import Music2 from '@effectweb/lucide/icons/music-2'
 import Pause from '@effectweb/lucide/icons/pause'
+import SkipBack from '@effectweb/lucide/icons/skip-back'
+import SkipForward from '@effectweb/lucide/icons/skip-forward'
 import Play from '@effectweb/lucide/icons/play'
 import Volume2 from '@effectweb/lucide/icons/volume-2'
 import VolumeX from '@effectweb/lucide/icons/volume-x'
@@ -39,6 +41,8 @@ type Props = {
   files: readonly FileItem[]
   contentVisible: boolean
   autoLoadPaused: boolean
+  autoPlay?: boolean
+  followPlayback?: boolean
   onNavigate: (path: string) => void
   onActivate?: () => void
 }
@@ -57,6 +61,7 @@ const queueFor = (props: Props) => {
 function audioController(props: Props) {
   const session = getPlaybackSession()
   let offeredPath = ''
+  let followedPath = ''
   const owner = modelOwner({
     props,
     playback: playbackSource.model(),
@@ -86,8 +91,15 @@ function audioController(props: Props) {
       const current = owner.read(),
         controlled = active()
       current.props.onActivate?.()
+      if (controlled) load(path, current.playback.desiredPlaying)
       current.props.onNavigate(path)
-      if (controlled) load(path, false)
+    },
+    step: (offset: number) => {
+      const current = owner.read(),
+        files = audioFiles(current.props)
+      const index = files.findIndex((file) => file.path === current.props.viewingPath)
+      const next = files[index + offset]
+      if (index >= 0 && next) actions.select(next.path)
     },
     mute: () => {
       session.dispatch({ type: 'setMuted', muted: !session.getSnapshot().muted })
@@ -124,6 +136,29 @@ function audioController(props: Props) {
     const current = owner.read(),
       props = current.props,
       key = props.viewingPath ? playbackPathKey(props.viewingPath) : ''
+    if (props.autoPlay && props.viewingPath && props.contentVisible && offeredPath !== key) {
+      offeredPath = key
+      if (!active()) load(props.viewingPath, true)
+      return
+    }
+    if (
+      props.followPlayback &&
+      current.playback.mode === 'audio' &&
+      current.playback.currentItem?.media === 'audio' &&
+      offeredPath
+    ) {
+      const path = current.playback.currentItem.locator
+      const nextKey = playbackPathKey(path)
+      if (
+        nextKey !== key &&
+        nextKey !== followedPath &&
+        current.playback.queue.some((item) => playbackPathMatches(item, props.viewingPath))
+      ) {
+        followedPath = nextKey
+        props.onNavigate(path)
+        return
+      }
+    }
     if (props.autoLoadPaused && props.viewingPath && props.contentVisible && offeredPath !== key) {
       offeredPath = key
       if (!current.playback.currentItem) load(props.viewingPath, false)
@@ -151,6 +186,7 @@ function audioController(props: Props) {
     source: owner.source,
     ...actions,
     receive: (next: Props) => {
+      if (next.viewingPath !== owner.read().props.viewingPath) followedPath = ''
       owner.patch({ props: next })
       metadata.select(next.viewingPath || undefined)
       sync()
@@ -220,8 +256,21 @@ const Info = view<{ model: Model; compact?: boolean; duration: number }>((props)
 const Transport = view<{ model: Model; active: boolean }>((props) => {
   const model = props.model,
     playing = props.active && model.playback.desiredPlaying
+  const files = audioFiles(model.props)
+  const index = files.findIndex((file) => file.path === model.props.viewingPath)
   return (
-    <div class='flex min-w-0 items-center gap-2'>
+    <div class='flex min-w-0 flex-wrap items-center gap-2'>
+      {files.length > 1 ? (
+        <button
+          type='button'
+          aria-label='Previous track'
+          class='inline-flex size-7 shrink-0 items-center justify-center rounded hover:bg-muted disabled:opacity-30'
+          disabled={index <= 0}
+          onClick={() => model.actions.step(-1)}
+        >
+          <SkipBack size={16} />
+        </button>
+      ) : null}
       <button
         type='button'
         aria-label={playing ? 'Pause' : 'Play'}
@@ -230,6 +279,17 @@ const Transport = view<{ model: Model; active: boolean }>((props) => {
       >
         {playing ? <Pause class='size-4 fill-current' /> : <Play class='size-4 fill-current' />}
       </button>
+      {files.length > 1 ? (
+        <button
+          type='button'
+          aria-label='Next track'
+          class='inline-flex size-7 shrink-0 items-center justify-center rounded hover:bg-muted disabled:opacity-30'
+          disabled={index < 0 || index >= files.length - 1}
+          onClick={() => model.actions.step(1)}
+        >
+          <SkipForward size={16} />
+        </button>
+      ) : null}
       <button
         type='button'
         aria-label={model.playback.muted ? 'Unmute' : 'Mute'}

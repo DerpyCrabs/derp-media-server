@@ -1,3 +1,5 @@
+import { createDesktopMediaFocus } from './media-focus'
+import { getPlaybackSession } from '@/features/playback/PlaybackProvider'
 import { fileJobs } from '@/features/explorer/file-jobs'
 import { Effect } from 'effect'
 import ClipboardPaste from '@effectweb/lucide/icons/clipboard-paste'
@@ -31,6 +33,7 @@ function desktopController() {
     status: {} as { pending?: boolean; error?: string },
     pickerRequest: undefined as PickerRequest | undefined,
   })
+  if (bridge) owner.own(createDesktopMediaFocus(getPlaybackSession()))
   const params = () => new URLSearchParams(owner.read().location.search)
   const picker = createPicker({
     request: () => owner.read().pickerRequest as PickerRequest | undefined,
@@ -268,6 +271,8 @@ export const DesktopPage = controllerView(
                   knowledgeBases={knowledgeBases()}
                   readerKind={readerKind()}
                   autoPlayVideo
+                  autoPlayAudio
+                  followAudioPlayback
                   showListenOnly={false}
                   onNavigateViewing={(path) => navigateSearchParams({ viewing: path }, 'replace')}
                   onClose={() => bridge?.close()}

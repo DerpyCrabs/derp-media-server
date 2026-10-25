@@ -78,7 +78,7 @@ A default applies to that MIME type everywhere. Paths outside the configured med
 - Dropping files onto a viewer opens each in a new window if it belongs to the library. Import outside files through a browser folder first.
 - Existing names are not overwritten. Imports stop on the first error; files already copied remain. Empty directories are preserved. Symbolic links and special files are not imported.
 
-PDF/book progress, existing settings, video controls, text editing, and server write restrictions are shared with the web app. No music-player window or audio file association is added.
+PDF/book progress, existing settings, video controls, text editing, and server write restrictions are shared with the web app. Audio files open in a native player window with folder queue, previous/next tracks, seeking, volume, playback speed, and system media-key integration through Media Session. Starting playback in another native window pauses the previous one. Audio MIME associations are included; choosing this app as the default remains optional.
 
 ## Validation
 

@@ -28,6 +28,8 @@ export type ViewerPaneProps = {
   onNavigateViewing: (path: string) => void
   onVideoMetadataLoaded?: (width: number, height: number) => void
   autoPlayVideo?: boolean
+  autoPlayAudio?: boolean
+  followAudioPlayback?: boolean
   showPlayback?: boolean
   presentation?: 'embedded' | 'modal'
   readerKind?: 'pdf' | 'folder' | 'book' | null
@@ -154,6 +156,8 @@ export const ViewerPane = controllerView(
             files={ordered}
             contentVisible={props.contentVisible}
             autoLoadPaused={props.autoPlayVideo === false}
+            autoPlay={props.autoPlayAudio}
+            followPlayback={props.followAudioPlayback}
             onNavigate={props.onNavigateViewing}
             onActivate={props.onAudioActivate}
           />

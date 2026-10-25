@@ -464,8 +464,6 @@ void Bridge::call(const QString &id, const QString &method, const QJsonArray &ar
                     return {{"path", ""}, {"isDirectory", true}, {"mediaType", "folder"}};
                 auto target = server.resolve(args[0].toString());
                 target["reader"] = args.size() > 1 && args[1].toBool();
-                if (target.value("mediaType") == "audio")
-                    throw std::runtime_error("Audio playback is not included yet");
                 return target;
             }
             if (method == "copy" || method == "cut" || method == "drag" || method == "open-drop") {

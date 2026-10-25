@@ -1,12 +1,12 @@
 [Desktop Entry]
 Type=Application
 Name=Derp Media Server
-Comment=Browse library folders and open images, videos, documents and books
+Comment=Browse library folders and open images, audio, videos, documents and books
 Exec=derp-media-client -- %U
 Icon=derp-media-client
 Terminal=false
-Categories=Utility;FileManager;Viewer;
-MimeType=inode/directory;image/jpeg;image/png;image/gif;image/webp;image/bmp;image/svg+xml;image/x-icon;video/mp4;video/webm;video/ogg;video/quicktime;video/x-msvideo;video/x-matroska;video/x-m4v;application/pdf;application/epub+zip;application/x-fictionbook+xml;text/plain;text/markdown;application/json;application/xml;text/csv;text/yaml;
+Categories=Utility;FileManager;Viewer;AudioVideo;Player;
+MimeType=inode/directory;audio/mpeg;audio/flac;audio/x-flac;audio/ogg;audio/opus;audio/wav;audio/x-wav;audio/mp4;audio/x-m4a;audio/aac;audio/webm;image/jpeg;image/png;image/gif;image/webp;image/bmp;image/svg+xml;image/x-icon;video/mp4;video/webm;video/ogg;video/quicktime;video/x-msvideo;video/x-matroska;video/x-m4v;application/pdf;application/epub+zip;application/x-fictionbook+xml;text/plain;text/markdown;application/json;application/xml;text/csv;text/yaml;
 StartupNotify=true
 StartupWMClass=derp-media-client
 Actions=NewWindow;

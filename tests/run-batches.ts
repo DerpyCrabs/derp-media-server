@@ -57,6 +57,7 @@ export const BATCHES = [
       'file-tools',
       'favorite-places',
       'desktop',
+      'desktop-audio',
       'desktop-mode',
       'desktop-trash',
       'effectweb-reactivity',
