@@ -99,6 +99,7 @@ export const BATCHES = [
       'pdf-viewer',
       'download',
       'text-editor',
+      'code-editor',
       'text-recovery',
       'knowledge-base',
       'drag-drop',

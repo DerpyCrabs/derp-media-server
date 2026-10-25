@@ -10,6 +10,8 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
 };
 
+pub(crate) const MAX_TEXT_BYTES: u64 = 16 * 1024 * 1024;
+
 pub(crate) struct FileMutation<'a> {
     state: &'a AppState,
 }
@@ -25,7 +27,6 @@ impl<'a> FileMutation<'a> {
 
     pub async fn read_file(&self, path: &str) -> AppResult<Vec<u8>> {
         let _guard = self.begin().await;
-        const MAX_TEXT_BYTES: u64 = 16 * 1024 * 1024;
         let full = resolve(self.state, path)?;
         let metadata = fs::metadata(&full).await.map_err(AppError::io)?;
         if !metadata.is_file() {

@@ -374,6 +374,7 @@ export const TextEditorPane = controllerView(
                 ) : null
               ) : (
                 <LazyPlainTextDocument
+                  path={props.viewingPath}
                   content={model.edit}
                   readOnly={!showEditor()}
                   code={ext() !== 'txt'}

@@ -1,7 +1,7 @@
 use crate::{
     app::{AppState, Shared, emit, list_directory, parent_logical, safe_upload_name},
     error::{AppError, AppResult},
-    file_mutation::{FileMutation, content_hash},
+    file_mutation::{FileMutation, MAX_TEXT_BYTES, content_hash},
     media,
 };
 use axum::{
@@ -325,6 +325,11 @@ async fn create(
         (Some(_), None) => Vec::new(),
         (None, None) => unreachable!(),
     };
+    if data.len() as u64 > MAX_TEXT_BYTES {
+        return Err(AppError::bad(
+            "Files edited as text must be no larger than 16 MiB. Use file upload for larger files.",
+        ));
+    }
     FileMutation::new(&state)
         .create_file(&body.path, &data)
         .await?;
@@ -358,6 +363,11 @@ async fn edit(State(state): State<Shared>, Json(body): Json<EditBody>) -> AppRes
         (Some(_), None) => Vec::new(),
         (None, None) => unreachable!(),
     };
+    if data.len() as u64 > MAX_TEXT_BYTES {
+        return Err(AppError::bad(
+            "Files edited as text must be no larger than 16 MiB. Use file upload for larger files.",
+        ));
+    }
     let version = FileMutation::new(&state)
         .edit_file(
             &body.path,
@@ -658,8 +668,14 @@ pub fn router() -> Router<Shared> {
         .route("/api/files", get(list))
         .route("/api/files/hidden", get(hidden))
         .route("/api/files/text", get(text_document))
-        .route("/api/files/create", post(create))
-        .route("/api/files/edit", post(edit))
+        .route(
+            "/api/files/create",
+            post(create).layer(DefaultBodyLimit::max(MAX_TEXT_BYTES as usize * 6 + 65536)),
+        )
+        .route(
+            "/api/files/edit",
+            post(edit).layer(DefaultBodyLimit::max(MAX_TEXT_BYTES as usize * 6 + 65536)),
+        )
         .route("/api/files/delete", post(delete))
         .route("/api/files/rename", post(rename))
         .route("/api/files/copy", post(copy))
@@ -693,6 +709,7 @@ mod integrity_tests {
     ) -> Response {
         router()
             .merge(crate::routes::media::router())
+            .layer(DefaultBodyLimit::max(1_048_576))
             .with_state(app.state.clone())
             .oneshot(
                 Request::builder()
@@ -704,6 +721,46 @@ mod integrity_tests {
             )
             .await
             .unwrap()
+    }
+
+    #[tokio::test]
+    async fn text_routes_save_large_documents_and_reject_oversized_edits_without_replacing_files() {
+        let app = TestApp::new();
+        let original = "line with text\r\n".repeat(150_000);
+        let response = request(
+            &app,
+            "POST",
+            "/api/files/create",
+            Body::from(json!({"path":"large.txt", "content":original}).to_string()),
+            "application/json",
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let changed = format!("{original}end\r\n");
+        let response = request(&app, "POST", "/api/files/edit",
+            Body::from(json!({"path":"large.txt", "content":changed, "expectedHash":content_hash(original.as_bytes())}).to_string()), "application/json").await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            std::fs::read(app.media.join("large.txt")).unwrap(),
+            changed.as_bytes()
+        );
+        let oversized = "x".repeat(MAX_TEXT_BYTES as usize + 1);
+        for (route, path) in [("edit", "large.txt"), ("create", "oversized.txt")] {
+            let response = request(
+                &app,
+                "POST",
+                &format!("/api/files/{route}"),
+                Body::from(json!({"path":path, "content":oversized}).to_string()),
+                "application/json",
+            )
+            .await;
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
+        assert_eq!(
+            std::fs::read(app.media.join("large.txt")).unwrap(),
+            changed.as_bytes()
+        );
+        assert!(!app.media.join("oversized.txt").exists());
     }
 
     fn multipart(target: &str, files: &[(&str, &[u8])], complete: bool) -> Vec<u8> {

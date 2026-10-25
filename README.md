@@ -291,6 +291,7 @@ require desktop mode.
   synced to other devices, and are lost if browser site data is cleared.
   Original line endings, including mixed endings, are retained through edits and undo.
   Markdown documents also support **Ctrl/Cmd+F** search and replacement when editable.
+- **Code and configuration files:** syntax highlighting loads on demand for JSON, TOML, YAML, INI, shell, Python, Rust, C/C++, JavaScript/TypeScript, HTML/CSS/XML and SQL. File names and executable shebangs select the language automatically. The bottom status bar shows cursor position and line endings; click it to choose a language, tabs/spaces, or line numbers. Existing indentation and line endings are preserved. Display choices are remembered in this browser; language and indentation overrides apply to the current document. Code blocks can be folded from the gutter. Highlighting is disabled above 2 MiB; text viewing and saving support files up to 16 MiB. These controls follow [Kate’s per-document language and indentation settings](https://docs.kde.org/stable_kf6/en/kate/katepart/tools-menu.html).
 - **PDF, EPUB and FB2:** the magnifying glass or **Ctrl/Cmd+F** searches the document, including
   pages and chapters not currently rendered. Enter/Shift+Enter and the arrow buttons move through
   matches; Escape closes search before closing the document. Search shows snippets and highlights
