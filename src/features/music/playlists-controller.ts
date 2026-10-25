@@ -1,3 +1,9 @@
+import { configQuery } from '@/lib/api/queries'
+import { apiEffect } from '@/lib/api/client'
+import { downloadBlob } from '@/lib/files/download-blob'
+import { nativeDownload } from '@/lib/browser/native-download'
+import { fileNameFromPath, parentPath } from '@/lib/files/path-utils'
+import { exportM3u, serverPlaylist } from './playlist-interchange'
 import { Effect, Schema } from 'effect'
 import { available, modelOwner } from 'effectweb'
 import { observeQuery } from '@effectweb/query'
@@ -32,6 +38,10 @@ export function playlistsController(props: { request: PlaylistRequest }) {
     loading: false,
     pending: false,
     error: '',
+    importing: !!props.request.importSource,
+    exporting: false,
+    exportError: '',
+    folders: [] as readonly string[],
     form: null as PlaylistForm | null,
     confirmDelete: false,
     searchOpen: false,
@@ -43,6 +53,10 @@ export function playlistsController(props: { request: PlaylistRequest }) {
     selected: [] as string[],
     limit: 100,
   })
+  const config = observeQuery(owner, queryCache, configQuery, (result) =>
+    owner.patch({ folders: available(result)?.editableFolders ?? [] }),
+  )
+  config.select(true)
   const list = observeQuery(owner, queryCache, playlistsQuery, (result) => {
     owner.patch({
       items: available(result)?.items ?? [],
@@ -71,6 +85,7 @@ export function playlistsController(props: { request: PlaylistRequest }) {
   function select(id: string) {
     owner.patch({
       id,
+      importing: false,
       limit: 100,
       playlist: null,
       error: '',
@@ -137,9 +152,79 @@ export function playlistsController(props: { request: PlaylistRequest }) {
     owner.patch({ query: q, offset, searching: true, error: '' })
     search.select({ q, offset })
   }
+  function exportPlaylist(path: string, format = 'server', download = false) {
+    const { playlist, pending } = owner.read()
+    if (!playlist || pending) return
+    owner.patch({ pending: true, exportError: '' })
+    owner.run(
+      'export',
+      Effect.gen(function* () {
+        let content: string
+        if (format === 'local') {
+          const response = yield* apiSchemaEffect(
+            Schema.Struct({
+              name: Schema.String,
+              entries: Schema.Array(
+                Schema.Struct({
+                  path: Schema.String,
+                  url: Schema.String,
+                  title: Schema.String,
+                  duration: Schema.Number,
+                }),
+              ),
+            }),
+            `/api/music/playlists/${encodeURIComponent(playlist.id)}/export`,
+          )
+          content = exportM3u(response.name, response.entries)
+        } else content = serverPlaylist(playlist.name, playlist.items, window.location.origin)
+        const blob = new Blob([content], { type: 'audio/x-mpegurl;charset=utf-8' })
+        if (download && window.derpDesktop?.downloadBlob) {
+          const saved = yield* nativeDownload(blob, path)
+          owner.patch({ pending: false, exporting: !saved })
+          return
+        }
+        if (download) downloadBlob(blob, path)
+        else {
+          const data = new FormData()
+          data.append('targetDir', parentPath(path))
+          data.append('file', blob, fileNameFromPath(path))
+          yield* apiEffect('/api/files/upload?create_only=true', { method: 'POST', body: data })
+          queryCache.invalidateGroup(groups.files)
+        }
+        owner.patch({ pending: false, exporting: false })
+        notifyMusic('Playlist exported')
+      }).pipe(
+        Effect.catch((error) =>
+          Effect.sync(() =>
+            owner.patch({
+              pending: false,
+              exportError:
+                error instanceof Error ? error.message : 'Could not export this playlist.',
+            }),
+          ),
+        ),
+      ),
+      'drop',
+    )
+  }
   return {
     source: owner.source,
     lifetime: owner,
+    importPlaylist: () => owner.patch({ importing: true, error: '', form: null }),
+    closeImport: () => {
+      if (!owner.read().pending) owner.patch({ importing: false })
+    },
+    importBusy: (pending: boolean) => owner.patch({ pending }),
+    imported: (id: string) => {
+      select(id)
+      notifyMusic('Playlist imported')
+    },
+    openExport: () => owner.patch({ exporting: true, exportError: '' }),
+    closeExport: () => {
+      if (!owner.read().pending) owner.patch({ exporting: false })
+    },
+    exportPlaylist,
+    downloadPlaylist: (name: string, format?: string) => exportPlaylist(name, format, true),
     more: () => owner.patch({ limit: owner.read().limit + 100 }),
     close: () => {
       if (!owner.read().pending) closePlaylists()

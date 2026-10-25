@@ -81,6 +81,7 @@ export const BATCHES = [
       'audio-player',
       'music-listening',
       'music-playlists',
+      'playlist-interchange',
       'media-ai',
       'media-ai-video',
       'file-display-settings',

@@ -1,3 +1,4 @@
+import { openPlaylistImport } from '@/features/music/actions'
 import { LazyTableDocument } from '@/features/table/LazyTableDocument'
 import { LazyPlainTextDocument } from '@/lib/editor/LazyPlainTextDocument'
 import { getMediaExtensionFromPath } from '@/lib/media/media-utils'
@@ -115,6 +116,15 @@ export const TextEditorPane = controllerView(
                 : 'flex flex-wrap items-center gap-2'
             }
           >
+            {['m3u', 'm3u8', 'pls', 'xspf'].includes(ext()) ? (
+              <button
+                class='rounded-md px-2 py-1 text-sm hover:bg-muted disabled:opacity-40'
+                disabled={model.loading || !!model.loadError}
+                onClick={() => openPlaylistImport(props.viewingPath, model.edit)}
+              >
+                Import playlist…
+              </button>
+            ) : null}
             {isTable() ? (
               <div class='flex rounded-md border border-border p-0.5' aria-label='Document view'>
                 <button

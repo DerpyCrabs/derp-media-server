@@ -59,6 +59,8 @@ export function detectCodeLanguage(path: string, content = ''): CodeLanguage {
     mts: 'typescript',
     cts: 'typescript',
     xml: 'xml',
+    xspf: 'xml',
+    pls: 'ini',
     svg: 'xml',
     xsl: 'xml',
     yaml: 'yaml',

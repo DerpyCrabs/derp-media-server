@@ -1,3 +1,6 @@
+import { PlaylistImport } from './PlaylistImport'
+import { SaveFileDialog } from '@/features/explorer/SaveFileDialog'
+import { playlistFilename } from './playlist-interchange'
 import { controllerView, domBinding, list, Portal, view } from 'effectweb'
 import X from '@effectweb/lucide/icons/x'
 import ArrowLeft from '@effectweb/lucide/icons/arrow-left'
@@ -22,13 +25,19 @@ function focusContent(element: HTMLDivElement) {
   }
 }
 export const PlaylistDialog = controllerView(
-  { controller: playlistsController, identity: (props) => JSON.stringify(props.request) },
+  { controller: playlistsController, identity: (props) => props.request },
   view((model) => {
     const controller = model.actions
     const { request, playlist, form, pending, loading, searchOpen } = model
     const busy = pending || loading
     const adding = request.paths.length > 0
-    const focusKey = form ? 'form' : searchOpen ? 'search' : `${model.id}:${!!playlist}`
+    const focusKey = model.importing
+      ? 'import'
+      : form
+        ? 'form'
+        : searchOpen
+          ? 'search'
+          : `${model.id}:${!!playlist}`
     return (
       <Portal>
         <div
@@ -42,10 +51,12 @@ export const PlaylistDialog = controllerView(
             role='dialog'
             aria-modal='true'
             aria-label='Playlists'
+            inert={model.exporting ? true : undefined}
             use={modalFocus({
               onEscape: () => {
-                if (pending) return
-                if (form) controller.cancelForm()
+                if (pending || model.exporting) return
+                if (model.importing) controller.closeImport()
+                else if (form) controller.cancelForm()
                 else if (searchOpen) controller.closeSearch()
                 else controller.close()
               },
@@ -64,13 +75,15 @@ export const PlaylistDialog = controllerView(
                 </button>
               ) : null}
               <h2 class='min-w-0 flex-1 truncate text-lg font-semibold'>
-                {form
-                  ? form.original
-                    ? 'Edit playlist'
-                    : 'New playlist'
-                  : searchOpen
-                    ? 'Add songs'
-                    : (playlist?.name ?? (adding ? 'Add to playlist' : 'Playlists'))}
+                {model.importing
+                  ? 'Import playlist'
+                  : form
+                    ? form.original
+                      ? 'Edit playlist'
+                      : 'New playlist'
+                    : searchOpen
+                      ? 'Add songs'
+                      : (playlist?.name ?? (adding ? 'Add to playlist' : 'Playlists'))}
               </h2>
               <button
                 class={button}
@@ -93,7 +106,14 @@ export const PlaylistDialog = controllerView(
                   </button>
                 </div>
               ) : null}
-              {form ? (
+              {model.importing ? (
+                <PlaylistImport
+                  source={request.importSource}
+                  onBusy={controller.importBusy}
+                  onSaved={controller.imported}
+                  onClose={controller.closeImport}
+                />
+              ) : form ? (
                 <form
                   class='space-y-4'
                   onSubmit={(event) => {
@@ -321,6 +341,13 @@ export const PlaylistDialog = controllerView(
                           Edit playlist
                         </button>
                         <button
+                          class={button}
+                          disabled={busy || !playlist.items.length}
+                          onClick={controller.openExport}
+                        >
+                          Export…
+                        </button>
+                        <button
                           class={`${button} ml-auto text-muted-foreground`}
                           disabled={busy}
                           onClick={() => controller.confirmDelete(true)}
@@ -389,9 +416,20 @@ export const PlaylistDialog = controllerView(
                         ? `${request.paths.length} songs selected`
                         : 'Saved songs, in your order'}
                     </p>
-                    <button class={primary} disabled={pending} onClick={controller.create}>
-                      New playlist
-                    </button>
+                    <div class='flex shrink-0 gap-1'>
+                      {!adding ? (
+                        <button
+                          class={button}
+                          disabled={pending}
+                          onClick={controller.importPlaylist}
+                        >
+                          Import…
+                        </button>
+                      ) : null}
+                      <button class={primary} disabled={pending} onClick={controller.create}>
+                        New playlist
+                      </button>
+                    </div>
                   </div>
                   {model.listLoading && !model.items.length ? (
                     <p role='status' class='py-8 text-sm text-muted-foreground'>
@@ -447,6 +485,31 @@ export const PlaylistDialog = controllerView(
               </div>
             ) : null}
           </div>
+          {model.exporting && playlist ? (
+            <SaveFileDialog
+              title='Export playlist'
+              suggestedPath={playlistFilename(playlist.name)}
+              editableFolders={model.folders}
+              formats={[
+                {
+                  value: 'server',
+                  extension: 'm3u8',
+                  label: 'Server URLs · other players and computers',
+                },
+                {
+                  value: 'local',
+                  extension: 'm3u8',
+                  label: 'Local files · on the server computer',
+                },
+              ]}
+              description='Server URLs need this server to stay reachable. Local files work on the computer where the music is stored. Automatic playlists export their current songs.'
+              pending={pending}
+              error={model.exportError}
+              onConfirm={controller.exportPlaylist}
+              onDownload={controller.downloadPlaylist}
+              onClose={controller.closeExport}
+            />
+          ) : null}
         </div>
       </Portal>
     )

@@ -101,7 +101,12 @@ pub(super) fn matches(track: &Track, rules: &Rules, now: i64) -> bool {
             || now - track.last_played >= i64::from(rules.not_played_days) * 86_400_000)
 }
 
-fn document(state: &Shared, c: &Connection, id: &str, all: &[Track]) -> AppResult<Value> {
+pub(super) fn document(
+    state: &Shared,
+    c: &Connection,
+    id: &str,
+    all: &[Track],
+) -> AppResult<Value> {
     let entry: Option<(String, Option<String>, i64, i64, i64)> = c
         .query_row(
             "SELECT name,rules,created_at,updated_at,last_played FROM music_playlists WHERE id=?1",
