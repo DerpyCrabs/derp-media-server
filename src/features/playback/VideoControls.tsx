@@ -1,3 +1,5 @@
+import { decodeSubtitleFile, MAX_SUBTITLE_BYTES } from './local-subtitles'
+import { randomId } from '@/lib/random-id'
 import { list } from 'effectweb'
 import { playbackStatusSchema } from './playback-schemas'
 import { Schema, Option } from 'effect'
@@ -37,7 +39,7 @@ import {
   type VideoPreferences,
   type VideoTrack,
 } from './video-source'
-import { parseSubtitles, subtitleText } from './subtitles'
+import { parseSubtitles, subtitleText, type SubtitleCue } from './subtitles'
 import { PlaybackSetting } from './PlaybackSetting'
 import { playbackItemFromPath } from './items'
 import { PlaybackScrubber } from './create-playback-scrubber'
@@ -60,14 +62,19 @@ function trackLabel(track: VideoTrack): string {
     track.title || `Track ${(track.index ?? 0) + 1}`,
     track.codec.toUpperCase(),
     !track.supported ? '(unsupported)' : '',
+    track.id.startsWith('local:') ? 'Local file' : '',
   ]
     .filter(Boolean)
     .join(' · ')
 }
+type SubtitleKind = 'subtitleTrack' | 'secondarySubtitleTrack'
+type LocalSubtitle = VideoTrack & { cues: SubtitleCue[] }
 const hideSlot = 'video-controls-hide'
 const fullscreenSlot = 'video-fullscreen'
 function controlsController(props: Props) {
   const session = getPlaybackSession()
+  let subtitleInput: HTMLInputElement | undefined
+  let importKind: SubtitleKind = 'subtitleTrack'
   let previousPath = '',
     previousAudio: string | undefined,
     hideKey = ''
@@ -80,6 +87,10 @@ function controlsController(props: Props) {
     focused: false,
     scrubbing: false,
     uiError: '',
+    localSubtitles: [] as LocalSubtitle[],
+    localSelection: {} as Partial<Record<SubtitleKind, string>>,
+    subtitleLoading: false,
+    subtitleError: '',
     settingsAnchor: null as HTMLButtonElement | null,
     width: 0,
     container: undefined as HTMLElement | undefined,
@@ -108,6 +119,71 @@ function controlsController(props: Props) {
     )
   }
   const actions = {
+    attachSubtitleInput: (input: HTMLInputElement | undefined) => {
+      subtitleInput = input
+    },
+    openSubtitle: (kind: SubtitleKind) => {
+      importKind = kind
+      if (subtitleInput) {
+        subtitleInput.value = ''
+        subtitleInput.click()
+      }
+    },
+    importSubtitle: (file: File | undefined) => {
+      if (!file) return
+      const kind = importKind,
+        path = owner.read().props.path
+      owner.patch({ subtitleLoading: true, subtitleError: '' })
+      owner.run(
+        'local-subtitle',
+        Effect.gen(function* () {
+          if (file.size > MAX_SUBTITLE_BYTES)
+            return yield* Effect.fail(new Error('Subtitle files must be smaller than 4 MiB.'))
+          const bytes = yield* Effect.tryPromise(() => file.arrayBuffer())
+          const cues = yield* Effect.try({
+            try: () => decodeSubtitleFile(new Uint8Array(bytes), file.name),
+            catch: (error) => error,
+          })
+          if (owner.read().props.path !== path) return undefined
+          const state = owner.read(),
+            existing = state.localSubtitles.find((track) => track.title === file.name)
+          const track: LocalSubtitle = {
+            id: existing?.id ?? `local:${randomId()}`,
+            index: null,
+            codec: file.name.split('.').at(-1)!.toLowerCase(),
+            language: 'und',
+            title: file.name,
+            supported: true,
+            default: false,
+            cues,
+          }
+          const tracks = state.localSubtitles.filter((item) => item.id !== track.id)
+          if (tracks.length >= 8)
+            return yield* Effect.fail(
+              new Error(
+                'Up to eight local subtitle files can be open for one video. Close and reopen the video to start over.',
+              ),
+            )
+          owner.patch({
+            localSubtitles: [...tracks, track],
+            localSelection: { ...state.localSelection, [kind]: track.id },
+            subtitleLoading: false,
+          })
+          return undefined
+        }).pipe(
+          Effect.catch((error) =>
+            Effect.sync(() =>
+              owner.patch({
+                subtitleLoading: false,
+                subtitleError:
+                  error instanceof Error ? error.message : 'Could not read the subtitle file.',
+              }),
+            ),
+          ),
+        ),
+        'replace',
+      )
+    },
     reveal: () => reveal(),
     toggle: () => {
       const current = owner.read()
@@ -194,6 +270,16 @@ function controlsController(props: Props) {
       void save({ speed })
     },
     track: (kind: 'audioTrack' | 'subtitleTrack' | 'secondarySubtitleTrack', value: string) => {
+      if (kind !== 'audioTrack') {
+        const selected = owner.read().localSubtitles.find((track) => track.id === value)
+        const localSelection = { ...owner.read().localSelection }
+        if (selected) {
+          owner.patch({ localSelection: { ...localSelection, [kind]: value }, subtitleError: '' })
+          return
+        }
+        delete localSelection[kind]
+        owner.patch({ localSelection, subtitleError: '' })
+      }
       const current = owner.read(),
         tracks = kind === 'audioTrack' ? current.info?.audio : current.info?.subtitles
       const selected = tracks?.find((track) => track.id === value)
@@ -272,6 +358,15 @@ function controlsController(props: Props) {
     source: owner.source,
     ...actions,
     receive: (next: Props) => {
+      if (next.path !== owner.read().props.path) {
+        owner.cancel('local-subtitle')
+        owner.patch({
+          localSubtitles: [],
+          localSelection: {},
+          subtitleError: '',
+          subtitleLoading: false,
+        })
+      }
       owner.patch({ props: next })
       info.select(next.path || undefined)
       preferences.select(next.path || undefined)
@@ -420,6 +515,13 @@ const controlsBehavior = (_element: HTMLSpanElement, current: () => ControlsMode
   attach()
   return { update: attach, dispose: () => cleanup?.() }
 }
+const subtitleInputBinding = (
+  element: HTMLInputElement,
+  current: () => (input: HTMLInputElement | undefined) => void,
+) => {
+  current()(element)
+  return { update: () => undefined, dispose: () => current()(undefined) }
+}
 export const VideoControls = controllerView(
   { controller: controlsController },
   view((model) => {
@@ -431,18 +533,23 @@ export const VideoControls = controllerView(
         model.preferences?.global.audioLanguage,
         true,
       )
+    const local = (kind: SubtitleKind) =>
+      model.localSubtitles.find((track) => track.id === model.localSelection[kind])
     const primary = () =>
+      local('subtitleTrack') ??
       preferredTrack(
         model.info?.subtitles ?? [],
         model.preferences?.video.subtitleTrack,
         model.preferences?.global.subtitleLanguage,
       )
     const secondary = () => {
-      const track = preferredTrack(
-        model.info?.subtitles ?? [],
-        model.preferences?.video.secondarySubtitleTrack,
-        model.preferences?.global.secondarySubtitleLanguage,
-      )
+      const track =
+        local('secondarySubtitleTrack') ??
+        preferredTrack(
+          model.info?.subtitles ?? [],
+          model.preferences?.video.secondarySubtitleTrack,
+          model.preferences?.global.secondarySubtitleLanguage,
+        )
       return track?.id === primary()?.id ? undefined : track
     }
     const duration = () => (props.active ? model.playback.duration : 0) || model.info?.duration || 0
@@ -465,6 +572,14 @@ export const VideoControls = controllerView(
     return (
       <>
         <span class='hidden' use={domBinding(model, controlsBehavior)} />
+        <input
+          type='file'
+          class='hidden'
+          aria-label='Open subtitle file'
+          accept='.srt,.vtt'
+          use={domBinding(model.actions.attachSubtitleInput, subtitleInputBinding)}
+          onChange={(event) => model.actions.importSubtitle(event.currentTarget.files?.[0])}
+        />
         <div
           class='pointer-events-none absolute inset-x-3 z-10 flex flex-col items-center gap-1 text-center font-medium text-white'
           style={{
@@ -478,6 +593,7 @@ export const VideoControls = controllerView(
             <VideoSubtitleLine
               path={props.path}
               track={secondary()!}
+              localCues={local('secondarySubtitleTrack')?.cues}
               fingerprint={model.info?.fingerprint}
               position={position() - (model.preferences?.video.subtitleDelay ?? 0)}
               secondary
@@ -487,6 +603,7 @@ export const VideoControls = controllerView(
             <VideoSubtitleLine
               path={props.path}
               track={primary()!}
+              localCues={local('subtitleTrack')?.cues}
               fingerprint={model.info?.fingerprint}
               position={position() - (model.preferences?.video.subtitleDelay ?? 0)}
             />
@@ -596,17 +713,33 @@ export const VideoControls = controllerView(
                       mount={fullscreen ? model.container : undefined}
                       options={[
                         { value: '', label: 'Off' },
-                        ...(model.info?.subtitles ?? []).map((track) => ({
-                          value: track.id,
-                          label: trackLabel(track),
-                          disabled: !track.supported,
-                        })),
+                        ...[...(model.info?.subtitles ?? []), ...model.localSubtitles].map(
+                          (track) => ({
+                            value: track.id,
+                            label: trackLabel(track),
+                            disabled: !track.supported,
+                          }),
+                        ),
                       ]}
-                      disabled={model.saved.waiting}
+                      disabled={model.saved.waiting || model.subtitleLoading}
+                      action={{
+                        label: 'Open subtitle file…',
+                        onClick: () => model.actions.openSubtitle(kind),
+                      }}
                       onChange={(value) => chooseTrack(kind, value)}
                     />
                   </label>
                 ))}
+                {model.subtitleError ? (
+                  <p role='alert' class='text-xs text-destructive'>
+                    {model.subtitleError}
+                  </p>
+                ) : null}
+                {model.subtitleLoading ? (
+                  <p role='status' class='text-xs text-muted-foreground'>
+                    Opening subtitles…
+                  </p>
+                ) : null}
                 {primary() || secondary() ? (
                   <label class='block space-y-1 text-xs'>
                     <span>Subtitle delay (seconds)</span>
@@ -733,6 +866,7 @@ export const VideoControls = controllerView(
 type SubtitleProps = {
   path: string
   track: VideoTrack
+  localCues?: readonly SubtitleCue[]
   fingerprint?: string
   position: number
   secondary?: boolean
@@ -766,12 +900,18 @@ const subtitlesQuery = query({
 const VideoSubtitleLine = controllerView(
   {
     controller: (props: SubtitleProps) => {
-      const owner = modelOwner({ props, cues: [] as ReturnType<typeof parseSubtitles>, error: '' })
+      const owner = modelOwner({ props, cues: [] as readonly SubtitleCue[], error: '' })
       const resource = observeQuery(owner, queryCache, subtitlesQuery, (result) =>
         owner.patch({ cues: available(result) ?? [], error: resourceError(result) }),
       )
-      const select = (next: SubtitleProps) =>
-        resource.select({ path: next.path, fingerprint: next.fingerprint, track: next.track.id })
+      const select = (next: SubtitleProps) => {
+        resource.select(
+          next.localCues
+            ? undefined
+            : { path: next.path, fingerprint: next.fingerprint, track: next.track.id },
+        )
+        if (next.localCues) owner.patch({ cues: next.localCues, error: '' })
+      }
       select(props)
       return {
         source: owner.source,
@@ -784,7 +924,7 @@ const VideoSubtitleLine = controllerView(
     },
   },
   view((model) => {
-    const text = subtitleText([...model.cues], model.props.position)
+    const text = subtitleText(model.cues, model.props.position)
     return (
       <>
         {text ? (

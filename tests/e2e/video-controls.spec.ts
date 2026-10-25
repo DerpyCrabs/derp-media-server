@@ -809,3 +809,70 @@ test('seeking to the end of a compatibility stream settles and can seek back', a
     .poll(() => video.evaluate((element: HTMLVideoElement) => element.currentTime))
     .toBeGreaterThan(0.2)
 })
+
+test('local subtitle files use existing track menus, support two languages and do not change server preferences', async ({
+  page,
+  request,
+}) => {
+  const video = await openVideo(page)
+  await video.evaluate((element: HTMLVideoElement) => element.pause())
+  await settings(page)
+  const load = async (label: string, name: string, text: string) => {
+    await page.getByRole('button', { name: label, exact: true }).click()
+    const selecting = page.waitForEvent('filechooser')
+    await page.getByRole('menuitem', { name: 'Open subtitle file…', exact: true }).click()
+    await (
+      await selecting
+    ).setFiles({
+      name,
+      mimeType: 'text/plain',
+      buffer: Buffer.from(`1\n00:00:00,000 --> 00:00:20,000\n${text}\n`),
+    })
+  }
+  await load('Subtitles', 'unrelated-name.srt', 'Local English')
+  await load('Second subtitles', 'another-name.srt', 'Локальные субтитры')
+  await expect(page.getByTestId('video-subtitle-primary')).toHaveText('Local English')
+  await expect(page.getByTestId('video-subtitle-secondary')).toHaveText('Локальные субтитры')
+  const preferences = await (
+    await request.get(`${baseUrl}/api/playback/preferences?path=sample.mkv`)
+  ).json()
+  expect(preferences.video.subtitleTrack).toBeNull()
+  expect(preferences.video.secondarySubtitleTrack).toBeNull()
+  await chooseSetting(page, 'Subtitles', 'Off')
+  await expect(page.getByTestId('video-subtitle-primary')).toHaveCount(0)
+  await expect(page.getByTestId('video-subtitle-secondary')).toHaveText('Локальные субтитры')
+  await chooseSetting(page, 'Subtitles', /unrelated-name.srt/)
+  await expect(page.getByTestId('video-subtitle-primary')).toHaveText('Local English')
+  await page.getByRole('spinbutton', { name: 'Subtitle delay (seconds)' }).fill('5')
+  await page.getByRole('spinbutton', { name: 'Subtitle delay (seconds)' }).press('Enter')
+  await expect(page.getByTestId('video-subtitle-primary')).toHaveCount(0)
+  await expect.poll(() => video.evaluate((element: HTMLVideoElement) => element.paused)).toBe(true)
+})
+
+test('invalid local subtitles preserve the active track and can be replaced without restarting video', async ({
+  page,
+}) => {
+  const video = await openVideo(page)
+  await video.evaluate((element: HTMLVideoElement) => {
+    element.pause()
+    element.currentTime = 1
+  })
+  await settings(page)
+  await chooseSetting(page, 'Subtitles', /^ENG.*SUBRIP/)
+  await expect(page.getByTestId('video-subtitle-primary')).toHaveText('Hello & welcome')
+  const input = page.getByLabel('Open subtitle file', { exact: true })
+  await input.setInputFiles({
+    name: 'broken.srt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('not subtitles'),
+  })
+  await expect(page.getByRole('alert')).toContainText('No readable subtitle cues')
+  await expect(page.getByTestId('video-subtitle-primary')).toHaveText('Hello & welcome')
+  await input.setInputFiles({
+    name: 'valid.vtt',
+    mimeType: 'text/vtt',
+    buffer: Buffer.from('WEBVTT\n\n00:00.000 --> 00:20.000\n<b>Recovered</b> &amp; readable\n'),
+  })
+  await expect(page.getByTestId('video-subtitle-primary')).toHaveText('Recovered & readable')
+  await expect(page.getByRole('alert')).toHaveCount(0)
+})

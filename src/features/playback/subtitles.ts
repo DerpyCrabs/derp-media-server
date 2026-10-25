@@ -32,11 +32,26 @@ export function parseSubtitles(vtt: string): SubtitleCue[] {
   return cues.sort((left, right) => left.start - right.start)
 }
 
+const endIndexes = new WeakMap<readonly SubtitleCue[], readonly number[]>()
 export function subtitleText(cues: readonly SubtitleCue[], position: number): string {
+  if (!Number.isFinite(position) || !cues.length) return ''
+  let ends = endIndexes.get(cues)
+  if (!ends) {
+    let maximum = 0
+    ends = cues.map((cue) => (maximum = Math.max(maximum, cue.end)))
+    endIndexes.set(cues, ends)
+  }
+  let low = 0,
+    high = cues.length
+  while (low < high) {
+    const mid = (low + high) >>> 1
+    if (cues[mid]!.start <= position) low = mid + 1
+    else high = mid
+  }
   const text: string[] = []
-  for (const cue of cues) {
-    if (cue.start > position) break
+  for (let index = low - 1; index >= 0 && ends[index]! > position; index--) {
+    const cue = cues[index]!
     if (position < cue.end) text.push(cue.text)
   }
-  return text.join('\n')
+  return text.reverse().join('\n')
 }

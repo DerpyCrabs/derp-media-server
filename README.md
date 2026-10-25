@@ -301,7 +301,7 @@ require desktop mode.
   Left/Right for five-second seeking, J/L for ten-second seeking, and M for mute.
 - **Video:** when subtitles are enabled, playback settings offer a per-file subtitle delay in
   seconds, synchronized through the server. Positive values display subtitles later; 0 resets
-  the correction. Playback position and the media file are unchanged.
+  the correction. Playback position and the media file are unchanged. Each subtitle track menu also offers **Open subtitle file…** for local SRT/WebVTT files, including UTF-8 and BOM-marked UTF-16. These files stay in the current viewer session and are never uploaded; up to eight files (4 MiB and 50,000 cues each) can be loaded, selected or turned off. Loading a broken file preserves the previous track. This follows the explicit subtitle-file workflow in [VLC](https://docs.videolan.me/vlc-user/desktop/3.0/en/basic/subtitles.html) and [mpv](https://mpv.io/manual/stable/#command-interface-sub-add).
 
 PDF links work directly on the page: internal and named destinations navigate within the reader without changing its zoom; external links open separately. Image-region selection temporarily disables links so dragging a region does not open one.
 

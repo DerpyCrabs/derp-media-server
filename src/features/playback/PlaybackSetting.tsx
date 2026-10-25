@@ -10,6 +10,7 @@ type Props = {
   options: readonly Option[]
   disabled?: boolean
   mount?: HTMLElement
+  action?: { label: string; onClick: () => void }
   onChange: (value: string) => void
 }
 const focusSelected = domMount((element: HTMLDivElement) => {
@@ -107,6 +108,19 @@ export const PlaybackSetting = component<
                 {option.value === props.value ? <Check class='h-4 w-4 shrink-0' /> : null}
               </button>
             ))}
+            {props.action ? (
+              <button
+                type='button'
+                role='menuitem'
+                class='mt-1 w-full border-t border-border px-2 py-2 text-left text-sm hover:bg-accent focus-visible:bg-accent'
+                onClick={() => {
+                  close()
+                  props.action?.onClick()
+                }}
+              >
+                {props.action.label}
+              </button>
+            ) : null}
           </div>
         </FloatingContextMenu>
       </>
