@@ -32,6 +32,7 @@ export type VideoInfo = {
   } | null
   audio: VideoTrack[]
   subtitles: VideoTrack[]
+  chapters?: { start: number; title: string }[]
   allowVideoTranscoding: boolean
 }
 

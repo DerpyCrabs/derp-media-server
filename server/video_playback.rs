@@ -54,7 +54,7 @@ impl PlaybackRuntime {
         }
         let output = tokio::time::timeout(Duration::from_secs(20), Command::new("ffprobe")
             .args(["-v", "error", "-protocol_whitelist", "file,pipe", "-show_entries",
-                "format=format_name,duration,bit_rate:stream=index,codec_name,codec_type,profile,level,codec_tag_string,pix_fmt,width,height,r_frame_rate,bit_rate,sample_rate,channels,color_transfer,color_primaries,color_space,color_range:stream_tags=language,title:stream_disposition=default,forced,attached_pic",
+                "format=format_name,duration,bit_rate:stream=index,codec_name,codec_type,profile,level,codec_tag_string,pix_fmt,width,height,r_frame_rate,bit_rate,sample_rate,channels,color_transfer,color_primaries,color_space,color_range:stream_tags=language,title:stream_disposition=default,forced,attached_pic:chapter=start_time:chapter_tags=title",
                 "-of", "json"])
             .arg(full).kill_on_drop(true).output()).await
             .map_err(|_| AppError::internal("Media inspection timed out"))?
@@ -239,6 +239,49 @@ struct PathQuery {
     path: String,
 }
 
+#[derive(Clone, Serialize)]
+struct Chapter {
+    start: f64,
+    title: String,
+}
+
+fn chapters(probe: &Value) -> Vec<Chapter> {
+    let duration = number(&probe["format"]["duration"]);
+    let mut result: Vec<Chapter> = probe["chapters"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .take(10_000)
+        .enumerate()
+        .filter_map(|(index, chapter)| {
+            let start = chapter["start_time"]
+                .as_f64()
+                .or_else(|| chapter["start_time"].as_str()?.parse().ok())?;
+            if !start.is_finite() || start < 0.0 || (duration > 0.0 && start >= duration) {
+                return None;
+            }
+            let title: String = chapter["tags"]["title"]
+                .as_str()
+                .unwrap_or("")
+                .trim()
+                .chars()
+                .take(512)
+                .collect();
+            Some(Chapter {
+                start,
+                title: if title.is_empty() {
+                    format!("Chapter {}", index + 1)
+                } else {
+                    title
+                },
+            })
+        })
+        .collect();
+    result.sort_by(|a, b| a.start.total_cmp(&b.start));
+    result.dedup_by(|a, b| a.start == b.start);
+    result
+}
+
 async fn info(
     State(state): State<Shared>,
     Query(query): Query<PathQuery>,
@@ -252,6 +295,7 @@ async fn info(
         "video": video_stream(&probe),
         "audio": embedded_tracks(&probe, "audio"),
         "subtitles": subtitles(&full, &probe),
+        "chapters": chapters(&probe),
         "allowVideoTranscoding": state.config.playback.allow_video_transcoding,
     })))
 }
@@ -800,4 +844,27 @@ pub fn router() -> Router<Shared> {
         .route("/api/playback/subtitle", get(subtitle))
         .route("/api/playback/stream", get(stream))
         .route("/api/playback/status", get(status))
+}
+
+#[cfg(test)]
+mod chapter_tests {
+    use super::*;
+    #[test]
+    fn chapters_are_sorted_bounded_and_deduplicated() {
+        let probe = json!({"format":{"duration":"30"},"chapters":[
+            {"start_time":"10","tags":{"title":" Second "}},
+            {"start_time":"0","tags":{"title":"Intro"}},
+            {"start_time":"10","tags":{"title":"Duplicate"}},
+            {"start_time":"20"}, {"start_time":"-1"}, {"start_time":"NaN"},
+            {"start_time":"30"}, {"tags":{"title":"Missing time"}}
+        ]});
+        let result = chapters(&probe);
+        assert_eq!(
+            result.iter().map(|item| item.start).collect::<Vec<_>>(),
+            vec![0.0, 10.0, 20.0]
+        );
+        assert_eq!(result[1].title, "Second");
+        assert_eq!(result[2].title, "Chapter 4");
+        assert!(chapters(&json!({})).is_empty());
+    }
 }

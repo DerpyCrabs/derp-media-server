@@ -317,3 +317,55 @@ test('reentrant navigation during resolution publication cannot replace the newe
   expect(session.getSnapshot().source?.url).toBe('/audio/second.mp3')
   session.dispatch({ type: 'destroy' })
 })
+
+test('A–B repeat seeks at the boundary, keeps pause state, and clears on explicit outside seek or item change', () => {
+  const { sourceResolver } = resolverHarness()
+  const session = createPlaybackSession({ sourceResolver })
+  session.dispatch({ type: 'load', item: item('loop', 'video') })
+  session.dispatch({ type: 'mediaDuration', generation: 1, duration: 90 })
+  expect(session.dispatch({ type: 'setLoop', loop: { start: 5, end: 10 } }).accepted).toBe(true)
+  let seek = session.getSnapshot().pendingSeek!
+  expect(seek.position).toBe(5)
+  session.dispatch({ type: 'mediaSeeked', generation: 1, seekId: seek.id, position: 5 })
+  session.dispatch({ type: 'mediaTime', generation: 1, position: 10.1 })
+  seek = session.getSnapshot().pendingSeek!
+  expect(seek.position).toBe(5)
+  session.dispatch({ type: 'mediaSeeked', generation: 1, seekId: seek.id, position: 5 })
+  session.dispatch({ type: 'pause' })
+  session.dispatch({ type: 'mediaTime', generation: 1, position: 10.1 })
+  expect(session.getSnapshot().pendingSeek).toBeNull()
+  expect(session.getSnapshot().desiredPlaying).toBe(false)
+  session.dispatch({ type: 'seek', position: 7 })
+  expect(session.getSnapshot().loop).toEqual({ start: 5, end: 10 })
+  session.dispatch({ type: 'seek', position: 11 })
+  expect(session.getSnapshot().loop).toBeNull()
+  session.dispatch({ type: 'setLoop', loop: { start: 5, end: null } })
+  session.dispatch({ type: 'load', item: item('next', 'video') })
+  expect(session.getSnapshot().loop).toBeNull()
+  session.dispatch({ type: 'destroy' })
+})
+test('loop ranges reject invalid endpoints, adapt to duration and repeat at media end before advancing the queue', () => {
+  const { sourceResolver } = resolverHarness()
+  const session = createPlaybackSession({ sourceResolver })
+  const first = item('first', 'video'),
+    second = item('second', 'video')
+  session.dispatch({ type: 'load', item: first, queue: [first, second] })
+  session.dispatch({ type: 'mediaDuration', generation: 1, duration: 10 })
+  for (const loop of [
+    { start: -1, end: 5 },
+    { start: 0, end: NaN },
+    { start: 1, end: 1.1 },
+    { start: 0, end: 11 },
+  ])
+    expect(session.dispatch({ type: 'setLoop', loop }).accepted).toBe(false)
+  session.dispatch({ type: 'setLoop', loop: { start: 0, end: 10 } })
+  session.dispatch({ type: 'mediaEnded', generation: 1 })
+  expect(session.getSnapshot().currentItem).toEqual(first)
+  expect(session.getSnapshot().pendingSeek?.position).toBe(0)
+  expect(session.getSnapshot().desiredPlaying).toBe(true)
+  session.dispatch({ type: 'mediaDuration', generation: 1, duration: 5 })
+  expect(session.getSnapshot().loop).toEqual({ start: 0, end: 5 })
+  session.dispatch({ type: 'setMode', mode: 'audio' })
+  expect(session.getSnapshot().loop).toBeNull()
+  session.dispatch({ type: 'destroy' })
+})

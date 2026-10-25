@@ -50,6 +50,8 @@ export type PlaybackSource = Readonly<{
   expectedAudio?: boolean
 }>
 
+export type PlaybackLoop = Readonly<{ start: number; end: number | null }>
+
 export type PlaybackSnapshot = Readonly<{
   revision: number
   phase: PlaybackPhase
@@ -67,6 +69,7 @@ export type PlaybackSnapshot = Readonly<{
   muted: boolean
   repeat: boolean
   playbackRate: number
+  loop: PlaybackLoop | null
   source: PlaybackSource | null
   error: string | null
 }>
@@ -128,6 +131,7 @@ export type PlaybackCommand =
   | Readonly<{ type: 'setPlaybackRate'; rate: number }>
   | Readonly<{ type: 'setMuted'; muted: boolean }>
   | Readonly<{ type: 'setRepeat'; repeat: boolean }>
+  | Readonly<{ type: 'setLoop'; loop: PlaybackLoop | null }>
   | Readonly<{ type: 'toggleRepeat' | 'checkpoint' | 'stop' | 'destroy' }>
 
 export type PlaybackOutcome = Readonly<{

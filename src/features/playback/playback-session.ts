@@ -7,6 +7,7 @@ import type {
   PlaybackCommand,
   PlaybackItem,
   PlaybackMode,
+  PlaybackLoop,
   PlaybackOutcome,
   PlaybackPhase,
   PlaybackPersistence,
@@ -38,6 +39,7 @@ type MutableState = {
   muted: boolean
   repeat: boolean
   playbackRate: number
+  loop: PlaybackLoop | null
   transport: Transport
   timeline: {
     position: number
@@ -227,6 +229,7 @@ export function createPlaybackSession(options: CreatePlaybackSessionOptions): Pl
     muted: restored?.muted ?? false,
     repeat: restored?.repeat ?? false,
     playbackRate: 1,
+    loop: null,
     transport: restoredItem ? { kind: 'resolving', previous: null } : { kind: 'idle' },
     timeline: {
       position: finiteAtLeast(restored?.position ?? 0, 0),
@@ -264,6 +267,7 @@ export function createPlaybackSession(options: CreatePlaybackSessionOptions): Pl
       muted: state.muted,
       repeat: state.repeat,
       playbackRate: state.playbackRate,
+      loop: state.loop,
       source: playbackSource(state.transport),
       error: state.transport.kind === 'error' ? state.transport.message : null,
     }))
@@ -321,6 +325,13 @@ export function createPlaybackSession(options: CreatePlaybackSessionOptions): Pl
     state.timeline.duration = duration
     if (duration === 0) return
     state.timeline.position = Math.min(state.timeline.position, duration)
+    if (state.loop) {
+      const end = state.loop.end === null ? null : Math.min(state.loop.end, duration)
+      state.loop =
+        state.loop.start >= duration || (end !== null && end - state.loop.start < 0.25)
+          ? null
+          : Object.freeze({ start: state.loop.start, end })
+    }
     if (state.timeline.pending && state.timeline.pending.position > duration)
       state.timeline.pending = Object.freeze({ ...state.timeline.pending, position: duration })
   }
@@ -343,6 +354,7 @@ export function createPlaybackSession(options: CreatePlaybackSessionOptions): Pl
     }
   }
   function resetTimeline(position: number) {
+    state.loop = null
     state.timeline = { position, duration: 0, pending: null }
     state.buffering = false
     state.playbackRate = 1
@@ -457,6 +469,7 @@ export function createPlaybackSession(options: CreatePlaybackSessionOptions): Pl
         else if (command.queue && !isSame) state.queueContext = null
         state.currentIndex = index
         state.mode = mode
+        if (!sameMode) state.loop = null
         state.desiredPlaying = command.autoplay ?? true
         if (!isSame) {
           resetTimeline(
@@ -608,6 +621,12 @@ export function createPlaybackSession(options: CreatePlaybackSessionOptions): Pl
         if (!Number.isFinite(command.position)) return reject('invalid')
         if (state.timeline.pending?.position === boundedPosition(command.position))
           return unchanged()
+        if (
+          state.loop &&
+          state.loop.end !== null &&
+          (command.position < state.loop.start || command.position >= state.loop.end)
+        )
+          state.loop = null
         requestSeek(command.position)
         notify(false)
         return changed()
@@ -631,6 +650,13 @@ export function createPlaybackSession(options: CreatePlaybackSessionOptions): Pl
         if (command.duration !== undefined) setDuration(command.duration)
         if (state.timeline.pending) return unchanged()
         state.timeline.position = boundedPosition(command.position)
+        if (
+          state.loop &&
+          state.loop.end !== null &&
+          state.desiredPlaying &&
+          state.timeline.position >= state.loop.end
+        )
+          requestSeek(state.loop.start)
         notify(false)
         return changed()
       case 'mediaDuration':
@@ -674,6 +700,12 @@ export function createPlaybackSession(options: CreatePlaybackSessionOptions): Pl
         if (!currentGeneration(command.generation)) return reject('staleSource')
         if (state.transport.kind === 'error') return unchanged()
         if (state.timeline.pending) return unchanged()
+        if (state.loop && state.loop.end !== null) {
+          requestSeek(state.loop.start)
+          state.desiredPlaying = true
+          notify()
+          return changed()
+        }
         if (state.repeat) {
           requestSeek(0)
           state.desiredPlaying = true
@@ -732,6 +764,7 @@ export function createPlaybackSession(options: CreatePlaybackSessionOptions): Pl
         const mode = modeFor(item, command.mode)
         if (mode === state.mode) return unchanged()
         state.mode = mode
+        state.loop = null
         return resolveSource('mode', false)
       }
       case 'setVolume': {
@@ -759,6 +792,30 @@ export function createPlaybackSession(options: CreatePlaybackSessionOptions): Pl
         if (!command.muted && state.volume === 0) state.volume = 0.5
         notify()
         return changed()
+      case 'setLoop': {
+        if (!currentItem(state)) return reject('emptyQueue')
+        const loop = command.loop
+        if (
+          loop &&
+          (!Number.isFinite(loop.start) ||
+            loop.start < 0 ||
+            (state.timeline.duration > 0 && loop.start >= state.timeline.duration) ||
+            (loop.end !== null &&
+              (!Number.isFinite(loop.end) ||
+                loop.end - loop.start < 0.25 ||
+                (state.timeline.duration > 0 && loop.end > state.timeline.duration))))
+        )
+          return reject('invalid')
+        state.loop = loop ? Object.freeze({ ...loop }) : null
+        if (
+          loop &&
+          loop.end !== null &&
+          (playbackPosition(state) < loop.start || playbackPosition(state) >= loop.end)
+        )
+          requestSeek(loop.start)
+        notify(false)
+        return changed()
+      }
       case 'setRepeat':
         if (state.repeat === command.repeat) return unchanged()
         state.repeat = command.repeat

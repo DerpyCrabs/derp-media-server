@@ -96,6 +96,7 @@ export const BATCHES = [
       'video-audio-mode-switch',
       'video-controls',
       'video-snapshot',
+      'video-navigation',
       'playback-regressions',
       'image-viewer',
       'image-editor',

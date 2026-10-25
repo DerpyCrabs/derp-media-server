@@ -1,3 +1,6 @@
+import { VideoNavigationDialog } from './VideoNavigationDialog'
+import { chapterAt, precisePlaybackTime } from './video-navigation'
+import type { PlaybackLoop } from './types'
 import { decodeSubtitleFile, MAX_SUBTITLE_BYTES } from './local-subtitles'
 import { randomId } from '@/lib/random-id'
 import { list, Portal } from 'effectweb'
@@ -84,6 +87,7 @@ function controlsController(props: Props) {
     playback: playbackSource.model(),
     visible: true,
     settingsOpen: false,
+    navigationOpen: false,
     fullscreen: false,
     focused: false,
     scrubbing: false,
@@ -121,6 +125,43 @@ function controlsController(props: Props) {
     )
   }
   const actions = {
+    clearError: () => owner.patch({ uiError: '' }),
+    navigation: (navigationOpen: boolean) => {
+      owner.patch({ navigationOpen, settingsOpen: false })
+      syncHide()
+    },
+    loop: (loop: PlaybackLoop | null) => {
+      const current = owner.read()
+      if (!current.props.active) actions.seek(loop?.start ?? 0)
+      const result = session.dispatch({ type: 'setLoop', loop })
+      owner.patch({
+        uiError: result.accepted
+          ? ''
+          : 'The repeat needs two points at least 0.25 seconds apart within the video.',
+      })
+      reveal()
+    },
+    cycleLoop: () => {
+      const current = owner.read(),
+        loop = current.props.active ? current.playback.loop : null,
+        position = current.props.active ? current.playback.position : 0
+      if (!loop) actions.loop({ start: position, end: null })
+      else if (loop.end !== null) actions.loop(null)
+      else
+        actions.loop({ start: Math.min(loop.start, position), end: Math.max(loop.start, position) })
+    },
+    chapter: (direction: -1 | 1) => {
+      const current = owner.read(),
+        chapters = current.info?.chapters ?? [],
+        position = current.props.active ? current.playback.position : 0
+      const index = chapterAt(chapters, position)
+      const target =
+        direction === -1 && index >= 0 && position - chapters[index]!.start > 3
+          ? index
+          : index + direction
+      const chapter = chapters[Math.max(0, Math.min(chapters.length - 1, target))]
+      if (chapter) actions.seek(chapter.start)
+    },
     snapshot: () => {
       const current = owner.read()
       if (!current.props.active || !current.props.video || current.snapshot) return
@@ -133,7 +174,7 @@ function controlsController(props: Props) {
         settingsOpen: false,
       })
     },
-    closeSnapshot: () => owner.patch({ snapshot: null }),
+    closeSnapshot: () => owner.patch({ snapshot: null, navigationOpen: false }),
     attachSubtitleInput: (input: HTMLInputElement | undefined) => {
       subtitleInput = input
     },
@@ -318,6 +359,7 @@ function controlsController(props: Props) {
       current.props.active &&
       current.playback.desiredPlaying &&
       !current.settingsOpen &&
+      !current.navigationOpen &&
       !current.focused &&
       !current.scrubbing
     )
@@ -329,7 +371,7 @@ function controlsController(props: Props) {
   }
   const syncHide = () => {
     const current = owner.read()
-    const key = `${current.props.active && current.playback.desiredPlaying}:${current.settingsOpen}:${current.focused}:${current.scrubbing}`
+    const key = `${current.props.active && current.playback.desiredPlaying}:${current.settingsOpen}:${current.navigationOpen}:${current.focused}:${current.scrubbing}`
     if (hideKey !== key) {
       hideKey = key
       reveal()
@@ -455,6 +497,11 @@ const controlsBehavior = (_element: HTMLSpanElement, current: () => ControlsMode
       )
         return
       const position = model.props.active ? model.playback.position : 0
+      if (event.shiftKey && event.key.toLowerCase() === 'l') {
+        model.actions.cycleLoop()
+        event.preventDefault()
+        return
+      }
       if (event.shiftKey && event.key.toLowerCase() === 's') {
         model.actions.snapshot()
         event.preventDefault()
@@ -476,6 +523,15 @@ const controlsBehavior = (_element: HTMLSpanElement, current: () => ControlsMode
           break
         case 'l':
           model.actions.seek(position + 10)
+          break
+        case 'g':
+          model.actions.navigation(true)
+          break
+        case 'pageup':
+          model.actions.chapter(-1)
+          break
+        case 'pagedown':
+          model.actions.chapter(1)
           break
         case 'f':
           void model.actions.fullscreen()
@@ -598,6 +654,19 @@ export const VideoControls = controllerView(
             <VideoSnapshotDialog request={model.snapshot} onClose={model.actions.closeSnapshot} />
           </Portal>
         ) : null}
+        {model.navigationOpen ? (
+          <Portal mount={fullscreen ? model.container : undefined}>
+            <VideoNavigationDialog
+              position={position()}
+              duration={duration()}
+              chapters={model.info?.chapters ?? []}
+              loop={props.active ? model.playback.loop : null}
+              onSeek={model.actions.seek}
+              onLoop={model.actions.loop}
+              onClose={() => model.actions.navigation(false)}
+            />
+          </Portal>
+        ) : null}
         <input
           type='file'
           class='hidden'
@@ -635,6 +704,20 @@ export const VideoControls = controllerView(
             />
           ) : null}
         </div>
+        {model.uiError && !settingsOpen ? (
+          <div
+            role='alert'
+            class='absolute inset-x-3 top-3 z-30 flex items-center justify-between gap-2 rounded bg-black/80 p-2 text-sm text-white'
+          >
+            <span>{model.uiError}</span>
+            <button
+              class='shrink-0 rounded px-2 py-1 hover:bg-white/20'
+              onClick={() => model.actions.clearError()}
+            >
+              Dismiss
+            </button>
+          </div>
+        ) : null}
         {loading() && !error() ? (
           <div class='pointer-events-none absolute inset-0 z-10 flex items-center justify-center'>
             <LoaderCircle class='h-8 w-8 animate-spin text-white' />
@@ -690,6 +773,12 @@ export const VideoControls = controllerView(
                 </button>
               </div>
               <div class='space-y-3'>
+                <button
+                  class='flex min-h-9 w-full items-center justify-between rounded px-2 text-left text-sm hover:bg-accent'
+                  onClick={() => model.actions.navigation(true)}
+                >
+                  Navigate / repeat…<span class='text-xs text-muted-foreground'>G</span>
+                </button>
                 <button
                   class='flex min-h-9 w-full items-center justify-between rounded px-2 text-left text-sm hover:bg-accent disabled:opacity-40'
                   disabled={!props.active || !props.video?.videoWidth}
@@ -852,9 +941,24 @@ export const VideoControls = controllerView(
                   onInput={(event) => model.actions.volume(Number(event.currentTarget.value))}
                 />
               ) : null}
-              <span class='ml-1 whitespace-nowrap text-xs tabular-nums'>
+              <button
+                class='ml-1 whitespace-nowrap rounded px-1 py-1 text-xs tabular-nums hover:bg-accent'
+                aria-label='Go to time'
+                title='Go to time / chapters (G)'
+                onClick={() => model.actions.navigation(true)}
+              >
                 {timeLabel(position())} / {timeLabel(duration())}
-              </span>
+              </button>
+              {props.active && model.playback.loop ? (
+                <button
+                  class='rounded bg-primary/15 px-1.5 py-1 text-xs text-primary'
+                  aria-label='Clear section repeat'
+                  title={`A ${precisePlaybackTime(model.playback.loop.start)}${model.playback.loop.end === null ? ' · Set B with Shift+L' : ` – B ${precisePlaybackTime(model.playback.loop.end)}`}`}
+                  onClick={() => model.actions.loop(null)}
+                >
+                  {model.playback.loop.end === null ? 'A…' : 'A–B'} ×
+                </button>
+              ) : null}
               <div class='flex-1' />
               {props.onListenOnly ? (
                 <button

@@ -19,6 +19,7 @@ class FakeMediaElement {
   currentTime = 0
   duration = Number.NaN
   paused = true
+  ended = false
   seeking = false
   volume = 1
   muted = false
@@ -46,6 +47,7 @@ class FakeMediaElement {
   }
 
   play() {
+    this.ended = false
     this.playCalls += 1
     if (this.rejectPlay) return Promise.reject(new Error('play rejected'))
     if (this.playError) return Promise.reject(this.playError)
@@ -98,6 +100,7 @@ class FakeMediaElement {
   }
 
   end() {
+    this.ended = true
     this.currentTime = this.duration
     this.paused = true
     this.emit('pause')
@@ -660,4 +663,30 @@ describe('PlaybackMediaHost', () => {
     })
     host.dispose()
   })
+})
+
+test('a section ending at media end restarts at A instead of zero and survives native pause ordering', () => {
+  const session = createPlaybackSession({
+    sourceResolver: { resolve: (request) => Effect.sync(() => resolver(request)) },
+  })
+  const host = createMediaElementHost(session)
+  const media = new FakeMediaElement()
+  session.dispatch({ type: 'load', item: item('section', 'video'), autoplay: true })
+  attach(host, media, 'video')
+  media.ready(30)
+  session.dispatch({ type: 'setLoop', loop: { start: 5, end: 30 } })
+  const seek = session.getSnapshot().pendingSeek
+  if (seek) session.dispatch({ type: 'mediaSeeked', generation: 1, seekId: seek.id, position: 5 })
+  media.end()
+  expect(media.currentTime).toBe(5)
+  expect(media.paused).toBe(false)
+  expect(session.getSnapshot()).toMatchObject({
+    desiredPlaying: true,
+    loop: { start: 5, end: 30 },
+    currentIndex: 0,
+  })
+  session.dispatch({ type: 'pause' })
+  expect(media.paused).toBe(true)
+  host.dispose()
+  session.dispatch({ type: 'destroy' })
 })

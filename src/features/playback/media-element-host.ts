@@ -30,6 +30,7 @@ export interface PlaybackMediaElement {
   readonly duration: number
   readonly readyState?: number
   readonly paused: boolean
+  readonly ended?: boolean
   readonly seeking: boolean
   volume: number
   muted: boolean
@@ -429,6 +430,9 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
         recover('audio')
       )
         return
+      const state = session.getSnapshot()
+      if (!state.repeat && state.loop && element.currentTime > state.loop.start + 0.25)
+        attachment.repeating = false
       capturePosition(attachment)
     }
     const onProgress: EventListener = () => {
@@ -456,7 +460,7 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
         return
       }
       attachment.nativePausePending = false
-      attachment.repeating = state.repeat
+      attachment.repeating = state.repeat || (state.loop?.end != null && attachment.repeating)
       session.dispatch({ type: 'mediaPlay', generation: attachment.generation })
     }
     const onPlaying: EventListener = () => {
@@ -530,8 +534,13 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
         return
       }
       if (state.desiredPlaying) attachment.nativePausePending = true
-      if (!state.repeat) attachment.repeating = false
-      if (state.repeat && state.desiredPlaying) {
+      const loopingAtEnd =
+        !!state.loop &&
+        state.loop.end !== null &&
+        (element.ended ||
+          (attachment.repeating && Math.abs(element.currentTime - state.loop.start) < 0.25))
+      if (!state.repeat && !loopingAtEnd) attachment.repeating = false
+      if ((state.repeat || loopingAtEnd) && state.desiredPlaying) {
         const wasRepeating = attachment.repeating
         attachment.repeating = true
         if (wasRepeating) play(attachment)
@@ -542,13 +551,14 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
     }
     const onEnded: EventListener = () => {
       if (!validEvent()) return
-      const repeat = session.getSnapshot().repeat
+      const before = session.getSnapshot()
+      const repeat = before.repeat || (!!before.loop && before.loop.end !== null)
       attachment.repeating = repeat
       const eventGeneration = attachment.generation
       session.dispatch({ type: 'mediaEnded', generation: eventGeneration })
       if (!repeat || active !== attachment || attachment.generation !== eventGeneration) return
       try {
-        element.currentTime = 0
+        element.currentTime = session.getSnapshot().pendingSeek?.position ?? before.loop?.start ?? 0
       } catch {}
       play(attachment)
     }

@@ -27,6 +27,9 @@ export const videoInfoSchema = Schema.Struct({
   ),
   audio: Schema.mutable(Schema.Array(track)),
   subtitles: Schema.mutable(Schema.Array(track)),
+  chapters: Schema.optional(
+    Schema.mutable(Schema.Array(Schema.Struct({ start: Schema.Number, title: Schema.String }))),
+  ),
   allowVideoTranscoding: Schema.Boolean,
 })
 export const videoPreferencesSchema = Schema.Struct({

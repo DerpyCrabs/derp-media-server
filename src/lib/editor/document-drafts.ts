@@ -199,7 +199,13 @@ export function createDocumentDraftWriter(path: string, kind: DraftKind = 'text'
   let lastUpdatedAt = 0
   const enqueue = (content: string | null, version: string, attachment?: Blob): Promise<void> => {
     if (!failed && content === null && !latest) return queued
-    if (content !== null) lastUpdatedAt = Math.max(Date.now(), lastUpdatedAt + 1)
+    if (
+      content !== null &&
+      (content !== latest?.content ||
+        version !== latest.version ||
+        attachment !== latest.attachment)
+    )
+      lastUpdatedAt = Math.max(Date.now(), lastUpdatedAt + 1)
     const next =
       content === null
         ? undefined
