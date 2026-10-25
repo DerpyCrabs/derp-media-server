@@ -5,7 +5,11 @@ import { domBinding, modelOwner, view, controllerView, type ControllerModel } fr
 import { randomId } from '@/lib/random-id'
 import { createActivityId, sendActivity, type ActivityEvent } from '@/features/media-ai/activity'
 import { MediaType, type FileItem } from '@/lib/files/types'
-import Download from '@effectweb/lucide/icons/download'
+import Ellipsis from '@effectweb/lucide/icons/ellipsis'
+import { Effect } from 'effect'
+import { FloatingContextMenu } from '@/features/explorer/FloatingContextMenu'
+import { ImagePrintDialog } from './ImagePrintDialog'
+import { imageOutput } from './image-output'
 import Maximize2 from '@effectweb/lucide/icons/maximize-2'
 import RotateCw from '@effectweb/lucide/icons/rotate-cw'
 import LoaderCircle from '@effectweb/lucide/icons/loader-circle'
@@ -45,9 +49,63 @@ function imageController(props: ImageViewerPaneProps) {
     zoom: 'fit' as number | 'fit',
     rotation: 0,
     editing: false,
+    printing: false,
+    copying: false,
+    outputMessage: '',
+    menu: null as HTMLElement | null,
     image: responsive.source.model(),
   })
   const actions = {
+    menu: (menu: HTMLElement | null) => owner.patch({ menu }),
+    print: () => owner.patch({ printing: true, menu: null, outputMessage: '' }),
+    closePrint: () => owner.patch({ printing: false }),
+    clearMessage: () => owner.patch({ outputMessage: '' }),
+    copy: () => {
+      const current = owner.read()
+      if (current.copying) return
+      owner.patch({ menu: null, outputMessage: '' })
+      if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') {
+        owner.patch({
+          outputMessage:
+            'Copying images requires HTTPS or the desktop client. You can download the image instead.',
+        })
+        return
+      }
+      const abort = new AbortController()
+      owner.patch({ copying: true })
+      const blob = imageOutput(current.props.viewingPath, current.rotation, abort.signal).then(
+        (result) => result.blob,
+      )
+      // Start clipboard access during the user gesture, including on Safari.
+      let copied: Promise<void>
+      try {
+        copied = navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
+      } catch (error) {
+        copied = Promise.reject(error)
+      }
+      void blob.catch(() => {})
+      owner.run(
+        'copy',
+        Effect.tryPromise(() => copied).pipe(
+          Effect.tap(() => Effect.sync(() => owner.patch({ outputMessage: 'Image copied.' }))),
+          Effect.catch(() =>
+            Effect.sync(() =>
+              owner.patch({
+                outputMessage:
+                  'Could not copy the image. Check clipboard permission, or download the original.',
+              }),
+            ),
+          ),
+          Effect.ensuring(
+            Effect.sync(() => {
+              abort.abort()
+              owner.patch({ copying: false })
+            }),
+          ),
+        ),
+        'drop',
+      )
+    },
     edit: () => owner.patch({ editing: true }),
     closeEdit: () => owner.patch({ editing: false }),
     savedCopy: (path: string) => {
@@ -98,6 +156,7 @@ function imageController(props: ImageViewerPaneProps) {
     },
     retry: responsive.retry,
     download: () => {
+      owner.patch({ menu: null })
       const path = owner.read().props.viewingPath
       const link = document.createElement('a')
       link.href = `/api/files/download?path=${encodeURIComponent(path)}`
@@ -128,6 +187,10 @@ function imageController(props: ImageViewerPaneProps) {
     source: owner.source,
     ...actions,
     receive: (next: ImageViewerPaneProps) => {
+      if (next.viewingPath !== owner.read().props.viewingPath) {
+        owner.cancel('copy')
+        owner.patch({ printing: false, menu: null, outputMessage: '' })
+      }
       owner.patch({
         props: next,
         editing: next.viewingPath === owner.read().props.viewingPath && owner.read().editing,
@@ -208,7 +271,18 @@ const viewerBehavior = (element: HTMLDivElement, current: () => ImageModel) => {
       )
     )
       return
-    if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return
+    if (event.defaultPrevented || current().printing || current().menu) return
+    if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey) {
+      const key = event.key.toLowerCase()
+      if (key === 'p' || (key === 'c' && !window.getSelection()?.toString())) {
+        event.preventDefault()
+        event.stopImmediatePropagation()
+        if (key === 'p') current().actions.print()
+        else current().actions.copy()
+      }
+      return
+    }
+    if (event.ctrlKey || event.metaKey || event.altKey) return
     const action =
       event.key === '+' || event.key === '='
         ? () => current().actions.zoom(25)
@@ -377,8 +451,7 @@ export const ImageViewerPane = controllerView(
       handleZoomOut = () => actions.zoom(-25),
       handleZoomIn = () => actions.zoom(25),
       handleFitToScreen = actions.fit,
-      handleRotate = actions.rotate,
-      handleDownload = actions.download
+      handleRotate = actions.rotate
     const goPrevious = () => actions.move(-1),
       goNext = () => actions.move(1)
     const responsiveImage = {
@@ -559,11 +632,13 @@ export const ImageViewerPane = controllerView(
                   ? 'inline-flex h-7 w-7 items-center justify-center rounded-md text-white hover:bg-white/10'
                   : 'inline-flex h-8 w-8 sm:h-11 sm:w-11 items-center justify-center rounded-md text-white hover:bg-white/10'
               }
-              aria-label='Download image'
-              title='Download image'
-              onClick={handleDownload}
+              aria-label='Image actions'
+              title='Image actions'
+              aria-haspopup='menu'
+              aria-expanded={Boolean(model.menu)}
+              onClick={(event) => actions.menu(event.currentTarget)}
             >
-              <Download
+              <Ellipsis
                 class={props.embedded ? 'h-3.5 w-3.5' : 'h-5 w-5'}
                 size={20}
                 stroke-width={2}
@@ -587,6 +662,58 @@ export const ImageViewerPane = controllerView(
           </div>
         </div>
 
+        <FloatingContextMenu
+          open={Boolean(model.menu)}
+          anchorRef={model.menu}
+          onDismiss={() => actions.menu(null)}
+          role='menu'
+          class='w-56'
+        >
+          <button
+            role='menuitem'
+            class='flex min-h-10 w-full items-center justify-between rounded px-3 text-sm hover:bg-muted'
+            onClick={actions.print}
+          >
+            Print image…<span class='text-xs text-muted-foreground'>Ctrl+P</span>
+          </button>
+          <button
+            role='menuitem'
+            disabled={model.copying}
+            class='flex min-h-10 w-full items-center justify-between rounded px-3 text-sm hover:bg-muted disabled:opacity-50'
+            onClick={actions.copy}
+          >
+            {model.copying ? 'Copying…' : 'Copy image'}
+            <span class='text-xs text-muted-foreground'>Ctrl+C</span>
+          </button>
+          <button
+            role='menuitem'
+            class='min-h-10 w-full rounded px-3 text-left text-sm hover:bg-muted'
+            onClick={actions.download}
+          >
+            Download image
+          </button>
+        </FloatingContextMenu>
+        {model.copying || model.outputMessage ? (
+          <div
+            role='status'
+            class='flex items-center justify-between gap-2 bg-black/70 px-3 py-2 text-sm text-white'
+          >
+            <span>{model.copying ? 'Copying image…' : model.outputMessage}</span>
+            {!model.copying ? (
+              <button type='button' aria-label='Dismiss message' onClick={actions.clearMessage}>
+                <X size={16} />
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+        {model.printing ? (
+          <ImagePrintDialog
+            path={props.viewingPath}
+            rotation={model.rotation}
+            embedded={props.embedded}
+            onClose={actions.closePrint}
+          />
+        ) : null}
         <div
           data-testid={props.embedded ? 'workspace-image-surface' : 'image-gesture-surface'}
           class={cn(

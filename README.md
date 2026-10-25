@@ -315,6 +315,8 @@ as `1-3, 5`; pages are prepared at up to 150 dpi for the browser print dialog (o
 limited to 100 pages and 160 million rendered pixels; download the original for larger jobs or
 vector-quality printing.
 
+The image viewer's **Image actions** menu contains Print, Copy image and Download. **Ctrl/Cmd+P** opens a paper preview with A4, Letter or 4 × 6 inch paper, automatic orientation, margins and a proportional custom width; the displayed dpi reflects the prepared image. **Ctrl/Cmd+C** copies PNG pixels, including the current viewing rotation, for pasting into other apps. Clipboard access requires HTTPS or the native client. Neither operation modifies the original. Images up to 40 megapixels / 16,384 pixels per side and 64 MiB are supported; printing prepares at most 4,096 pixels per side, while copying preserves original resolution. Animated images produce a still image. The compact menu and fit/custom print sizing follow [Gwenview's print settings](https://github.com/KDE/gwenview/blob/master/lib/gwenviewconfig.kcfg).
+
 Image edits are backed up in the current browser profile, including the source image bytes. Reopening Edit image offers to restore a draft after a reload or a closed workspace window, even if the original file has since changed. Saving a server copy, completing a native export or explicitly discarding edits removes that view’s backup. Browser downloads retain the backup, including after closing the editor, because their completion cannot be confirmed. Storage failures are shown in the editor; drafts are local to the browser and may be removed when browser data is cleared.
 
 Image editing follows [Gwenview](https://docs.kde.org/stable_kf6/en/gwenview/gwenview/image_operations.html)
