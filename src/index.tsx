@@ -9,6 +9,7 @@ import { createPlaybackPathMutationLifetime } from './features/playback/path-mut
 import { initializePlayback } from './features/playback/PlaybackProvider'
 import { createOwnerBrowserPlaybackSession } from './features/playback/browser-session'
 import { createRadioContinuation } from './features/music/RadioContinuation'
+import { browserDownloadsLifetime } from './lib/files/download-blob'
 import { musicUiLifetime } from './features/music/actions'
 import { initializeMusicStatus } from './features/music/enabled'
 import { createBrowserHistoryLifetime } from './lib/browser/browser-history'
@@ -38,6 +39,7 @@ const application = Effect.scoped(
     yield* own(() => initializePlayback(createOwnerBrowserPlaybackSession()))
     yield* own(createPlaybackPathMutationLifetime)
     yield* own(() => musicUiLifetime)
+    yield* own(() => browserDownloadsLifetime)
     yield* own(initializeMusicStatus)
     yield* own(createRadioContinuation)
     const owner = yield* own(() => modelOwner({}))

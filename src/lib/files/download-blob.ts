@@ -1,4 +1,12 @@
 import { Effect } from 'effect'
+import { modelOwner } from 'effectweb'
+import { randomId } from '@/lib/random-id'
+
+const owner = modelOwner({})
+export const browserDownloadsLifetime = { dispose: owner.dispose, close: owner.close }
+export function downloadBlob(blob: Blob, name: string) {
+  owner.run(`download:${randomId()}`, downloadBlobEffect(blob, name), 'drop')
+}
 
 export function downloadBlobEffect(blob: Blob, name: string) {
   return Effect.acquireUseRelease(

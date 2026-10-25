@@ -7,7 +7,7 @@ Self-hosted media library with a **Effect + EffectWeb** + Vite web UI and a **Ru
 ## Features (high level)
 
 - Workspaces: snap zones, viewers (image, video, PDF, text), audio player, and persisted layouts.
-- Video: shared app controls, two subtitle tracks, audio-track selection, saved speed and language preferences, and optional compatibility conversion.
+- Video: shared app controls, two subtitle tracks, audio-track selection, saved speed and language preferences, optional compatibility conversion, and PNG frame capture from playback settings or **Shift+S**. Frame capture freezes the decoded image at its original dimensions, without subtitles or controls, while playback continues; save a separate file or download it.
 - Music: save the player queue as a playlist, add songs from track/album menus, reorder and rename saved lists, and build automatic playlists from genre, artist, likes and listening history. Open **Playlists** from **Your music** or the player’s **Up next** panel; ordinary saved queues also work without AI or a music index. Native audio windows follow playlist order. Missing files stay visible and stale edits from another tab are rejected.
 - Knowledge bases: full-text search, recent files, `![[image]]` from `images/`.
 - File ops in editable folders: upload, move/copy, rename, delete, inline text edit; grid/list, thumbnails (FFmpeg optional), drag-and-drop.
@@ -379,3 +379,5 @@ Rust, Axum, Effect, EffectWeb, Vite, Tailwind CSS v4, Bun, TypeScript, Playwrigh
 MIT
 
 Playlist interactions follow the existing player queue and contextual song actions, as in [GNOME Music](https://help.gnome.org/gnome-music/index.html) and [Elisa](https://docs.kde.org/stable5/en/elisa/elisa/elisa.pdf). Playlist changes affect saved lists, not music files; repeated additions keep each file once. Automatic lists use the prepared library and combine all conditions. Large lists show 100 songs at a time with **Show more songs**; search selections survive filtering and paging.
+
+Video frame capture uses the familiar **Shift+S** shortcut from [VLC](https://docs.videolan.me/vlc-user/desktop/3.0/en/basic/tipsandtricks/index.html#take-a-snapshot) and the subtitle-free capture behavior in [mpv](https://mpv.io/manual/stable/#keyboard-control). A preview identifies the captured frame before export; the filename includes its absolute playback time, including compatibility streams. Capture is limited to 40 megapixels / 16,384 pixels per side and waits for a decoded frame instead of saving a loading or seeking state.

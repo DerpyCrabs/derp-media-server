@@ -17,6 +17,7 @@ type Props = {
   editableFolders: readonly string[]
   formats?: readonly SaveFileFormat[]
   description?: string
+  preview?: { src: string; alt: string }
   pending: boolean
   error?: string
   overlayScope?: ModalOverlayScope
@@ -130,6 +131,13 @@ export const SaveFileDialog = controllerView(
           class='flex max-h-full w-full max-w-lg flex-col gap-3 overflow-auto rounded-lg border border-border bg-background p-4 text-foreground shadow-xl'
         >
           <h2 class='text-base font-semibold'>{props.title ?? 'Save as'}</h2>
+          {props.preview ? (
+            <img
+              src={props.preview.src}
+              alt={props.preview.alt}
+              class='max-h-32 w-full rounded bg-black object-contain'
+            />
+          ) : null}
           {canBrowse ? (
             <>
               {props.editableFolders.length > 1 ? (

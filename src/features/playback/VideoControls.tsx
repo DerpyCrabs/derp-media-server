@@ -1,6 +1,7 @@
 import { decodeSubtitleFile, MAX_SUBTITLE_BYTES } from './local-subtitles'
 import { randomId } from '@/lib/random-id'
-import { list } from 'effectweb'
+import { list, Portal } from 'effectweb'
+import { VideoSnapshotDialog, type VideoSnapshotRequest } from './VideoSnapshotDialog'
 import { playbackStatusSchema } from './playback-schemas'
 import { Schema, Option } from 'effect'
 import { videoPreferencesSchema } from './playback-schemas'
@@ -87,6 +88,7 @@ function controlsController(props: Props) {
     focused: false,
     scrubbing: false,
     uiError: '',
+    snapshot: null as VideoSnapshotRequest | null,
     localSubtitles: [] as LocalSubtitle[],
     localSelection: {} as Partial<Record<SubtitleKind, string>>,
     subtitleLoading: false,
@@ -119,6 +121,19 @@ function controlsController(props: Props) {
     )
   }
   const actions = {
+    snapshot: () => {
+      const current = owner.read()
+      if (!current.props.active || !current.props.video || current.snapshot) return
+      owner.patch({
+        snapshot: {
+          path: current.props.path,
+          position: current.playback.position,
+          video: current.props.video,
+        },
+        settingsOpen: false,
+      })
+    },
+    closeSnapshot: () => owner.patch({ snapshot: null }),
     attachSubtitleInput: (input: HTMLInputElement | undefined) => {
       subtitleInput = input
     },
@@ -360,6 +375,7 @@ function controlsController(props: Props) {
     receive: (next: Props) => {
       if (next.path !== owner.read().props.path) {
         owner.cancel('local-subtitle')
+        owner.patch({ snapshot: null })
         owner.patch({
           localSubtitles: [],
           localSelection: {},
@@ -439,6 +455,11 @@ const controlsBehavior = (_element: HTMLSpanElement, current: () => ControlsMode
       )
         return
       const position = model.props.active ? model.playback.position : 0
+      if (event.shiftKey && event.key.toLowerCase() === 's') {
+        model.actions.snapshot()
+        event.preventDefault()
+        return
+      }
       switch (event.key.toLowerCase()) {
         case ' ':
         case 'k':
@@ -572,6 +593,11 @@ export const VideoControls = controllerView(
     return (
       <>
         <span class='hidden' use={domBinding(model, controlsBehavior)} />
+        {model.snapshot ? (
+          <Portal mount={fullscreen ? model.container : undefined}>
+            <VideoSnapshotDialog request={model.snapshot} onClose={model.actions.closeSnapshot} />
+          </Portal>
+        ) : null}
         <input
           type='file'
           class='hidden'
@@ -664,6 +690,13 @@ export const VideoControls = controllerView(
                 </button>
               </div>
               <div class='space-y-3'>
+                <button
+                  class='flex min-h-9 w-full items-center justify-between rounded px-2 text-left text-sm hover:bg-accent disabled:opacity-40'
+                  disabled={!props.active || !props.video?.videoWidth}
+                  onClick={model.actions.snapshot}
+                >
+                  Save video frame…<span class='text-xs text-muted-foreground'>Shift+S</span>
+                </button>
                 <label class='block space-y-1 text-xs'>
                   <span>Speed</span>
                   <PlaybackSetting

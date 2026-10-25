@@ -93,6 +93,7 @@ export const BATCHES = [
       'video-player',
       'video-audio-mode-switch',
       'video-controls',
+      'video-snapshot',
       'playback-regressions',
       'image-viewer',
       'image-editor',
