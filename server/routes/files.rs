@@ -50,6 +50,20 @@ async fn hidden(
     State(state): State<Shared>,
     Query(query): Query<DirQuery>,
 ) -> AppResult<Json<Value>> {
+    let mut listing = list_for_browser(&state, &query.dir, query.offset).await?;
+    if listing
+        .get("virtualDirectory")
+        .is_some_and(|value| !value.is_null())
+    {
+        return Ok(Json(listing));
+    }
+    let virtual_files: Vec<Value> = listing["files"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|file| file["isVirtual"] == true)
+        .cloned()
+        .collect();
     let files = tokio::task::spawn_blocking(move || {
         state.thumbnails.with_cache_lookup(|cached| {
             media::list_with_hidden(&state.config, &query.dir, cached, true)
@@ -57,7 +71,16 @@ async fn hidden(
     })
     .await
     .map_err(|e| AppError::internal(e.to_string()))??;
-    Ok(Json(json!({"files":files})))
+    let mut files = serde_json::to_value(files).map_err(|e| AppError::internal(e.to_string()))?;
+    if let Some(files) = files.as_array_mut() {
+        for file in virtual_files {
+            if !files.iter().any(|entry| entry["path"] == file["path"]) {
+                files.push(file);
+            }
+        }
+    }
+    listing["files"] = files;
+    Ok(Json(listing))
 }
 
 async fn list(

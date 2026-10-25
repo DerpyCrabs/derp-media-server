@@ -480,6 +480,7 @@ mod tests {
 
     fn test_config(data_path: PathBuf) -> Config {
         Config {
+            desktop_mode: false,
             write_access: crate::config::WriteAccess::default(),
             port: 3000,
             roots: vec![],

@@ -79,8 +79,12 @@ for (const multiple of [false, true]) {
       const settings = await (await page.request.get(`${base}/api/config`)).json()
       expect(settings.writeAccess).toBe('filesystem')
       await page.goto(`${base}/?dir=${multiple ? 'First' : ''}&viewing=${prefix}note.txt`)
-      await expect(page.locator('textarea')).toHaveValue('original')
-      await page.locator('textarea').fill('edited through UI')
+      await expect(page.locator('[data-testid=plain-text-document] [role=textbox]')).toHaveText(
+        'original',
+      )
+      await page
+        .locator('[data-testid=plain-text-document] [role=textbox]')
+        .fill('edited through UI')
       await expect
         .poll(() => fs.readFileSync(path.join(media, 'note.txt'), 'utf8'))
         .toBe('edited through UI')

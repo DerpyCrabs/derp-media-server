@@ -13,6 +13,9 @@ export type DirectoryViewport = {
   estimateSize?: number
   overscan?: number
   range: DirectoryRange
+  focusOnLoad?: boolean
+  onFocused?: () => void
+  onMoveFocus?: (from: FileItem, to: FileItem, event: KeyboardEvent) => void
   patch: (range: DirectoryRange) => void
 }
 export const directoryViewport = (
@@ -93,15 +96,112 @@ export const directoryViewport = (
   const onScroll = (event: Event) => {
     if (scrollAffectsElement(event, element)) schedule()
   }
+  let focusFrame = 0
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (
+      event.defaultPrevented ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.altKey ||
+      (event.shiftKey && !current().onMoveFocus)
+    )
+      return
+    if (
+      !(event.target instanceof HTMLElement) ||
+      event.target.closest('input, textarea, button, a, [contenteditable=true]')
+    )
+      return
+    const row = event.target.closest<HTMLElement>('[data-file-path]')
+    if (!row || !element.contains(row)) return
+    const state = current()
+    const index = state.files.findIndex((file) => file.path === row.dataset.filePath)
+    if (index < 0) return
+    const delta =
+      event.key === 'ArrowDown'
+        ? state.grid
+          ? state.range.columns
+          : 1
+        : event.key === 'ArrowUp'
+          ? -(state.grid ? state.range.columns : 1)
+          : state.grid && event.key === 'ArrowRight'
+            ? 1
+            : state.grid && event.key === 'ArrowLeft'
+              ? -1
+              : 0
+    if (!delta && event.key !== 'Home' && event.key !== 'End') return
+    event.preventDefault()
+    const next =
+      event.key === 'Home'
+        ? 0
+        : event.key === 'End'
+          ? state.files.length - 1
+          : Math.max(0, Math.min(state.files.length - 1, index + delta))
+    const path = state.files[next]?.path
+    if (path === undefined) return
+    state.onMoveFocus?.(state.files[index]!, state.files[next]!, event)
+    const focus = () => {
+      const target = element.querySelector<HTMLElement>(`[data-file-path="${CSS.escape(path)}"]`)
+      if (!target) return false
+      target.focus({ preventScroll: true })
+      target.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+      return true
+    }
+    cancelAnimationFrame(focusFrame)
+    if (focus()) return
+    const target = state.target.kind === 'element' ? state.target.getScrollElement() : window
+    const rect = element.getBoundingClientRect()
+    const base =
+      target instanceof HTMLElement
+        ? rect.top - target.getBoundingClientRect().top + target.scrollTop
+        : rect.top + window.scrollY
+    target?.scrollTo({
+      top: Math.max(
+        0,
+        base +
+          Math.floor((next + (state.includeParent ? 1 : 0)) / state.range.columns) *
+            state.range.rowHeight,
+      ),
+      behavior: 'instant',
+    })
+    schedule()
+    let attempts = 0
+    const retry = () => {
+      if (!focus() && ++attempts < 20) focusFrame = requestAnimationFrame(retry)
+    }
+    focusFrame = requestAnimationFrame(retry)
+  }
+  let focusHandled = false
+  const focusOnLoad = () => {
+    if (focusHandled || !current().focusOnLoad) return
+    focusHandled = true
+    focusFrame = requestAnimationFrame(() => {
+      if (document.activeElement === document.body) {
+        const row = element.querySelector<HTMLElement>('[data-file-path]')
+        if (row) row.focus({ preventScroll: true })
+        else {
+          element.tabIndex = -1
+          element.focus({ preventScroll: true })
+        }
+      }
+      current().onFocused?.()
+    })
+  }
+  element.addEventListener('keydown', onKeyDown)
   const observer = new ResizeObserver(schedule)
   observer.observe(element)
   document.addEventListener('scroll', onScroll, { capture: true, passive: true })
   window.addEventListener('resize', schedule)
   const warmup = mountThumbnailWarmup(element, () => current().files)
   schedule()
+  focusOnLoad()
   return {
-    update: schedule,
+    update: () => {
+      schedule()
+      focusOnLoad()
+    },
     dispose: () => {
+      cancelAnimationFrame(focusFrame)
+      element.removeEventListener('keydown', onKeyDown)
       observer.disconnect()
       unregister?.()
       warmup()

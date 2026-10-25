@@ -27,6 +27,7 @@ pub enum Operation {
     Copy,
     Move,
     Delete,
+    Trash,
     CreateArchive,
     ExtractArchive,
 }
@@ -159,11 +160,17 @@ pub async fn start_job(state: Shared, mut request: Request) -> AppResult<String>
         if !resolved.full.exists() {
             return Err(AppError::not_found("Source does not exist"));
         }
-        if matches!(request.operation, Operation::Move | Operation::Delete) {
+        if matches!(
+            request.operation,
+            Operation::Move | Operation::Delete | Operation::Trash
+        ) {
             writable(&state, path)?;
         }
     }
-    if request.operation != Operation::Delete {
+    if request.operation == Operation::Trash {
+        crate::desktop_trash::require(&state.config)?;
+    }
+    if !matches!(request.operation, Operation::Delete | Operation::Trash) {
         let dest = media::resolve(&state.config, &request.destination)?;
         if !dest.full.is_dir() {
             return Err(AppError::bad("Choose an existing destination folder"));
@@ -367,6 +374,13 @@ async fn run(state: &Shared, job: &Arc<Job>, request: Request) -> AppResult<()> 
         job.check()?;
         job.update(|p| p.current = path.clone());
         let result = match request.operation {
+            Operation::Trash => {
+                writable(state, path)?;
+                FileMutation::new(state).trash(path).await.map(|_| {
+                    emit_path_removed(state, path);
+                    emit(state, path);
+                })
+            }
             Operation::Delete => {
                 writable(state, path)?;
                 FileMutation::new(state).delete(path).await.map(|_| {
@@ -952,20 +966,21 @@ mod tests {
     async fn hidden_files_are_opt_in_and_staging_never_appears() {
         let app = TestApp::new();
         app.write("visible.txt", b"visible");
-        app.write(".secret", b"existing dotfile behavior");
+        app.write(".secret", b"hidden dotfile");
         app.write(".DS_Store", b"hidden");
         app.write(".hidden/file.txt", b"hidden folder");
         app.write(".derp-copy-test", b"staging");
         let mut cached = |_: &std::path::Path, _: std::time::SystemTime| false;
         let normal = media::list(&app.state.config, "", &mut cached).unwrap();
         assert!(normal.iter().any(|file| file.name == "visible.txt"));
-        assert!(normal.iter().any(|file| file.name == ".secret"));
+        assert!(!normal.iter().any(|file| file.name == ".secret"));
         assert!(
             !normal
                 .iter()
                 .any(|file| file.name == ".DS_Store" || file.name == ".hidden")
         );
         let hidden = media::list_with_hidden(&app.state.config, "", &mut cached, true).unwrap();
+        assert!(hidden.iter().any(|file| file.name == ".secret"));
         assert!(hidden.iter().any(|file| file.name == ".DS_Store"));
         assert!(hidden.iter().any(|file| file.name == ".hidden"));
         assert!(!hidden.iter().any(|file| file.name.starts_with(".derp-")));

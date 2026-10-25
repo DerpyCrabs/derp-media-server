@@ -1,14 +1,20 @@
+import { search, searchKeymap } from '@codemirror/search'
+import {
+  detectLineSeparator,
+  hasMixedLineEndings,
+  sourceState as markdownSourceState,
+  replaceSource as replaceMarkdownSource,
+  sourceTrackingExtensions,
+  selectionText,
+} from '@/lib/editor/source'
 import { modelOwner } from 'effectweb'
-import { history, historyKeymap, invertedEffects, standardKeymap } from '@codemirror/commands'
+import { history, historyKeymap, standardKeymap } from '@codemirror/commands'
 import {
   Annotation,
   Compartment,
   EditorState,
-  StateEffect,
-  StateField,
   Transaction,
   type Extension,
-  type Text,
 } from '@codemirror/state'
 import { EditorView, keymap } from '@codemirror/view'
 
@@ -17,7 +23,6 @@ import {
   clearPendingImagePastes,
   markdownClipboardExtension,
   pendingImagePasteCompletion,
-  rawMarkdownPaste,
 } from './clipboard'
 import { clearMarkdownImageActivation, openActivatedMarkdownImage } from './images'
 import { markdownLanguage } from './markdown-language'
@@ -61,181 +66,6 @@ function modeExtensions(mode: MarkdownMode, ariaLabel: string): Extension {
   ]
 }
 
-type MarkdownLineSeparator = '\n' | '\r\n' | '\r'
-
-function detectLineSeparator(
-  content: string,
-  fallback: MarkdownLineSeparator = '\n',
-): MarkdownLineSeparator {
-  return (/\r\n|\r|\n/.exec(content)?.[0] as MarkdownLineSeparator | undefined) ?? fallback
-}
-
-function sourceOffsetAt(source: string, position: number): number {
-  let internalPosition = 0
-  let rawPosition = 0
-  for (const match of source.matchAll(/\r\n|\r|\n/g)) {
-    const matchPosition = match.index
-    const lineLength = matchPosition - rawPosition
-    const breakPosition = internalPosition + lineLength
-    if (position <= breakPosition) return rawPosition + position - internalPosition
-    internalPosition = breakPosition + 1
-    rawPosition = matchPosition + match[0].length
-  }
-  return rawPosition + position - internalPosition
-}
-
-function sourceSlice(source: string, from: number, to: number): string {
-  return source.slice(sourceOffsetAt(source, from), sourceOffsetAt(source, to))
-}
-
-function applySourceChanges(
-  source: string,
-  transaction: Transaction,
-  insertions: readonly string[],
-): string {
-  const changedRanges: { from: number; to: number }[] = []
-  transaction.changes.iterChanges((from, to) => {
-    changedRanges.push({ from, to })
-  })
-  let sourceCursor = 0
-  let result = ''
-
-  for (const [index, change] of changedRanges.entries()) {
-    const sourceFrom = sourceOffsetAt(source, change.from)
-    const sourceTo = sourceOffsetAt(source, change.to)
-    result += source.slice(sourceCursor, sourceFrom)
-    result += insertions[index] ?? ''
-    sourceCursor = sourceTo
-  }
-  return result + source.slice(sourceCursor)
-}
-
-function sourceInsertions(
-  transaction: Transaction,
-  lineSeparator: MarkdownLineSeparator,
-): readonly string[] {
-  const inserted: Text[] = []
-  transaction.changes.iterChanges((_from, _to, _fromNew, _toNew, text) => {
-    inserted.push(text)
-  })
-  const exactPaste = transaction.annotation(rawMarkdownPaste)
-  return exactPaste !== undefined && inserted.length === 1
-    ? [exactPaste]
-    : inserted.map((text) => text.sliceString(0, text.length, lineSeparator))
-}
-
-type MarkdownSourceState = {
-  text: string
-  lineSeparator: MarkdownLineSeparator
-  mixedLineEndings: boolean
-}
-
-const replaceMarkdownSource = StateEffect.define<MarkdownSourceState>()
-const exactMarkdownSource = StateEffect.define<MarkdownSourceState>()
-
-function hasMixedLineEndings(source: string): boolean {
-  let first: string | null = null
-  for (const match of source.matchAll(/\r\n|\r|\n/g)) {
-    if (first === null) first = match[0]
-    else if (match[0] !== first) return true
-  }
-  return false
-}
-
-function replacementSourceEffect(transaction: Transaction): MarkdownSourceState | null {
-  let replacement: MarkdownSourceState | null = null
-  for (const effect of transaction.effects) {
-    if (effect.is(replaceMarkdownSource)) replacement = effect.value
-  }
-  return replacement
-}
-
-function exactSourceEffect(transaction: Transaction): MarkdownSourceState | null {
-  let source: MarkdownSourceState | null = null
-  for (const effect of transaction.effects) {
-    if (effect.is(exactMarkdownSource)) source = effect.value
-  }
-  return source
-}
-
-const markdownSourceState = StateField.define<MarkdownSourceState>({
-  create(state) {
-    const text = state.doc.sliceString(0, state.doc.length, state.lineBreak)
-    return {
-      text,
-      lineSeparator: detectLineSeparator(text),
-      mixedLineEndings: hasMixedLineEndings(text),
-    }
-  },
-  update(value, transaction) {
-    const replacement = replacementSourceEffect(transaction)
-    if (replacement) return replacement
-    const exact = exactSourceEffect(transaction)
-    if (exact) return exact
-    if (!transaction.docChanged) return value
-    const insertions = sourceInsertions(transaction, value.lineSeparator)
-    const text = applySourceChanges(value.text, transaction, insertions)
-    return {
-      text,
-      lineSeparator: detectLineSeparator(text, value.lineSeparator),
-      mixedLineEndings: hasMixedLineEndings(text),
-    }
-  },
-})
-
-function sourceTrackingExtensions(initialText: string): Extension {
-  return [
-    markdownSourceState.init(() => ({
-      text: initialText,
-      lineSeparator: detectLineSeparator(initialText),
-      mixedLineEndings: hasMixedLineEndings(initialText),
-    })),
-    EditorState.transactionExtender.of((transaction) => {
-      if (
-        !transaction.docChanged ||
-        replacementSourceEffect(transaction) ||
-        exactSourceEffect(transaction)
-      ) {
-        return null
-      }
-      const previous = transaction.startState.field(markdownSourceState)
-      if (!previous.mixedLineEndings && transaction.annotation(rawMarkdownPaste) === undefined) {
-        return null
-      }
-      const text = applySourceChanges(
-        previous.text,
-        transaction,
-        sourceInsertions(transaction, previous.lineSeparator),
-      )
-      const mixedLineEndings = hasMixedLineEndings(text)
-      const lineSeparator = detectLineSeparator(text, previous.lineSeparator)
-      if (
-        !previous.mixedLineEndings &&
-        !mixedLineEndings &&
-        lineSeparator === previous.lineSeparator
-      ) {
-        return null
-      }
-      return { effects: exactMarkdownSource.of({ text, lineSeparator, mixedLineEndings }) }
-    }),
-    invertedEffects.of((transaction) => {
-      if (!transaction.docChanged || !exactSourceEffect(transaction)) return []
-      return [exactMarkdownSource.of(transaction.startState.field(markdownSourceState))]
-    }),
-  ]
-}
-
-function selectionText(
-  view: EditorView,
-  source: string,
-  lineSeparator: MarkdownLineSeparator,
-): string {
-  return view.state.selection.ranges
-    .filter((range) => !range.empty)
-    .map((range) => sourceSlice(source, range.from, range.to))
-    .join(lineSeparator)
-}
-
 export function createMarkdownEditor(
   options: CreateMarkdownEditorOptions,
 ): MarkdownEditorController {
@@ -252,6 +82,7 @@ export function createMarkdownEditor(
     extensions: [
       markdownLanguage,
       markdownEditorTheme,
+      search({ top: true }),
       EditorView.lineWrapping,
       EditorState.tabSize.of(2),
       sourceTrackingExtensions(options.doc),
@@ -349,6 +180,7 @@ export function createMarkdownEditor(
           run: (view) => (view.state.readOnly ? false : indentMarkdownList(false)(view)),
           shift: (view) => (view.state.readOnly ? false : indentMarkdownList(true)(view)),
         },
+        ...searchKeymap,
         ...historyKeymap,
         ...standardKeymap,
       ]),

@@ -22,6 +22,7 @@ impl TestApp {
         let media = directory.join("media");
         std::fs::create_dir_all(&media).unwrap();
         let config = Config {
+            desktop_mode: false,
             port: 0,
             write_access: WriteAccess::Filesystem,
             roots: vec![MediaRoot {

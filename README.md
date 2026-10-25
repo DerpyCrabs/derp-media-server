@@ -39,6 +39,7 @@ Path: `CONFIG_PATH` or `--config-path=...`. Options can also be set via environm
 
 | Config              | Env                | Purpose                                                                                    |
 | ------------------- | ------------------ | ------------------------------------------------------------------------------------------ |
+| `desktopMode`       | —                  | Optional computer navigation and Linux mounted locations (default `false`)                 |
 | `mediaDir`          | `MEDIA_DIR`        | Media root for legacy/single-root configs                                                  |
 | `port`              | `PORT`             | App port (`3000` by default; `0` assigns a free port); Workspace is served at `/workspace` |
 | `mediaDirs`         |                    | Multiple named media roots, each with optional editable folders                            |
@@ -191,6 +192,132 @@ as a folder. Paths are prefixed by the root name, for example `Movies/Incoming`.
 `name` is derived from the directory basename when possible, but must be set explicitly
 if the basename is empty, duplicates another media root, or conflicts with a virtual
 folder such as `Favorites` or `Most Played`.
+
+### Optional desktop mode
+
+The ordinary media library and workspace remain the default. Set `desktopMode` to `true`
+to add a compact **Places** menu with Home, existing XDG user folders and mounted Linux
+filesystems. Places refresh when opened; this browses already mounted storage and does not
+mount, unmount or eject devices. Absolute paths and `~` work in **Files → Go to location**.
+All locations refer to the computer running the server.
+
+With `mediaDir` or `mediaDirs`, desktop navigation stays inside those configured roots.
+On Linux and macOS, omitting both opens `/` instead of the working directory:
+
+```jsonc
+{ "desktopMode": true, "writeAccess": "filesystem" }
+```
+
+`writeAccess` is independent: omit it for read-only browsing unless `editableFolders` grants
+access. With `filesystem`, operations use the server account's OS permissions. This configuration
+exposes the files readable by that account to clients of this personal server.
+When desktop mode browses a filesystem root, recursive filename indexing is disabled by default;
+configure `fileSearch.enabled` explicitly to override it. Folder filtering works without an index.
+An existing media root can be retained for an indexed library without enabling computer-wide access.
+
+On a Linux server, desktop mode also enables the system **Trash**. Ordinary file deletion moves
+items to the Freedesktop trash; **Places → Trash** lists deleted items from configured media roots
+and restores them to their original folder. Restore respects current write permissions and never
+replaces an existing file. If the original folder is gone, recreate it first. The list includes
+items deleted by other desktop applications from those same roots. It checks the home trash and
+applicable mounted local filesystems, without probing automounts or network mounts.
+**Shift+Delete** still requests permanent deletion with confirmation. This mode does not change
+permanent deletion through the existing `/api/files/delete` API. Restoring recovers file contents;
+previous application metadata such as favorites and reading positions is not restored.
+
+### Everyday file browsing
+
+Common features work in both modes, including the web client on macOS:
+
+- Favorite folders appear in **Places** for quick navigation from any window. Use the existing
+  **Favorite/Unfavorite** context action; shortcuts follow renames and disappear when deleted.
+  Folders with the same name show their paths. This uses the same favorites as the library.
+
+- **Space** previews a focused or selected file without creating a workspace tab; **Escape**
+  closes it and restores focus. Text previews are read-only; **Open** opens the full viewer/editor.
+  Audio/video previews have independent, initially paused playback; unsupported browser codecs can
+  be opened in the full player.
+- **Ctrl/Cmd+F** filters filenames in the current folder. The filter appears only when requested,
+  ignores case, and closes with Escape. It filters loaded entries in virtual collections.
+- **Ctrl+H** shows hidden files and folders; this preference survives navigation and reloads.
+  Temporary `.derp-` operation files stay hidden.
+- **Arrow keys**, **Home** and **End** move keyboard focus through files, including large virtualized
+  folders. Hold **Shift** to extend or shrink a selection, including **Shift+Home/End**.
+  **Enter** opens the focused item; **Alt+Up** opens the parent folder. Folder navigation
+  returns focus to the listing, so nested and empty folders remain usable without a mouse.
+- Workspace file browsers have independent **Back/Forward** history, including split panes.
+  Use the arrow buttons or **Alt+Left/Right**; navigation does not change other windows.
+- **F2** renames the focused file with its basename selected, preserving the extension.
+  **Ctrl/Cmd+Shift+N** creates a folder; **F5** refreshes the current folder.
+- **Ctrl/Cmd+L** or **F6** opens Go to location. **Ctrl/Cmd+C/X/V** copies, cuts and pastes;
+  **Delete** asks before deletion (system Trash in Linux desktop mode, permanent otherwise);
+  **Alt+Enter** shows properties.
+- Display options include sorting by **Modified** and **Type**. Files shows selection actions
+  when items are selected, and an activity indicator remains visible while operations run or
+  need a conflict decision.
+
+The text viewer recognizes common Linux configuration files, TOML/JSONC, systemd units and
+extensionless files such as Makefile and Dockerfile. **Open as text** handles unrecognized UTF-8
+files; binary files and files larger than 16 MiB are rejected with an explanation.
+
+Navigation and preview conventions follow [Dolphin](https://docs.kde.org/stable_kf6/en/dolphin/dolphin/command-reference.html),
+[GNOME Files](https://help.gnome.org/gnome-help/files-preview.html), and
+[Finder Quick Look](https://support.apple.com/en-ie/guide/mac-help/mh14119/27/mac/27).
+Favorite folder shortcuts follow the purpose of [Finder Favorites](https://support.apple.com/en-euro/guide/mac-help/mchl83c9e8b8/27/mac/27)
+and [GNOME folder bookmarks](https://teams.pages.gitlab.gnome.org/websites/help.gnome.org/gnome-help/files-browse.html).
+
+### Documents and media viewers
+
+These improvements are shared by the library, workspace, web and native clients; they do not
+require desktop mode.
+
+- **Images:** zoomed images can be dragged or scrolled to inspect every edge. Scroll changes
+  images only in Fit mode. **1** shows original pixels at 100%, **0** restores Fit, **+/-** zoom,
+  and **R** rotates. Ctrl+wheel zooms. Manual zoom loads the original image for accurate detail;
+  Fit continues using responsive image variants. Rotation in the viewer is a viewing adjustment.
+  **Edit image** opens a separate crop/rotate/flip/resize mode with undo/redo. Crop by dragging,
+  moving the selection or its corner handles, or enter exact pixel bounds after Select all.
+  Save a PNG/JPEG copy into an editable folder, or download it. Existing files are never replaced;
+  exported copies contain the visible still image without original metadata. Editing is limited
+  to 40 megapixels and 16,384 pixels per side.
+- **Plain text and configuration files:** the editor supports undo/redo, **Find** / **Ctrl/Cmd+F**
+  with replacement, **Go to line** / **Ctrl/Cmd+G**, and a **Wrap lines** toggle. Configuration
+  files have line numbers and a monospace font. Existing save, autosave and conflict handling
+  remain in charge of writes; read-only mode preserves an editable file's unsaved draft.
+  **Save as** (Ctrl/Cmd+Shift+S) writes the current text to a new file; Download also includes
+  unsaved text. Browser-local IndexedDB backups offer Restore draft when the same file is reopened.
+  Restored drafts require an explicit save, and a changed server file remains protected by version
+  checks. Each open view has its own backup. These backups stay in that browser profile, are not
+  synced to other devices, and are lost if browser site data is cleared.
+  Original line endings, including mixed endings, are retained through edits and undo.
+  Markdown documents also support **Ctrl/Cmd+F** search and replacement when editable.
+- **PDF, EPUB and FB2:** the magnifying glass or **Ctrl/Cmd+F** searches the document, including
+  pages and chapters not currently rendered. Enter/Shift+Enter and the arrow buttons move through
+  matches; Escape closes search before closing the document. Search shows snippets and highlights
+  matches in browsers supporting the CSS Custom Highlight API. PDF search requires embedded text;
+  it does not OCR scanned pages. Results are limited to the first 10,000 matches, indicated by `+`.
+- **Audio:** playback speed is available in the desktop library player, workspace audio controls,
+  and canvas audio viewer. The focused canvas player also supports Space/K for play/pause,
+  Left/Right for five-second seeking, J/L for ten-second seeking, and M for mute.
+- **Video:** when subtitles are enabled, playback settings offer a per-file subtitle delay in
+  seconds, synchronized through the server. Positive values display subtitles later; 0 resets
+  the correction. Playback position and the media file are unchanged.
+
+PDFs protected by a password prompt for it when opened; passwords are not remembered. **Ctrl/Cmd+P**
+opens PDF printing, also available under Reader settings. Choose All, Current page, or ranges such
+as `1-3, 5`; pages are prepared at up to 150 dpi for the browser print dialog. A single print job is
+limited to 100 pages and 160 million rendered pixels; download the original for larger jobs or
+vector-quality printing.
+
+Image editing follows [Gwenview](https://docs.kde.org/stable_kf6/en/gwenview/gwenview/image_operations.html)
+and [Preview](https://support.apple.com/guide/preview/crop-resize-or-rotate-an-image-prvw2015/mac).
+Draft recovery follows the session-oriented approach of
+[GNOME Text Editor](https://help.gnome.org/gnome-text-editor/basics-draft-folder.html) and
+[VS Code Hot Exit](https://code.visualstudio.com/docs/editing/codebasics#_hot-exit).
+Viewer interactions are informed by [GNOME Image Viewer](https://help.gnome.org/loupe/viewing-images.html),
+[Evince document search](https://help.gnome.org/evince/finding.html),
+[gedit search and editing shortcuts](https://help.gnome.org/users/gedit/stable/gedit-shortcut-keys.html.ar),
+and [VLC playback and subtitle controls](https://docs.videolan.me/vlc-user/en/support/faq/faqwindows.html).
 
 ### Filesystem write permissions
 

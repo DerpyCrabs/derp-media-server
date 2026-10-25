@@ -47,8 +47,41 @@ pub fn media_type(ext: &str) -> &'static str {
         "epub" | "fb2" | "fb2.zip" => "book",
         "txt" | "md" | "json" | "xml" | "csv" | "log" | "yaml" | "yml" | "ini" | "conf" | "sh"
         | "bat" | "ps1" | "js" | "ts" | "jsx" | "tsx" | "css" | "scss" | "html" | "py" | "java"
-        | "c" | "cpp" | "h" | "cs" | "go" | "rs" | "php" | "rb" | "swift" | "kt" | "sql" => "text",
+        | "c" | "cpp" | "h" | "cs" | "go" | "rs" | "php" | "rb" | "swift" | "kt" | "sql"
+        | "toml" | "jsonc" | "jsonl" | "ndjson" | "desktop" | "service" | "socket" | "timer"
+        | "target" | "cfg" | "config" | "env" | "fish" | "zsh" | "bash" | "nix" | "lua" | "srt"
+        | "vtt" | "ass" | "diff" | "patch" | "properties" => "text",
         _ => "other",
+    }
+}
+pub fn path_media_type(path: &Path) -> &'static str {
+    let name = path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_ascii_lowercase();
+    if [
+        "makefile",
+        "dockerfile",
+        "readme",
+        "license",
+        ".bashrc",
+        ".zshrc",
+        ".profile",
+        ".bash_profile",
+        ".bash_logout",
+        ".gitignore",
+        ".gitattributes",
+        ".editorconfig",
+        ".env",
+        ".npmrc",
+    ]
+    .contains(&name.as_str())
+        || name.starts_with(".env.")
+    {
+        "text"
+    } else {
+        media_type(&extension(path))
     }
 }
 pub fn extension(path: &Path) -> String {
@@ -300,9 +333,15 @@ pub fn list_with_hidden(
     let resolved = resolve(config, input)?;
     for entry in fs::read_dir(&resolved.full).map_err(AppError::io)? {
         let Ok(entry) = entry else { continue };
-        let Ok(meta) = entry.metadata() else { continue };
+        let Ok(meta) = fs::metadata(entry.path()) else {
+            continue;
+        };
+        if !meta.is_file() && !meta.is_dir() {
+            continue;
+        }
         let name = entry.file_name().to_string_lossy().into_owned();
         if name.starts_with(".derp-")
+            || (!hidden && name.starts_with('.'))
             || (!hidden
                 && ((meta.is_dir() && excluded_dir(&name))
                     || (!meta.is_dir() && excluded_file(&name))))
@@ -336,7 +375,7 @@ pub fn list_with_hidden(
             media_type: if meta.is_dir() {
                 "folder".into()
             } else {
-                media_type(&ext).into()
+                path_media_type(&entry.path()).into()
             },
             size: if meta.is_dir() { 0 } else { meta.len() },
             created_date,

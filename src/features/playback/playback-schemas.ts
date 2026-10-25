@@ -37,6 +37,7 @@ export const videoPreferencesSchema = Schema.Struct({
   }),
   video: Schema.Struct({
     speed: Schema.optional(Schema.Number),
+    subtitleDelay: Schema.optional(Schema.Number),
     audioTrack: Schema.optional(Schema.NullOr(Schema.String)),
     subtitleTrack: Schema.optional(Schema.NullOr(Schema.String)),
     secondarySubtitleTrack: Schema.optional(Schema.NullOr(Schema.String)),

@@ -994,12 +994,13 @@ test.describe('Workspace Text Viewer', () => {
       await expect(viewer.getByText('This is a test readme file')).toBeVisible()
     })
     await test.step('selects and copies read-only text without allowing edits', async () => {
-      const text = viewer.locator('pre')
+      const text = viewer.getByTestId('plain-text-document').getByRole('document')
       const original = await text.textContent()
       const bounds = await text.evaluate((element) => {
         const range = document.createRange()
-        range.setStart(element.firstChild!, 0)
-        range.setEnd(element.firstChild!, 4)
+        const node = element.querySelector('.cm-line')!.firstChild!
+        range.setStart(node, 0)
+        range.setEnd(node, 4)
         const rect = range.getBoundingClientRect()
         return { left: rect.left, right: rect.right, y: rect.top + rect.height / 2 }
       })

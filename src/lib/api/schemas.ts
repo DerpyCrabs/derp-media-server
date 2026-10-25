@@ -24,7 +24,15 @@ export const workspaceSettingsSchema = Schema.Struct({
   sortOrders: Schema.Record(
     Schema.String,
     Schema.Struct({
-      field: Schema.Literals(['name', 'createdDate', 'size', 'favorite', 'views']),
+      field: Schema.Literals([
+        'name',
+        'createdDate',
+        'modifiedDate',
+        'type',
+        'size',
+        'favorite',
+        'views',
+      ]),
       direction: Schema.Literals(['asc', 'desc']),
     }),
   ),
@@ -40,6 +48,8 @@ export const workspaceSettingsSchema = Schema.Struct({
   workspaceTaskbarPins: Schema.mutable(Schema.Array(taskbarPin)),
 })
 export const serverConfigSchema = Schema.Struct({
+  desktopMode: Schema.optional(Schema.Boolean),
+  trashAvailable: Schema.optional(Schema.Boolean),
   writeAccess: Schema.optional(Schema.Literals(['editableFolders', 'filesystem'])),
   editableFolders: strings,
   mediaRoots: Schema.mutable(

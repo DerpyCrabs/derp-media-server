@@ -1,3 +1,6 @@
+import Search from '@effectweb/lucide/icons/search'
+import { DocumentSearchBar } from '../../DocumentSearchBar'
+import { findDocumentMatches, type DocumentMatch } from '../../document-search'
 import { nextAnimationFrame } from '@/lib/browser/animation-frame'
 import ChevronLeft from '@effectweb/lucide/icons/chevron-left'
 import ChevronRight from '@effectweb/lucide/icons/chevron-right'
@@ -79,12 +82,77 @@ function bookController(props: ReaderContentProps) {
     book: null as LoadedBook | null,
     loading: true,
     error: '',
+    searchOpen: false,
+    searchQuery: '',
+    matches: [] as DocumentMatch[],
+    matchIndex: -1,
+    searchTruncated: false,
+    searching: false,
     position: normalizeBookReaderPosition({}),
     positionReady: false,
     viewport: undefined as HTMLDivElement | undefined,
     preferences: readerPreferences.read(),
   })
+  const textCache = new Map<number, string>()
   const actions = {
+    openSearch: () => {
+      const query = owner.read().searchQuery
+      owner.patch({ searchOpen: true })
+      viewport
+        ?.closest('[data-testid="reader-dialog"]')
+        ?.querySelector<HTMLInputElement>('[role="search"] input')
+        ?.focus()
+      if (query) actions.search(query)
+    },
+    closeSearch: () => {
+      owner.cancel('book-search')
+      owner.patch({ searchOpen: false, searching: false, matches: [], matchIndex: -1 })
+      viewport?.focus()
+    },
+    search: (query: string) => {
+      owner.patch({
+        searchQuery: query,
+        matches: [],
+        matchIndex: -1,
+        searching: Boolean(query.trim()),
+      })
+      owner.run(
+        'book-search',
+        Effect.gen(function* () {
+          if (!query.trim()) return
+          yield* Effect.sleep(150)
+          const chapters = owner.read().book?.document.chapters ?? []
+          const matches: DocumentMatch[] = []
+          for (let index = 0; index < chapters.length; index++) {
+            let text = textCache.get(index)
+            if (text === undefined) {
+              const template = document.createElement('template')
+              template.innerHTML = chapters[index]!.html
+              text = template.content.textContent ?? ''
+              textCache.set(index, text)
+            }
+            matches.push(...findDocumentMatches(text, query, index, 10001 - matches.length))
+            if (matches.length > 10000) break
+            if (index % 8 === 0) yield* nextAnimationFrame
+          }
+          owner.patch({
+            matches: matches.slice(0, 10000),
+            searchTruncated: matches.length > 10000,
+            matchIndex: matches.length ? 0 : -1,
+            searching: false,
+          })
+          if (matches[0]) actions.navigate(chapters[matches[0].page]!.id)
+        }),
+        'replace',
+      )
+    },
+    nextMatch: (offset: number) => {
+      const model = owner.read()
+      if (!model.matches.length || !model.book) return
+      const matchIndex = (model.matchIndex + offset + model.matches.length) % model.matches.length
+      owner.patch({ matchIndex })
+      actions.navigate(model.book.document.chapters[model.matches[matchIndex]!.page]!.id)
+    },
     attach: (element: HTMLDivElement) => {
       if (viewport === element) return
       viewport = element
@@ -407,7 +475,42 @@ const BookReader = controllerView(
             >
               <ChevronRight size={17} />
             </button>
+            {loaded ? (
+              <button
+                type='button'
+                aria-label='Find in document'
+                title='Find in document (Ctrl/Cmd+F)'
+                class='inline-flex size-8 shrink-0 items-center justify-center rounded hover:bg-white/10'
+                onClick={actions.openSearch}
+              >
+                <Search size={17} />
+              </button>
+            ) : null}
           </div>
+        }
+        onFind={loaded ? actions.openSearch : undefined}
+        onEscape={() => {
+          if (!model.searchOpen) return false
+          actions.closeSearch()
+          return true
+        }}
+        search={
+          model.searchOpen ? (
+            <DocumentSearchBar
+              query={model.searchQuery}
+              searching={model.searching}
+              truncated={model.searchTruncated}
+              matches={model.matches}
+              index={model.matchIndex}
+              location={
+                loaded?.document.chapters[model.matches[model.matchIndex]?.page ?? 0]?.title ??
+                'Chapter'
+              }
+              onSearch={actions.search}
+              onNext={actions.nextMatch}
+              onClose={actions.closeSearch}
+            />
+          ) : undefined
         }
         settings={() => (
           <BookAppearanceSettings
@@ -469,6 +572,8 @@ const BookReader = controllerView(
                 positionReady={model.positionReady}
                 viewport={model.viewport}
                 onNavigate={actions.navigate}
+                searchQuery={model.searchOpen && !model.searching ? model.searchQuery : ''}
+                activeMatch={model.matches[model.matchIndex]}
               />
             ) : null}
           </>

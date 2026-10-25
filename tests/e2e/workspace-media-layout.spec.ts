@@ -46,6 +46,14 @@ test.describe('Workspace audio and video playback', () => {
       .toMatch(/\/api\/media/)
 
     await page.getByRole('button', { name: 'Open audio controls' }).click()
+    await page.getByRole('button', { name: 'Audio playback speed', exact: true }).click()
+    await page.getByRole('menuitemradio', { name: '1.5×', exact: true }).click()
+    await expect.poll(() => audio.evaluate((el: HTMLAudioElement) => el.playbackRate)).toBe(1.5)
+    await expect(
+      page.getByRole('button', { name: 'Audio playback speed', exact: true }),
+    ).toBeVisible()
+    await page.getByRole('button', { name: 'Audio playback speed', exact: true }).click()
+    await page.getByRole('menuitemradio', { name: '1×', exact: true }).click()
     const playToggle = page
       .locator('[data-workspace-taskbar-audio-root] .bg-popover')
       .locator('button')
@@ -277,7 +285,7 @@ test.describe('Workspace viewer pane height', () => {
     await expect(groups).toHaveCount(2)
     const viewer = groups.nth(1)
     const visible = viewer.locator('[data-testid="workspace-window-visible-content"]')
-    const pre = visible.locator('pre')
+    const pre = visible.getByTestId('plain-text-document').getByRole('document')
     await expect(pre).toBeVisible({ timeout: 10_000 })
     const bodyHeight = await pre.evaluate((el) => {
       let n: HTMLElement | null = el.parentElement

@@ -13,6 +13,21 @@ test.describe('Audio Player', () => {
     await expect(page.locator('audio')).toBeAttached()
   })
 
+  test('changes audio speed from the player without changing the selected track', async ({
+    page,
+  }) => {
+    await page.goto(`/?dir=${MUSIC_DIR}&playing=${encodeURIComponent(AUDIO_FILE)}`)
+    const audio = page.locator('audio')
+    await expect(audio).toBeAttached()
+    await page.getByRole('button', { name: 'Audio playback speed', exact: true }).click()
+    await page.getByRole('menuitemradio', { name: '1.5×', exact: true }).click()
+    await expect.poll(() => audio.evaluate((el: HTMLAudioElement) => el.playbackRate)).toBe(1.5)
+    expect(new URL(page.url()).searchParams.get('playing')).toBe(AUDIO_FILE)
+    await page.getByRole('button', { name: 'Audio playback speed', exact: true }).click()
+    await page.getByRole('menuitemradio', { name: '1×', exact: true }).click()
+    await expect.poll(() => audio.evaluate((el: HTMLAudioElement) => el.playbackRate)).toBe(1)
+  })
+
   test('reserves bottom space for the fixed audio bar', async ({ page }) => {
     await page.goto(`/?dir=${MUSIC_DIR}&playing=${encodeURIComponent(AUDIO_FILE)}`)
     await expect

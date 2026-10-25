@@ -120,13 +120,70 @@ test.describe('Reader', () => {
     await expect(page.getByTestId('pdf-canvas').first()).toBeVisible()
     await expect(page.getByTestId('open-with-reader')).toHaveCount(0)
     await page.getByTestId('reader-settings-button').click()
+    const initialZoom = Number(
+      (await page.getByTestId('reader-settings').innerText()).match(/(\d+)%/)![1],
+    )
     await page.getByLabel('Reader zoom in').click()
-    await expect(page.getByTestId('reader-settings')).toContainText('110%')
+    const expectedZoom = `${Math.min(300, initialZoom + 10)}%`
+    await expect(page.getByTestId('reader-settings')).toContainText(expectedZoom)
     await page.getByLabel('Close reader').click()
 
     await page.locator('tr', { hasText: 'sample.pdf' }).click()
     await page.getByTestId('reader-settings-button').click()
-    await expect(page.getByTestId('reader-settings')).toContainText('110%')
+    await expect(page.getByTestId('reader-settings')).toContainText(expectedZoom)
+  })
+
+  test('finds PDF text across pages and closes search without closing the document', async ({
+    page,
+  }) => {
+    await openSamplePdf(page)
+    const reader = page.getByTestId('reader-dialog')
+    await reader.click({ position: { x: 10, y: 45 } })
+    await page.keyboard.press('Control+f')
+    const search = reader.getByRole('searchbox', { name: 'Find in document' })
+    await search.fill('reader')
+    const status = reader.getByRole('search').getByRole('status')
+    await expect(status).toHaveText(/1 of [1-9]/)
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          Array.from(CSS.highlights.keys()).some((key) => key.startsWith('document-search-')),
+        ),
+      )
+      .toBe(true)
+    await reader.getByRole('button', { name: 'Next match', exact: true }).click()
+    await expect(status).toHaveText(/2 of /)
+    await search.fill('no-such-document-text-12345')
+    await expect(status).toHaveText('No matches')
+    await search.press('Escape')
+    await expect(search).toHaveCount(0)
+    await expect(reader).toBeVisible()
+    await reader.getByRole('button', { name: 'Find in document', exact: true }).click()
+    await expect(search).toBeFocused()
+  })
+
+  test('searches an EPUB across virtualized chapters without changing its contents', async ({
+    page,
+  }) => {
+    await page.goto('/?dir=Documents&viewing=Documents%2Freader.epub')
+    const reader = page.getByTestId('reader-dialog')
+    await expect(page.getByTestId('reader-book')).toBeVisible()
+    await reader.getByRole('button', { name: 'Find in document', exact: true }).click()
+    const search = reader.getByRole('searchbox', { name: 'Find in document' })
+    await search.fill('Selectable EPUB text')
+    await expect(reader.getByRole('search').getByRole('status')).toHaveText(/1 of /)
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => Array.from(CSS.highlights.keys()).filter((key) => key.endsWith('-active')).length,
+        ),
+      )
+      .toBeGreaterThan(0)
+    await search.fill('nonexistent-book-phrase-9876')
+    await expect(reader.getByRole('search').getByRole('status')).toHaveText('No matches')
+    await search.press('Escape')
+    await expect(reader).toBeVisible()
+    await expect(reader.getByRole('search')).toHaveCount(0)
   })
 
   test('reads EPUB and FB2 as reflowable books with outlines', async ({ page }) => {

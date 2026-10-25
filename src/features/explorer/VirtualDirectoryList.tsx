@@ -3,6 +3,9 @@ import { collection, domBinding, list, component, view, type JSX } from 'effectw
 import type { FileItem } from '@/lib/files/types'
 import { directoryViewport } from './virtual-directory-binding'
 type VirtualDirectoryListProps = {
+  focusOnLoad?: boolean
+  onFocused?: () => void
+  onMoveFocus?: (from: FileItem, to: FileItem, event: KeyboardEvent) => void
   files: readonly FileItem[]
   includeParent: boolean
   scrollTarget:
@@ -46,10 +49,14 @@ export const VirtualDirectoryList = component(
     )
     return (
       <div
+        data-directory-viewport
         class={props.class}
         use={domBinding(
           {
             files,
+            onMoveFocus: props.onMoveFocus,
+            focusOnLoad: props.focusOnLoad,
+            onFocused: props.onFocused,
             includeParent: parent,
             target: props.scrollTarget,
             scope: props.scrollScope,

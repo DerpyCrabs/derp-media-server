@@ -1,5 +1,5 @@
 /**
- * Global floating UI: one capture-phase `pointerdown` on `document`.
+ * Global floating UI: capture-phase pointer dismissal and Escape for the top layer.
  *
  * Layers register while mounted. On each pointerdown we repeatedly take the top layer by
  * `(zIndex desc, id desc)`, stop if that layer considers the event "inside", otherwise call
@@ -12,6 +12,7 @@ export type FloatingDismissLayer = {
   /** True = do not dismiss this layer for this event. */
   isInside: (e: PointerEvent) => boolean
   dismiss: () => void
+  dismissOnEscape?: () => void
 }
 
 type Entry = FloatingDismissLayer & { id: number }
@@ -86,12 +87,25 @@ function onDocumentPointerDownCapture(e: PointerEvent) {
   }
 }
 
+function onDocumentKeyDownCapture(event: KeyboardEvent) {
+  if (event.defaultPrevented || event.key !== 'Escape') return
+  const top = [...entries.values()].sort(sortTopFirst)[0]
+  if (!top) return
+  event.preventDefault()
+  event.stopPropagation()
+  ;(top.dismissOnEscape ?? top.dismiss)()
+  entries.delete(top.id)
+  syncDocumentListener()
+}
+
 function syncDocumentListener() {
   if (entries.size > 0 && !attached) {
     document.addEventListener('pointerdown', onDocumentPointerDownCapture, true)
+    document.addEventListener('keydown', onDocumentKeyDownCapture, true)
     attached = true
   } else if (entries.size === 0 && attached) {
     document.removeEventListener('pointerdown', onDocumentPointerDownCapture, true)
+    document.removeEventListener('keydown', onDocumentKeyDownCapture, true)
     attached = false
   }
 }

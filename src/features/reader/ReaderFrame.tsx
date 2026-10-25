@@ -35,6 +35,10 @@ type Props = ReaderPresentation & {
   sourcePath: string
   selectionModes: readonly ReaderSelectionMode[]
   toolbar: JSX.Element
+  search?: JSX.Element
+  onFind?: () => void
+  onPrint?: () => void
+  overlay?: JSX.Element
   settings?: (close: () => void) => JSX.Element
   settingsWide?: boolean
   outline?: JSX.Element
@@ -219,8 +223,31 @@ function frameController(props: Props) {
       )
         return
       const current = owner.read()
+      if (event.defaultPrevented) return
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        event.key.toLowerCase() === 'f' &&
+        current.props.onFind
+      ) {
+        event.preventDefault()
+        current.props.onFind()
+        return
+      }
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        event.key.toLowerCase() === 'p' &&
+        current.props.onPrint
+      ) {
+        event.preventDefault()
+        current.props.onPrint()
+        return
+      }
       if (event.key === 'Escape') {
-        if (current.props.onEscape?.()) return
+        if (current.props.onEscape?.()) {
+          event.preventDefault()
+          event.stopPropagation()
+          return
+        }
         if (current.settingsOpen) owner.patch({ settingsOpen: false })
         else if (current.selection) actions.clearSelection()
         else if (!current.props.embedded || current.props.onClose) void actions.dismiss()
@@ -397,6 +424,7 @@ export const ReaderFrame = controllerView(
             </button>
           ) : null}
         </header>
+        {props.search}
         <div class='relative flex min-h-0 flex-1'>
           {preferences.outlineOpen ? props.outline : null}
           <div
@@ -419,6 +447,7 @@ export const ReaderFrame = controllerView(
             {props.content(frame)}
           </div>
         </div>
+        {props.overlay}
         <Portal mount={model.menuHost}>
           {model.selection ? (
             <ReaderSelectionMenu

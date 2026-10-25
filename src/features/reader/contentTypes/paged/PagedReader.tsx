@@ -1,3 +1,6 @@
+import { DocumentSearchBar } from '../../DocumentSearchBar'
+import Search from '@effectweb/lucide/icons/search'
+import { findDocumentMatches, type DocumentMatch } from '../../document-search'
 import { nextAnimationFrame } from '@/lib/browser/animation-frame'
 import { cn } from '@/lib/ui/cn'
 import { Effect, Semaphore } from 'effect'
@@ -33,16 +36,20 @@ export type PagedDocument<TPage extends ReaderPage = ReaderPage> = {
   pages: TPage[]
   outline: ReaderOutlineItem[]
   release?: () => Effect.Effect<void>
+  pageText?: (index: number) => Effect.Effect<string, unknown>
 }
 type Props<TDocument extends PagedDocument> = ReaderContentProps & {
   load: (path: string) => Effect.Effect<TDocument, unknown>
   selectionModes: readonly ReaderSelectionMode[]
+  renderPrint?: (document: TDocument, pageIndex: number, onClose: () => void) => JSX.Element
   renderPage: (input: {
     document: TDocument
     page: TDocument['pages'][number]
     pageIndex: number
     zoom: number
     frame: ReaderFrameContent
+    searchQuery: string
+    activeMatch: DocumentMatch | undefined
   }) => JSX.Element
 }
 const clampZoom = (value: number) => Math.max(0.35, Math.min(3, Number(value.toFixed(2))))
@@ -130,11 +137,88 @@ function createPagedReader(props: Props<PagedDocument>) {
     props,
     document: null as PagedDocument | null,
     error: '',
+    printOpen: false,
+    searchOpen: false,
+    searchQuery: '',
+    matchedQuery: '',
+    matches: [] as DocumentMatch[],
+    matchIndex: -1,
+    searchTruncated: false,
+    searching: false,
+    searchError: '',
     loading: true,
     position: normalizePagedReaderPosition({}),
     size: { width: 0, height: 0 },
   })
   const actions = {
+    openPrint: () => owner.patch({ printOpen: true }),
+    closePrint: () => owner.patch({ printOpen: false }),
+    openSearch: () => {
+      const query = owner.read().searchQuery
+      owner.patch({ searchOpen: true })
+      viewport
+        ?.closest('[data-testid="reader-dialog"]')
+        ?.querySelector<HTMLInputElement>('[role="search"] input')
+        ?.focus()
+      if (query) actions.search(query)
+    },
+    closeSearch: () => {
+      owner.cancel('document-search')
+      owner.patch({
+        searchOpen: false,
+        searching: false,
+        matchedQuery: '',
+        matches: [],
+        matchIndex: -1,
+      })
+      viewport?.focus()
+    },
+    search: (query: string) => {
+      owner.patch({
+        searchQuery: query,
+        matchedQuery: '',
+        matches: [],
+        matchIndex: -1,
+        searching: Boolean(query.trim()),
+        searchError: '',
+      })
+      owner.run(
+        'document-search',
+        Effect.gen(function* () {
+          const document = owner.read().document
+          if (!query.trim() || !document?.pageText) return
+          yield* Effect.sleep(150)
+          const matches: DocumentMatch[] = []
+          for (let index = 0; index < document.pages.length; index++) {
+            const text = yield* document.pageText(index)
+            matches.push(...findDocumentMatches(text, query, index, 10001 - matches.length))
+            if (matches.length > 10000) break
+          }
+          owner.patch({
+            matches: matches.slice(0, 10000),
+            searchTruncated: matches.length > 10000,
+            matchedQuery: query,
+            matchIndex: matches.length ? 0 : -1,
+            searching: false,
+          })
+          if (matches[0]) navigate(matches[0].page)
+        }).pipe(
+          Effect.catch(() =>
+            Effect.sync(() =>
+              owner.patch({ searching: false, searchError: 'Could not search this document.' }),
+            ),
+          ),
+        ),
+        'replace',
+      )
+    },
+    nextMatch: (offset: number) => {
+      const state = owner.read()
+      if (!state.matches.length) return
+      const matchIndex = (state.matchIndex + offset + state.matches.length) % state.matches.length
+      owner.patch({ matchIndex })
+      navigate(state.matches[matchIndex]!.page)
+    },
     navigate: (index: number) => navigate(index),
     change: (changes: Partial<PagedReaderPosition>) => {
       owner.patch({ position: { ...owner.read().position, ...changes } })
@@ -310,8 +394,8 @@ function zoomFor(
   if (!page) return position.zoom
   return clampZoom(
     position.fitMode === 'width'
-      ? Math.max(320, size.width - 24) / page.width
-      : Math.max(320, size.height - 28) / page.height,
+      ? Math.max(1, size.width - 24) / page.width
+      : Math.max(1, size.height - 28) / page.height,
   )
 }
 const PagedReaderView = view<ControllerModel<typeof createPagedReader>>((model) => {
@@ -328,10 +412,79 @@ const PagedReaderView = view<ControllerModel<typeof createPagedReader>>((model) 
       title={props.sourcePath}
       selectionModes={props.selectionModes}
       toolbar={
-        <PageIndicator page={state.pageIndex} count={pages.length} onNavigate={actions.navigate} />
+        <>
+          <PageIndicator
+            page={state.pageIndex}
+            count={pages.length}
+            onNavigate={actions.navigate}
+          />
+          {model.document?.pageText ? (
+            <button
+              type='button'
+              aria-label='Find in document'
+              title='Find in document (Ctrl/Cmd+F)'
+              class='inline-flex size-8 shrink-0 items-center justify-center rounded hover:bg-white/10'
+              onClick={actions.openSearch}
+            >
+              <Search size={17} />
+            </button>
+          ) : null}
+        </>
+      }
+      onFind={model.document?.pageText ? actions.openSearch : undefined}
+      onPrint={model.document && props.renderPrint ? actions.openPrint : undefined}
+      overlay={
+        model.printOpen && model.document
+          ? props.renderPrint?.(model.document, state.pageIndex, actions.closePrint)
+          : undefined
+      }
+      onEscape={() => {
+        if (!model.searchOpen) return false
+        actions.closeSearch()
+        return true
+      }}
+      search={
+        model.searchOpen ? (
+          <DocumentSearchBar
+            query={model.searchQuery}
+            searching={model.searching}
+            truncated={model.searchTruncated}
+            error={model.searchError}
+            matches={model.matches}
+            index={model.matchIndex}
+            location={`Page ${(model.matches[model.matchIndex]?.page ?? 0) + 1}`}
+            onSearch={actions.search}
+            onNext={actions.nextMatch}
+            onClose={actions.closeSearch}
+          />
+        ) : undefined
       }
       settings={(close) => (
         <>
+          <ReaderSetting label='File'>
+            <div class='flex gap-2'>
+              <a
+                href={`/api/files/download?path=${encodeURIComponent(props.sourcePath)}`}
+                download
+                class='rounded border border-white/20 px-2 py-1 text-xs hover:bg-white/10'
+              >
+                Download
+              </a>
+              {model.document && props.renderPrint ? (
+                <button
+                  type='button'
+                  class='rounded border border-white/20 px-2 py-1 text-xs hover:bg-white/10'
+                  title='Print document (Ctrl/Cmd+P)'
+                  onClick={() => {
+                    close()
+                    actions.openPrint()
+                  }}
+                >
+                  Print…
+                </button>
+              ) : null}
+            </div>
+          </ReaderSetting>
           <ReaderSetting label='View'>
             <Segmented
               values={['continuous', 'page']}
@@ -358,9 +511,7 @@ const PagedReaderView = view<ControllerModel<typeof createPagedReader>>((model) 
                 type='button'
                 aria-label='Reader zoom out'
                 class='flex h-8 w-full items-center justify-center rounded-lg border border-[#3a3a3a] bg-[#202020] hover:border-[#777]'
-                onClick={() =>
-                  actions.change({ fitMode: 'manual', zoom: clampZoom(state.zoom - 0.1) })
-                }
+                onClick={() => actions.change({ fitMode: 'manual', zoom: clampZoom(zoom - 0.1) })}
               >
                 <ZoomOut size={17} />
               </button>
@@ -371,9 +522,7 @@ const PagedReaderView = view<ControllerModel<typeof createPagedReader>>((model) 
                 type='button'
                 aria-label='Reader zoom in'
                 class='flex h-8 w-full items-center justify-center rounded-lg border border-[#3a3a3a] bg-[#202020] hover:border-[#777]'
-                onClick={() =>
-                  actions.change({ fitMode: 'manual', zoom: clampZoom(state.zoom + 0.1) })
-                }
+                onClick={() => actions.change({ fitMode: 'manual', zoom: clampZoom(zoom + 0.1) })}
               >
                 <ZoomIn size={17} />
               </button>
@@ -462,6 +611,8 @@ const PagedReaderView = view<ControllerModel<typeof createPagedReader>>((model) 
                     pageIndex: pages.indexOf(page),
                     zoom,
                     frame,
+                    searchQuery: model.matchedQuery,
+                    activeMatch: model.matches[model.matchIndex],
                   })}
                 </article>
               ))

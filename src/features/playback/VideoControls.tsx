@@ -186,6 +186,9 @@ function controlsController(props: Props) {
     retry: () => {
       session.dispatch({ type: 'retry' })
     },
+    subtitleDelay: (delay: number) => {
+      if (Number.isFinite(delay)) void save({ subtitleDelay: Math.max(-600, Math.min(600, delay)) })
+    },
     speed: (speed: number) => {
       if (owner.read().props.active) session.dispatch({ type: 'setPlaybackRate', rate: speed })
       void save({ speed })
@@ -476,7 +479,7 @@ export const VideoControls = controllerView(
               path={props.path}
               track={secondary()!}
               fingerprint={model.info?.fingerprint}
-              position={position()}
+              position={position() - (model.preferences?.video.subtitleDelay ?? 0)}
               secondary
             />
           ) : null}
@@ -485,7 +488,7 @@ export const VideoControls = controllerView(
               path={props.path}
               track={primary()!}
               fingerprint={model.info?.fingerprint}
-              position={position()}
+              position={position() - (model.preferences?.video.subtitleDelay ?? 0)}
             />
           ) : null}
         </div>
@@ -604,6 +607,27 @@ export const VideoControls = controllerView(
                     />
                   </label>
                 ))}
+                {primary() || secondary() ? (
+                  <label class='block space-y-1 text-xs'>
+                    <span>Subtitle delay (seconds)</span>
+                    <input
+                      type='number'
+                      aria-label='Subtitle delay (seconds)'
+                      min={-600}
+                      max={600}
+                      step={0.1}
+                      value={model.preferences?.video.subtitleDelay ?? 0}
+                      class='w-full rounded border border-input bg-background px-2 py-1.5'
+                      onChange={(event) => {
+                        if (event.currentTarget.value.trim())
+                          model.actions.subtitleDelay(Number(event.currentTarget.value))
+                      }}
+                    />
+                    <span class='block text-muted-foreground'>
+                      Positive values show subtitles later. Set 0 to reset.
+                    </span>
+                  </label>
+                ) : null}
                 {model.infoError ? (
                   <p class='text-destructive text-xs'>
                     Track information is unavailable. FFmpeg and ffprobe are required on the server.

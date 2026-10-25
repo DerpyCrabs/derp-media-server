@@ -12,6 +12,8 @@ export type ExplorerFileRowMenuApi = {
   confirmDelete: (file: FileItem) => void
 }
 export type ExplorerRowAction =
+  | 'preview'
+  | 'properties'
   | 'set-icon'
   | 'pick-new-tab-target'
   | 'primary-open'
@@ -30,6 +32,7 @@ export type ExplorerRowAction =
   | 'rename'
   | 'delete'
 type ExplorerRowLabelAction =
+  | 'delete'
   | 'primary-open'
   | 'other-surface'
   | 'favorite'
@@ -43,6 +46,8 @@ export type ExplorerRowMenuConfig = {
     hasEditableFolders: boolean
   }
   edit: {
+    deleteLabel?: string
+    properties?: (file: FileItem) => void
     download: (file: FileItem) => void
     addToTaskbar?: (file: FileItem) => void
     rename?: (file: FileItem) => void
@@ -52,6 +57,7 @@ export type ExplorerRowMenuConfig = {
     setIcon?: (file: FileItem) => void
   }
   open: {
+    preview?: (file: FileItem) => void
     newTab?: (file: FileItem) => void
     newTabLabel?: string
     showNewTabForFiles?: boolean
@@ -98,6 +104,10 @@ export function createExplorerRowMenu(config: ExplorerRowMenuConfig): ExplorerRo
     !!config.open.fileInNewWindow
   function available(action: ExplorerRowAction, file: FileItem): boolean {
     switch (action) {
+      case 'preview':
+        return !file.isVirtual && !file.isDirectory && !!config.open.preview
+      case 'properties':
+        return !file.isVirtual && !!config.edit.properties
       case 'set-icon':
         return !file.isVirtual && !!config.edit.setIcon
       case 'pick-new-tab-target':
@@ -147,6 +157,12 @@ export function createExplorerRowMenu(config: ExplorerRowMenuConfig): ExplorerRo
   }
   function run(action: ExplorerRowAction, file: FileItem) {
     switch (action) {
+      case 'preview':
+        config.open.preview?.(file)
+        break
+      case 'properties':
+        config.edit.properties?.(file)
+        break
       case 'set-icon':
         config.edit.setIcon?.(file)
         break
@@ -202,6 +218,7 @@ export function createExplorerRowMenu(config: ExplorerRowMenuConfig): ExplorerRo
     config.api.dismiss()
   }
   function label(action: ExplorerRowLabelAction, file: FileItem): string {
+    if (action === 'delete') return config.edit.deleteLabel ?? 'Delete'
     switch (action) {
       case 'primary-open':
         return primaryOpenUsesNewWindow(file)

@@ -76,9 +76,9 @@ test.describe('Text Editor', () => {
     request,
   }) => {
     await page.goto(`/?dir=Notes&viewing=${encodeURIComponent(AUTOSAVE_PATH)}`)
-    await expect(page.locator('textarea')).toBeVisible()
+    await expect(page.locator('[data-testid=plain-text-document] [role=textbox]')).toBeVisible()
     const draft = 'Saved while switching editor before the debounce expires.\n'
-    await page.locator('textarea').fill(draft)
+    await page.locator('[data-testid=plain-text-document] [role=textbox]').fill(draft)
     await page.evaluate((path) => {
       const url = new URL(location.href)
       url.searchParams.set('viewing', path)
@@ -86,6 +86,89 @@ test.describe('Text Editor', () => {
     }, TODO_PATH)
     await expect(markdownEditor(page)).toBeVisible()
     await expect.poll(() => readFile(request, AUTOSAVE_PATH)).toBe(draft)
+  })
+
+  test('plain text supports scoped search, replacement, undo and line navigation', async ({
+    page,
+    request,
+  }) => {
+    await writeFile(request, AUTOSAVE_PATH, 'alpha needle\nbeta needle\ngamma\n')
+    await request.post('/api/settings/autoSave', {
+      data: { filePath: AUTOSAVE_PATH, enabled: false, readOnly: false },
+    })
+    await page.goto(`/?dir=Notes&viewing=${encodeURIComponent(AUTOSAVE_PATH)}`)
+    const document = page.getByTestId('plain-text-document')
+    const editor = document.getByRole('textbox', {
+      name: 'autosave-parity.txt editor',
+      exact: true,
+    })
+    await editor.click()
+    await page.keyboard.press('Control+f')
+    const search = document.getByRole('textbox', { name: 'Find', exact: true })
+    await search.pressSequentially('needle')
+    await expect(document.locator('.cm-searchMatch')).toHaveCount(2)
+    await document.getByRole('textbox', { name: 'Replace', exact: true }).fill('thread')
+    await document.getByRole('button', { name: 'replace all', exact: true }).click()
+    await expect(editor).toContainText('alpha thread')
+    await search.press('Escape')
+    await expect(search).toHaveCount(0)
+    await editor.focus()
+    await page.keyboard.press('Control+z')
+    await expect(editor).toContainText('alpha needle')
+    await document.getByRole('button', { name: 'Go to line', exact: true }).click()
+    const line = document.locator('.cm-panel input')
+    await line.fill('3')
+    await line.press('Enter')
+    await page.keyboard.insertText('target: ')
+    await page.keyboard.press('Control+s')
+    await expect
+      .poll(() => readFile(request, AUTOSAVE_PATH))
+      .toBe('alpha needle\nbeta needle\ntarget: gamma\n')
+    await page.getByRole('button', { name: 'Read only', exact: true }).click()
+    await document.getByRole('button', { name: 'Find', exact: true }).click()
+    await expect(document.getByRole('textbox', { name: 'Find', exact: true })).toBeVisible()
+    await expect(document.getByRole('textbox', { name: 'Replace', exact: true })).toHaveCount(0)
+  })
+
+  test('read-only preview preserves an unsaved plain-text draft and its undo history', async ({
+    page,
+    request,
+  }) => {
+    await request.post('/api/settings/autoSave', {
+      data: { filePath: AUTOSAVE_PATH, enabled: false, readOnly: false },
+    })
+    await page.goto(`/?dir=Notes&viewing=${encodeURIComponent(AUTOSAVE_PATH)}`)
+    const document = page.getByTestId('plain-text-document')
+    const editor = document.getByRole('textbox', { name: 'autosave-parity.txt editor' })
+    await editor.fill('unsaved draft')
+    await page.getByRole('button', { name: 'Read only', exact: true }).click()
+    await expect(document.getByRole('document')).toHaveText('unsaved draft')
+    expect(await readFile(request, AUTOSAVE_PATH)).toBe(AUTOSAVE_SOURCE)
+    await page.getByRole('button', { name: 'Edit', exact: true }).click()
+    await editor.focus()
+    await page.keyboard.press('Control+z')
+    await expect(editor).toContainText(AUTOSAVE_SOURCE.trim())
+  })
+
+  test('plain-text edits and undo preserve mixed line endings exactly', async ({
+    page,
+    request,
+  }) => {
+    const source = 'first\r\nsecond\nthird\rlast'
+    await writeFile(request, AUTOSAVE_PATH, source)
+    await request.post('/api/settings/autoSave', {
+      data: { filePath: AUTOSAVE_PATH, enabled: false, readOnly: false },
+    })
+    await page.goto(`/?dir=Notes&viewing=${encodeURIComponent(AUTOSAVE_PATH)}`)
+    const editor = page.getByTestId('plain-text-document').getByRole('textbox')
+    await editor.focus()
+    await page.keyboard.press('Control+End')
+    await page.keyboard.insertText('!')
+    await page.keyboard.press('Control+s')
+    await expect.poll(() => readFile(request, AUTOSAVE_PATH)).toBe(source + '!')
+    await page.keyboard.press('Control+z')
+    await page.keyboard.press('Control+s')
+    await expect.poll(() => readFile(request, AUTOSAVE_PATH)).toBe(source)
   })
 
   test('opens text viewer when clicking a text file', async ({ page }) => {
@@ -97,7 +180,7 @@ test.describe('Text Editor', () => {
 
   test('opens Markdown editor and switches between read and edit modes', async ({ page }) => {
     await page.goto(`/?dir=Notes&viewing=${encodeURIComponent(AUTOSAVE_PATH)}`)
-    await expect(page.locator('textarea')).toBeVisible()
+    await expect(page.locator('[data-testid=plain-text-document] [role=textbox]')).toBeVisible()
 
     await page.locator('button[title="Close"]').click()
     const markdownRow = page.locator('table').getByText('markdown-editor-e2e.md', { exact: true })
@@ -302,7 +385,7 @@ test.describe('Text Editor', () => {
 
     await expect(editor).toBeVisible()
     await expect(editor).toHaveAttribute('contenteditable', 'true')
-    await expect(page.locator('textarea')).toHaveCount(0)
+    await expect(page.locator('[data-testid=plain-text-document] [role=textbox]')).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Read only' })).toBeVisible()
     await expect(editDocument.locator('.cm-line').first()).toContainText('Todo List')
     await editDocument.locator('.cm-editor').evaluate((element) => {
@@ -365,7 +448,7 @@ test.describe('Text Editor', () => {
     const document = markdownDocument(page, 'edit')
     await expect(document.getByRole('textbox')).toBeVisible()
     await expect(document.locator('.cm-md-heading-1')).toContainText('Outside KB')
-    await expect(page.locator('textarea')).toHaveCount(0)
+    await expect(page.locator('[data-testid=plain-text-document] [role=textbox]')).toHaveCount(0)
 
     await replaceMarkdown(page, updated)
     await saveMarkdown(page)
@@ -757,7 +840,7 @@ test.describe('Text Editor', () => {
   test('with auto-save off, blur does not persist ordinary text edits', async ({ page }) => {
     const pathEnc = encodeURIComponent(AUTOSAVE_PATH)
     await page.goto(`/?dir=Notes&viewing=${pathEnc}`)
-    const textarea = page.locator('textarea')
+    const textarea = page.locator('[data-testid=plain-text-document] [role=textbox]')
     await expect(textarea).toBeVisible()
 
     let editResponses = 0
@@ -779,7 +862,7 @@ test.describe('Text Editor', () => {
     await page.locator('button[title="Close"]').click()
     await page.locator('table').getByText('autosave-parity.txt').click()
     await expect(textarea).toBeVisible()
-    expect(await textarea.inputValue()).not.toContain('unique-string-xyz-123')
+    expect(await textarea.textContent()).not.toContain('unique-string-xyz-123')
 
     await textarea.fill(AUTOSAVE_SOURCE)
     await Promise.all([
@@ -802,7 +885,7 @@ test.describe('Text Editor', () => {
     )
     await page.goto(`/?dir=Notes&viewing=${pathEnc}`)
 
-    const textarea = page.locator('textarea')
+    const textarea = page.locator('[data-testid=plain-text-document] [role=textbox]')
     await expect(textarea).toBeVisible()
     await textarea.fill(draft)
     await page.locator('button[title="Close"]').focus()

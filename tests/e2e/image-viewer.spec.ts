@@ -142,8 +142,8 @@ test.describe('Image Viewer', () => {
 
     const dialog = page.getByRole('dialog')
     const buttons = dialog.locator('button')
-    await expect(buttons).toHaveCount(7)
-    for (let index = 0; index < 7; index += 1) {
+    await expect(buttons).toHaveCount(8)
+    for (let index = 0; index < 8; index += 1) {
       const box = await buttons.nth(index).boundingBox()
       expect(box).not.toBeNull()
       expect(box!.x).toBeGreaterThanOrEqual(0)
@@ -300,6 +300,45 @@ test.describe('Image Viewer', () => {
     await page.waitForTimeout(300)
     await page.mouse.wheel(0, -100)
     await expect(page.locator('img[alt="photo.jpg"]')).toBeVisible()
+  })
+
+  test('actual-size images can be panned to every edge without changing files', async ({
+    page,
+  }) => {
+    await page.route('**/api/media/Images/photo.jpg*', (route) =>
+      route.fulfill({
+        contentType: 'image/svg+xml',
+        body: '<svg xmlns="http://www.w3.org/2000/svg" width="2400" height="1800"><rect width="2400" height="1800" fill="orange"/></svg>',
+      }),
+    )
+    await page.goto('/?dir=Images&viewing=Images%2Fphoto.jpg')
+    await expect(page.getByRole('img', { name: 'photo.jpg', exact: true })).toBeVisible()
+    await page.keyboard.press('1')
+    const surface = page.getByTestId('image-gesture-surface')
+    const image = surface.getByRole('img')
+    await expect(page.getByText('100%', { exact: true })).toBeVisible()
+    await expect.poll(() => image.evaluate((el) => el.getBoundingClientRect().width)).toBe(2400)
+    await expect(page.getByTestId('image-next-zone')).toHaveCount(0)
+    const box = (await surface.boundingBox())!
+    await page.mouse.move(box.x + box.width * 0.7, box.y + box.height * 0.7)
+    await page.mouse.down()
+    await page.mouse.move(box.x + box.width * 0.3, box.y + box.height * 0.3, { steps: 5 })
+    await page.mouse.up()
+    expect(await surface.evaluate((el) => el.scrollLeft)).toBeGreaterThan(100)
+    expect(await surface.evaluate((el) => el.scrollTop)).toBeGreaterThan(100)
+    await surface.evaluate((el) => {
+      el.scrollLeft = el.scrollWidth
+      el.scrollTop = el.scrollHeight
+    })
+    const imageBox = (await image.boundingBox())!
+    expect(imageBox.x + imageBox.width).toBeLessThanOrEqual(box.x + box.width)
+    expect(imageBox.y + imageBox.height).toBeLessThanOrEqual(box.y + box.height)
+    await surface.hover()
+    await page.mouse.wheel(0, -100)
+    expect(new URL(page.url()).searchParams.get('viewing')).toBe('Images/photo.jpg')
+    await page.keyboard.press('0')
+    await expect(page.getByText('Fit', { exact: true })).toBeVisible()
+    await expect(page.getByTestId('image-next-zone')).toBeVisible()
   })
 
   test('shows image counter', async ({ page }) => {

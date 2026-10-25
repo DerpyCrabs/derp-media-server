@@ -46,3 +46,20 @@ test('whole-book progress includes previous chapters and accounts for their leng
   expect(bookProgress(chapters, 'main', 1)).toBe(1)
   expect(bookProgress(chapters, 'missing', 0.6)).toBeUndefined()
 })
+
+test('desktop configuration files and extensionless documents are recognized as text', () => {
+  for (const name of [
+    'config.toml',
+    'config.jsonc',
+    'app.desktop',
+    'daemon.service',
+    '.bashrc',
+    '.env.local',
+    'Dockerfile',
+    'Makefile',
+    'README',
+  ]) {
+    expect(getMediaTypeFromPath(`folder/${name}`)).toBe(MediaType.TEXT)
+  }
+  expect(getMediaTypeFromPath('folder/program')).toBe(MediaType.OTHER)
+})

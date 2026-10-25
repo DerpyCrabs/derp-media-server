@@ -162,8 +162,9 @@ impl WorkspaceRepository {
     }
 
     fn mutate<T>(&self, update: impl FnOnce(&mut Value) -> AppResult<T>) -> AppResult<T> {
-        self.store
-            .update("workspaces", empty_registry(), |value| mutate_registry(value, update))
+        self.store.update("workspaces", empty_registry(), |value| {
+            mutate_registry(value, update)
+        })
     }
 
     fn mutate_in_transaction<T>(
@@ -1147,7 +1148,11 @@ mod tests {
 
         let listed = repository.public_registry(102, Some("other")).unwrap();
         assert_eq!(listed["records"]["workspace"]["locked"], true);
-        assert!(listed["records"]["workspace"].get("leaseClientId").is_none());
+        assert!(
+            listed["records"]["workspace"]
+                .get("leaseClientId")
+                .is_none()
+        );
         let _ = std::fs::remove_file(database);
     }
 
@@ -1526,5 +1531,4 @@ mod tests {
         assert_eq!(record["revision"], 7);
         assert_eq!(record["updatedAt"], 42);
     }
-
 }

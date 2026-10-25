@@ -3,6 +3,9 @@ import type { FileItem } from '@/lib/files/types'
 import { cn } from '@/lib/ui/cn'
 import { directoryViewport } from './virtual-directory-binding'
 type VirtualDirectoryGridProps = {
+  focusOnLoad?: boolean
+  onFocused?: () => void
+  onMoveFocus?: (from: FileItem, to: FileItem, event: KeyboardEvent) => void
   files: readonly FileItem[]
   includeParent: boolean
   scrollTarget:
@@ -38,11 +41,15 @@ export const VirtualDirectoryGrid = component(
     const rowCount = Math.ceil(count / model.columns)
     return (
       <div
+        data-directory-viewport
         class={cn('file-browser-grid', props.class)}
         style={{ display: 'block' }}
         use={domBinding(
           {
             files,
+            onMoveFocus: props.onMoveFocus,
+            focusOnLoad: props.focusOnLoad,
+            onFocused: props.onFocused,
             includeParent: parent,
             target: props.scrollTarget,
             scope: props.scrollScope,

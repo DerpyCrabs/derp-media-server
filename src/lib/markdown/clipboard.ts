@@ -1,3 +1,4 @@
+import { rawSourcePaste as rawMarkdownPaste } from '@/lib/editor/source'
 import { Effect } from 'effect'
 import { Annotation, StateEffect, StateField, type ChangeDesc } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
@@ -21,7 +22,7 @@ const addPendingImagePaste = StateEffect.define<PendingImagePaste>()
 const removePendingImagePaste = StateEffect.define<number>()
 export const clearPendingImagePastes = StateEffect.define<void>()
 export const pendingImagePasteCompletion = Annotation.define<boolean>()
-export const rawMarkdownPaste = Annotation.define<string>()
+export { rawSourcePaste as rawMarkdownPaste } from '@/lib/editor/source'
 
 function mapOriginalRanges(
   ranges: readonly PendingImagePasteRange[],

@@ -1,6 +1,7 @@
 mod activity;
 mod app;
 mod config;
+mod desktop_trash;
 mod error;
 mod file_jobs;
 mod file_mutation;

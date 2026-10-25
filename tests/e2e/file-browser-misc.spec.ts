@@ -215,8 +215,12 @@ test.describe('File browser clipboard paste', () => {
     await expect(page.getByRole('heading', { name: /Paste Text/i })).toBeVisible()
     await page.getByRole('button', { name: 'Paste' }).click()
     await expect(page.getByRole('heading', { name: /Paste Text/i })).not.toBeVisible()
-    await expect(page.locator('textarea').first()).toBeVisible({ timeout: 10_000 })
-    await expect(page.locator('textarea').first()).toHaveValue('paste dialog e2e')
+    await expect(
+      page.locator('[data-testid=plain-text-document] [role=textbox]').first(),
+    ).toBeVisible({ timeout: 10_000 })
+    await expect(
+      page.locator('[data-testid=plain-text-document] [role=textbox]').first(),
+    ).toHaveText('paste dialog e2e')
   })
 
   async function openTextPaste(
@@ -255,7 +259,9 @@ test.describe('File browser clipboard paste', () => {
       await page.getByRole('button', { name: 'Replace', exact: true }).click()
       await edit
       await expect(page.getByRole('heading', { name: /Paste Text/i })).not.toBeVisible()
-      await expect(page.locator('textarea').first()).toHaveValue('new text')
+      await expect(
+        page.locator('[data-testid=plain-text-document] [role=textbox]').first(),
+      ).toHaveText('new text')
     } finally {
       fs.rmSync(target, { force: true })
     }
@@ -274,7 +280,9 @@ test.describe('File browser clipboard paste', () => {
       await page.getByLabel('Filename').fill(renamed)
       await page.getByRole('button', { name: 'Paste', exact: true }).click()
       await expect(page.getByRole('heading', { name: /Paste Text/i })).not.toBeVisible()
-      await expect(page.locator('textarea').first()).toHaveValue('copy content')
+      await expect(
+        page.locator('[data-testid=plain-text-document] [role=textbox]').first(),
+      ).toHaveText('copy content')
       expect(fs.readFileSync(target, 'utf8')).toBe('original')
     } finally {
       fs.rmSync(target, { force: true })

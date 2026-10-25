@@ -1,3 +1,4 @@
+import type { FileItem } from '@/lib/files/types'
 import { list, view } from 'effectweb'
 import { modalFocus } from '@/lib/ui/modal-focus'
 import { isPathEditable } from '@/lib/files/path-utils'
@@ -14,6 +15,7 @@ export const FileToolsPanel = view<{
   tools: FileTools
   state: ReturnType<FileTools['read']>
   host: FileBrowserHost
+  files: readonly FileItem[]
 }>((props) => {
   const { tools, state, host } = props
   const close = () => tools.open(null)
@@ -63,7 +65,21 @@ export const FileToolsPanel = view<{
         onClick={(event) => event.stopPropagation()}
       >
         <div class='mb-4 flex items-center justify-between'>
-          <h2 class='text-lg font-semibold'>File tools</h2>
+          <h2 class='text-lg font-semibold'>
+            {(
+              {
+                menu: 'Files',
+                location: 'Go to location',
+                properties: 'Properties',
+                archive: 'Archive contents',
+                createArchive: 'Create ZIP',
+                operations: 'File operations',
+                delete:
+                  state.trashAvailable && !state.permanentDelete ? 'Move to trash' : 'Delete files',
+                trash: 'Trash',
+              } as Record<string, string>
+            )[state.panel] ?? 'Files'}
+          </h2>
           <button class={button} onClick={close}>
             Close
           </button>
@@ -95,6 +111,9 @@ export const FileToolsPanel = view<{
               <button class={button} disabled={!selected.length} onClick={tools.clear}>
                 Clear selection
               </button>
+              <button class={button} onClick={tools.openFilter}>
+                Filter folder
+              </button>
               <button class={button} onClick={() => tools.open('location')}>
                 Go to location
               </button>
@@ -104,38 +123,6 @@ export const FileToolsPanel = view<{
               <button class={button} onClick={() => tools.open('operations')}>
                 Operations
               </button>
-            </div>
-            <div class='flex flex-wrap gap-2'>
-              <button
-                class={button}
-                disabled={!selected.length || !host.editableFolders.length}
-                onClick={() => tools.open('copy')}
-              >
-                Copy to…
-              </button>
-              <button class={button} disabled={!writable} onClick={() => tools.open('move')}>
-                Move to…
-              </button>
-              <button
-                class={button}
-                disabled={!selected.length}
-                onClick={() => {
-                  tools.copy(false)
-                  close()
-                }}
-              >
-                Copy
-              </button>
-              <button
-                class={button}
-                disabled={!writable}
-                onClick={() => {
-                  tools.copy(true)
-                  close()
-                }}
-              >
-                Cut
-              </button>
               <button
                 class={button}
                 disabled={!editable || (!state.jobs.clipboard && !state.desktop)}
@@ -143,31 +130,73 @@ export const FileToolsPanel = view<{
               >
                 Paste
               </button>
-              <button class={button} disabled={!writable} onClick={() => tools.open('delete')}>
-                Delete…
-              </button>
-              <button
-                class={button}
-                disabled={selected.length !== 1}
-                onClick={() => tools.open('properties')}
-              >
-                Properties
-              </button>
-              <button
-                class={button}
-                disabled={selected.length !== 1 || !selected[0]?.toLowerCase().endsWith('.zip')}
-                onClick={() => tools.open('archive')}
-              >
-                Browse ZIP
-              </button>
-              <button
-                class={button}
-                disabled={!selected.length || !host.editableFolders.length}
-                onClick={() => tools.open('createArchive')}
-              >
-                Create ZIP…
-              </button>
             </div>
+            {selected.length ? (
+              <div class='flex flex-wrap gap-2 border-t border-border pt-4'>
+                <button
+                  class={button}
+                  disabled={!selected.length || !host.editableFolders.length}
+                  onClick={() => tools.open('copy')}
+                >
+                  Copy to…
+                </button>
+                <button class={button} disabled={!writable} onClick={() => tools.open('move')}>
+                  Move to…
+                </button>
+                <button
+                  class={button}
+                  disabled={!selected.length}
+                  onClick={() => {
+                    tools.copy(false)
+                    close()
+                  }}
+                >
+                  Copy
+                </button>
+                <button
+                  class={button}
+                  disabled={!writable}
+                  onClick={() => {
+                    tools.copy(true)
+                    close()
+                  }}
+                >
+                  Cut
+                </button>
+                <button class={button} disabled={!writable} onClick={() => tools.open('delete')}>
+                  {state.trashAvailable ? 'Move to trash…' : 'Delete…'}
+                </button>
+                {selected.length === 1 &&
+                props.files.some(
+                  (file) => file.path === selected[0] && !file.isDirectory && !file.isVirtual,
+                ) ? (
+                  <button class={button} onClick={() => tools.preview(selected[0]!)}>
+                    Quick preview
+                  </button>
+                ) : null}
+                <button
+                  class={button}
+                  disabled={selected.length !== 1}
+                  onClick={() => tools.open('properties')}
+                >
+                  Properties
+                </button>
+                <button
+                  class={button}
+                  disabled={selected.length !== 1 || !selected[0]?.toLowerCase().endsWith('.zip')}
+                  onClick={() => tools.open('archive')}
+                >
+                  Browse ZIP
+                </button>
+                <button
+                  class={button}
+                  disabled={!selected.length || !host.editableFolders.length}
+                  onClick={() => tools.open('createArchive')}
+                >
+                  Create ZIP…
+                </button>
+              </div>
+            ) : null}
             {state.desktop ? (
               <div class='flex flex-wrap gap-2'>
                 <button
@@ -185,21 +214,6 @@ export const FileToolsPanel = view<{
                 >
                   Open with…
                 </button>
-                {list(
-                  state.places,
-                  (place) => place.path,
-                  (place) => (
-                    <button
-                      class={button}
-                      onClick={() => {
-                        host.navigate(place.path)
-                        close()
-                      }}
-                    >
-                      {place.name}
-                    </button>
-                  ),
-                )}
                 {list(
                   state.applications,
                   (app) => app.id,
@@ -237,7 +251,11 @@ export const FileToolsPanel = view<{
                 onInput={(event) => tools.patch({ path: event.currentTarget.value })}
               />
             </label>
-            <p class='text-sm text-muted-foreground'>Use a path inside a configured media root.</p>
+            <p class='text-sm text-muted-foreground'>
+              {state.desktopMode
+                ? 'Enter a filesystem path, or ~ for your home folder.'
+                : 'Use a path inside a configured media root.'}
+            </p>
             <button class={button} disabled={state.pending}>
               Go
             </button>
@@ -270,10 +288,80 @@ export const FileToolsPanel = view<{
         ) : null}
         {state.panel === 'delete' ? (
           <div class='space-y-4'>
-            <p>Permanently delete {selected.length} selected item(s)?</p>
-            <button class={button} onClick={() => tools.start('delete')}>
-              Delete permanently
+            <p>
+              {state.trashAvailable && !state.permanentDelete
+                ? `Move ${selected.length} selected item(s) to the system trash? You can restore them from Places → Trash.`
+                : `Permanently delete ${selected.length} selected item(s)? This cannot be undone.`}
+            </p>
+            <button
+              class={button}
+              disabled={!writable}
+              onClick={() =>
+                tools.start(state.trashAvailable && !state.permanentDelete ? 'trash' : 'delete')
+              }
+            >
+              {state.trashAvailable && !state.permanentDelete
+                ? 'Move to trash'
+                : 'Delete permanently'}
             </button>
+          </div>
+        ) : null}
+        {state.panel === 'trash' ? (
+          <div class='space-y-3'>
+            <div class='flex items-center justify-between gap-3'>
+              <p class='text-sm text-muted-foreground'>
+                System trash · items from your configured folders
+              </p>
+              <button
+                class={button}
+                disabled={state.pending || state.trashLoading}
+                onClick={tools.refreshTrash}
+              >
+                Refresh
+              </button>
+            </div>
+            <p role='status' class='break-words text-sm'>
+              {state.trashNotice}
+            </p>
+            {!state.trashEntries ? (
+              <p>Loading trash…</p>
+            ) : !state.trashEntries.length ? (
+              <p>No deleted items in these folders.</p>
+            ) : (
+              <div class='divide-y divide-border'>
+                {list(
+                  state.trashEntries,
+                  (item) => item.id,
+                  (item) => (
+                    <div class='flex items-center gap-3 py-3'>
+                      <div class='min-w-0 flex-1'>
+                        <p class='truncate text-sm font-medium' title={item.name}>
+                          {item.name}
+                        </p>
+                        <p class='truncate text-xs text-muted-foreground' title={item.path}>
+                          {item.path}
+                        </p>
+                        {item.deletedAt > 0 ? (
+                          <p class='text-xs text-muted-foreground'>
+                            {new Date(item.deletedAt * 1000).toLocaleString()}
+                          </p>
+                        ) : null}
+                      </div>
+                      <button
+                        class={button}
+                        disabled={state.pending || !item.editable}
+                        title={
+                          item.editable ? `Restore ${item.name}` : 'Original folder is read-only'
+                        }
+                        onClick={() => tools.restoreTrash(item.id)}
+                      >
+                        Restore
+                      </button>
+                    </div>
+                  ),
+                )}
+              </div>
+            )}
           </div>
         ) : null}
         {state.panel === 'createArchive' ? (

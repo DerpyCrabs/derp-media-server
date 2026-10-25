@@ -1,4 +1,5 @@
-import { component, view } from 'effectweb'
+import { modalFocus } from '@/lib/ui/modal-focus'
+import { component, view, domBinding } from 'effectweb'
 import { cn } from '@/lib/ui/cn'
 import type { ModalOverlayScope } from './modal-overlay-scope'
 import { modalDialogBackdropClass } from './modal-overlay-scope'
@@ -12,6 +13,15 @@ type RenameDialogProps = {
   error: Error | null | undefined
   nameExists: (name: string) => boolean
   isDirectory: boolean
+}
+const selectRenameStem = (
+  element: HTMLInputElement,
+  current: () => { name: string; directory: boolean },
+) => {
+  const { name, directory } = current()
+  const dot = name.lastIndexOf('.')
+  element.focus()
+  element.setSelectionRange(0, !directory && dot > 0 ? dot : name.length)
 }
 const RenameDialogContent = component(
   { init: (props: RenameDialogProps) => ({ newName: props.itemName }) },
@@ -33,6 +43,7 @@ const RenameDialogContent = component(
         onClick={() => props.onCancel()}
       >
         <div
+          use={modalFocus({ onEscape: props.onCancel })}
           role='dialog'
           aria-modal='true'
           class='w-full max-w-md rounded-lg border border-border bg-card text-card-foreground shadow-lg p-6'
@@ -43,6 +54,13 @@ const RenameDialogContent = component(
             Enter a new name for this {props.isDirectory ? 'folder' : 'file'}.
           </p>
           <input
+            use={{
+              ...domBinding(
+                { name: props.itemName, directory: props.isDirectory },
+                selectRenameStem,
+              ),
+              identity: props.itemName,
+            }}
             type='text'
             class={cn([
               'mt-4 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring',

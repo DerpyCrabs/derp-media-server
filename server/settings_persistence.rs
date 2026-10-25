@@ -250,7 +250,17 @@ fn apply_command(settings: &mut Value, command: SettingsCommand) -> AppResult<Va
             field,
             direction,
         } => {
-            if !["name", "createdDate", "size", "favorite", "views"].contains(&field.as_str()) {
+            if ![
+                "name",
+                "createdDate",
+                "modifiedDate",
+                "type",
+                "size",
+                "favorite",
+                "views",
+            ]
+            .contains(&field.as_str())
+            {
                 return Err(AppError::bad("Invalid sort field"));
             }
             if !["asc", "desc"].contains(&direction.as_str()) {

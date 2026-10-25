@@ -235,7 +235,13 @@ test.beforeEach(async ({ request }) => {
       data: {
         path: file,
         global: { audioLanguage: '', subtitleLanguage: '', secondarySubtitleLanguage: '' },
-        video: { speed: 1, audioTrack: null, subtitleTrack: null, secondarySubtitleTrack: null },
+        video: {
+          speed: 1,
+          subtitleDelay: 0,
+          audioTrack: null,
+          subtitleTrack: null,
+          secondarySubtitleTrack: null,
+        },
       },
     })
   }
@@ -405,6 +411,34 @@ test('renders two subtitles, extracts ASS text and synchronizes speed across bro
   } finally {
     await other.close()
   }
+})
+
+test('subtitle timing can be corrected without moving playback and survives reload', async ({
+  page,
+  request,
+}) => {
+  const video = await openVideo(page)
+  await video.evaluate((el: HTMLVideoElement) => {
+    el.pause()
+    el.currentTime = 1
+  })
+  await settings(page)
+  await chooseSetting(page, 'Subtitles', /^ENG.*SUBRIP/)
+  await expect(page.getByTestId('video-subtitle-primary')).toHaveText('Hello & welcome')
+  const delay = page.getByRole('spinbutton', { name: 'Subtitle delay (seconds)' })
+  await delay.fill('10')
+  await delay.press('Tab')
+  await expect(page.getByTestId('video-subtitle-primary')).toHaveCount(0)
+  expect(await video.evaluate((el: HTMLVideoElement) => el.currentTime)).toBeCloseTo(1, 0)
+  await page.reload()
+  await settings(page)
+  await expect(delay).toHaveValue('10')
+  await delay.fill('0')
+  await delay.press('Tab')
+  const invalid = await request.post(`${baseUrl}/api/playback/preferences`, {
+    data: { path: 'Videos/sample.mkv', video: { subtitleDelay: 601 } },
+  })
+  expect(invalid.status()).toBe(400)
 })
 
 test('audio-track changes preserve timestamps, subtitles and listen-only language', async ({
@@ -745,7 +779,7 @@ test('seeking to the end of a compatibility stream settles and can seek back', a
   })
   const video = await openVideo(page, 'fallback.mp4')
   await video.hover()
-  await page.getByRole('button', { name: 'Pause video' }).click()
+  await video.evaluate((element: HTMLVideoElement) => element.pause())
   const slider = page.getByRole('slider', { name: 'Seek video' })
   await slider.focus()
   await page.keyboard.press('End')

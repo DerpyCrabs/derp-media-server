@@ -1,6 +1,8 @@
 import { component, view } from 'effectweb'
 import type { FileItem } from '@/lib/files/types'
 import { FloatingContextMenu } from './FloatingContextMenu'
+import Eye from '@effectweb/lucide/icons/eye'
+import Info from '@effectweb/lucide/icons/info'
 import AppWindow from '@effectweb/lucide/icons/app-window'
 import BookOpen from '@effectweb/lucide/icons/book-open'
 import Columns2 from '@effectweb/lucide/icons/columns-2'
@@ -50,6 +52,18 @@ export const FileRowContextMenu = component(
           const showRename = () => available('rename')
           return (
             <>
+              {available('preview') ? (
+                <button
+                  type='button'
+                  role='menuitem'
+                  data-slot='context-menu-item'
+                  class='flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
+                  onClick={() => props.model.run('preview', ctx.file)}
+                >
+                  <Eye class='size-4' />
+                  Quick preview<span class='ml-auto pl-4 text-xs text-muted-foreground'>Space</span>
+                </button>
+              ) : null}
               {canVirtual('rename') ? (
                 <button
                   type='button'
@@ -399,8 +413,23 @@ export const FileRowContextMenu = component(
                   role='menuitem'
                   onClick={() => props.model.run('delete', ctx.file)}
                 >
-                  Delete
+                  {props.model.label('delete', ctx.file)}
                 </button>
+              ) : null}
+              {available('properties') ? (
+                <>
+                  <div class='my-1 h-px bg-border' role='separator' />
+                  <button
+                    type='button'
+                    role='menuitem'
+                    data-slot='context-menu-item'
+                    class='flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
+                    onClick={() => props.model.run('properties', ctx.file)}
+                  >
+                    <Info class='size-4' />
+                    Properties
+                  </button>
+                </>
               ) : null}
             </>
           )

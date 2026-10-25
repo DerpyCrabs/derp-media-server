@@ -33,6 +33,9 @@ export type FileBrowserPaneLayout = Readonly<{
   listSizeColumnClass?: string
 }>
 export type FileBrowserPaneRows = Readonly<{
+  focusOnLoad?: boolean
+  onFocused?: () => void
+  onMoveFocus?: (from: FileItem, to: FileItem, event: KeyboardEvent) => void
   onParentClick: () => void
   onFileClick: (file: FileItem, event?: MouseEvent | KeyboardEvent) => void
   onFileActivate?: (file: FileItem) => void
@@ -220,6 +223,9 @@ export const FileBrowserPane = view<FileBrowserPaneProps>((props) => {
         <div class={props.layout?.gridContainerClass}>
           <VirtualDirectoryGrid
             files={props.listing.files}
+            onMoveFocus={props.rows.onMoveFocus}
+            focusOnLoad={props.rows.focusOnLoad}
+            onFocused={props.rows.onFocused}
             includeParent={props.listing.includeParent}
             scrollTarget={props.listing.scrollTarget}
             scrollScope={props.listing.scrollScope}
@@ -237,6 +243,9 @@ export const FileBrowserPane = view<FileBrowserPaneProps>((props) => {
         <div class={props.layout?.listContainerClass}>
           <VirtualDirectoryList
             files={props.listing.files}
+            onMoveFocus={props.rows.onMoveFocus}
+            focusOnLoad={props.rows.focusOnLoad}
+            onFocused={props.rows.onFocused}
             includeParent={props.listing.includeParent}
             scrollTarget={props.listing.scrollTarget}
             scrollScope={props.listing.scrollScope}

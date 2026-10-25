@@ -26,7 +26,9 @@ type ExplorerDisplayOptionsProps = {
 }
 const fields: { field: FileSortField; label: string }[] = [
   { field: 'name', label: 'Name' },
+  { field: 'modifiedDate', label: 'Modified' },
   { field: 'createdDate', label: 'Created' },
+  { field: 'type', label: 'Type' },
   { field: 'size', label: 'Size' },
   { field: 'favorite', label: 'Favorites' },
   { field: 'views', label: 'Views' },

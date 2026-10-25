@@ -101,6 +101,8 @@ pub(crate) fn server_config(state: &AppState) -> Value {
         }
     };
     json!({
+        "desktopMode": state.config.desktop_mode,
+        "trashAvailable": crate::desktop_trash::available(&state.config),
         "writeAccess": state.config.write_access,
         "editableFolders": editable_folders,
         "mediaRoots": roots.iter().map(|root| json!({

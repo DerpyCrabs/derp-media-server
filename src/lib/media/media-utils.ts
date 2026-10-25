@@ -39,6 +39,29 @@ const TEXT_EXTENSIONS = [
   'swift',
   'kt',
   'sql',
+  'toml',
+  'jsonc',
+  'jsonl',
+  'ndjson',
+  'desktop',
+  'service',
+  'socket',
+  'timer',
+  'target',
+  'cfg',
+  'config',
+  'env',
+  'fish',
+  'zsh',
+  'bash',
+  'nix',
+  'lua',
+  'srt',
+  'vtt',
+  'ass',
+  'diff',
+  'patch',
+  'properties',
 ]
 
 const MIME_TYPES: Record<string, string> = {
@@ -149,6 +172,27 @@ export function getMediaExtensionFromPath(path: string): string {
 }
 
 export function getMediaTypeFromPath(path: string): MediaType {
+  const name = path.split(/[/\\]/).at(-1)?.toLowerCase() ?? ''
+  if (
+    [
+      'makefile',
+      'dockerfile',
+      'readme',
+      'license',
+      '.bashrc',
+      '.zshrc',
+      '.profile',
+      '.bash_profile',
+      '.bash_logout',
+      '.gitignore',
+      '.gitattributes',
+      '.editorconfig',
+      '.env',
+      '.npmrc',
+    ].includes(name) ||
+    name.startsWith('.env.')
+  )
+    return MediaType.TEXT
   return getMediaType(getMediaExtensionFromPath(path))
 }
 

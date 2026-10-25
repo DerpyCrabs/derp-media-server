@@ -1,7 +1,12 @@
+import { createDocumentSearchHighlights } from '../../document-search-highlights'
+import type { DocumentMatch } from '../../document-search'
 import { domBinding, entities, list, component, view, type DomLifetime } from 'effectweb'
 import type { RenderedBook } from './book-sanitize'
 import type { BookAppearance } from '../../reader-state-client'
 type ChapterProps = {
+  searchQuery?: string
+  activeMatch?: DocumentMatch
+  positionReady: boolean
   chapter: RenderedBook['chapters'][number]
   index: number
   currentIndex: number
@@ -41,18 +46,32 @@ const chapterObserver = (
     resize.disconnect()
   }
 }
-const chapterHtml = (element: HTMLDivElement, current: () => string) => {
+const chapterHtml = (element: HTMLDivElement, current: () => ChapterProps) => {
+  const highlights = createDocumentSearchHighlights(
+    element,
+    () => ({
+      searchQuery: current().searchQuery,
+      activeMatch: current().activeMatch,
+      pageIndex: current().index,
+      ready: current().positionReady,
+    }),
+    null,
+  )
   let previous: string | undefined
   const update = () => {
-    const html = current()
-    if (previous === html) return
+    const html = current().chapter.html
+    if (previous === html) {
+      highlights.update()
+      return
+    }
     previous = html
     const template = document.createElement('template')
     template.innerHTML = html
     element.replaceChildren(template.content.cloneNode(true))
+    highlights.update()
   }
   update()
-  return { update, dispose: () => {} }
+  return { update, dispose: () => highlights.dispose() }
 }
 const Chapter = component<ChapterProps, { intersecting: boolean; height: number | undefined }>(
   {
@@ -82,12 +101,14 @@ const Chapter = component<ChapterProps, { intersecting: boolean; height: number 
         class='book-chapter mx-auto w-full scroll-mt-3 px-5 py-8 sm:px-10'
         style={{ 'min-height': near ? undefined : `${model.height ?? props.estimatedHeight}px` }}
       >
-        {near ? <div use={domBinding(props.chapter.html, chapterHtml)} /> : null}
+        {near ? <div use={domBinding(props, chapterHtml)} /> : null}
       </article>
     )
   }),
 )
 type Props = {
+  searchQuery?: string
+  activeMatch?: DocumentMatch
   document: RenderedBook
   appearance: BookAppearance
   currentChapterId: string
@@ -152,6 +173,9 @@ export const BookContent = component<Props, { measured: Record<number, number> }
           return (
             <Chapter
               chapter={chapter}
+              searchQuery={props.searchQuery}
+              activeMatch={props.activeMatch}
+              positionReady={props.positionReady}
               index={index}
               currentIndex={currentIndex}
               viewport={props.viewport}

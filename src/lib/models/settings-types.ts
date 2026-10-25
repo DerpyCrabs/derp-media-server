@@ -1,5 +1,12 @@
 export type ViewMode = 'list' | 'grid'
-export type FileSortField = 'name' | 'createdDate' | 'size' | 'favorite' | 'views'
+export type FileSortField =
+  | 'name'
+  | 'createdDate'
+  | 'modifiedDate'
+  | 'type'
+  | 'size'
+  | 'favorite'
+  | 'views'
 export type SortDirection = 'asc' | 'desc'
 
 export interface FileSortOrder {

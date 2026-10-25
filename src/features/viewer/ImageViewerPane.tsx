@@ -1,12 +1,7 @@
+import { LazyImageEditor } from '@/features/image-editor/LazyImageEditor'
+import Pencil from '@effectweb/lucide/icons/pencil'
 import { cn } from '@/lib/ui/cn'
-import {
-  domBinding,
-  modelOwner,
-  view,
-  type JSX,
-  controllerView,
-  type ControllerModel,
-} from 'effectweb'
+import { domBinding, modelOwner, view, controllerView, type ControllerModel } from 'effectweb'
 import { randomId } from '@/lib/random-id'
 import { createActivityId, sendActivity, type ActivityEvent } from '@/features/media-ai/activity'
 import { MediaType, type FileItem } from '@/lib/files/types'
@@ -22,6 +17,8 @@ import { shuffleImages } from './image-order'
 import { createResponsiveImage } from './responsive-image'
 import { closeViewer, viewFile } from '@/lib/browser/url-state-actions'
 export type ImageViewerPaneProps = {
+  allowEditing?: boolean
+  editableFolders?: readonly string[]
   viewingPath: string
   allFiles: readonly FileItem[]
   directory?: string
@@ -47,9 +44,18 @@ function imageController(props: ImageViewerPaneProps) {
     props,
     zoom: 'fit' as number | 'fit',
     rotation: 0,
+    editing: false,
     image: responsive.source.model(),
   })
   const actions = {
+    edit: () => owner.patch({ editing: true }),
+    closeEdit: () => owner.patch({ editing: false }),
+    savedCopy: (path: string) => {
+      owner.patch({ editing: false })
+      const current = owner.read()
+      if (current.props.onNavigate) current.props.onNavigate(path)
+      else viewFile(path, current.props.directory || undefined)
+    },
     attach: (element: HTMLDivElement) => responsive.attach(element),
     dismiss: () => {
       const current = owner.read()
@@ -79,6 +85,10 @@ function imageController(props: ImageViewerPaneProps) {
       owner.patch({
         zoom: Math.max(25, Math.min(400, (current === 'fit' ? 100 : current) + delta)),
       })
+      select()
+    },
+    actualSize: () => {
+      owner.patch({ zoom: 100 })
       select()
     },
     rotate: () => owner.patch({ rotation: (owner.read().rotation + 90) % 360 }),
@@ -118,7 +128,10 @@ function imageController(props: ImageViewerPaneProps) {
     source: owner.source,
     ...actions,
     receive: (next: ImageViewerPaneProps) => {
-      owner.patch({ props: next })
+      owner.patch({
+        props: next,
+        editing: next.viewingPath === owner.read().props.viewingPath && owner.read().editing,
+      })
       select()
     },
     lifetime: owner,
@@ -133,6 +146,14 @@ const viewerBehavior = (element: HTMLDivElement, current: () => ImageModel) => {
     lastTouchAt = 0,
     startX = 0
   let activePointer: number | null = null
+  let pan: {
+    id: number
+    x: number
+    y: number
+    left: number
+    top: number
+    surface: HTMLElement
+  } | null = null
   let resetTimer: ReturnType<typeof setTimeout> | undefined,
     flushTimer: ReturnType<typeof setTimeout> | undefined
   let activityPath = '',
@@ -187,6 +208,25 @@ const viewerBehavior = (element: HTMLDivElement, current: () => ImageModel) => {
       )
     )
       return
+    if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return
+    const action =
+      event.key === '+' || event.key === '='
+        ? () => current().actions.zoom(25)
+        : event.key === '-'
+          ? () => current().actions.zoom(-25)
+          : event.key === '0'
+            ? current().actions.fit
+            : event.key === '1'
+              ? current().actions.actualSize
+              : event.key.toLowerCase() === 'r'
+                ? current().actions.rotate
+                : undefined
+    if (action) {
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      action()
+      return
+    }
     if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
       event.preventDefault()
       event.stopImmediatePropagation()
@@ -204,7 +244,14 @@ const viewerBehavior = (element: HTMLDivElement, current: () => ImageModel) => {
     }, 100)
   }
   const wheel = (event: WheelEvent) => {
-    if (event.ctrlKey || !window.matchMedia('(pointer: fine)').matches) return
+    if (!(event.target instanceof Element) || !event.target.closest('[data-testid$=surface]'))
+      return
+    if (event.ctrlKey) {
+      event.preventDefault()
+      if (event.deltaY) current().actions.zoom(event.deltaY < 0 ? 25 : -25)
+      return
+    }
+    if (current().zoom !== 'fit' || !window.matchMedia('(pointer: fine)').matches) return
     event.preventDefault()
     wheelDelta +=
       event.deltaY *
@@ -223,6 +270,20 @@ const viewerBehavior = (element: HTMLDivElement, current: () => ImageModel) => {
     flush()
   }
   const pointerDown = (event: PointerEvent) => {
+    const surface = (event.target as Element).closest<HTMLElement>('[data-testid$=surface]')
+    if (current().zoom !== 'fit' && surface && event.button === 0) {
+      event.preventDefault()
+      surface.setPointerCapture(event.pointerId)
+      pan = {
+        id: event.pointerId,
+        x: event.clientX,
+        y: event.clientY,
+        left: surface.scrollLeft,
+        top: surface.scrollTop,
+        surface,
+      }
+      return
+    }
     if (event.pointerType !== 'touch' || activePointer !== null) return
     try {
       element.setPointerCapture(event.pointerId)
@@ -230,7 +291,16 @@ const viewerBehavior = (element: HTMLDivElement, current: () => ImageModel) => {
     activePointer = event.pointerId
     startX = event.clientX
   }
+  const pointerMove = (event: PointerEvent) => {
+    if (!pan || pan.id !== event.pointerId) return
+    pan.surface.scrollLeft = pan.left + pan.x - event.clientX
+    pan.surface.scrollTop = pan.top + pan.y - event.clientY
+  }
   const pointerUp = (event: PointerEvent) => {
+    if (pan?.id === event.pointerId) {
+      pan = null
+      return
+    }
     if (event.pointerType !== 'touch') return
     lastTouchAt = Date.now()
     if (activePointer !== event.pointerId) return
@@ -241,6 +311,7 @@ const viewerBehavior = (element: HTMLDivElement, current: () => ImageModel) => {
       current().actions.move(distance < 0 ? 1 : -1)
   }
   const pointerCancel = (event: PointerEvent) => {
+    if (pan?.id === event.pointerId) pan = null
     if (activePointer === event.pointerId) activePointer = null
   }
   const zoneClick = (event: MouseEvent) => {
@@ -252,6 +323,7 @@ const viewerBehavior = (element: HTMLDivElement, current: () => ImageModel) => {
   window.addEventListener('keydown', keydown, true)
   element.addEventListener('wheel', wheel, { passive: false })
   element.addEventListener('pointerdown', pointerDown)
+  element.addEventListener('pointermove', pointerMove)
   element.addEventListener('pointerup', pointerUp)
   element.addEventListener('pointercancel', pointerCancel)
   element.addEventListener('click', zoneClick)
@@ -269,6 +341,7 @@ const viewerBehavior = (element: HTMLDivElement, current: () => ImageModel) => {
       window.removeEventListener('keydown', keydown, true)
       element.removeEventListener('wheel', wheel)
       element.removeEventListener('pointerdown', pointerDown)
+      element.removeEventListener('pointermove', pointerMove)
       element.removeEventListener('pointerup', pointerUp)
       element.removeEventListener('pointercancel', pointerCancel)
       element.removeEventListener('click', zoneClick)
@@ -280,6 +353,16 @@ const viewerBehavior = (element: HTMLDivElement, current: () => ImageModel) => {
 export const ImageViewerPane = controllerView(
   { controller: imageController },
   view((model) => {
+    if (model.editing)
+      return (
+        <LazyImageEditor
+          path={model.props.viewingPath}
+          editableFolders={model.props.editableFolders ?? []}
+          embedded={model.props.embedded}
+          onClose={model.actions.closeEdit}
+          onSaved={model.actions.savedCopy}
+        />
+      )
     const props = model.props,
       actions = model.actions
     const images = orderedImages(props),
@@ -305,25 +388,23 @@ export const ImageViewerPane = controllerView(
       error: () => model.image.load.request.kind === 'error',
       retry: actions.retry,
     }
-    const quarterTurn = model.rotation % 180 !== 0,
-      dimensions = model.image.dimensions
-    const style: JSX.CSSProperties =
-      model.zoom === 'fit'
-        ? {
-            width: quarterTurn && dimensions.height > 0 ? `${dimensions.height}px` : '100%',
-            height: quarterTurn && dimensions.width > 0 ? `${dimensions.width}px` : '100%',
-            'object-fit': 'contain',
-          }
-        : {
-            'max-width': '100%',
-            'max-height': '100%',
-            width: 'auto',
-            height: 'auto',
-            'object-fit': 'none',
-          }
+    const quarterTurn = model.rotation % 180 !== 0
+    const pixels = model.image.pixels
+    const bounds = model.image.dimensions
+    const rotatedWidth = quarterTurn ? pixels.height : pixels.width
+    const rotatedHeight = quarterTurn ? pixels.width : pixels.height
+    const scale =
+      zoom === 'fit'
+        ? Math.min(bounds.width / (rotatedWidth || 1), bounds.height / (rotatedHeight || 1))
+        : zoom / 100
+    const imageWidth = pixels.width * scale
+    const imageHeight = pixels.height * scale
+    const canvasStyle = { width: `${rotatedWidth * scale}px`, height: `${rotatedHeight * scale}px` }
     const imgStyle = () => ({
-      ...style,
-      transform: `scale(${model.zoom === 'fit' ? 1 : model.zoom / 100}) rotate(${model.rotation}deg)`,
+      width: `${imageWidth}px`,
+      height: `${imageHeight}px`,
+      'max-width': 'none',
+      transform: `translate(-50%, -50%) rotate(${model.rotation}deg)`,
     })
     return (
       <div
@@ -358,6 +439,21 @@ export const ImageViewerPane = controllerView(
             </div>
           ) : null}
           <div class='flex shrink-0 items-center justify-end gap-0.5 sm:gap-2'>
+            {props.allowEditing !== false ? (
+              <button
+                type='button'
+                aria-label='Edit image'
+                title='Edit image'
+                class={
+                  props.embedded
+                    ? 'inline-flex size-7 items-center justify-center rounded-md text-white hover:bg-white/10'
+                    : 'inline-flex size-8 sm:size-11 items-center justify-center rounded-md text-white hover:bg-white/10'
+                }
+                onClick={actions.edit}
+              >
+                <Pencil size={props.embedded ? 14 : 18} />
+              </button>
+            ) : null}
             {props.onImageSeedChange ? (
               <button
                 type='button'
@@ -366,7 +462,7 @@ export const ImageViewerPane = controllerView(
                 class={cn(
                   props.embedded
                     ? 'inline-flex h-7 w-7 items-center justify-center rounded-md text-white hover:bg-white/10'
-                    : 'inline-flex h-10 w-10 sm:h-11 sm:w-11 items-center justify-center rounded-md text-white hover:bg-white/10',
+                    : 'inline-flex h-8 w-8 sm:h-11 sm:w-11 items-center justify-center rounded-md text-white hover:bg-white/10',
                   { 'bg-white/20': Boolean(imageSeed()) },
                 )}
                 disabled={totalImages() === 0}
@@ -380,8 +476,10 @@ export const ImageViewerPane = controllerView(
               class={
                 props.embedded
                   ? 'inline-flex h-7 w-7 items-center justify-center rounded-md text-white hover:bg-white/10'
-                  : 'inline-flex h-10 w-10 sm:h-11 sm:w-11 items-center justify-center rounded-md text-white hover:bg-white/10'
+                  : 'inline-flex h-8 w-8 sm:h-11 sm:w-11 items-center justify-center rounded-md text-white hover:bg-white/10'
               }
+              aria-label='Zoom out'
+              title='Zoom out'
               onClick={handleZoomOut}
             >
               <ZoomOut
@@ -404,8 +502,10 @@ export const ImageViewerPane = controllerView(
               class={
                 props.embedded
                   ? 'inline-flex h-7 w-7 items-center justify-center rounded-md text-white hover:bg-white/10'
-                  : 'inline-flex h-10 w-10 sm:h-11 sm:w-11 items-center justify-center rounded-md text-white hover:bg-white/10'
+                  : 'inline-flex h-8 w-8 sm:h-11 sm:w-11 items-center justify-center rounded-md text-white hover:bg-white/10'
               }
+              aria-label='Zoom in'
+              title='Zoom in'
               onClick={handleZoomIn}
             >
               <ZoomIn
@@ -420,7 +520,7 @@ export const ImageViewerPane = controllerView(
               class={
                 props.embedded
                   ? 'inline-flex h-7 w-7 items-center justify-center rounded-md text-white hover:bg-white/10'
-                  : 'inline-flex h-10 w-10 sm:h-11 sm:w-11 items-center justify-center rounded-md text-white hover:bg-white/10'
+                  : 'inline-flex h-8 w-8 sm:h-11 sm:w-11 items-center justify-center rounded-md text-white hover:bg-white/10'
               }
               onClick={handleFitToScreen}
             >
@@ -435,8 +535,10 @@ export const ImageViewerPane = controllerView(
               class={
                 props.embedded
                   ? 'inline-flex h-7 w-7 items-center justify-center rounded-md text-white hover:bg-white/10'
-                  : 'inline-flex h-10 w-10 sm:h-11 sm:w-11 items-center justify-center rounded-md text-white hover:bg-white/10'
+                  : 'inline-flex h-8 w-8 sm:h-11 sm:w-11 items-center justify-center rounded-md text-white hover:bg-white/10'
               }
+              aria-label='Rotate clockwise'
+              title='Rotate clockwise'
               onClick={handleRotate}
             >
               <RotateCw
@@ -455,8 +557,10 @@ export const ImageViewerPane = controllerView(
               class={
                 props.embedded
                   ? 'inline-flex h-7 w-7 items-center justify-center rounded-md text-white hover:bg-white/10'
-                  : 'inline-flex h-10 w-10 sm:h-11 sm:w-11 items-center justify-center rounded-md text-white hover:bg-white/10'
+                  : 'inline-flex h-8 w-8 sm:h-11 sm:w-11 items-center justify-center rounded-md text-white hover:bg-white/10'
               }
+              aria-label='Download image'
+              title='Download image'
               onClick={handleDownload}
             >
               <Download
@@ -473,7 +577,7 @@ export const ImageViewerPane = controllerView(
                 class={
                   props.embedded
                     ? 'inline-flex h-7 w-7 items-center justify-center rounded-md text-white hover:bg-white/10'
-                    : 'inline-flex h-10 w-10 sm:h-11 sm:w-11 items-center justify-center rounded-md text-white hover:bg-white/10'
+                    : 'inline-flex h-8 w-8 sm:h-11 sm:w-11 items-center justify-center rounded-md text-white hover:bg-white/10'
                 }
                 onClick={handleClose}
               >
@@ -486,14 +590,15 @@ export const ImageViewerPane = controllerView(
         <div
           data-testid={props.embedded ? 'workspace-image-surface' : 'image-gesture-surface'}
           class={cn(
-            props.embedded
-              ? 'relative flex min-h-0 flex-1 touch-pan-y items-center justify-center'
-              : 'relative flex flex-1 touch-pan-y items-center justify-center p-4',
-            { 'overflow-hidden': zoom === 'fit', 'overflow-auto': zoom !== 'fit' },
+            props.embedded ? 'relative flex min-h-0 flex-1' : 'relative flex min-h-0 flex-1 p-4',
+            {
+              'overflow-hidden touch-pan-y': zoom === 'fit',
+              'overflow-auto touch-none cursor-grab': zoom !== 'fit',
+            },
           )}
           use={domBinding(actions.attach, imageSurface)}
         >
-          {props.embedded ? (
+          {zoom !== 'fit' ? null : props.embedded ? (
             <>
               <button
                 type='button'
@@ -547,17 +652,19 @@ export const ImageViewerPane = controllerView(
             </div>
           ) : null}
           {responsiveImage.src() && !responsiveImage.error() ? (
-            <img
-              src={responsiveImage.src()}
-              alt={fileName()}
-              class={cn(
-                props.embedded
-                  ? 'pointer-events-none shrink-0'
-                  : 'pointer-events-none shrink-0 select-none',
-                { invisible: responsiveImage.showSpinner() },
-              )}
-              style={imgStyle()}
-            />
+            <div class='relative m-auto shrink-0' style={canvasStyle}>
+              <img
+                src={responsiveImage.src()}
+                alt={fileName()}
+                class={cn(
+                  props.embedded
+                    ? 'pointer-events-none absolute left-1/2 top-1/2 select-none'
+                    : 'pointer-events-none absolute left-1/2 top-1/2 select-none',
+                  { invisible: responsiveImage.showSpinner() },
+                )}
+                style={imgStyle()}
+              />
+            </div>
           ) : null}
         </div>
       </div>

@@ -4,7 +4,13 @@ import { query, observeQuery } from '@effectweb/query'
 import { apiSchemaEffect, postSchemaEffect, postEffect } from '@/lib/api/client'
 import { groups, queryCache } from '@/lib/api/cache'
 
-export type FileOperation = 'copy' | 'move' | 'delete' | 'createArchive' | 'extractArchive'
+export type FileOperation =
+  | 'copy'
+  | 'move'
+  | 'delete'
+  | 'trash'
+  | 'createArchive'
+  | 'extractArchive'
 const jobSchema = Schema.Struct({
   id: Schema.String,
   operation: Schema.String,

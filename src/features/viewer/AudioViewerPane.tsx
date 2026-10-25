@@ -1,3 +1,4 @@
+import { PlaybackSetting } from '@/features/playback/PlaybackSetting'
 import {
   available,
   collection,
@@ -63,6 +64,9 @@ function audioController(props: Props) {
     size: { width: 576, height: 256 },
   })
   const actions = {
+    speed: (rate: number) => {
+      if (active()) session.dispatch({ type: 'setPlaybackRate', rate })
+    },
     resize: (size: { width: number; height: number }) => owner.patch({ size }),
     toggle: () => {
       const current = owner.read()
@@ -244,6 +248,18 @@ const Transport = view<{ model: Model; active: boolean }>((props) => {
         onInput={(event) => model.actions.volume(Number.parseFloat(event.currentTarget.value))}
         class='[&::-webkit-slider-thumb]:bg-foreground h-1.5 min-w-10 flex-1 cursor-pointer appearance-none rounded-full bg-secondary [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full'
       />
+      <div class='w-[72px] shrink-0'>
+        <PlaybackSetting
+          label='Audio playback speed'
+          value={String(props.active ? model.playback.playbackRate : 1)}
+          disabled={!props.active}
+          options={[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3].map((rate) => ({
+            value: String(rate),
+            label: `${rate}×`,
+          }))}
+          onChange={(value) => model.actions.speed(Number(value))}
+        />
+      </div>
       <a
         href={fileDownloadHref(model.props.viewingPath)}
         download={model.props.viewingPath.split(/[/\\]/).pop()}
@@ -343,6 +359,30 @@ export const AudioViewerPane = controllerView(
       <div
         use={domBinding(model.actions.resize, resizeSurface)}
         data-testid='canvas-audio-player-ui'
+        tabindex={0}
+        aria-label='Audio player'
+        onKeyDown={(event) => {
+          if (
+            event.defaultPrevented ||
+            event.ctrlKey ||
+            event.metaKey ||
+            event.altKey ||
+            (event.target as Element).closest(
+              'input, button, select, textarea, a, [contenteditable=true]',
+            )
+          )
+            return
+          const key = event.key.toLowerCase()
+          if (key === ' ' || key === 'k') model.actions.toggle()
+          else if (key === 'arrowleft' || key === 'j')
+            model.actions.seek(Math.max(0, position - (key === 'j' ? 10 : 5)))
+          else if (key === 'arrowright' || key === 'l')
+            model.actions.seek(Math.min(duration, position + (key === 'l' ? 10 : 5)))
+          else if (key === 'm') model.actions.mute()
+          else return
+          event.preventDefault()
+          event.stopPropagation()
+        }}
         data-audio-layout={layout}
         class='relative h-full min-h-0 overflow-hidden bg-gradient-to-br from-muted/45 via-background to-background'
       >

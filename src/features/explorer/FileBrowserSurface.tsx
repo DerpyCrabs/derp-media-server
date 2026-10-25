@@ -1,3 +1,4 @@
+import { FolderNavigation, type FolderNavigationActions } from './FolderNavigation'
 import { component, view, domBinding, type JSX } from 'effectweb'
 import { operationError } from './file-browser-mutations'
 import { AsyncResult } from 'effect/reactivity'
@@ -53,10 +54,12 @@ type VirtualCreateToolbar = Readonly<{
   onCreateFile: () => void
 }>
 type FileBrowserSurfaceToolbar = Readonly<{
+  navigation?: FolderNavigationActions
   onCreateFolder: () => void
   onCreateFile: () => void
   virtualCreate?: VirtualCreateToolbar
   extras?: () => JSX.Element
+  filter?: () => JSX.Element
 }>
 type FileBrowserViewListing = Readonly<{
   displayedFiles: readonly FileItem[]
@@ -75,10 +78,13 @@ type FileBrowserViewListing = Readonly<{
   loadMore?: () => void
 }>
 type FileBrowserViewHost = Readonly<{
+  focusListing?: boolean
+  onListingFocused?: () => void
   openParent: () => void
   openFile: (file: FileItem, event?: MouseEvent | KeyboardEvent) => void
   activateFile?: (file: FileItem) => void
   selected?: (file: FileItem) => boolean
+  moveFocus?: (from: FileItem, to: FileItem, event: KeyboardEvent) => void
   selectionKeyDown?: (event: KeyboardEvent) => void
   setViewMode: (mode: 'list' | 'grid') => void
   navigateBreadcrumb: (path: string) => void
@@ -308,6 +314,7 @@ export const FileBrowserView = component(
         ...(isWorkspace() ? { 'data-no-window-drag': '' } : {}),
         'aria-selected': props.host.selected?.(file),
         class: cn(
+          'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring',
           props.host.selected?.(file) ? 'bg-accent text-accent-foreground' : '',
           props.rows.iconContext.playingPath === file.path ? 'bg-primary/10' : '',
           highlightGrid && file.isDirectory && props.controller.drag.dragOverPath === file.path
@@ -321,7 +328,7 @@ export const FileBrowserView = component(
               ? 'true'
               : 'false'
             : undefined,
-        tabindex: window.derpDesktop ? 0 : undefined,
+        tabindex: 0,
         onKeyDown: (event: KeyboardEvent) => {
           props.host.selectionKeyDown?.(event)
           if (event.defaultPrevented) return
@@ -420,6 +427,9 @@ export const FileBrowserView = component(
                 listSizeColumnClass: 'w-28',
               }}
               rows={{
+                focusOnLoad: props.host.focusListing,
+                onFocused: props.host.onListingFocused,
+                onMoveFocus: props.host.moveFocus,
                 onParentClick: props.host.openParent,
                 onFileClick: props.host.openFile,
                 onFileActivate: props.host.activateFile,
@@ -513,6 +523,9 @@ export const FileBrowserView = component(
                     : 'flex flex-wrap items-center justify-between w-full gap-1.5 lg:gap-2'
                 }
               >
+                {props.toolbar.navigation ? (
+                  <FolderNavigation {...props.toolbar.navigation} />
+                ) : null}
                 <div
                   data-breadcrumb-slot
                   data-testid={isWorkspace() ? undefined : 'breadcrumb-slot'}
@@ -704,6 +717,7 @@ export const FileBrowserView = component(
               ) : null}
             </div>
 
+            {props.toolbar.filter?.()}
             <FileExplorerView
               files={props.controller.files}
               viewMode={props.listing.viewMode}

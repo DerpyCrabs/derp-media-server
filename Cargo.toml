@@ -64,3 +64,7 @@ zip = { version = "9.0", default-features = false, features = ["deflate"] }
 [profile.release]
 lto = "thin"
 strip = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+rustix = { version = "1", features = ["fs", "process"] }
+trash = "5.2.8"

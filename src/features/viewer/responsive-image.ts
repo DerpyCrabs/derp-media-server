@@ -73,6 +73,7 @@ export function createResponsiveImage(initial: Options) {
   const owner = modelOwner({
     load: { displayed: null, request: { kind: 'idle' } } as ImageLoadState,
     dimensions: { width: 0, height: 0 },
+    pixels: { width: 0, height: 0 },
   })
   const warmup = owner.own(createMediaWarmup())
   const dispatch = (event: ImageLoadEvent) =>
@@ -136,7 +137,7 @@ export function createResponsiveImage(initial: Options) {
       }
     let src = !options.path
       ? ''
-      : !enabled || forcedOriginal
+      : !enabled || forcedOriginal || options.zoom !== 'fit'
         ? buildMediaUrl(options.path)
         : maximum.width > 0 && maximum.height > 0
           ? buildImageUrl(options.path, maximum)
@@ -178,11 +179,12 @@ export function createResponsiveImage(initial: Options) {
           if (!loaded) image.src = ''
         })
       }).pipe(
-        Effect.flatMap((image) => Effect.tryPromise(() => image.decode()).pipe(Effect.ignore)),
-        Effect.tap(() =>
+        Effect.tap((image) => Effect.tryPromise(() => image.decode()).pipe(Effect.ignore)),
+        Effect.tap((image) =>
           Effect.sync(() => {
             owner.cancel(spinnerSlot)
             const previous = owner.read().load.displayed?.path
+            owner.patch({ pixels: { width: image.naturalWidth, height: image.naturalHeight } })
             dispatch({ kind: 'display', src, path })
             if (previous && previous !== path) options.onDisplayPath?.(path)
             prefetch()

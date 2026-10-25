@@ -50,6 +50,10 @@ test('desktop folder navigation stays in its window and context menu requests ne
         copy: async () => {},
         drag: async () => {},
         paste: async () => 0,
+        places: async () => [
+          { name: 'Library', path: '' },
+          { name: 'Notes', path: 'Notes' },
+        ],
         hasFileClipboard: async () => false,
         importDrop: async () => 0,
         openDrop: async () => {},
@@ -99,6 +103,12 @@ test('desktop folder navigation stays in its window and context menu requests ne
   }
   expect(nameWidths[1]! - nameWidths[0]!).toBeGreaterThan(650)
   await page.screenshot({ path: testInfo.outputPath('desktop-browser.png') })
+  await page.getByRole('button', { name: 'Places', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'Library', exact: true }).click()
+  await expect(page.locator('table').getByText('Notes', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Places', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'Notes', exact: true }).click()
+  await expect(page).toHaveURL(/dir=Notes/)
 })
 
 test('create-only native imports cannot overwrite existing files', async ({ request }) => {

@@ -39,6 +39,7 @@ export type VideoPreferences = {
   global: { audioLanguage?: string; subtitleLanguage?: string; secondarySubtitleLanguage?: string }
   video: {
     speed?: number
+    subtitleDelay?: number
     audioTrack?: string | null
     subtitleTrack?: string | null
     secondarySubtitleTrack?: string | null

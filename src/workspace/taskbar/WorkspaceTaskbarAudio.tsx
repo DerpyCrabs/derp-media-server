@@ -1,3 +1,4 @@
+import { PlaybackSetting } from '@/features/playback/PlaybackSetting'
 import { PlaybackScrubber } from '@/features/playback/create-playback-scrubber'
 import { QueuePanel } from '@/features/music/QueuePanel'
 import { fetchDirectoryFilesEffect } from '@/lib/files/files-client'
@@ -284,6 +285,22 @@ export const WorkspaceTaskbarAudio = controllerView(
                 <span class='w-9 tabular-nums'>{formatPlaybackTime(displayDuration())}</span>
               </div>
 
+              <div class='flex items-center justify-between gap-3 text-xs text-muted-foreground'>
+                <span>Playback speed</span>
+                <div class='w-24'>
+                  <PlaybackSetting
+                    label='Audio playback speed'
+                    value={String(playback.playbackRate)}
+                    options={[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3].map((rate) => ({
+                      value: String(rate),
+                      label: `${rate}×`,
+                    }))}
+                    onChange={(value) =>
+                      session.dispatch({ type: 'setPlaybackRate', rate: Number(value) })
+                    }
+                  />
+                </div>
+              </div>
               <div class='grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-3'>
                 <div class='flex shrink-0 items-center gap-1'>
                   <button
@@ -390,6 +407,11 @@ const audioDetailsEvents = (
   current: () => { open: boolean; close: () => void },
 ) => {
   const click = (event: MouseEvent) => {
+    if (
+      event.target instanceof Element &&
+      event.target.closest('[data-floating-surface][role=menu]')
+    )
+      return
     if (current().open && event.target instanceof Node && !element.contains(event.target))
       current().close()
   }

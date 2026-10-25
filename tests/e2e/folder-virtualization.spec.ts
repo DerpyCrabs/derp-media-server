@@ -42,6 +42,53 @@ test.describe('Folder virtualization', () => {
     await expect(page.locator('table').getByText('item-0499.txt')).toBeVisible()
   })
 
+  test('keyboard navigation reaches virtualized files and returns to the first row', async ({
+    page,
+  }) => {
+    await page.goto(`/?dir=${encodeURIComponent(folderName)}`)
+    const first = page.locator(`[data-file-path="${folderName}/item-0000.txt"]`)
+    await first.focus()
+    await page.keyboard.press('ArrowDown')
+    await expect(page.locator(`[data-file-path="${folderName}/item-0001.txt"]`)).toBeFocused()
+    await page.keyboard.press('End')
+    await expect(page.locator(`[data-file-path="${folderName}/item-0499.txt"]`)).toBeFocused()
+    await page.keyboard.press('Home')
+    await expect(first).toBeFocused()
+  })
+
+  for (const mode of ['list', 'grid'] as const) {
+    test(`Shift navigation selects and shrinks ranges across virtualized ${mode} items`, async ({
+      page,
+    }) => {
+      await page.goto(`/?dir=${encodeURIComponent(folderName)}`)
+      await page.getByRole('button', { name: 'Display options' }).click()
+      await page
+        .getByRole('menuitem', { name: mode === 'list' ? 'List view' : 'Grid view' })
+        .click()
+      const first = page.locator(`[data-file-path="${folderName}/item-0000.txt"]`)
+      await first.focus()
+      await page.keyboard.press(mode === 'list' ? 'Shift+ArrowDown' : 'Shift+ArrowRight')
+      await expect(page.getByRole('button', { name: 'Files (2)', exact: true })).toBeVisible()
+      await expect(page.locator(`[data-file-path="${folderName}/item-0001.txt"]`)).toBeFocused()
+      await page.keyboard.press('Shift+End')
+      await expect(page.getByRole('button', { name: 'Files (500)', exact: true })).toBeVisible()
+      await expect(page.locator(`[data-file-path="${folderName}/item-0499.txt"]`)).toBeFocused()
+      await page.keyboard.press('Shift+Home')
+      await expect(first).toBeFocused()
+      await expect(page.getByRole('button', { name: 'Files (1)', exact: true })).toBeVisible()
+      await page.keyboard.press(mode === 'list' ? 'ArrowDown' : 'ArrowRight')
+      await expect(first).toHaveAttribute('aria-selected', 'false')
+      await expect(page.locator(`[data-file-path="${folderName}/item-0001.txt"]`)).toHaveAttribute(
+        'aria-selected',
+        'true',
+      )
+      await page.keyboard.press(mode === 'list' ? 'Shift+ArrowDown' : 'Shift+ArrowRight')
+      await expect(page.getByRole('button', { name: 'Files (2)', exact: true })).toBeVisible()
+      await page.keyboard.press('Escape')
+      await expect(page.getByRole('button', { name: 'Files', exact: true })).toBeVisible()
+    })
+  }
+
   test('grid view only mounts visible cards and scrolls to far files', async ({ page }) => {
     await page.goto(`/?dir=${encodeURIComponent(folderName)}`)
     await page.getByRole('button', { name: 'Display options' }).click()

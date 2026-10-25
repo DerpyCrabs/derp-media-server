@@ -27,7 +27,7 @@ export function createFileSortMetadata(
 }
 const naturalNameCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
 export function defaultDirection(field: FileSortField): SortDirection {
-  return field === 'name' ? 'asc' : 'desc'
+  return field === 'name' || field === 'type' ? 'asc' : 'desc'
 }
 function compareNames(a: FileItem, b: FileItem): number {
   return naturalNameCollator.compare(a.name, b.name)
@@ -60,6 +60,13 @@ export function sortFileItems(
     if (order.field === 'name') result = compareNames(a, b)
     if (order.field === 'size') {
       result = a.isDirectory ? 0 : compareOptionalNumbers(a.size, b.size, order.direction)
+    }
+    if (order.field === 'modifiedDate') {
+      result = compareOptionalNumbers(a.version, b.version, order.direction)
+    }
+    if (order.field === 'type') {
+      result = naturalNameCollator.compare(a.extension, b.extension)
+      if (order.direction === 'desc') result = -result
     }
     if (order.field === 'createdDate') {
       result = compareOptionalNumbers(a.createdDate, b.createdDate, order.direction)

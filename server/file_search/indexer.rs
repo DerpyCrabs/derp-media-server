@@ -383,7 +383,7 @@ fn make_entry(
     let media_type = if is_directory {
         "folder".into()
     } else {
-        media::media_type(&extension).into()
+        media::path_media_type(Path::new(&name)).into()
     };
     IndexedEntry {
         relative_path,

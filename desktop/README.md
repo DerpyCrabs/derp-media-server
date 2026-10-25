@@ -27,6 +27,12 @@ On first start, the app creates `$XDG_CONFIG_HOME/derp-media-server/desktop.json
 
 Restart the tray process after changing the port. The connection is always to `127.0.0.1`. The server and client must share the same filesystem namespace; remote servers and container path mappings are not supported. Media roots and write permissions come from the server, so they do not need duplicating in desktop configuration. Browser data lives under `$XDG_STATE_HOME/derp-media-server/qt-desktop` (normally `~/.local/state/derp-media-server/qt-desktop`).
 
+The server's optional `desktopMode` adds computer navigation. To browse beyond a media library,
+set `"desktopMode": true` and omit `mediaDir`/`mediaDirs` in the **server** configuration.
+Add `"writeAccess": "filesystem"` if file operations should use the account's OS permissions.
+The Places menu shows Home, user folders and already mounted Linux storage; `~` and absolute
+paths work in Go to location. See the root README for indexing defaults and keyboard controls.
+
 ## Arch package
 
 ```
@@ -103,4 +109,8 @@ External clipboard imports use cancellable staging and the same server conflict 
 
 A connection panel offers retry while the server is unavailable. Existing windows retain their live editor state when reconnecting. To offer a Start server button, set `"serverService": "your-server.service"` in `~/.config/derp-media-server/desktop.json`; it starts that user systemd unit. This option does not install or configure a server service.
 
-Native session restoration is off by default. Enable Restore windows on startup in the tray menu, or set `"restoreSession": true` in `desktop.json`. A normal launch then restores document/folder windows and geometry; explicit CLI paths and `--tray` retain their existing behavior. Session state is stored under `$XDG_STATE_HOME/derp-media-server/desktop-session.json` (default `~/.local/state`). This restores saved locations, not crash recovery for unsaved drafts.
+Native session restoration is off by default. Enable Restore windows on startup in the tray menu, or set `"restoreSession": true` in `desktop.json`. A normal launch then restores document/folder windows and geometry; explicit CLI paths and `--tray` retain their existing behavior. Session state is stored under `$XDG_STATE_HOME/derp-media-server/desktop-session.json` (default `~/.local/state`). This restores saved locations. Text editors separately back up unsaved drafts in the WebEngine browser profile and offer recovery when that file is reopened; those drafts are not stored in the session JSON.
+
+With Linux server `desktopMode`, file deletion uses the system Trash. Open **Places → Trash**
+to restore files; **Shift+Delete** requests permanent deletion. Restore never overwrites a file
+and requires write access to the original folder.

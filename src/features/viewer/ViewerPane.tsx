@@ -17,6 +17,7 @@ import { VideoViewerPane } from './VideoViewerPane'
 import { Reader } from '@/features/reader/Reader'
 import { observeQuery } from '@effectweb/query'
 export type ViewerPaneProps = {
+  allowImageEditing?: boolean
   selection?: readonly FileItem[]
   viewingPath: string
   directory?: string
@@ -41,6 +42,8 @@ export type ViewerPaneProps = {
 function viewerController(props: ViewerPaneProps) {
   const owner = modelOwner({
     props,
+    asText: false,
+    openAsText: () => owner.patch({ asText: true }),
     files: [] as FileItem[],
     settings: undefined as GlobalSettings | undefined,
     views: {} as Record<string, number>,
@@ -66,7 +69,10 @@ function viewerController(props: ViewerPaneProps) {
   return {
     source: owner.source,
     receive: (next: ViewerPaneProps) => {
-      owner.patch({ props: next })
+      owner.patch({
+        props: next,
+        ...(next.viewingPath !== owner.read().props.viewingPath ? { asText: false } : {}),
+      })
       select(next)
     },
     lifetime: owner,
@@ -77,7 +83,7 @@ export const ViewerPane = controllerView(
   view((model) => {
     const props = model.props
     const path = props.viewingPath,
-      type = getMediaTypeFromPath(path),
+      type = model.asText ? MediaType.TEXT : getMediaTypeFromPath(path),
       embedded = props.presentation !== 'modal'
     const kind =
       props.readerKind === 'folder'
@@ -115,6 +121,8 @@ export const ViewerPane = controllerView(
         ) : null}
         {path && !kind && type === MediaType.IMAGE ? (
           <ImageViewerPane
+            allowEditing={props.allowImageEditing}
+            editableFolders={props.editableFolders}
             viewingPath={path}
             imageSeed={props.imageSeed}
             onImageSeedChange={props.onImageSeedChange}
@@ -152,6 +160,7 @@ export const ViewerPane = controllerView(
         ) : null}
         {path && !kind && type === MediaType.TEXT ? (
           <TextEditorPane
+            onNavigate={props.onNavigateViewing}
             viewingPath={path}
             editableFolders={[...props.editableFolders]}
             knowledgeBases={props.knowledgeBases ? [...props.knowledgeBases] : undefined}
@@ -206,6 +215,13 @@ export const ViewerPane = controllerView(
                 <FileText class='text-muted-foreground h-16 w-16 opacity-50' />
                 <h3 class='text-lg font-medium'>Unsupported File Type</h3>
                 <p class='text-muted-foreground text-sm'>This file type cannot be previewed.</p>
+                <button
+                  type='button'
+                  class='rounded-md border border-input px-3 py-2 text-sm hover:bg-muted'
+                  onClick={model.openAsText}
+                >
+                  Open as text
+                </button>
                 <a
                   href={fileDownloadHref(path)}
                   download={unsupported?.name ?? path.split(/[/\\]/).pop()}

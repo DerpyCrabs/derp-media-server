@@ -1,3 +1,5 @@
+import { createDocumentSearchHighlights } from '../../document-search-highlights'
+import type { DocumentMatch } from '../../document-search'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import * as pdfjs from 'pdfjs-dist'
 import { Effect } from 'effect'
@@ -13,6 +15,8 @@ interface Props {
   document: PdfDocument
   page: ReaderPage
   pageIndex: number
+  searchQuery?: string
+  activeMatch?: DocumentMatch
   zoom: number
   selectionMode: ReaderSelectionMode
   onRegion: (selection: Omit<ReaderSelection, 'id'>) => void
@@ -23,12 +27,16 @@ const renderPage = (
   current: () => Props & { onError: (error: string) => void },
 ) => {
   const owner = modelOwner({})
+  const highlights = createDocumentSearchHighlights(host, current)
   let near = false
   let signature = ''
   const draw = () => {
     const props = current()
-    const key = `${props.page.id}:${props.zoom}:${props.selectionMode}:${near}`
-    if (signature === key) return
+    const key = `${props.page.id}:${props.zoom}:${props.selectionMode}:${Boolean(props.searchQuery)}:${near}`
+    if (signature === key) {
+      highlights.update()
+      return
+    }
     signature = key
     owner.run(
       renderSlot,
@@ -55,7 +63,7 @@ const renderPage = (
         return yield* Effect.gen(function* () {
           yield* Effect.tryPromise({ try: () => task.promise, catch: (error) => error })
           host.querySelectorAll(':scope > .textLayer').forEach((node) => node.remove())
-          if (props.selectionMode === 'text') {
+          if (props.selectionMode === 'text' || props.searchQuery) {
             const layer = new TextLayerBuilder({
               pdfPage: page,
               onAppend: (element: HTMLDivElement) => {
@@ -71,6 +79,7 @@ const renderPage = (
               catch: (error) => error,
             })
           }
+          highlights.update()
           return yield* Effect.never
         }).pipe(
           Effect.ensuring(
@@ -99,6 +108,7 @@ const renderPage = (
     dispose: () => {
       observer.disconnect()
       owner.dispose()
+      highlights.dispose()
       host.querySelectorAll(':scope > .textLayer').forEach((node) => node.remove())
     },
   }

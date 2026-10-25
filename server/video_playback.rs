@@ -298,6 +298,9 @@ async fn save_preferences(
                 "speed" => value
                     .as_f64()
                     .is_some_and(|speed| speed.is_finite() && (0.25..=3.0).contains(&speed)),
+                "subtitleDelay" => value
+                    .as_f64()
+                    .is_some_and(|delay| delay.is_finite() && (-600.0..=600.0).contains(&delay)),
                 "audioTrack" | "subtitleTrack" | "secondarySubtitleTrack" => {
                     value.is_null() || value.as_str().is_some_and(|text| text.len() <= 2048)
                 }

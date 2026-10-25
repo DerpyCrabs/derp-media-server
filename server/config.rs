@@ -46,6 +46,8 @@ pub enum WriteAccess {
 #[serde(rename_all = "camelCase")]
 struct RawConfig {
     #[serde(default)]
+    desktop_mode: bool,
+    #[serde(default)]
     write_access: WriteAccess,
     port: Option<serde_json::Value>,
     media_dir: Option<PathBuf>,
@@ -212,6 +214,7 @@ struct RawFileSearchConfig {
 
 #[derive(Clone, Debug)]
 pub struct Config {
+    pub desktop_mode: bool,
     pub write_access: WriteAccess,
     pub port: u16,
     pub roots: Vec<MediaRoot>,
@@ -741,10 +744,23 @@ impl Config {
             .ok()
             .filter(|value| !value.is_empty())
             .map(PathBuf::from);
+        let whole_computer = raw.desktop_mode
+            && env_media.is_none()
+            && raw.media_dir.is_none()
+            && raw.media_dirs.as_ref().is_none_or(Vec::is_empty);
+        if whole_computer && !cfg!(unix) {
+            return Err("desktopMode without mediaDir is supported on Unix systems only".into());
+        }
         let primary = env_media
             .clone()
             .or(raw.media_dir.clone())
-            .unwrap_or_else(|| cwd.clone());
+            .unwrap_or_else(|| {
+                if whole_computer {
+                    PathBuf::from("/")
+                } else {
+                    cwd.clone()
+                }
+            });
         let editable = env::var("EDITABLE_FOLDERS")
             .ok()
             .filter(|value| !value.is_empty())
@@ -838,7 +854,9 @@ impl Config {
                 .enabled
                 .as_ref()
                 .and_then(serde_json::Value::as_bool)
-                != Some(false),
+                .unwrap_or(
+                    !(raw.desktop_mode && roots.iter().any(|root| root.path.parent().is_none())),
+                ),
             index_path: data_path.join("search-index").join("files-v1.sqlite"),
             watch_mode: if raw_search
                 .watch_mode
@@ -874,6 +892,7 @@ impl Config {
                 .into_owned();
         }
         Ok(Self {
+            desktop_mode: raw.desktop_mode,
             write_access: raw.write_access,
             port,
             roots,

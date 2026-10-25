@@ -1,22 +1,33 @@
 import { Effect, Exit } from 'effect'
-import { view } from 'effectweb'
+import { view, controllerView, modelOwner, domBinding } from 'effectweb'
+import { modalFocus } from '@/lib/ui/modal-focus'
+import { modalDialogBackdropClass } from '@/features/explorer/modal-overlay-scope'
+import { closeReader } from '../../reader-url'
 import * as pdfjs from 'pdfjs-dist'
 import { buildMediaUrl } from '@/lib/media/build-media-url'
+import { PdfPrintDialog } from './PdfPrintDialog'
 import { PdfContent, type PdfDocument } from './PdfContent'
 import { mapPdfOutline } from './pdf-outline'
 import { PagedReader, type PagedDocument } from '../paged/PagedReader'
 import type { ReaderPage } from '../../reader-position'
 import type { ReaderContentProps } from '../../reader-types'
 type PdfReaderDocument = PagedDocument & { pdf: PdfDocument }
-const loadPdf = (path: string): Effect.Effect<PdfReaderDocument, unknown> =>
+type PasswordRequest = (update: (password: string | Error) => void, reason: number) => void
+const loadPdf = (
+  path: string,
+  onPassword: PasswordRequest,
+  onUnlocked: () => void,
+): Effect.Effect<PdfReaderDocument, unknown> =>
   Effect.gen(function* () {
     const task = pdfjs.getDocument({
       url: buildMediaUrl(path.replace(/\\/g, '/')),
       withCredentials: true,
     })
+    task.onPassword = onPassword
     const destroy = yield* Effect.cached(Effect.promise(() => task.destroy()))
     return yield* Effect.gen(function* () {
       const pdf = yield* Effect.tryPromise({ try: () => task.promise, catch: (error) => error })
+      onUnlocked()
       const pages = yield* Effect.forEach(
         Array.from({ length: pdf.numPages }, (_, index) => index),
         (index) =>
@@ -33,34 +44,180 @@ const loadPdf = (path: string): Effect.Effect<PdfReaderDocument, unknown> =>
               }
             }),
           ),
-        { concurrency: 'unbounded' },
+        { concurrency: 8 },
       )
       const outline = yield* Effect.tryPromise({
         try: () => pdf.getOutline(),
         catch: (error) => error,
       }).pipe(Effect.flatMap((items) => mapPdfOutline(pdf, items)))
-      return { pdf, pages, outline, release: () => destroy }
+      const textCache = new Map<number, string>()
+      const pageText = (index: number) =>
+        Effect.tryPromise(async () => {
+          const cached = textCache.get(index)
+          if (cached !== undefined) return cached
+          const page = await pdf.getPage(index + 1)
+          const content = await page.getTextContent()
+          const text = content.items.map((item) => ('str' in item ? item.str : '')).join('')
+          textCache.set(index, text)
+          return text
+        })
+      return { pdf, pages, outline, pageText, release: () => destroy }
     }).pipe(Effect.onExit((exit) => (Exit.isFailure(exit) ? destroy : Effect.void)))
   })
 
-const PdfReader = view<ReaderContentProps>((props) => {
-  return (
-    <PagedReader
-      {...props}
-      load={loadPdf}
-      selectionModes={['text', 'image']}
-      renderPage={({ document, page, pageIndex, zoom, frame }) => (
-        <PdfContent
-          document={(document as PdfReaderDocument).pdf}
-          page={page}
-          pageIndex={pageIndex}
-          zoom={zoom}
-          selectionMode={frame.selectionMode}
-          onRegion={frame.selectRegion}
+const passwordFocus = (input: HTMLInputElement, current: () => boolean) => {
+  let previous = current()
+  const update = () => {
+    const pending = current()
+    if (previous && !pending)
+      queueMicrotask(() => {
+        if (input.isConnected) input.focus()
+      })
+    previous = pending
+  }
+  return { update, dispose: () => undefined }
+}
+function pdfController(props: ReaderContentProps) {
+  let updatePassword: ((password: string | Error) => void) | undefined
+  const owner = modelOwner({
+    props,
+    passwordOpen: false,
+    password: '',
+    incorrect: false,
+    unlocking: false,
+  })
+  const actions = {
+    password: (password: string) => owner.patch({ password }),
+    unlock: () => {
+      const current = owner.read()
+      if (!updatePassword || current.unlocking) return
+      owner.patch({ password: '', unlocking: true })
+      updatePassword(current.password)
+    },
+    cancel: () => {
+      updatePassword?.(new Error('Password entry cancelled.'))
+      updatePassword = undefined
+      owner.patch({ passwordOpen: false, password: '' })
+      const onClose = owner.read().props.onClose
+      if (onClose) onClose()
+      else closeReader()
+    },
+    load: (path: string) =>
+      loadPdf(
+        path,
+        (update, reason) => {
+          updatePassword = update
+          owner.patch({
+            passwordOpen: true,
+            password: '',
+            incorrect: reason === pdfjs.PasswordResponses.INCORRECT_PASSWORD,
+            unlocking: false,
+          })
+        },
+        () => {
+          updatePassword = undefined
+          owner.patch({ passwordOpen: false, password: '', unlocking: false })
+        },
+      ),
+  }
+  return {
+    source: owner.source,
+    ...actions,
+    receive: (next: ReaderContentProps) => owner.patch({ props: next }),
+    lifetime: owner,
+  }
+}
+const PdfReader = controllerView(
+  { controller: pdfController, identity: (props) => props.sourcePath },
+  view((model) => {
+    const props = model.props
+    return (
+      <div class='relative h-full min-h-0'>
+        <PagedReader
+          {...props}
+          load={model.actions.load}
+          selectionModes={['text', 'image']}
+          renderPrint={(document, currentPage, onClose) => (
+            <PdfPrintDialog
+              pdf={(document as PdfReaderDocument).pdf}
+              path={props.sourcePath}
+              currentPage={currentPage}
+              embedded={props.embedded}
+              onClose={onClose}
+            />
+          )}
+          renderPage={({ document, page, pageIndex, zoom, frame, searchQuery, activeMatch }) => (
+            <PdfContent
+              document={(document as PdfReaderDocument).pdf}
+              page={page}
+              pageIndex={pageIndex}
+              zoom={zoom}
+              selectionMode={frame.selectionMode}
+              onRegion={frame.selectRegion}
+              searchQuery={searchQuery}
+              activeMatch={activeMatch}
+            />
+          )}
         />
-      )}
-    />
-  )
-})
+        {model.passwordOpen ? (
+          <div
+            data-no-window-drag
+            class={`${modalDialogBackdropClass(props.embedded ? 'window' : 'viewport')} z-[80]`}
+          >
+            <form
+              role='dialog'
+              aria-modal='true'
+              aria-label='Unlock PDF'
+              class='flex w-full max-w-sm flex-col gap-3 rounded-lg border border-border bg-background p-4 text-foreground shadow-xl'
+              use={modalFocus({ onEscape: model.actions.cancel })}
+              onSubmit={(event) => {
+                event.preventDefault()
+                model.actions.unlock()
+              }}
+            >
+              <h2 class='text-base font-semibold'>Unlock PDF</h2>
+              <p class='text-sm text-muted-foreground'>This document requires a password.</p>
+              <label class='flex flex-col gap-1 text-sm'>
+                Password
+                <input
+                  use={domBinding(model.unlocking, passwordFocus)}
+                  type='password'
+                  aria-label='PDF password'
+                  autofocus
+                  autocomplete='off'
+                  value={model.password}
+                  disabled={model.unlocking}
+                  class='rounded border border-input bg-background px-3 py-2'
+                  onInput={(event) => model.actions.password(event.currentTarget.value)}
+                />
+              </label>
+              {model.incorrect ? (
+                <p role='alert' class='text-sm text-destructive'>
+                  Incorrect password. Try again.
+                </p>
+              ) : null}
+              <div class='flex justify-end gap-2'>
+                <button
+                  type='button'
+                  class='rounded border border-input px-3 py-1.5 text-sm hover:bg-muted'
+                  onClick={model.actions.cancel}
+                >
+                  Cancel
+                </button>
+                <button
+                  type='submit'
+                  class='rounded bg-primary px-3 py-1.5 text-sm text-primary-foreground disabled:opacity-40'
+                  disabled={model.unlocking}
+                >
+                  {model.unlocking ? 'Unlocking…' : 'Unlock'}
+                </button>
+              </div>
+            </form>
+          </div>
+        ) : null}
+      </div>
+    )
+  }),
+)
 
 export default PdfReader

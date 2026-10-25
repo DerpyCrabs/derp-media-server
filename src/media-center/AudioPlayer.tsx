@@ -1,3 +1,4 @@
+import { PlaybackSetting } from '@/features/playback/PlaybackSetting'
 import { QueuePanel } from '@/features/music/QueuePanel'
 import { MediaType } from '@/lib/files/types'
 import Monitor from '@effectweb/lucide/icons/monitor'
@@ -283,6 +284,19 @@ export const AudioPlayer = controllerView(
               />
             </div>
 
+            <div class='hidden w-[72px] shrink-0 min-[650px]:block'>
+              <PlaybackSetting
+                label='Audio playback speed'
+                value={String(model.playback.playbackRate)}
+                options={[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3].map((rate) => ({
+                  value: String(rate),
+                  label: `${rate}×`,
+                }))}
+                onChange={(value) =>
+                  session.dispatch({ type: 'setPlaybackRate', rate: Number(value) })
+                }
+              />
+            </div>
             <QueuePanel />
             <div class='hidden h-8 w-px shrink-0 bg-border md:block' />
 

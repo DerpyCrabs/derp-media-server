@@ -95,6 +95,11 @@ const surfaceBinding = (element: HTMLDivElement, current: () => SurfaceProps) =>
       )
     },
     dismiss: () => current().onDismiss(),
+    dismissOnEscape: () => {
+      const props = current()
+      props.onDismiss()
+      props.anchorElement?.focus()
+    },
   })
   apply()
   return {

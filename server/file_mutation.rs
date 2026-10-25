@@ -5,7 +5,10 @@ use crate::{
 };
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
-use tokio::{fs, io::AsyncWriteExt};
+use tokio::{
+    fs,
+    io::{AsyncReadExt, AsyncWriteExt},
+};
 
 pub(crate) struct FileMutation<'a> {
     state: &'a AppState,
@@ -22,9 +25,34 @@ impl<'a> FileMutation<'a> {
 
     pub async fn read_file(&self, path: &str) -> AppResult<Vec<u8>> {
         let _guard = self.begin().await;
-        fs::read(resolve(self.state, path)?)
+        const MAX_TEXT_BYTES: u64 = 16 * 1024 * 1024;
+        let full = resolve(self.state, path)?;
+        let metadata = fs::metadata(&full).await.map_err(AppError::io)?;
+        if !metadata.is_file() {
+            return Err(AppError::bad("Only regular files can be opened as text"));
+        }
+        if metadata.len() > MAX_TEXT_BYTES {
+            return Err(AppError::bad(
+                "This file is too large for the text viewer (16 MiB limit). Download it to open locally.",
+            ));
+        }
+        let file = fs::File::open(full).await.map_err(AppError::io)?;
+        let mut bytes = Vec::new();
+        file.take(MAX_TEXT_BYTES + 1)
+            .read_to_end(&mut bytes)
             .await
-            .map_err(AppError::io)
+            .map_err(AppError::io)?;
+        if bytes.len() as u64 > MAX_TEXT_BYTES {
+            return Err(AppError::bad(
+                "This file is too large for the text viewer (16 MiB limit).",
+            ));
+        }
+        if bytes.contains(&0) {
+            return Err(AppError::bad(
+                "This file contains binary data and cannot be opened as text.",
+            ));
+        }
+        Ok(bytes)
     }
 
     pub async fn rename(&self, old_path: &str, new_path: &str) -> AppResult<()> {
@@ -60,6 +88,30 @@ impl<'a> FileMutation<'a> {
         }
         remove_path(&staged, metadata.is_dir()).await?;
         Ok(metadata.is_dir())
+    }
+
+    pub async fn trash(&self, path: &str) -> AppResult<()> {
+        crate::desktop_trash::require(&self.state.config)?;
+        #[cfg(target_os = "linux")]
+        {
+            let _guard = self.begin().await;
+            let target = resolve_mutable_entry(self.state, path)?;
+            let item =
+                tokio::task::spawn_blocking(move || crate::desktop_trash::move_to_trash(&target))
+                    .await
+                    .map_err(|error| AppError::internal(error.to_string()))??;
+            if let Err(error) = self.state.database.transaction(|transaction| {
+                path_metadata::removed_in_transaction(self.state, transaction, path)
+            }) {
+                tokio::task::spawn_blocking(move || crate::desktop_trash::restore_item(&item))
+                    .await
+                    .map_err(|error| AppError::internal(error.to_string()))??;
+                return Err(error);
+            }
+        }
+        #[cfg(not(target_os = "linux"))]
+        let _ = path;
+        Ok(())
     }
 
     pub async fn create_directory(&self, path: &str) -> AppResult<()> {
@@ -665,4 +717,37 @@ async fn copy_cancellable(
         .await
         .map_err(AppError::io)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod text_read_tests {
+    use super::*;
+    use crate::test_support::TestApp;
+
+    #[tokio::test]
+    async fn text_reads_reject_binary_and_large_files_before_allocating_them() {
+        let app = TestApp::new();
+        app.write("binary", b"a\0b");
+        let mutation = FileMutation::new(&app.state);
+        assert!(
+            mutation
+                .read_file("binary")
+                .await
+                .unwrap_err()
+                .1
+                .contains("binary")
+        );
+        let file = std::fs::File::create(app.media.join("large")).unwrap();
+        file.set_len(16 * 1024 * 1024 + 1).unwrap();
+        assert!(
+            mutation
+                .read_file("large")
+                .await
+                .unwrap_err()
+                .1
+                .contains("too large")
+        );
+        app.write("text", b"plain text");
+        assert_eq!(mutation.read_file("text").await.unwrap(), b"plain text");
+    }
 }

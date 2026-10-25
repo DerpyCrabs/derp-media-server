@@ -1,3 +1,5 @@
+import { LazyPlainTextDocument } from '@/lib/editor/LazyPlainTextDocument'
+import { getMediaExtensionFromPath } from '@/lib/media/media-utils'
 import { domBinding, view, controllerView, resourceError } from 'effectweb'
 import { buildResolveMarkdownImageUrl } from '@/lib/markdown/resolve-markdown-image-url'
 import { tryPasteKnowledgeBaseImage } from './handle-kb-image-paste'
@@ -7,7 +9,8 @@ import Download from '@effectweb/lucide/icons/download'
 import Save from '@effectweb/lucide/icons/save'
 import Zap from '@effectweb/lucide/icons/zap'
 import ZapOff from '@effectweb/lucide/icons/zap-off'
-import { fileDownloadHref } from '@/lib/files/download-urls'
+import SaveAll from '@effectweb/lucide/icons/save-all'
+import { SaveFileDialog } from '@/features/explorer/SaveFileDialog'
 import { LazyMarkdownDocument } from '@/lib/markdown/LazyMarkdownDocument'
 import { completeMarkdownImagePaste } from '@/lib/markdown/paste-completion'
 import { dirtyGuard, textController } from './text-editor-controller'
@@ -23,12 +26,13 @@ export const TextEditorPane = controllerView(
       model.edit !== model.base &&
       model.remote !== undefined &&
       model.remote.version !== model.version
-    const ext = () => props.viewingPath.split('.').pop()?.toLowerCase() || ''
+    const recovery = model.draftCandidates.find((draft) => draft.content !== model.remote?.content)
+    const ext = () => getMediaExtensionFromPath(props.viewingPath)
     const isMarkdown = () => ext() === 'md'
     const fileName = () => props.viewingPath.split(/[/\\]/).pop() || ''
     const remoteContent = () => model.remote?.content ?? ''
-    const markdownContent = () => (fileEditable() ? model.edit : remoteContent())
-    const lineCount = () => remoteContent().split('\n').length
+    const markdownContent = () => model.edit
+    const lineCount = () => model.edit.split('\n').length
     const resolveImageUrl = () =>
       buildResolveMarkdownImageUrl(props.viewingPath, [...(props.knowledgeBases ?? [])])
     const saveInternal = actions.requestSave
@@ -40,21 +44,22 @@ export const TextEditorPane = controllerView(
     const setEditContent = actions.edit
     const currentTextTargetKey = () => props.viewingPath
     const kbList = () => [...(props.knowledgeBases ?? [])]
-    const handleDownload = () => {
-      const link = document.createElement('a')
-      link.href = fileDownloadHref(props.viewingPath)
-      link.download = fileName()
-      link.click()
-    }
     return (
       <div
-        use={domBinding(model.edit !== model.base, dirtyGuard)}
+        use={domBinding(
+          {
+            dirty: model.edit !== model.base,
+            onSaveAs: actions.openSaveAs,
+            canSaveAs: props.editableFolders.length > 0 && !model.saveAsOpen,
+          },
+          dirtyGuard,
+        )}
         role={props.embedded ? undefined : 'dialog'}
         aria-modal={props.embedded ? undefined : 'true'}
         aria-labelledby='text-viewer-title'
         class={
           props.embedded
-            ? 'flex h-full min-h-0 flex-col bg-background'
+            ? 'relative flex h-full min-h-0 flex-col bg-background'
             : 'fixed inset-0 z-50 flex flex-col bg-background/95 backdrop-blur-sm'
         }
       >
@@ -210,6 +215,22 @@ export const TextEditorPane = controllerView(
                 </button>
               </>
             ) : null}
+            {props.editableFolders.length > 0 ? (
+              <button
+                type='button'
+                title='Save as (Ctrl+Shift+S)'
+                aria-label='Save as'
+                disabled={model.loading || !!model.loadError}
+                class={
+                  props.embedded
+                    ? 'hover:bg-muted inline-flex size-7 items-center justify-center rounded-md'
+                    : 'hover:bg-muted inline-flex size-8 items-center justify-center rounded-md'
+                }
+                onClick={actions.openSaveAs}
+              >
+                <SaveAll size={props.embedded ? 14 : 18} />
+              </button>
+            ) : null}
             <button
               type='button'
               title='Download'
@@ -219,7 +240,7 @@ export const TextEditorPane = controllerView(
                   ? 'hover:bg-muted inline-flex h-7 w-7 items-center justify-center rounded-md'
                   : 'hover:bg-muted inline-flex h-8 w-8 items-center justify-center rounded-md'
               }
-              onClick={handleDownload}
+              onClick={actions.download}
             >
               <Download
                 class={props.embedded ? 'h-3.5 w-3.5' : 'h-5 w-5'}
@@ -242,7 +263,63 @@ export const TextEditorPane = controllerView(
             </button>
           </div>
         </header>
-        <div class='min-h-0 flex-1 overflow-hidden'>
+        <div class='flex min-h-0 flex-1 flex-col overflow-hidden'>
+          {recovery ? (
+            <div
+              role='status'
+              class='flex shrink-0 flex-wrap items-center gap-2 border-b border-border bg-muted/50 px-3 py-2 text-xs'
+            >
+              <span class='mr-auto'>
+                Unsaved draft available in this browser
+                {model.draftCandidates.length > 1
+                  ? ` (${model.draftCandidates.length} versions)`
+                  : ''}
+                .
+              </span>
+              <button
+                type='button'
+                class='underline disabled:opacity-40'
+                disabled={!model.remote}
+                onClick={() => actions.restoreDraft(recovery)}
+              >
+                Restore draft
+              </button>
+              <button
+                type='button'
+                class='underline'
+                onClick={() => actions.discardDraft(recovery)}
+              >
+                Discard draft
+              </button>
+            </div>
+          ) : null}
+          {model.recovered ? (
+            <div
+              role='status'
+              class='flex shrink-0 flex-wrap items-center gap-2 border-b border-border bg-muted/50 px-3 py-2 text-xs'
+            >
+              <span class='mr-auto'>Draft restored. Review it before saving.</span>
+              {fileEditable() && !conflict() ? (
+                <button
+                  type='button'
+                  class='underline'
+                  disabled={model.saved.waiting}
+                  onClick={() => actions.requestSave(false)}
+                >
+                  Save restored draft
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+          {model.draftError ? (
+            <p
+              role='alert'
+              class='shrink-0 border-b border-amber-500/40 px-3 py-2 text-xs text-amber-700 dark:text-amber-300'
+            >
+              {model.draftError}
+            </p>
+          ) : null}
+
           {conflict() ? (
             <div class='flex items-center justify-between gap-3 border-b border-amber-500/40 bg-amber-500/10 px-4 py-2 text-xs text-amber-900 dark:text-amber-200'>
               <span>This file changed elsewhere. Your unsaved edits were kept.</span>
@@ -259,80 +336,81 @@ export const TextEditorPane = controllerView(
           ) : null}
           {model.loading ? <p class='text-muted-foreground p-4 text-sm'>Loading…</p> : null}
           {model.loadError ? (
-            <p class='text-destructive p-4 text-sm'>Failed to load file.</p>
+            <p role='alert' class='text-destructive p-4 text-sm'>
+              {model.loadError}
+            </p>
           ) : null}
-          {!model.loading && !model.loadError ? (
-            isMarkdown() ? (
-              currentTextTargetKey() ? (
-                <LazyMarkdownDocument
-                  content={markdownContent()}
-                  mode={showEditor() ? 'edit' : 'read'}
+          <div class='min-h-0 flex-1 overflow-hidden'>
+            {!model.loading && !model.loadError ? (
+              isMarkdown() ? (
+                currentTextTargetKey() ? (
+                  <LazyMarkdownDocument
+                    content={markdownContent()}
+                    mode={showEditor() ? 'edit' : 'read'}
+                    onChange={setEditContent}
+                    onBlur={() => {
+                      if (fileEditable() && autoSaveEnabled() && !conflict()) saveInternal(true)
+                    }}
+                    onSave={() => actions.save(false)}
+                    resolveImageUrl={resolveImageUrl()}
+                    onPasteImage={(event, _selection, complete) => {
+                      return tryPasteKnowledgeBaseImage(event, {
+                        viewingPath: props.viewingPath,
+                        knowledgeBases: kbList(),
+                        editableFolders: [...props.editableFolders],
+                        completeCodeMirrorPaste: (markdown) =>
+                          completeMarkdownImagePaste(
+                            markdown,
+                            complete,
+                            actions.pasteCanSave,
+                            () => {
+                              actions.requestSave(true)
+                            },
+                          ),
+                      })
+                    }}
+                    ariaLabel={`${fileName()} Markdown ${showEditor() ? 'editor' : 'document'}`}
+                  />
+                ) : null
+              ) : (
+                <LazyPlainTextDocument
+                  content={model.edit}
+                  readOnly={!showEditor()}
+                  code={ext() !== 'txt'}
+                  ariaLabel={`${fileName()} ${showEditor() ? 'editor' : 'document'}`}
                   onChange={setEditContent}
                   onBlur={() => {
-                    if (fileEditable() && autoSaveEnabled() && !conflict()) saveInternal(true)
+                    if (showEditor() && autoSaveEnabled() && !conflict()) saveInternal(true)
                   }}
                   onSave={() => actions.save(false)}
-                  resolveImageUrl={resolveImageUrl()}
-                  onPasteImage={(event, _selection, complete) => {
-                    return tryPasteKnowledgeBaseImage(event, {
-                      viewingPath: props.viewingPath,
-                      knowledgeBases: kbList(),
-                      editableFolders: [...props.editableFolders],
-                      completeCodeMirrorPaste: (markdown) =>
-                        completeMarkdownImagePaste(markdown, complete, actions.pasteCanSave, () => {
-                          actions.requestSave(true)
-                        }),
-                    })
-                  }}
-                  ariaLabel={`${fileName()} Markdown ${showEditor() ? 'editor' : 'document'}`}
                 />
-              ) : null
-            ) : showEditor() ? (
-              <div class={props.embedded ? 'h-full' : 'h-full p-4'}>
-                <textarea
-                  class={
-                    props.embedded
-                      ? 'bg-transparent font-sans text-base leading-[1.75] text-foreground h-full w-full resize-none px-3 py-2 wrap-break-word whitespace-pre-wrap focus:outline-none'
-                      : 'border-input bg-background focus-visible:ring-ring h-full w-full resize-none rounded-lg border p-4 font-sans text-base leading-[1.75] text-foreground wrap-break-word whitespace-pre-wrap focus-visible:ring-2 focus-visible:outline-none'
-                  }
-                  value={model.edit}
-                  spellcheck={false}
-                  placeholder='Enter text…'
-                  onInput={(e) => setEditContent(e.currentTarget.value)}
-                  onBlur={() => {
-                    if (autoSaveEnabled() && !conflict()) saveInternal(true)
-                  }}
-                  onKeyDown={(e) => {
-                    if (
-                      e.key === 'ArrowLeft' ||
-                      e.key === 'ArrowRight' ||
-                      e.key === 'ArrowUp' ||
-                      e.key === 'ArrowDown' ||
-                      e.key === 'Home' ||
-                      e.key === 'End' ||
-                      e.key === 'PageUp' ||
-                      e.key === 'PageDown'
-                    ) {
-                      e.stopPropagation()
-                    }
-                  }}
-                />
-              </div>
-            ) : (
-              <div class={props.embedded ? 'h-full overflow-auto' : 'h-full overflow-auto p-4'}>
-                <pre
-                  class={
-                    props.embedded
-                      ? 'select-text wrap-break-word whitespace-pre-wrap px-3 py-2 font-sans text-base leading-[1.75] text-foreground'
-                      : 'select-text wrap-break-word whitespace-pre-wrap font-sans text-base leading-[1.75] text-foreground'
-                  }
-                >
-                  {remoteContent()}
-                </pre>
-              </div>
-            )
-          ) : null}
+              )
+            ) : null}
+          </div>
         </div>
+        {model.edit !== model.base ? (
+          <footer
+            role='status'
+            class='shrink-0 border-t border-border px-3 py-1 text-xs text-muted-foreground'
+          >
+            {model.draftBackedUp
+              ? 'Unsaved changes · Draft backed up in this browser'
+              : 'Unsaved changes'}
+          </footer>
+        ) : null}
+        {model.saveAsOpen ? (
+          <SaveFileDialog
+            title='Save text as'
+            suggestedPath={props.viewingPath}
+            editableFolders={props.editableFolders}
+            pending={model.saveAsPending}
+            error={model.saveAsError}
+            overlayScope={props.embedded ? 'window' : 'viewport'}
+            description='Creates a new file with the current text and opens it.'
+            onConfirm={actions.saveAs}
+            onClose={actions.closeSaveAs}
+          />
+        ) : null}
       </div>
     )
   }),

@@ -84,3 +84,25 @@ describe('file display sorting', () => {
     ).toEqual(['popular', 'favorite', 'plain'])
   })
 })
+
+test('modified date sorts newest first, leaves missing dates last, and keeps folders first', () => {
+  const files = [
+    item('unknown'),
+    { ...item('old.txt'), version: 10 },
+    { ...item('new.txt'), version: 20 },
+    item('folder', { isDirectory: true }),
+  ]
+  expect(
+    sortFileItems(files, { field: 'modifiedDate', direction: 'desc' }).map((file) => file.name),
+  ).toEqual(['folder', 'new.txt', 'old.txt', 'unknown'])
+})
+
+test('type sorting groups extensions with natural filename ordering', () => {
+  const files = ['b.txt', 'a.zip', 'a.txt'].map((name) => ({
+    ...item(name),
+    extension: name.split('.').at(-1)!,
+  }))
+  expect(
+    sortFileItems(files, { field: 'type', direction: 'asc' }).map((file) => file.name),
+  ).toEqual(['a.txt', 'b.txt', 'a.zip'])
+})

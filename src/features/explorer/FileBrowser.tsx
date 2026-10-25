@@ -1,3 +1,9 @@
+import { initialFolderHistory, visitFolder, folderHistoryTarget } from './folder-history'
+import type { FolderNavigationActions } from './FolderNavigation'
+import { FolderFilter } from './FolderFilter'
+import { fileJobs } from './file-jobs'
+import { QuickPreview } from './QuickPreview'
+import { ExplorerPlaces } from './ExplorerPlaces'
 import { createFileTools } from './file-tools-controller'
 import { FileToolsPanel } from './FileToolsPanel'
 import { available, modelOwner, view, controllerView, type JSX } from 'effectweb'
@@ -51,6 +57,10 @@ export type FileBrowserPresentation = Readonly<{
   ({ kind: 'default' } | { kind: 'reader' } | { kind: 'virtual'; target: VirtualOpenTarget })
 export type FileBrowserHost = Readonly<{
   layout: 'media' | 'workspace'
+  navigationKey?: string
+  navigation?: FolderNavigationActions
+  focusListing?: boolean
+  onListingFocused?: () => void
   currentPath: string
   editableFolders: readonly string[]
   mediaRoots?: readonly ClientMediaRoot[]
@@ -98,7 +108,7 @@ function downloadLocalFile(file: FileItem) {
   document.body.removeChild(link)
 }
 const hoverSlots = (key: string | number) => ['folder-hover', key] as const
-export const FileBrowser = controllerView(
+const DirectoryBrowser = controllerView(
   {
     identity: (props: { host: FileBrowserHost }) => props.host.currentPath,
     controller: (props: { host: FileBrowserHost }) => {
@@ -114,9 +124,12 @@ export const FileBrowser = controllerView(
       const tools = createFileTools(
         () => currentHost,
         () =>
-          tools.read().hidden
+          (tools.read().hidden && !currentListing().virtualDirectory
             ? (tools.read().hiddenFiles ?? currentListing().files)
-            : currentListing().files,
+            : currentListing().files
+          ).filter((file) =>
+            file.name.toLocaleLowerCase().includes(tools.read().folderFilter.toLocaleLowerCase()),
+          ),
       )
       const stats = createViewStats()
       const presentCreated = (filePath: string, displayName?: string) => {
@@ -177,6 +190,7 @@ export const FileBrowser = controllerView(
           currentHost.selection?.visible,
           tools.read().hidden,
           tools.read().hiddenFiles,
+          tools.read().folderFilter,
         ]
         if (
           previousPresentation &&
@@ -187,9 +201,16 @@ export const FileBrowser = controllerView(
         const metadata = createFileSortMetadata(settings?.favorites, views)
         const sortingDisabled =
           (Object.values(VIRTUAL_FOLDERS) as string[]).includes(path) || !!data.virtualDirectory
-        const files = tools.read().hidden ? (tools.read().hiddenFiles ?? data.files) : data.files
+        const files =
+          tools.read().hidden && !data.virtualDirectory
+            ? (tools.read().hiddenFiles ?? data.files)
+            : data.files
         const orderedFiles = sortFilesForPath(
-          files.filter((file) => currentHost.selection?.visible(file) ?? true),
+          files.filter(
+            (file) =>
+              (currentHost.selection?.visible(file) ?? true) &&
+              file.name.toLocaleLowerCase().includes(tools.read().folderFilter.toLocaleLowerCase()),
+          ),
           path,
           settings?.sortOrders,
           sortingDisabled,
@@ -341,13 +362,27 @@ export const FileBrowser = controllerView(
       openBreadcrumbInOtherSurface: host.actions.openOtherSurface,
       createRowMenu: (setIcon) =>
         createExplorerRowMenu({
-          api: fileActions.rowMenu,
+          api: {
+            ...fileActions.rowMenu,
+            confirmDelete: (file) => {
+              if (model.toolsState.trashAvailable) {
+                fileActions.rowMenu.dismiss()
+                model.tools.patch({ selected: [file.path], anchor: file.path })
+                model.tools.open('delete')
+              } else fileActions.rowMenu.confirmDelete(file)
+            },
+          },
           permissions: {
             editableFolders: host.editableFolders,
             currentDirectoryEditable: editable(),
             hasEditableFolders: host.editableFolders.length > 0,
           },
           edit: {
+            deleteLabel: model.toolsState.trashAvailable ? 'Move to trash' : 'Delete',
+            properties: (file) => {
+              model.tools.patch({ selected: [file.path], anchor: file.path })
+              model.tools.open('properties')
+            },
             download,
             setIcon,
             get addToTaskbar() {
@@ -359,6 +394,7 @@ export const FileBrowser = controllerView(
             copyToClipboard: host.actions.copyToClipboard,
           },
           open: {
+            preview: (file) => model.tools.preview(file.path),
             get newTab() {
               return host.actions.openNewTab
                 ? (file: FileItem) => host.actions.openNewTab?.(file, currentPath())
@@ -461,6 +497,8 @@ export const FileBrowser = controllerView(
           controller={browser}
           listing={listingProps}
           host={{
+            focusListing: host.focusListing,
+            onListingFocused: host.onListingFocused,
             openParent: () => host.navigate(isVirtualFolder() ? '' : parentPath(currentPath())),
             openFile: (file, event) =>
               host.selection
@@ -471,9 +509,17 @@ export const FileBrowser = controllerView(
             activateFile: host.selection?.activate ?? openFile,
             selected:
               host.selection?.includes ?? ((file) => model.toolsState.selected.includes(file.path)),
+            moveFocus: host.selection
+              ? undefined
+              : (from, to, event) => model.tools.moveFocus(from, to, event, displayedFiles),
             selectionKeyDown: host.selection
               ? (event) => host.selection?.keyDown(event, displayedFiles)
-              : (event) => model.tools.keyDown(event, displayedFiles),
+              : (event) =>
+                  model.tools.keyDown(event, displayedFiles, {
+                    rename: fileActions.requestRename,
+                    createFolder: fileActions.openCreateFolder,
+                    refresh: model.refresh,
+                  }),
             setViewMode,
             navigateBreadcrumb: host.navigate,
             openBreadcrumbMenu: chrome.openBreadcrumbMenu,
@@ -485,6 +531,24 @@ export const FileBrowser = controllerView(
               !!browser.allowMoveFile && isPathEditable(path, host.editableFolders),
           }}
           toolbar={{
+            navigation: host.navigation,
+            filter: model.toolsState.filterOpen
+              ? () => (
+                  <FolderFilter
+                    value={model.toolsState.folderFilter}
+                    count={displayedFiles.length}
+                    onChange={(folderFilter) =>
+                      model.tools.patch({
+                        folderFilter,
+                        selected: [],
+                        anchor: null,
+                        selecting: false,
+                      })
+                    }
+                    onClose={() => model.tools.patch({ folderFilter: '', filterOpen: false })}
+                  />
+                )
+              : undefined,
             onCreateFolder: fileActions.openCreateFolder,
             onCreateFile: fileActions.openCreateFile,
             virtualCreate: {
@@ -496,6 +560,39 @@ export const FileBrowser = controllerView(
             extras: () => (
               <>
                 {host.toolbarExtras?.()}
+                {model.toolsState.desktopMode ||
+                model.toolsState.desktop ||
+                model.toolsState.favoritePlaces.length > 0 ? (
+                  <ExplorerPlaces
+                    places={[
+                      ...model.toolsState.favoritePlaces,
+                      ...model.toolsState.places.filter(
+                        (place) =>
+                          !model.toolsState.favoritePlaces.some(
+                            (favorite) => favorite.path === place.path,
+                          ),
+                      ),
+                    ]}
+                    onTrash={
+                      model.toolsState.trashAvailable ? () => model.tools.open('trash') : undefined
+                    }
+                    currentPath={host.currentPath}
+                    onNavigate={host.navigate}
+                    onRefresh={model.tools.refreshPlaces}
+                  />
+                ) : null}
+                {model.toolsState.jobs.jobs.some(fileJobs.active) ? (
+                  <button
+                    type='button'
+                    class='h-7 shrink-0 rounded-md bg-primary/10 px-2 text-xs text-primary hover:bg-primary/20'
+                    aria-label='Show active file operations'
+                    onClick={() => model.tools.open('operations')}
+                  >
+                    {model.toolsState.jobs.jobs.some((job) => job.status === 'conflict')
+                      ? 'Conflict'
+                      : 'Working…'}
+                  </button>
+                ) : null}
                 {!host.selection ? (
                   <button
                     type='button'
@@ -517,7 +614,26 @@ export const FileBrowser = controllerView(
           {host.children}
         </FileBrowserView>
         {!host.selection ? (
-          <FileToolsPanel tools={model.tools} state={model.toolsState} host={host} />
+          <FileToolsPanel
+            tools={model.tools}
+            state={model.toolsState}
+            host={host}
+            files={displayedFiles}
+          />
+        ) : null}
+        {model.toolsState.previewPath ? (
+          <QuickPreview
+            path={model.toolsState.previewPath}
+            files={displayedFiles}
+            directory={host.currentPath}
+            workspace={host.layout === 'workspace'}
+            onClose={() => model.tools.preview(null)}
+            onNavigate={model.tools.preview}
+            onOpen={(file) => {
+              model.tools.preview(null)
+              openFile(file)
+            }}
+          />
         ) : null}
         <FileBrowserModalLayer
           overlayScope={host.layout === 'workspace' ? 'window' : 'viewport'}
@@ -525,6 +641,104 @@ export const FileBrowser = controllerView(
           dialogs={fileActions.dialogs}
         />
       </>
+    )
+  }),
+)
+
+export const FileBrowser = controllerView(
+  {
+    identity: (props: { host: FileBrowserHost }) => props.host.navigationKey,
+    controller: (props: { host: FileBrowserHost }) => {
+      let pending: { index: number; path: string } | undefined
+      const owner = modelOwner({
+        host: props.host,
+        history: initialFolderHistory(props.host.currentPath),
+        focusPath: null as string | null,
+        navigate: (path: string) => navigate(path),
+        focusDone: () => owner.patch({ focusPath: null }),
+        back: () => go(-1),
+        forward: () => go(1),
+      })
+      function navigate(path: string): void {
+        const state = owner.read()
+        owner.patch({ focusPath: path !== state.host.currentPath ? path : null })
+        state.host.navigate(path)
+      }
+      function go(direction: -1 | 1): void {
+        const state = owner.read()
+        const target = folderHistoryTarget(state.history, direction)
+        if (!target) return
+        pending = target
+        owner.patch({ focusPath: null })
+        state.host.navigate(target.path)
+      }
+      return {
+        source: owner.source,
+        lifetime: owner,
+        receive: (next: { host: FileBrowserHost }) => {
+          const state = owner.read()
+          const changed = next.host.currentPath !== state.host.currentPath
+          const history = !changed
+            ? state.history
+            : pending?.path === next.host.currentPath
+              ? { ...state.history, index: pending.index }
+              : visitFolder(state.history, next.host.currentPath)
+          if (changed) pending = undefined
+          owner.patch({
+            host: next.host,
+            history,
+            focusPath:
+              changed && state.focusPath !== next.host.currentPath ? null : state.focusPath,
+          })
+        },
+      }
+    },
+  },
+  view((model) => {
+    const host: FileBrowserHost = {
+      ...model.host,
+      navigate: model.navigate,
+      focusListing: model.focusPath === model.host.currentPath,
+      onListingFocused: model.focusDone,
+    }
+    if (host.layout === 'media') return <DirectoryBrowser host={host} />
+    const navigation: FolderNavigationActions = {
+      canBack: model.history.index > 0,
+      canForward: model.history.index < model.history.entries.length - 1,
+      back: model.back,
+      forward: model.forward,
+    }
+    return (
+      <div
+        class='relative flex h-full min-h-0 flex-1 flex-col outline-none'
+        tabindex={-1}
+        data-folder-navigation
+        onKeyDown={(event) => {
+          if (
+            event.defaultPrevented ||
+            !event.altKey ||
+            event.ctrlKey ||
+            event.metaKey ||
+            event.shiftKey
+          )
+            return
+          if (
+            event.target instanceof Element &&
+            event.target.closest(
+              'input, textarea, [contenteditable=true], [role=dialog], [role=alertdialog]',
+            )
+          )
+            return
+          if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+          event.preventDefault()
+          event.stopPropagation()
+          event.currentTarget.focus()
+          if (event.key === 'ArrowLeft') model.back()
+          else model.forward()
+        }}
+      >
+        <DirectoryBrowser host={{ ...host, navigation }} />
+      </div>
     )
   }),
 )

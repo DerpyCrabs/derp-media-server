@@ -1,7 +1,7 @@
 import { Effect, Schema } from 'effect'
 import { available, modelOwner } from 'effectweb'
 import { query, observeQuery } from '@effectweb/query'
-import { apiSchemaEffect } from '@/lib/api/client'
+import { apiSchemaEffect, postSchemaEffect } from '@/lib/api/client'
 import { groups, queryCache } from '@/lib/api/cache'
 import { directoryFilesSchema } from '@/lib/files/file-schemas'
 import { isPathEditable } from '@/lib/files/path-utils'
@@ -9,8 +9,45 @@ import type { FileItem } from '@/lib/files/types'
 import type { FileBrowserHost } from './FileBrowser'
 import { fileJobs, type FileOperation } from './file-jobs'
 import { selectFiles } from './file-selection'
+import { browserPreferences } from './browser-preferences'
+import { configQuery, settingsQuery } from '@/lib/api/queries'
 import { runDesktopOperation } from '@/desktop/operations'
 
+const favoritePlacesQuery = query({
+  name: 'favorite-places',
+  groups: [groups.files, groups.settings],
+  load: () => apiSchemaEffect(directoryFilesSchema, '/api/files?dir=Favorites'),
+})
+const placesQuery = query({
+  name: 'desktop-places',
+  groups: [groups.config],
+  load: () =>
+    apiSchemaEffect(
+      Schema.Struct({
+        places: Schema.Array(
+          Schema.Struct({ name: Schema.String, path: Schema.String, kind: Schema.String }),
+        ),
+      }),
+      '/api/desktop/places',
+    ),
+})
+const trashEntrySchema = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  path: Schema.String,
+  deletedAt: Schema.Number,
+  directory: Schema.Boolean,
+  editable: Schema.Boolean,
+})
+const trashQuery = query({
+  name: 'desktop-trash',
+  groups: [groups.files],
+  load: () =>
+    apiSchemaEffect(
+      Schema.Struct({ entries: Schema.Array(trashEntrySchema) }),
+      '/api/desktop/trash',
+    ),
+})
 const hiddenQuery = query({
   name: 'hidden-directory',
   groups: [groups.files],
@@ -55,6 +92,7 @@ type Panel =
   | 'createArchive'
   | 'operations'
   | 'delete'
+  | 'trash'
   | 'copy'
   | 'move'
   | 'extractArchive'
@@ -62,13 +100,22 @@ type Panel =
 export function createFileTools(host: () => FileBrowserHost, files: () => readonly FileItem[]) {
   const owner = modelOwner({
     desktop: !!window.derpDesktop,
+    desktopMode: false,
+    trashAvailable: false,
+    permanentDelete: false,
+    trashEntries: undefined as readonly (typeof trashEntrySchema.Type)[] | undefined,
+    trashLoading: false,
+    trashNotice: '',
     selected: [] as string[],
     anchor: null as string | null,
+    previewPath: null as string | null,
     selecting: false,
-    hidden: false,
+    hidden: browserPreferences.read().showHidden,
     hiddenFiles: undefined as readonly FileItem[] | undefined,
     applyAll: false,
     filter: '',
+    folderFilter: '',
+    filterOpen: false,
     panel: null as Panel,
     path: host().currentPath,
     name: 'Archive.zip',
@@ -87,12 +134,45 @@ export function createFileTools(host: () => FileBrowserHost, files: () => readon
         }
       | undefined,
     jobs: fileJobs.read(),
-    places: [] as { name: string; path: string }[],
+    favoritePlaces: [] as readonly { name: string; path: string; kind: string }[],
+    places: [] as readonly { name: string; path: string; kind?: string }[],
     applications: [] as { id: string; name: string }[],
   })
   const hidden = observeQuery(owner, queryCache, hiddenQuery, (result) => {
     owner.patch({ hiddenFiles: available(result)?.files })
     if (result._tag === 'Failure') owner.patch({ error: 'Could not load hidden files.' })
+  })
+  hidden.select(owner.read().hidden ? host().currentPath : undefined)
+  owner.own(
+    browserPreferences.source.subscribe((preferences) => {
+      owner.patch({ hidden: preferences.showHidden, hiddenFiles: undefined })
+      hidden.select(preferences.showHidden ? host().currentPath : undefined)
+    }),
+  )
+  const favoritePlaces = observeQuery(owner, queryCache, favoritePlacesQuery, (result) => {
+    owner.patch({
+      favoritePlaces: (available(result)?.files ?? [])
+        .filter((file) => file.isDirectory && !file.isVirtual)
+        .map((file) => ({ name: file.name, path: file.path, kind: 'favorite' })),
+    })
+  })
+  const settings = observeQuery(owner, queryCache, settingsQuery, (result) => {
+    favoritePlaces.select(available(result)?.favorites.length ? true : undefined)
+  })
+  settings.select(true)
+  const places = observeQuery(owner, queryCache, placesQuery, (result) => {
+    owner.patch({ places: available(result)?.places ?? [] })
+  })
+  const config = observeQuery(owner, queryCache, configQuery, (result) => {
+    const desktopMode = available(result)?.desktopMode ?? false
+    owner.patch({ desktopMode, trashAvailable: available(result)?.trashAvailable ?? false })
+    places.select(desktopMode ? true : undefined)
+  })
+  config.select(true)
+  const trash = observeQuery(owner, queryCache, trashQuery, (result) => {
+    owner.patch({ trashEntries: available(result)?.entries, trashLoading: result.waiting })
+    if (result._tag === 'Failure')
+      owner.patch({ error: 'Could not load the system trash. Try refreshing.' })
   })
   const archive = observeQuery(owner, queryCache, archiveQuery, (result) => {
     owner.patch({ archive: available(result)?.entries, pending: result.waiting })
@@ -111,15 +191,21 @@ export function createFileTools(host: () => FileBrowserHost, files: () => readon
     owner.read().selected.filter((path) => files().some((f) => f.path === path && !f.isVirtual))
   const clear = () => owner.patch({ selected: [], anchor: null, selecting: false })
   const open = (panel: Panel) => {
-    owner.patch({ panel, path: host().currentPath, error: '' })
+    owner.patch({
+      panel,
+      path: host().currentPath,
+      error: '',
+      permanentDelete: false,
+      trashNotice: '',
+    })
+    trash.select(panel === 'trash' && owner.read().trashAvailable ? true : undefined)
+    if (panel === 'trash') trash.refresh()
     if (panel === 'operations') fileJobs.refresh()
     if (panel === 'properties' && selected()[0]) properties.select(selected()[0])
     if (panel === 'archive' && selected()[0]) {
       owner.patch({ members: [], archive: undefined })
       archive.select(selected()[0])
     }
-    if (panel === 'menu' && window.derpDesktop?.places)
-      runDesktopOperation(async () => owner.patch({ places: await window.derpDesktop!.places!() }))
   }
   const start = (operation: FileOperation, destination = owner.read().path) => {
     fileJobs.start({
@@ -176,15 +262,27 @@ export function createFileTools(host: () => FileBrowserHost, files: () => readon
     owner.patch({ pending: true, error: '' })
     owner.run(
       'navigate',
-      (window.derpDesktop?.resolvePath && path.startsWith('/')
-        ? Effect.tryPromise({
-            try: () => window.derpDesktop!.resolvePath!(path),
-            catch: (error) => (error instanceof Error ? error : new Error(String(error))),
-          })
-        : apiSchemaEffect(
-            directoryFilesSchema,
-            `/api/files?dir=${encodeURIComponent(path === '/' ? '' : path)}`,
-          ).pipe(Effect.as(path === '/' ? '' : path))
+      (owner.read().desktopMode && (path.startsWith('/') || path === '~' || path.startsWith('~/'))
+        ? apiSchemaEffect(
+            Schema.Struct({ path: Schema.String, isDirectory: Schema.Boolean }),
+            '/api/desktop/resolve',
+            { method: 'POST', body: JSON.stringify({ path, absolute: true }) },
+          ).pipe(
+            Effect.flatMap((result) =>
+              result.isDirectory
+                ? Effect.succeed(result.path)
+                : Effect.fail(new Error('Choose a folder, not a file.')),
+            ),
+          )
+        : window.derpDesktop?.resolvePath && path.startsWith('/')
+          ? Effect.tryPromise({
+              try: () => window.derpDesktop!.resolvePath!(path),
+              catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+            })
+          : apiSchemaEffect(
+              directoryFilesSchema,
+              `/api/files?dir=${encodeURIComponent(path === '/' ? '' : path)}`,
+            ).pipe(Effect.as(path === '/' ? '' : path))
       ).pipe(
         Effect.tap((path) =>
           Effect.sync(() => {
@@ -205,15 +303,81 @@ export function createFileTools(host: () => FileBrowserHost, files: () => readon
     dispose: owner.dispose,
     open,
     clear,
+    preview: (path: string | null) => owner.patch({ previewPath: path, panel: null }),
     start,
+    refreshTrash: () => {
+      owner.patch({ error: '' })
+      trash.refresh()
+    },
+    restoreTrash: (id: string) => {
+      if (owner.read().pending) return
+      owner.patch({ pending: true, error: '', trashNotice: '' })
+      owner.run(
+        'restore-trash',
+        postSchemaEffect(Schema.Struct({ path: Schema.String }), '/api/desktop/trash/restore', {
+          id,
+        }).pipe(
+          Effect.tap((result) =>
+            Effect.sync(() => {
+              owner.patch({ pending: false, trashNotice: `Restored ${result.path}` })
+              trash.refresh()
+            }),
+          ),
+          Effect.catch((error) =>
+            Effect.sync(() => owner.patch({ pending: false, error: error.message })),
+          ),
+        ),
+        'replace',
+      )
+    },
     copy,
     paste,
     navigate,
+    refreshPlaces: () => {
+      if (owner.read().favoritePlaces.length) favoritePlaces.refresh()
+      if (owner.read().desktopMode) places.refresh()
+      else if (window.derpDesktop?.places) {
+        owner.run(
+          'native-places',
+          Effect.tryPromise({
+            try: () => window.derpDesktop!.places!(),
+            catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+          }).pipe(
+            Effect.tap((places) => Effect.sync(() => owner.patch({ places }))),
+            Effect.catch((error) => Effect.sync(() => owner.patch({ error: error.message }))),
+          ),
+          'replace',
+        )
+      }
+    },
+    openFilter: () => owner.patch({ filterOpen: true, panel: null }),
     patch: owner.patch,
-    toggleHidden: () => {
-      const show = !owner.read().hidden
-      owner.patch({ hidden: show })
-      hidden.select(show ? host().currentPath : undefined)
+    toggleHidden: browserPreferences.toggleHidden,
+    moveFocus: (
+      from: FileItem,
+      to: FileItem,
+      event: KeyboardEvent,
+      ordered: readonly FileItem[],
+    ) => {
+      const state = owner.read()
+      if (event.shiftKey) {
+        owner.patch({
+          selecting: true,
+          ...selectFiles(
+            state.selected,
+            state.anchor ?? from.path,
+            to,
+            ordered,
+            { shiftKey: true },
+            false,
+          ),
+        })
+      } else if (state.selected.length) {
+        owner.patch({
+          selected: to.isVirtual ? [] : [to.path],
+          anchor: to.isVirtual ? null : to.path,
+        })
+      }
     },
     selectMode: () => {
       if (owner.read().selecting) clear()
@@ -245,12 +409,18 @@ export function createFileTools(host: () => FileBrowserHost, files: () => readon
       )
       return true
     },
-    keyDown(event: KeyboardEvent, ordered: readonly FileItem[]) {
+    keyDown(
+      event: KeyboardEvent,
+      ordered: readonly FileItem[],
+      actions?: { rename: (file: FileItem) => void; createFolder: () => void; refresh: () => void },
+    ) {
       if (
         event.defaultPrevented ||
         host().selection ||
         host().active === false ||
-        document.querySelector('[role=dialog], [role=alertdialog]')
+        document.querySelector(
+          '[role=dialog], [role=alertdialog], [data-floating-surface][role=menu]',
+        )
       )
         return
       if (
@@ -260,9 +430,82 @@ export function createFileTools(host: () => FileBrowserHost, files: () => readon
         return
       const key = event.key.toLowerCase(),
         control = event.ctrlKey || event.metaKey
-      if (control && key === 'l') {
+      const focusedPath =
+        event.target instanceof Element
+          ? event.target.closest('[data-file-path]')?.getAttribute('data-file-path')
+          : null
+      if (
+        focusedPath &&
+        !selected().length &&
+        ((control && ['c', 'x'].includes(key)) ||
+          key === 'delete' ||
+          (event.altKey && key === 'enter'))
+      ) {
+        const file = ordered.find((file) => file.path === focusedPath)
+        if (file && !file.isVirtual) owner.patch({ selected: [file.path], anchor: file.path })
+      }
+      if (
+        key === ' ' &&
+        !control &&
+        !event.altKey &&
+        !event.shiftKey &&
+        !(event.target instanceof Element && event.target.closest('button, a'))
+      ) {
+        const path = focusedPath ?? selected()[0]
+        const file = ordered.find((file) => file.path === path)
+        if (file && !file.isDirectory && !file.isVirtual) {
+          event.preventDefault()
+          owner.patch({ previewPath: file.path })
+        }
+      } else if (control && key === 'f') {
+        event.preventDefault()
+        owner.patch({ filterOpen: true })
+      } else if (event.altKey && key === 'arrowup') {
+        event.preventDefault()
+        host().navigate(host().currentPath.split('/').slice(0, -1).join('/'))
+      } else if (key === 'f5' && actions) {
+        event.preventDefault()
+        actions.refresh()
+        if (owner.read().hidden) hidden.refresh()
+      } else if (
+        control &&
+        event.shiftKey &&
+        key === 'n' &&
+        actions &&
+        isPathEditable(host().currentPath, host().editableFolders, host().mediaRoots)
+      ) {
+        event.preventDefault()
+        actions.createFolder()
+      } else if (key === 'f2' && actions) {
+        const file = ordered.find(
+          (file) => file.path === (focusedPath ?? (selected().length === 1 ? selected()[0] : null)),
+        )
+        if (
+          file &&
+          !file.isVirtual &&
+          isPathEditable(file.path, host().editableFolders, host().mediaRoots)
+        ) {
+          event.preventDefault()
+          actions.rename(file)
+        }
+      } else if ((control && key === 'l') || key === 'f6') {
         event.preventDefault()
         open('location')
+      } else if (control && key === 'h') {
+        event.preventDefault()
+        browserPreferences.toggleHidden()
+      } else if ((key === 'delete' || (event.altKey && key === 'enter')) && selected().length) {
+        event.preventDefault()
+        if (key === 'enter' && selected().length === 1) open('properties')
+        else if (
+          key === 'delete' &&
+          selected().every((path) =>
+            isPathEditable(path, host().editableFolders, host().mediaRoots),
+          )
+        ) {
+          open('delete')
+          owner.patch({ permanentDelete: event.shiftKey })
+        }
       } else if (control && key === 'a') {
         event.preventDefault()
         owner.patch({
