@@ -560,27 +560,32 @@ const DirectoryBrowser = controllerView(
             extras: () => (
               <>
                 {host.toolbarExtras?.()}
-                {model.toolsState.desktopMode ||
-                model.toolsState.desktop ||
-                model.toolsState.favoritePlaces.length > 0 ? (
-                  <ExplorerPlaces
-                    places={[
-                      ...model.toolsState.favoritePlaces,
-                      ...model.toolsState.places.filter(
-                        (place) =>
-                          !model.toolsState.favoritePlaces.some(
-                            (favorite) => favorite.path === place.path,
-                          ),
-                      ),
-                    ]}
-                    onTrash={
-                      model.toolsState.trashAvailable ? () => model.tools.open('trash') : undefined
-                    }
-                    currentPath={host.currentPath}
-                    onNavigate={host.navigate}
-                    onRefresh={model.tools.refreshPlaces}
-                  />
-                ) : null}
+                <ExplorerPlaces
+                  visible={
+                    model.toolsState.desktopMode ||
+                    !!model.toolsState.desktop ||
+                    model.toolsState.favoritePlaces.length > 0
+                  }
+                  editableFolders={host.editableFolders}
+                  onOpenFile={(path) =>
+                    openFile(fileItemFromPath(path), path.split('/').slice(0, -1).join('/'))
+                  }
+                  places={[
+                    ...model.toolsState.favoritePlaces,
+                    ...model.toolsState.places.filter(
+                      (place) =>
+                        !model.toolsState.favoritePlaces.some(
+                          (favorite) => favorite.path === place.path,
+                        ),
+                    ),
+                  ]}
+                  onTrash={
+                    model.toolsState.trashAvailable ? () => model.tools.open('trash') : undefined
+                  }
+                  currentPath={host.currentPath}
+                  onNavigate={host.navigate}
+                  onRefresh={model.tools.refreshPlaces}
+                />
                 {model.toolsState.jobs.jobs.some(fileJobs.active) ? (
                   <button
                     type='button'

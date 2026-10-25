@@ -105,6 +105,7 @@ export const BATCHES = [
       'text-editor',
       'code-editor',
       'text-recovery',
+      'draft-recovery',
       'knowledge-base',
       'drag-drop',
       'mobile-media-management',

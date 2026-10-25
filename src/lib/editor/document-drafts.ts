@@ -65,6 +65,91 @@ function isDraft(value: unknown): value is DocumentDraft {
     typeof value.updatedAt === 'number'
   )
 }
+export type DocumentDraftSummary = Pick<DocumentDraft, 'id' | 'path' | 'kind' | 'updatedAt'> & {
+  characters: number
+  hasAttachment: boolean
+}
+const changeListeners = new Set<() => void>()
+let changeChannel: BroadcastChannel | undefined
+const announceLocal = () => {
+  for (const listener of changeListeners) {
+    try {
+      listener()
+    } catch {}
+  }
+}
+function announceChange() {
+  announceLocal()
+  if (typeof BroadcastChannel === 'undefined') return
+  try {
+    if (changeChannel) changeChannel.postMessage('changed')
+    else {
+      const channel = new BroadcastChannel('derp-document-drafts')
+      channel.postMessage('changed')
+      channel.close()
+    }
+  } catch {}
+}
+export function subscribeDocumentDraftChanges(listener: () => void) {
+  changeListeners.add(listener)
+  if (!changeChannel && typeof BroadcastChannel !== 'undefined') {
+    try {
+      changeChannel = new BroadcastChannel('derp-document-drafts')
+      changeChannel.onmessage = () => announceLocal()
+    } catch {}
+  }
+  window.addEventListener('focus', listener)
+  return () => {
+    window.removeEventListener('focus', listener)
+    changeListeners.delete(listener)
+    if (!changeListeners.size) {
+      changeChannel?.close()
+      changeChannel = undefined
+    }
+  }
+}
+export async function countDocumentDrafts(): Promise<number> {
+  const db = await openDatabase()
+  return new Promise((resolve, reject) => {
+    const request = db.transaction('text', 'readonly').objectStore('text').count()
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => reject(request.error)
+  })
+}
+export async function listDocumentDrafts(): Promise<DocumentDraftSummary[]> {
+  const db = await openDatabase()
+  return new Promise((resolve, reject) => {
+    const items: DocumentDraftSummary[] = []
+    const request = db.transaction('text', 'readonly').objectStore('text').openCursor()
+    request.onsuccess = () => {
+      const cursor = request.result
+      if (!cursor) {
+        resolve(items.sort((a, b) => b.updatedAt - a.updatedAt))
+        return
+      }
+      const value: unknown = cursor.value
+      if (isDraft(value))
+        items.push({
+          id: value.id,
+          path: value.path,
+          kind: value.kind,
+          updatedAt: value.updatedAt,
+          characters: value.content.length,
+          hasAttachment: !!value.attachment,
+        })
+      cursor.continue()
+    }
+    request.onerror = () => reject(request.error)
+  })
+}
+export async function readDocumentDraft(id: string): Promise<DocumentDraft | undefined> {
+  const db = await openDatabase()
+  return new Promise((resolve, reject) => {
+    const request = db.transaction('text', 'readonly').objectStore('text').get(id)
+    request.onsuccess = () => resolve(isDraft(request.result) ? request.result : undefined)
+    request.onerror = () => reject(request.error)
+  })
+}
 export async function findDocumentDrafts(
   path: string,
   kind: DraftKind = 'text',
@@ -104,20 +189,21 @@ export async function removeDocumentDraft(draft: DocumentDraft): Promise<void> {
       store.delete(draft.id)
   }
   await done
+  announceChange()
 }
 export function createDocumentDraftWriter(path: string, kind: DraftKind = 'text') {
   const id = randomId()
   let queued = Promise.resolve()
   let latest: DocumentDraft | undefined
   let failed = false
+  let lastUpdatedAt = 0
   const enqueue = (content: string | null, version: string, attachment?: Blob): Promise<void> => {
     if (!failed && content === null && !latest) return queued
-    if (!failed && content !== null && latest?.content === content && latest.version === version)
-      return queued
+    if (content !== null) lastUpdatedAt = Math.max(Date.now(), lastUpdatedAt + 1)
     const next =
       content === null
         ? undefined
-        : { id, path, kind, content, version, attachment, updatedAt: Date.now() }
+        : { id, path, kind, content, version, attachment, updatedAt: lastUpdatedAt }
     latest = next
     failed = false
     queued = queued
@@ -129,6 +215,7 @@ export function createDocumentDraftWriter(path: string, kind: DraftKind = 'text'
         if (next) tx.objectStore('text').put(next)
         else tx.objectStore('text').delete(id)
         await done
+        announceChange()
       })
       .catch((error: unknown) => {
         if (latest === next) failed = true
