@@ -1,3 +1,5 @@
+import { WorkspaceCommands } from '@/workspace/commands/WorkspaceCommands'
+import { windowCommands, type WorkspaceCommand } from '@/workspace/commands/commands'
 import { view, domBinding, list, collection, controllerView } from 'effectweb'
 import { randomId } from '@/lib/random-id'
 import { layoutBoundsForWindowHighlight } from './workspace-file-open-target-picker'
@@ -64,6 +66,73 @@ export const DesktopWorkspace = controllerView(
         ))}{' '}
       </>
     )
+    const activeWindow = model.workspace?.windows.find(
+      (window) => window.id === model.workspace?.activeWindowId,
+    )
+    const commands: WorkspaceCommand[] = [
+      ...windowCommands(
+        model.workspace?.windows ?? [],
+        model.workspace?.activeWindowId,
+        model.editable,
+        editableFocusWindow,
+      ),
+      {
+        id: 'new-browser',
+        label: 'New file browser',
+        group: 'Commands',
+        disabled: !model.editable,
+        run: editableOpenBrowser,
+      },
+      {
+        id: 'search',
+        label: 'Search files',
+        group: 'Commands',
+        run: () => model.setFileSearchOpen(true),
+      },
+      {
+        id: 'workspaces',
+        label: 'Switch workspace',
+        group: 'Commands',
+        run: () => setWorkspacePanelOpen(true),
+      },
+      ...(!model.editable
+        ? [
+            {
+              id: 'take-control',
+              label: 'Take control of this workspace',
+              detail: 'Make this browser tab the active workspace',
+              group: 'Commands' as const,
+              run: registryCommands.takeControl,
+            },
+          ]
+        : []),
+      ...(activeWindow
+        ? [
+            {
+              id: 'maximize',
+              label: activeWindow.layout?.fullscreen ? 'Restore window size' : 'Maximize window',
+              group: 'Commands' as const,
+              disabled: !model.editable,
+              run: () => model.editableToggleFullscreen(activeWindow.id),
+            },
+            {
+              id: 'minimize',
+              label: 'Minimize window',
+              group: 'Commands' as const,
+              disabled: !model.editable,
+              run: () => editableSetWindowMinimized(activeWindow.id, true),
+            },
+            {
+              id: 'close-tab',
+              label: 'Close active tab',
+              detail: activeWindow.tabPinned ? 'Unpin this tab to close it' : activeWindow.title,
+              group: 'Commands' as const,
+              disabled: !model.editable || activeWindow.tabPinned,
+              run: () => model.editableCloseTab(activeWindow.id),
+            },
+          ]
+        : []),
+    ]
     return (
       <div
         data-workspace-opened={model.opened ? '' : undefined}
@@ -71,6 +140,7 @@ export const DesktopWorkspace = controllerView(
           model.settings?.workspaceTransition !== 'instant' ? 'transition-opacity duration-150' : ''
         }`}
       >
+        <WorkspaceCommands available={model.opened} items={commands} />
         <div
           class='relative min-h-0 flex-1 overflow-hidden'
           use={{
@@ -115,6 +185,7 @@ export const DesktopWorkspace = controllerView(
             : null}
         </div>
         <DesktopWorkspaceTaskbar
+          search={{ open: model.fileSearchOpen, onOpenChange: model.setFileSearchOpen }}
           session={session}
           commands={{
             openBrowser: editableOpenBrowser,

@@ -1,3 +1,4 @@
+import { openWorkspaceCommands } from '@/workspace/commands/commands'
 import { list, component, view, observe, domBinding } from 'effectweb'
 import { applyTheme, resolveTheme } from '@/lib/state/theme-dom'
 import { themeStore, type ThemeMode, type ThemePalette } from '@/lib/state/theme-store'
@@ -100,6 +101,17 @@ export const WorkspaceTaskbarSettings = component<WorkspaceTaskbarSettingsProps,
                     Settings
                   </h2>
                   <div class='mt-6 grid gap-6'>
+                    <button
+                      type='button'
+                      class='flex w-full items-center justify-between gap-3 rounded-md border border-border px-3 py-2 text-sm hover:bg-accent'
+                      onClick={() => {
+                        setOpen(false)
+                        openWorkspaceCommands()
+                      }}
+                    >
+                      <span>Workspace commands…</span>
+                      <kbd class='text-xs text-muted-foreground'>Ctrl/⌘+Shift+P</kbd>
+                    </button>
                     {props.reopenClosedTab ? (
                       <div>
                         <div class='mb-2 text-xs font-medium text-muted-foreground'>Tabs</div>

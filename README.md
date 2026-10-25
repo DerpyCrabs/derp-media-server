@@ -399,3 +399,5 @@ Rust, Axum, Effect, EffectWeb, Vite, Tailwind CSS v4, Bun, TypeScript, Playwrigh
 ## License
 
 MIT
+
+**Workspace commands** (Ctrl/Cmd+Shift+P, or F1; also in Settings) searches every open window/tab by title and path, including minimized windows and offscreen canvas documents. Enter activates the selected document and focuses its content; Escape restores the previous focus. The same list offers file search, new browsers, workspace switching, and actions for the active window. Canvas adds fit-all and 100% zoom. Commands respect pinned tabs and workspace ownership. Only 80 results render at once; searching still covers all windows. The entry and keyboard behavior follow [VS Code's command palette](https://code.visualstudio.com/docs/reference/default-keybindings).

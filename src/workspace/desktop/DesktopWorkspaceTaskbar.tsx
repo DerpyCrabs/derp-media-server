@@ -20,6 +20,7 @@ import {
   WORKSPACE_TASKBAR_ICON_BUTTON_CLASS,
 } from '@/workspace/shared/WorkspaceTaskbar'
 export type DesktopWorkspaceTaskbarProps = {
+  search: { open: boolean; onOpenChange: (open: boolean) => void }
   session: WorkspaceSession
   commands: {
     openBrowser: () => void
@@ -107,6 +108,8 @@ export const DesktopWorkspaceTaskbar = view<DesktopWorkspaceTaskbarProps>((props
         <div class={WORKSPACE_TASKBAR_END_CLASS}>
           <WorkspaceSaveStatus session={props.session} />
           <FileSearchButton
+            open={props.search.open}
+            onOpenChange={props.search.onOpenChange}
             title='Search library and open a new window'
             testId='workspace-global-file-search-trigger'
             class={WORKSPACE_TASKBAR_ICON_BUTTON_CLASS}

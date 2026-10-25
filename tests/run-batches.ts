@@ -19,6 +19,7 @@ export const BATCHES = [
     id: '2',
     tests: [
       'workspace-controls',
+      'workspace-commands',
       'navigation',
       'breadcrumbs-adaptive',
       'server-recovery',

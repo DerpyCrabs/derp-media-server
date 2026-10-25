@@ -1,3 +1,5 @@
+import { WorkspaceCommands } from '@/workspace/commands/WorkspaceCommands'
+import { windowCommands, type WorkspaceCommand } from '@/workspace/commands/commands'
 import { cn } from '@/lib/ui/cn'
 import { view, domBinding, list, collection, controllerView, observe } from 'effectweb'
 import { randomId } from '@/lib/random-id'
@@ -140,12 +142,85 @@ export const CanvasWorkspace = controllerView(
     }
     const groupWindows = (groupId: string) => model.scene.groups.get(groupId) ?? []
     const activeWindowForGroup = (groupId: string) => model.scene.activeWindows.get(groupId)
+    const activeDefinition = selectedWindow
+      ? model.scene.definitions.get(selectedWindow.id)
+      : undefined
+    const commands: WorkspaceCommand[] = [
+      ...windowCommands(
+        [...model.scene.definitions.values()],
+        selectedWindow?.id,
+        model.editable,
+        model.focusWindow,
+      ),
+      {
+        id: 'new-browser',
+        label: 'New file browser',
+        group: 'Commands',
+        disabled: !model.editable,
+        run: () => addFileWindow(null, viewportCenterWorld()),
+      },
+      {
+        id: 'search',
+        label: 'Search files',
+        group: 'Commands',
+        run: () => model.setSearchOpen(true),
+      },
+      {
+        id: 'workspaces',
+        label: 'Switch workspace',
+        group: 'Commands',
+        run: () => setWorkspacePanelOpen(true),
+      },
+      { id: 'fit-all', label: 'Fit all windows', group: 'Commands', run: model.fitAllWindows },
+      {
+        id: 'zoom-reset',
+        label: 'Zoom to 100%',
+        group: 'Commands',
+        run: () => setZoomFromControl(1),
+      },
+      ...(!model.editable
+        ? [
+            {
+              id: 'take-control',
+              label: 'Take control of this workspace',
+              detail: 'Make this browser tab the active workspace',
+              group: 'Commands' as const,
+              run: registryCommands.takeControl,
+            },
+          ]
+        : []),
+      ...(activeDefinition
+        ? [
+            {
+              id: 'maximize',
+              label: maximizedWindowId ? 'Restore canvas view' : 'Maximize window',
+              group: 'Commands' as const,
+              disabled: !model.editable,
+              run: () =>
+                maximizedWindowId
+                  ? model.setMaximizedWindowId(null)
+                  : model.maximizeWindow(activeDefinition.id),
+            },
+            {
+              id: 'close-tab',
+              label: 'Close active tab',
+              detail: activeDefinition.tabPinned
+                ? 'Unpin this tab to close it'
+                : activeDefinition.title,
+              group: 'Commands' as const,
+              disabled: !model.editable || activeDefinition.tabPinned,
+              run: () => model.closeWindow(activeDefinition.id),
+            },
+          ]
+        : []),
+    ]
     return (
       <div
         use={domBinding(model.start, startCanvas)}
         data-workspace-opened={model.opened ? '' : undefined}
         class={`canvas-layout fixed inset-0 flex select-none flex-col overflow-hidden bg-background text-foreground ${model.opened ? 'pointer-events-auto' : 'pointer-events-none'}`}
       >
+        <WorkspaceCommands available={model.opened} items={commands} />
         {!model.editable ? (
           <div class='fixed left-1/2 top-2 z-[100002] -translate-x-1/2 rounded-md border border-border bg-popover px-3 py-1.5 text-xs shadow-lg'>
             Read only — workspace is open elsewhere

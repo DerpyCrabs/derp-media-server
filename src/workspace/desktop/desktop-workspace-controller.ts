@@ -98,6 +98,7 @@ export function createDesktopController(props: { session: WorkspaceSession }) {
   const cleanups: (void | (() => void))[] = []
   const initial = {
     workspacePanelOpen: false,
+    fileSearchOpen: false,
     activePointerGestures: 0,
     layoutPicker: null as { windowId: string; anchor: DOMRect } | null,
     fileOpenTargetPick: null as { sourceBrowserId: string } | null,
@@ -117,6 +118,7 @@ export function createDesktopController(props: { session: WorkspaceSession }) {
     owner.patch({ workspacePanelOpen: next })
     return next
   }
+  const setFileSearchOpen = (fileSearchOpen: boolean) => owner.patch({ fileSearchOpen })
   const activePointerGestures = (): number => owner.read().activePointerGestures as number
   const setActivePointerGestures = (value: number | ((current: number) => number)) => {
     const next = typeof value === 'function' ? value(activePointerGestures()) : value
@@ -1387,6 +1389,8 @@ export function createDesktopController(props: { session: WorkspaceSession }) {
       workspaceFileIconContext: workspaceFileIconContext(),
       layoutPicker: layoutPicker(),
       workspacePanelOpen: workspacePanelOpen(),
+      fileSearchOpen: owner.read().fileSearchOpen,
+      setFileSearchOpen,
       workspaceId: workspaceId(),
       fileOpenTargetPick: fileOpenTargetPick(),
       fileOpenPickHoverId: fileOpenPickHoverId(),
