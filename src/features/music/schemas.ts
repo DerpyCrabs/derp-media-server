@@ -18,6 +18,7 @@ export const musicTrackSchema = Schema.Struct({
   lastPlayed: Schema.Number,
   reason: Schema.String,
   hasArtwork: Schema.optional(Schema.Boolean),
+  available: Schema.optional(Schema.Boolean),
 })
 const sections = {
   rows: array(
@@ -72,3 +73,33 @@ export const indexingStatusSchema = Schema.Struct({
   ),
 })
 export type IndexingStatus = typeof indexingStatusSchema.Type
+
+export const playlistRulesSchema = Schema.Struct({
+  genre: Schema.String,
+  artist: Schema.String,
+  liked: Schema.Boolean,
+  unplayed: Schema.Boolean,
+  notPlayedDays: Schema.Number,
+  limit: Schema.Number,
+})
+const playlistFields = {
+  id: Schema.String,
+  name: Schema.String,
+  rules: Schema.NullOr(playlistRulesSchema),
+  updatedAt: Schema.Number,
+  lastPlayed: Schema.Number,
+}
+export const playlistsSchema = Schema.Struct({
+  items: array(
+    Schema.Struct({
+      ...playlistFields,
+      count: Schema.Number,
+      preview: Schema.NullOr(musicTrackSchema),
+    }),
+  ),
+})
+export const playlistSchema = Schema.Struct({ ...playlistFields, items: array(musicTrackSchema) })
+export const musicSearchSchema = Schema.Struct({
+  items: array(musicTrackSchema),
+  total: Schema.Number,
+})

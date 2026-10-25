@@ -78,6 +78,7 @@ export const BATCHES = [
     tests: [
       'audio-player',
       'music-listening',
+      'music-playlists',
       'media-ai',
       'media-ai-video',
       'file-display-settings',

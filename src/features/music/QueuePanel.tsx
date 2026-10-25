@@ -11,11 +11,11 @@ import { getPlaybackSession, playbackSource } from '@/features/playback/Playback
 import { buildThumbnailUrl } from '@/lib/media/build-media-url'
 import { modalFocus } from '@/lib/ui/modal-focus'
 import { MusicArtwork } from './MusicArtwork'
-import { continueRadio } from './actions'
+import { continueRadio, openPlaylists } from './actions'
 import { radioStatusSource } from './RadioContinuation'
 import { musicStatusSource } from './enabled'
 export const QueuePanel = component<
-  Record<string, never>,
+  { compact?: boolean },
   { open: boolean; showHistory: boolean; limit: number }
 >(
   { init: () => ({ open: false, showHistory: false, limit: 100 }) },
@@ -32,7 +32,11 @@ export const QueuePanel = component<
       return (
         <>
           <button
-            class={icon}
+            class={
+              model.props.compact
+                ? 'grid size-8 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-secondary'
+                : icon
+            }
             aria-label='Up next'
             aria-expanded={open ? 'true' : 'false'}
             onClick={() => setOpen(!open)}
@@ -74,6 +78,33 @@ export const QueuePanel = component<
                     >
                       <Shuffle size={16} />
                       Shuffle upcoming
+                    </button>
+                    {snapshot.queue.some((item) => item.media === 'audio') ? (
+                      <button
+                        class='min-h-11 rounded-lg px-3 text-sm hover:bg-secondary'
+                        onClick={() => {
+                          setOpen(false)
+                          openPlaylists(
+                            snapshot.queue
+                              .filter((item) => item.media === 'audio')
+                              .map((item) => item.locator),
+                            context()?.title || '',
+                          )
+                        }}
+                      >
+                        Save queue…
+                      </button>
+                    ) : null}
+                  </div>
+                  <div class='border-b border-border px-4 py-1'>
+                    <button
+                      class='min-h-11 rounded-lg px-3 text-sm text-muted-foreground hover:bg-secondary'
+                      onClick={() => {
+                        setOpen(false)
+                        openPlaylists()
+                      }}
+                    >
+                      Playlists
                     </button>
                   </div>
                   <QueueRadioControls />

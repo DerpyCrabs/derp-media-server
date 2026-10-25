@@ -7,7 +7,7 @@ import { getPlaybackSession } from '@/features/playback/PlaybackProvider'
 import { MusicArtwork } from './MusicArtwork'
 import { TrackList } from './TrackList'
 import { CollectionActions } from './CollectionActions'
-import { playMusic, setMusicDialog, startRadio } from './actions'
+import { playMusic, setMusicDialog, startRadio, openPlaylists } from './actions'
 import type { MusicHomeData } from './types'
 import { observeQuery } from '@effectweb/query'
 export const MusicHome = controllerView(
@@ -35,6 +35,12 @@ export const MusicHome = controllerView(
               </p>
             ) : null}
           </div>
+          <button
+            class='min-h-11 rounded-lg border border-border px-4 text-sm hover:bg-secondary'
+            onClick={() => openPlaylists()}
+          >
+            Playlists
+          </button>
         </div>
         {content()?.mixes.length ? (
           <section class='space-y-3' aria-label='Genre mixes'>

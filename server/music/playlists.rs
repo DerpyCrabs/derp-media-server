@@ -31,10 +31,12 @@ pub(super) struct Edit {
     #[serde(default)]
     paths: Vec<String>,
     rules: Option<Rules>,
+    #[serde(default, rename = "expectedUpdatedAt")]
+    expected_updated_at: Option<i64>,
 }
 
-fn validate(state: &Shared, edit: &Edit) -> AppResult<()> {
-    if edit.name.trim().is_empty() || edit.name.len() > 160 || edit.paths.len() > 10_000 {
+fn validate(edit: &Edit) -> AppResult<()> {
+    if edit.name.trim().is_empty() || edit.name.chars().count() > 160 || edit.paths.len() > 10_000 {
         return Err(AppError::bad(
             "A playlist needs a name (up to 160 characters) and at most 10,000 tracks",
         ));
@@ -48,7 +50,7 @@ fn validate(state: &Shared, edit: &Edit) -> AppResult<()> {
             return Err(AppError::bad("Invalid smart playlist rules"));
         }
     }
-    validate_paths(state, &edit.paths)
+    Ok(())
 }
 
 fn validate_paths(state: &Shared, paths: &[String]) -> AppResult<()> {
@@ -99,7 +101,7 @@ pub(super) fn matches(track: &Track, rules: &Rules, now: i64) -> bool {
             || now - track.last_played >= i64::from(rules.not_played_days) * 86_400_000)
 }
 
-fn document(c: &Connection, id: &str, all: &[Track]) -> AppResult<Value> {
+fn document(state: &Shared, c: &Connection, id: &str, all: &[Track]) -> AppResult<Value> {
     let entry: Option<(String, Option<String>, i64, i64, i64)> = c
         .query_row(
             "SELECT name,rules,created_at,updated_at,last_played FROM music_playlists WHERE id=?1",
@@ -139,12 +141,35 @@ fn document(c: &Connection, id: &str, all: &[Track]) -> AppResult<Value> {
             .map_err(sql_error)?;
         paths
             .iter()
-            .filter_map(|p| lookup.get(p.as_str()).map(|t| (*t).clone()))
+            .map(|p| {
+                lookup
+                    .get(p.as_str())
+                    .map(|t| (*t).clone())
+                    .unwrap_or_else(|| {
+                        let name = p.rsplit('/').next().unwrap_or(p).to_owned();
+                        Track {
+                            path: p.clone(),
+                            title: name.clone(),
+                            name,
+                            ..Track::default()
+                        }
+                    })
+            })
             .collect()
     };
     for item in &mut items {
         item.reason = format!("From {name}");
     }
+    let items: Vec<Value> = items
+        .into_iter()
+        .map(|item| {
+            let available = crate::media::resolve(&state.config, &item.path)
+                .is_ok_and(|resolved| resolved.full.is_file());
+            let mut value = json!(item);
+            value["available"] = json!(available);
+            value
+        })
+        .collect();
     Ok(
         json!({"id":id,"name":name,"rules":rules,"createdAt":created,"updatedAt":updated,"lastPlayed":last_played,"items":items}),
     )
@@ -164,7 +189,7 @@ pub(super) async fn list(State(state): State<Shared>) -> AppResult<Json<Value>> 
             .map_err(sql_error)?;
         let mut items = Vec::new();
         for id in ids {
-            let mut value = document(&c, &id, &all)?;
+            let mut value = document(&state, &c, &id, &all)?;
             value["count"] = json!(value["items"].as_array().map(Vec::len).unwrap_or(0));
             let preview = value["items"].as_array().and_then(|i| i.first()).cloned();
             value["preview"] = json!(preview);
@@ -183,7 +208,7 @@ pub(super) async fn get(
 ) -> AppResult<Json<Value>> {
     tokio::task::spawn_blocking(move || {
         let c = state.database.connection()?;
-        document(&c, &id, &tracks(&c, true)?).map(Json)
+        document(&state, &c, &id, &tracks(&c, true)?).map(Json)
     })
     .await
     .map_err(sql_error)?
@@ -194,7 +219,8 @@ pub(super) async fn create(
     Json(edit): Json<Edit>,
 ) -> AppResult<Json<Value>> {
     tokio::task::spawn_blocking(move || {
-        validate(&state,&edit)?;
+        validate(&edit)?;
+        validate_paths(&state, &edit.paths)?;
         let id=uuid::Uuid::new_v4().to_string();
         state.database.transaction(|tx| {
             tx.execute("INSERT INTO music_playlists(id,name,rules,created_at,updated_at) VALUES(?1,?2,?3,?4,?4)",params![id,edit.name.trim(),edit.rules.as_ref().map(|r|json!(r).to_string()),timestamp_ms() as i64]).map_err(sql_error)?;
@@ -211,8 +237,42 @@ pub(super) async fn update(
     Json(edit): Json<Edit>,
 ) -> AppResult<Json<Value>> {
     tokio::task::spawn_blocking(move || {
-        validate(&state, &edit)?;
+        validate(&edit)?;
         state.database.transaction(|tx| {
+            let version: i64 = tx
+                .query_row(
+                    "SELECT updated_at FROM music_playlists WHERE id=?1",
+                    [&id],
+                    |r| r.get(0),
+                )
+                .optional()
+                .map_err(sql_error)?
+                .ok_or_else(|| AppError::not_found("Playlist not found"))?;
+            if edit
+                .expected_updated_at
+                .is_some_and(|expected| expected != version)
+            {
+                return Err(AppError::conflict(
+                    "This playlist changed in another window. Reload it before saving.",
+                ));
+            }
+            let mut statement = tx
+                .prepare("SELECT path FROM music_playlist_tracks WHERE playlist_id=?1")
+                .map_err(sql_error)?;
+            let existing: HashSet<String> = statement
+                .query_map([&id], |r| r.get(0))
+                .map_err(sql_error)?
+                .collect::<Result<_, _>>()
+                .map_err(sql_error)?;
+            validate_paths(
+                &state,
+                &edit
+                    .paths
+                    .iter()
+                    .filter(|p| !existing.contains(*p))
+                    .cloned()
+                    .collect::<Vec<_>>(),
+            )?;
             let changed = tx
                 .execute(
                     "UPDATE music_playlists SET name=?2,rules=?3,updated_at=?4 WHERE id=?1",
@@ -220,7 +280,7 @@ pub(super) async fn update(
                         id,
                         edit.name.trim(),
                         edit.rules.as_ref().map(|r| json!(r).to_string()),
-                        timestamp_ms() as i64
+                        (timestamp_ms() as i64).max(version + 1)
                     ],
                 )
                 .map_err(sql_error)?;
@@ -278,12 +338,14 @@ pub(super) async fn append(
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(sql_error)?;
             paths.extend(body.paths);
+            let mut seen = HashSet::new();
+            paths.retain(|path| seen.insert(path.clone()));
             if paths.len() > 10000 {
                 return Err(AppError::bad("Playlist is full"));
             }
             write_tracks(tx, &id, &paths)?;
             tx.execute(
-                "UPDATE music_playlists SET updated_at=?2 WHERE id=?1",
+                "UPDATE music_playlists SET updated_at=max(updated_at+1,?2) WHERE id=?1",
                 params![id, timestamp_ms() as i64],
             )
             .map_err(sql_error)?;

@@ -9,6 +9,7 @@ export const groups = {
   content: queryGroup('content'),
   playback: queryGroup('playback'),
   music: queryGroup('music'),
+  playlists: queryGroup('playlists'),
   mediaAi: queryGroup('media-ai'),
   recommendations: queryGroup('recommendations'),
 }

@@ -2,6 +2,8 @@ import { observe, view, Portal } from 'effectweb'
 import X from '@effectweb/lucide/icons/x'
 import { modalFocus } from '@/lib/ui/modal-focus'
 import { musicUiSource, playMusic, setMusicDialog, type MusicDialog } from './actions'
+import { PlaylistDialog } from './PlaylistDialog'
+import { openPlaylists } from './actions'
 import { TrackList } from './TrackList'
 import { getPlaybackSession } from '@/features/playback/PlaybackProvider'
 const DialogContent = view<{ request: MusicDialog }>((props) => {
@@ -19,15 +21,27 @@ const DialogContent = view<{ request: MusicDialog }>((props) => {
       >
         Play all
       </button>
+      <button
+        class='ml-2 min-h-11 rounded-lg px-4 text-sm hover:bg-secondary'
+        onClick={() =>
+          openPlaylists(
+            props.request.items.map((track) => track.path),
+            props.request.title,
+          )
+        }
+      >
+        Add to playlist…
+      </button>
       <TrackList items={props.request.items} title={props.request.title} />
     </>
   )
 })
 export const MusicDialogs = view(() =>
-  observe(musicUiSource, ({ dialog, notice }) => {
+  observe(musicUiSource, ({ dialog, notice, playlists }) => {
     const title = () => dialog?.title ?? ''
     return (
       <>
+        {playlists ? <PlaylistDialog request={playlists} /> : null}
         {dialog ? (
           <Portal>
             <div

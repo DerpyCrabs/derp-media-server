@@ -11,13 +11,5 @@ export type PlaylistRules = {
   limit: number
 }
 
-export type PlaylistSummary = {
-  id: string
-  name: string
-  rules: PlaylistRules | null
-  count: number
-  lastPlayed: number
-  preview?: MusicTrack
-}
-
-export type Playlist = PlaylistSummary & { items: MusicTrack[] }
+export type PlaylistSummary = (typeof import('./schemas').playlistsSchema.Type)['items'][number]
+export type Playlist = typeof import('./schemas').playlistSchema.Type

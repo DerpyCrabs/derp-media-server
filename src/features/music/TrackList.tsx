@@ -13,7 +13,7 @@ import { getPlaybackSession, playbackSource } from '@/features/playback/Playback
 import { formatPlaybackTime } from '@/features/playback'
 import { FloatingContextMenu } from '@/features/explorer/FloatingContextMenu'
 import { MusicArtwork } from './MusicArtwork'
-import { musicError, musicItem, notifyMusic, playMusic, startRadio } from './actions'
+import { musicError, musicItem, notifyMusic, playMusic, startRadio, openPlaylists } from './actions'
 import type { MusicTrack } from './types'
 import { updateMusicFeedback } from './cache'
 import { musicStatusSource } from './enabled'
@@ -22,6 +22,10 @@ type Props = {
   title: string
   columns?: boolean
   onPlay?: (index: number) => void
+  limit?: number
+  disabled?: boolean
+  onRemove?: (path: string) => void
+  onMove?: (path: string, delta: number) => void
 }
 type Feedback = { path: string; kind: string }
 
@@ -72,7 +76,7 @@ export const TrackList = component(
               aria-label={props.title}
             >
               {list(
-                props.items,
+                props.items.slice(0, props.limit ?? props.items.length),
                 (track) => track.path,
                 (track, index) => (
                   <div
@@ -81,6 +85,7 @@ export const TrackList = component(
                   >
                     <button
                       aria-label={`Play music ${track.title}`}
+                      disabled={props.disabled || track.available === false}
                       class='relative ml-1 shrink-0 rounded-lg focus-visible:ring-2 focus-visible:ring-ring'
                       onClick={() =>
                         props.onPlay
@@ -105,12 +110,18 @@ export const TrackList = component(
                         {track.title}
                       </div>
                       <div class='truncate text-xs text-muted-foreground'>
-                        {track.artist || 'Unknown artist'}
+                        {track.artist ||
+                          track.path.split('/').slice(0, -1).join('/') ||
+                          'Unknown artist'}
                         {track.album ? <> · {track.album}</> : null}
                       </div>
                     </div>
-                    <span class='hidden text-xs tabular-nums text-muted-foreground sm:block'>
-                      {formatPlaybackTime(track.duration)}
+                    <span
+                      class={`text-xs tabular-nums text-muted-foreground ${track.available === false ? '' : 'hidden sm:block'}`}
+                    >
+                      {track.available === false
+                        ? 'Unavailable'
+                        : formatPlaybackTime(track.duration)}
                     </span>
                     <button
                       aria-label={`Like music ${track.title}`}
@@ -125,6 +136,7 @@ export const TrackList = component(
                     </button>
                     <button
                       aria-label={`Music options for ${track.title}`}
+                      disabled={props.disabled}
                       class='grid size-11 shrink-0 place-items-center rounded-full text-muted-foreground hover:bg-secondary'
                       onClick={(event) => {
                         const r = event.currentTarget.getBoundingClientRect()
@@ -148,6 +160,7 @@ export const TrackList = component(
                 <>
                   <button
                     class={action}
+                    disabled={value.item.available === false}
                     onClick={() => {
                       getPlaybackSession().dispatch({
                         type: 'enqueue',
@@ -163,6 +176,7 @@ export const TrackList = component(
                   </button>
                   <button
                     class={action}
+                    disabled={value.item.available === false}
                     onClick={() => {
                       getPlaybackSession().dispatch({
                         type: 'enqueue',
@@ -176,6 +190,52 @@ export const TrackList = component(
                     <ListPlus size={17} />
                     Add to queue
                   </button>
+                  <button
+                    class={action}
+                    disabled={value.item.available === false}
+                    onClick={() => {
+                      setMenu(undefined)
+                      openPlaylists([value.item.path])
+                    }}
+                  >
+                    <ListPlus size={17} />
+                    Add to playlist…
+                  </button>
+                  {props.onMove ? (
+                    <>
+                      <button
+                        class={action}
+                        disabled={props.items[0]?.path === value.item.path}
+                        onClick={() => {
+                          props.onMove?.(value.item.path, -1)
+                          setMenu(undefined)
+                        }}
+                      >
+                        Move up
+                      </button>
+                      <button
+                        class={action}
+                        disabled={props.items[props.items.length - 1]?.path === value.item.path}
+                        onClick={() => {
+                          props.onMove?.(value.item.path, 1)
+                          setMenu(undefined)
+                        }}
+                      >
+                        Move down
+                      </button>
+                    </>
+                  ) : null}
+                  {props.onRemove ? (
+                    <button
+                      class={action}
+                      onClick={() => {
+                        props.onRemove?.(value.item.path)
+                        setMenu(undefined)
+                      }}
+                    >
+                      Remove from playlist
+                    </button>
+                  ) : null}
                   {aiEnabled ? (
                     <>
                       <button

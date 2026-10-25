@@ -1,3 +1,4 @@
+import { QueuePanel } from '@/features/music/QueuePanel'
 import { PlaybackSetting } from '@/features/playback/PlaybackSetting'
 import {
   available,
@@ -91,12 +92,16 @@ function audioController(props: Props) {
       const current = owner.read(),
         controlled = active()
       current.props.onActivate?.()
-      if (controlled) load(path, current.playback.desiredPlaying)
+      const queued = current.playback.queue.findIndex((item) => playbackPathMatches(item, path))
+      if (controlled && current.playback.queueContext && queued >= 0) {
+        session.dispatch({ type: 'selectQueueItem', index: queued })
+        if (!current.playback.desiredPlaying) session.dispatch({ type: 'pause' })
+      } else if (controlled) load(path, current.playback.desiredPlaying)
       current.props.onNavigate(path)
     },
     step: (offset: number) => {
       const current = owner.read(),
-        files = audioFiles(current.props)
+        files = displayedAudioFiles(current)
       const index = files.findIndex((file) => file.path === current.props.viewingPath)
       const next = files[index + offset]
       if (index >= 0 && next) actions.select(next.path)
@@ -195,6 +200,25 @@ function audioController(props: Props) {
   }
 }
 type Model = ControllerModel<typeof audioController>
+function displayedAudioFiles(model: Pick<Model, 'props' | 'playback'>): readonly FileItem[] {
+  if (
+    model.playback.queueContext &&
+    model.playback.mode === 'audio' &&
+    playbackPathMatches(model.playback.currentItem, model.props.viewingPath)
+  ) {
+    return model.playback.queue
+      .filter((item) => item.media === 'audio')
+      .map((item) => ({
+        path: item.locator,
+        name: item.name,
+        type: MediaType.AUDIO,
+        size: 0,
+        extension: item.locator.split('.').pop() ?? '',
+        isDirectory: false,
+      }))
+  }
+  return audioFiles(model.props)
+}
 const resizeSurface = (
   element: HTMLDivElement,
   current: () => (size: { width: number; height: number }) => void,
@@ -256,7 +280,7 @@ const Info = view<{ model: Model; compact?: boolean; duration: number }>((props)
 const Transport = view<{ model: Model; active: boolean }>((props) => {
   const model = props.model,
     playing = props.active && model.playback.desiredPlaying
-  const files = audioFiles(model.props)
+  const files = displayedAudioFiles(model)
   const index = files.findIndex((file) => file.path === model.props.viewingPath)
   return (
     <div class='flex min-w-0 flex-wrap items-center gap-2'>
@@ -320,6 +344,7 @@ const Transport = view<{ model: Model; active: boolean }>((props) => {
           onChange={(value) => model.actions.speed(Number(value))}
         />
       </div>
+      {props.active ? <QueuePanel compact /> : null}
       <a
         href={fileDownloadHref(model.props.viewingPath)}
         download={model.props.viewingPath.split(/[/\\]/).pop()}
@@ -491,10 +516,14 @@ export const AudioViewerPane = controllerView(
               class='flex h-full min-h-0 flex-col border-l border-border bg-muted/20'
             >
               <div class='border-b border-border px-3 py-2.5'>
-                <p class='truncate text-[11px] text-muted-foreground'>{props.directory}</p>
+                <p class='truncate text-[11px] text-muted-foreground'>
+                  {active && model.playback.queueContext
+                    ? model.playback.queueContext.title
+                    : props.directory}
+                </p>
               </div>
               <div class='min-h-0 flex-1 overflow-auto p-1.5'>
-                {list(fileRows.from(audioFiles(props)), (file) => (
+                {list(fileRows.from(displayedAudioFiles(model)), (file) => (
                   <PlaylistRow
                     file={file}
                     selected={file.path === props.viewingPath}

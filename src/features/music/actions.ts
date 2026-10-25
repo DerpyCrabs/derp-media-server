@@ -4,16 +4,25 @@ import { modelOwner } from 'effectweb'
 import { queryCache } from '@/lib/api/cache'
 import { musicHomeQuery } from './queries'
 import { radioTracks, recordingKey } from './radio'
+import { parentPath } from '@/lib/files/path-utils'
 import { navigateSearchParams } from '@/lib/browser/browser-history'
 import type { PlaybackSession, QueueContext, RadioOptions } from '@/features/playback/types'
 import type { MusicTrack } from './types'
 
 export type MusicDialog = { kind: 'collection'; title: string; items: MusicTrack[] }
 
-const owner = modelOwner({ dialog: null as MusicDialog | null, notice: '' })
+export type PlaylistRequest = { paths: readonly string[]; name: string }
+const owner = modelOwner({
+  dialog: null as MusicDialog | null,
+  notice: '',
+  playlists: null as PlaylistRequest | null,
+})
 const noticeSlot = 'music-notice'
 export const musicUiSource = owner.source
 export const musicUiLifetime = { dispose: owner.dispose, close: owner.close }
+export const openPlaylists = (paths: readonly string[] = [], name = '') =>
+  owner.patch({ dialog: null, playlists: { paths: [...new Set(paths)], name } })
+export const closePlaylists = () => owner.patch({ playlists: null })
 export const setMusicDialog = (dialog: MusicDialog | null) => owner.patch({ dialog })
 export function notifyMusic(notice: string) {
   owner.patch({ notice })
@@ -51,6 +60,13 @@ export function playMusic(
     queueContext: context,
     autoplay: true,
   })
+  if (window.location.pathname === '/desktop' && params.get('mode') === 'viewer') {
+    navigateSearchParams(
+      { viewing: track.path, dir: parentPath(track.path), playing: null, audioOnly: null },
+      'replace',
+    )
+    return
+  }
   navigateSearchParams(
     { playing: track.path, audioOnly: null, ...(defaultHome ? { view: 'for-you' } : {}) },
     'push',

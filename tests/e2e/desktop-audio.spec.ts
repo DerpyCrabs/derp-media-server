@@ -105,3 +105,34 @@ test('playing in another native window pauses the previous window without losing
     .toBe(true)
   await other.close()
 })
+
+test('native audio plays a saved playlist in its own order and keeps the viewer in sync', async ({
+  page,
+  request,
+}) => {
+  const response = await request.post('/api/music/playlists', {
+    data: { name: 'Native listening order', paths: ['Music/track.mp3', 'Music/track.flac'] },
+  })
+  expect(response.ok()).toBe(true)
+  const { id } = await response.json()
+  try {
+    await nativeAudio(page)
+    await page.getByRole('button', { name: 'Up next', exact: true }).click()
+    await page.getByRole('button', { name: 'Playlists', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Playlists', exact: true })
+    await dialog.getByRole('button', { name: /Native listening order/ }).click()
+    await dialog.getByRole('button', { name: 'Play all', exact: true }).click()
+    await expect(page).toHaveURL(/viewing=Music%2Ftrack.mp3/)
+    await dialog.getByRole('button', { name: 'Close playlists' }).click()
+    await expect(page.getByRole('button', { name: 'Previous track', exact: true })).toBeDisabled()
+    await page.getByRole('button', { name: 'Next track', exact: true }).click()
+    await expect(page).toHaveURL(/viewing=Music%2Ftrack.flac/)
+    await expect(page.getByRole('button', { name: 'Pause', exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Up next', exact: true }).click()
+    await expect(page.getByRole('dialog', { name: 'Up next' })).toContainText(
+      'Native listening order',
+    )
+  } finally {
+    await request.delete(`/api/music/playlists/${id}`)
+  }
+})
