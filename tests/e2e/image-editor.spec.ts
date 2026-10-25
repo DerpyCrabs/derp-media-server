@@ -1,3 +1,4 @@
+import { gotoWorkspace, getWindowGroups } from './workspace-layout-helpers'
 import { test, expect, type Page } from '@playwright/test'
 
 async function createImage(page: Page) {
@@ -184,4 +185,125 @@ test('a save collision that happens after opening the dialog preserves both imag
   await expect(
     page.getByRole('toolbar', { name: 'Image editing tools' }).getByRole('status'),
   ).toHaveText('600 × 800 px')
+})
+
+test('image drafts survive reload and restore the saved source after the file is replaced', async ({
+  page,
+}) => {
+  const { path } = await createImage(page)
+  const editor = page.getByRole('region', { name: 'Image editor' })
+  await editor.getByRole('button', { name: 'Rotate image clockwise' }).click()
+  await expect(editor.getByText('Edits backed up in this browser', { exact: true })).toBeVisible()
+  const replacement = await page.evaluate(() => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 32
+    canvas.height = 24
+    const ctx = canvas.getContext('2d')!
+    ctx.fillStyle = '#00ff00'
+    ctx.fillRect(0, 0, 32, 24)
+    return canvas.toDataURL('image/png').split(',')[1]!
+  })
+  const replace = await page.request.post('/api/files/upload', {
+    multipart: {
+      targetDir: 'Notes',
+      file: {
+        name: path.split('/').at(-1)!,
+        mimeType: 'image/png',
+        buffer: Buffer.from(replacement, 'base64'),
+      },
+    },
+  })
+  expect(replace.ok(), await replace.text()).toBeTruthy()
+  page.once('dialog', (dialog) => dialog.accept())
+  await page.reload()
+  await page.getByRole('button', { name: 'Edit image', exact: true }).click()
+  await expect(editor.getByRole('status')).toHaveText('32 × 24 px')
+  await editor.getByRole('button', { name: 'Restore image draft', exact: true }).click()
+  await expect(editor.getByRole('status')).toHaveText('600 × 800 px')
+  const pixel = await editor
+    .getByRole('img', { name: 'Edited image preview' })
+    .evaluate((canvas) => [
+      ...(canvas as HTMLCanvasElement).getContext('2d')!.getImageData(10, 10, 1, 1).data,
+    ])
+  expect(pixel).toEqual([40, 91, 144, 255])
+  await editor.getByRole('button', { name: 'Save copy', exact: true }).click()
+  const save = page.getByRole('dialog', { name: 'Save image copy' })
+  await save.getByRole('textbox', { name: 'File name' }).fill(`recovered-${Date.now()}.png`)
+  await save.getByRole('button', { name: 'Save copy', exact: true }).click()
+  await expect(editor).not.toBeVisible()
+  const original = await page.request.get(`/api/files/download?path=${encodeURIComponent(path)}`)
+  expect((await original.body()).toString('base64')).toBe(replacement)
+  await page.goto(`/?dir=Notes&viewing=${encodeURIComponent(path)}`)
+  await page.getByRole('button', { name: 'Edit image', exact: true }).click()
+  await expect(editor.getByRole('button', { name: 'Restore image draft' })).toHaveCount(0)
+})
+
+test('explicitly discarded image edits do not return as a recovered draft', async ({ page }) => {
+  await createImage(page)
+  const editor = page.getByRole('region', { name: 'Image editor' })
+  await editor.getByRole('button', { name: 'Rotate image clockwise' }).click()
+  await expect(editor.getByText('Edits backed up in this browser', { exact: true })).toBeVisible()
+  await editor.getByRole('button', { name: 'Close image editor' }).click()
+  await page.getByRole('button', { name: 'Discard edits', exact: true }).click()
+  await page.getByRole('button', { name: 'Edit image', exact: true }).click()
+  await expect(editor.getByRole('status')).toHaveText('800 × 600 px')
+  await expect(editor.getByRole('button', { name: 'Restore image draft' })).toHaveCount(0)
+})
+
+test('closing a workspace image window immediately flushes its pending edit for recovery', async ({
+  page,
+}) => {
+  const { path } = await createImage(page)
+  await page.getByRole('button', { name: 'Close image editor' }).click()
+  await gotoWorkspace(page)
+  const browser = getWindowGroups(page).first().locator('.workspace-window-content')
+  await browser.getByText('Notes', { exact: true }).click()
+  const name = path.split('/').at(-1)!
+  await browser.locator('table').getByText(name, { exact: true }).click()
+  await expect(getWindowGroups(page)).toHaveCount(2)
+  await page.getByRole('button', { name: 'Edit image', exact: true }).click()
+  const editor = page.getByRole('region', { name: 'Image editor' })
+  await editor.getByRole('button', { name: 'Rotate image clockwise' }).click()
+  await getWindowGroups(page)
+    .nth(1)
+    .locator('.workspace-window-buttons button:has(.lucide-x)')
+    .click()
+  await expect(getWindowGroups(page)).toHaveCount(1)
+  await browser.locator('table').getByText(name, { exact: true }).click()
+  await page.getByRole('button', { name: 'Edit image', exact: true }).click()
+  await editor.getByRole('button', { name: 'Restore image draft' }).click()
+  await expect(editor.getByRole('status')).toHaveText('600 × 800 px')
+})
+
+test('unavailable browser storage is visible and does not prevent saving an image copy', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(indexedDB, 'open', {
+      value: () => {
+        throw new DOMException('Storage blocked', 'SecurityError')
+      },
+    })
+  })
+  await createImage(page)
+  const editor = page.getByRole('region', { name: 'Image editor' })
+  await editor.getByRole('button', { name: 'Rotate image clockwise' }).click()
+  await expect(editor.getByRole('alert')).toContainText('Save a copy before closing')
+  await editor.getByRole('button', { name: 'Save copy', exact: true }).click()
+  const save = page.getByRole('dialog', { name: 'Save image copy' })
+  await save
+    .getByRole('textbox', { name: 'File name' })
+    .fill(`storage-unavailable-${Date.now()}.png`)
+  await save.getByRole('button', { name: 'Save copy', exact: true }).click()
+  await expect(editor).not.toBeVisible()
+  await expect(page.getByRole('button', { name: 'Edit image', exact: true })).toBeVisible()
+})
+
+test('failed image editor loading leaves a way back to the image', async ({ page }) => {
+  await page.route('**/assets/ImageEditor-*.js', (route) => route.abort('failed'))
+  await page.goto('/?dir=Images&viewing=Images%2Fphoto.jpg')
+  await page.getByRole('button', { name: 'Edit image', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('Unable to load the image editor')
+  await page.getByRole('button', { name: 'Back to image', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Edit image', exact: true })).toBeVisible()
 })

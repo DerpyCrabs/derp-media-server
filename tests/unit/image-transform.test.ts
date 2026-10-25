@@ -3,6 +3,7 @@ import {
   cropImage,
   flipImage,
   originalTransform,
+  parseImageTransform,
   resizeImage,
   rotateImage,
   selectionFromPoints,
@@ -44,4 +45,18 @@ test('selection clamps reverse drags to the image and edits reject out-of-bounds
   expect(resizeImage(original, 0, 50)).toBeNull()
   expect(validImageSize(10000, 10000)).toBe(false)
   expect(validImageSize(100.5, 50)).toBe(false)
+})
+
+test('restored image transforms reject invalid sizes, singular matrices and nonfinite coordinates', () => {
+  const edit = rotateImage(originalTransform(800, 600))
+  expect(parseImageTransform(JSON.stringify(edit))).toEqual(edit)
+  for (const content of [
+    'null',
+    '{}',
+    'not-json',
+    JSON.stringify({ ...edit, width: 100000 }),
+    JSON.stringify({ ...edit, matrix: [0, 0, 0, 0, 0, 0] }),
+    JSON.stringify({ ...edit, matrix: [1, 0, 0, 1, null, 0] }),
+  ])
+    expect(parseImageTransform(content)).toBeNull()
 })

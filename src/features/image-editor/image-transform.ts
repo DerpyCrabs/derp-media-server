@@ -115,3 +115,37 @@ export function drawEditedImage(
   context.drawImage(source, 0, 0)
   context.resetTransform()
 }
+
+export function parseImageTransform(content: string): ImageTransform | null {
+  try {
+    const edit: unknown = JSON.parse(content)
+    if (
+      !edit ||
+      typeof edit !== 'object' ||
+      !('width' in edit) ||
+      !('height' in edit) ||
+      !('matrix' in edit)
+    )
+      return null
+    if (
+      typeof edit.width !== 'number' ||
+      typeof edit.height !== 'number' ||
+      !validImageSize(edit.width, edit.height)
+    )
+      return null
+    if (
+      !Array.isArray(edit.matrix) ||
+      edit.matrix.length !== 6 ||
+      !edit.matrix.every(
+        (value: unknown) =>
+          typeof value === 'number' && Number.isFinite(value) && Math.abs(value) < 1e12,
+      )
+    )
+      return null
+    const [a, b, c, d, e, f] = edit.matrix as number[]
+    if (Math.abs(a! * d! - b! * c!) < 1e-16) return null
+    return { width: edit.width, height: edit.height, matrix: [a!, b!, c!, d!, e!, f!] }
+  } catch {
+    return null
+  }
+}

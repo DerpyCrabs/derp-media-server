@@ -311,6 +311,8 @@ as `1-3, 5`; pages are prepared at up to 150 dpi for the browser print dialog (o
 limited to 100 pages and 160 million rendered pixels; download the original for larger jobs or
 vector-quality printing.
 
+Image edits are backed up in the current browser profile, including the source image bytes. Reopening Edit image offers to restore a draft after a reload or a closed workspace window, even if the original file has since changed. Saving a copy or explicitly discarding edits removes that view’s backup. Storage failures are shown in the editor; drafts are local to the browser and may be removed when browser data is cleared.
+
 Image editing follows [Gwenview](https://docs.kde.org/stable_kf6/en/gwenview/gwenview/image_operations.html)
 and [Preview](https://support.apple.com/guide/preview/crop-resize-or-rotate-an-image-prvw2015/mac).
 Draft recovery follows the session-oriented approach of

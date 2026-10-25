@@ -169,7 +169,7 @@ const cropBinding = (element: HTMLDivElement, current: () => Model) => {
   }
 }
 const ImageEditor = controllerView(
-  { controller: imageEditorController },
+  { controller: imageEditorController, identity: (props) => props.path },
   view((model) => {
     const edit = model.history[model.cursor],
       selection = model.selection
@@ -232,6 +232,41 @@ const ImageEditor = controllerView(
             <X size={16} />
           </button>
         </header>
+        {model.draftCandidates.length ? (
+          <div
+            role='note'
+            class='flex shrink-0 flex-wrap items-center gap-2 border-b border-border bg-muted/50 px-3 py-2 text-xs'
+          >
+            <span class='min-w-0 flex-1'>
+              Saved image edits found. Restore uses the original image saved with the draft.
+              {model.draftCandidates.length > 1
+                ? ` ${model.draftCandidates.length} versions available.`
+                : ''}
+            </span>
+            <button
+              class='rounded border border-input px-2 py-1 hover:bg-muted disabled:opacity-40'
+              disabled={model.loading || model.pending}
+              onClick={model.actions.restoreDraft}
+            >
+              Restore image draft
+            </button>
+            <button
+              class='rounded border border-input px-2 py-1 hover:bg-muted disabled:opacity-40'
+              disabled={model.pending}
+              onClick={model.actions.discardDraft}
+            >
+              Discard image draft
+            </button>
+          </div>
+        ) : null}
+        {model.draftError ? (
+          <p
+            role='alert'
+            class='shrink-0 border-b border-border px-3 py-2 text-xs text-destructive'
+          >
+            {model.draftError}
+          </p>
+        ) : null}
         <div
           role='toolbar'
           aria-label='Image editing tools'
@@ -446,6 +481,11 @@ const ImageEditor = controllerView(
             </div>
           ) : null}
         </div>
+        {model.cursor > 0 && edit !== model.exportedEdit ? (
+          <p class='shrink-0 border-t border-border px-3 py-1 text-xs text-muted-foreground'>
+            {model.draftSaved ? 'Edits backed up in this browser' : 'Unsaved image edits'}
+          </p>
+        ) : null}
         {model.saveDialog ? (
           <SaveFileDialog
             title='Save image copy'
