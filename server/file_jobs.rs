@@ -786,6 +786,77 @@ async fn archive(
         .map_err(archive_error)??;
     Ok(Json(json!({"entries":entries})))
 }
+#[derive(Deserialize)]
+struct ArchiveEntryQuery {
+    path: String,
+    entry: String,
+}
+static ARCHIVE_PREVIEW_SLOTS: Semaphore = Semaphore::const_new(2);
+struct StopArchivePreview(Arc<AtomicBool>);
+impl Drop for StopArchivePreview {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
+}
+async fn archive_entry(
+    State(state): State<Shared>,
+    Query(query): Query<ArchiveEntryQuery>,
+) -> AppResult<axum::response::Response> {
+    use axum::{
+        body::Body,
+        http::{HeaderValue, header},
+        response::Response,
+    };
+    let path = media::resolve(&state.config, &query.path)?.full;
+    let name = query.entry.rsplit('/').next().unwrap_or("file").to_owned();
+    let permit = ARCHIVE_PREVIEW_SLOTS
+        .acquire()
+        .await
+        .map_err(archive_error)?;
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let _stop = StopArchivePreview(cancelled.clone());
+    let bytes = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        let started = std::time::Instant::now();
+        crate::archives::read_entry(
+            &path,
+            &query.entry,
+            crate::archives::PREVIEW_MAX_BYTES,
+            || {
+                if cancelled.load(Ordering::Relaxed) || started.elapsed().as_secs() >= 15 {
+                    Err(AppError::bad(
+                        "Preview was cancelled or took too long. Extract the file instead.",
+                    ))
+                } else {
+                    Ok(())
+                }
+            },
+        )
+    })
+    .await
+    .map_err(archive_error)??;
+    let mut response = Response::new(Body::from(bytes));
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/octet-stream"),
+    );
+    response.headers_mut().insert(
+        header::CONTENT_DISPOSITION,
+        HeaderValue::from_str(&format!(
+            "attachment; filename*=UTF-8''{}",
+            url::form_urlencoded::byte_serialize(name.as_bytes()).collect::<String>()
+        ))
+        .map_err(archive_error)?,
+    );
+    response.headers_mut().insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    Ok(response)
+}
 async fn properties(
     State(state): State<Shared>,
     Query(query): Query<PathQuery>,
@@ -815,6 +886,7 @@ pub fn router() -> Router<Shared> {
         .route("/api/file-jobs/{id}/cancel", post(cancel))
         .route("/api/file-jobs/{id}/conflict", post(decide))
         .route("/api/files/archive", get(archive))
+        .route("/api/files/archive-entry", get(archive_entry))
         .route("/api/files/properties", get(properties))
 }
 

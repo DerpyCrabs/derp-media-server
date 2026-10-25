@@ -59,6 +59,7 @@ export const BATCHES = [
       'editable-folders',
       'file-tools',
       'archive-viewer',
+      'archive-preview',
       'favorite-places',
       'desktop',
       'desktop-audio',

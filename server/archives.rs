@@ -167,6 +167,56 @@ pub fn inspect_checked(path: &Path, check: impl Fn() -> AppResult<()>) -> AppRes
     })?;
     Ok(entries.into_values().collect())
 }
+pub const PREVIEW_MAX_BYTES: u64 = 32 * 1024 * 1024;
+pub fn read_entry(
+    path: &Path,
+    target: &str,
+    limit: u64,
+    check: impl Fn() -> AppResult<()>,
+) -> AppResult<Vec<u8>> {
+    let target =
+        safe_name(target, false)?.ok_or_else(|| AppError::bad("Choose a file to preview"))?;
+    let compressed_tar = Format::for_path(path)? != Format::Zip;
+    let mut scanned = 0_u64;
+    let mut seen = BTreeMap::new();
+    let mut result = None;
+    visit(path, &check, |entry, input| {
+        check()?;
+        if let Some(previous_directory) = seen.insert(entry.path.clone(), entry.directory) {
+            if !previous_directory || !entry.directory {
+                return Err(AppError::bad("Archive contains duplicate file paths"));
+            }
+        }
+        scanned = scanned.saturating_add(entry.size);
+        if compressed_tar && scanned > 512 * 1024 * 1024 {
+            return Err(AppError::bad(
+                "This archive is too large to scan for a preview. Extract the file instead.",
+            ));
+        }
+        if entry.path == target {
+            if entry.directory {
+                return Err(AppError::bad("Choose a file, not a folder"));
+            }
+            if entry.size > limit {
+                return Err(AppError::bad(
+                    "This file is too large to preview. Extract it instead (preview limit: 32 MiB).",
+                ));
+            }
+            let mut bytes = Vec::with_capacity(entry.size as usize);
+            input
+                .take(limit.saturating_add(1))
+                .read_to_end(&mut bytes)
+                .map_err(archive_error)?;
+            if bytes.len() as u64 > limit || bytes.len() as u64 != entry.size {
+                return Err(AppError::bad("Archive entry has an invalid size"));
+            }
+            result = Some(bytes);
+        }
+        Ok(())
+    })?;
+    result.ok_or_else(|| AppError::not_found("File not found in archive"))
+}
+
 pub fn extract(
     path: &Path,
     output: &Path,
@@ -330,6 +380,66 @@ mod tests {
         let path = root.join("archive.tar");
         std::fs::write(&path, tar_bytes()).unwrap();
         assert!(inspect_checked(&path, || Err(AppError::bad("Cancelled"))).is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn previews_read_exact_entries_without_creating_files_and_enforce_limits() {
+        use std::io::Write;
+        let root = fixture_dir();
+        let mut gzip = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+        gzip.write_all(&tar_bytes()).unwrap();
+        let mut xz = xz2::write::XzEncoder::new(Vec::new(), 1);
+        xz.write_all(&tar_bytes()).unwrap();
+        for (extension, bytes) in [
+            ("tar", tar_bytes()),
+            ("tgz", gzip.finish().unwrap()),
+            ("txz", xz.finish().unwrap()),
+        ] {
+            let path = root.join(format!("test.{extension}"));
+            std::fs::write(&path, bytes).unwrap();
+            assert_eq!(
+                read_entry(&path, "folder/two.txt", 32, || Ok(())).unwrap(),
+                b"two"
+            );
+            assert!(read_entry(&path, "folder/two.txt", 2, || Ok(())).is_err());
+            assert!(read_entry(&path, "missing.txt", 32, || Ok(())).is_err());
+            assert!(read_entry(&path, "../folder/one.txt", 32, || Ok(())).is_err());
+            assert!(
+                read_entry(&path, "folder/one.txt", 32, || Err(AppError::bad(
+                    "Cancelled"
+                )))
+                .is_err()
+            );
+        }
+        let path = root.join("test.zip");
+        let mut archive = zip::ZipWriter::new(File::create(&path).unwrap());
+        archive
+            .start_file("Книга/README.txt", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        archive.write_all(b"exact\r\ntext\n").unwrap();
+        archive.finish().unwrap();
+        assert_eq!(
+            read_entry(&path, "Книга/README.txt", 32, || Ok(())).unwrap(),
+            b"exact\r\ntext\n"
+        );
+        assert!(!root.join("folder").exists());
+        assert!(!root.join("Книга").exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn preview_rejects_unsafe_entries_even_after_the_requested_file() {
+        use std::io::Write;
+        let root = fixture_dir();
+        let path = root.join("unsafe.zip");
+        let mut archive = zip::ZipWriter::new(File::create(&path).unwrap());
+        for name in ["good.txt", "../outside.txt"] {
+            archive
+                .start_file(name, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            archive.write_all(b"content").unwrap();
+        }
+        archive.finish().unwrap();
+        assert!(read_entry(&path, "good.txt", 32, || Ok(())).is_err());
         std::fs::remove_dir_all(root).unwrap();
     }
 }

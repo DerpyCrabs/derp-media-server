@@ -12,7 +12,7 @@ test.describe('PDF Viewer', () => {
     await expect(file).toBeVisible()
     expect(
       assets.some((url) =>
-        /\/(ViewerPane|HermesChatPane|PdfReader|BookReader|MarkdownDocument)-/.test(url),
+        /\/(ViewerPane|HermesChatPane|PdfReader|PdfContent|BookReader|MarkdownDocument)-/.test(url),
       ),
     ).toBe(false)
 
@@ -20,7 +20,7 @@ test.describe('PDF Viewer', () => {
     await expect(page.getByTestId('pdf-canvas')).toBeVisible()
     expect(assets.some((url) => /\/ViewerPane-[^/]+\.js$/.test(url))).toBe(true)
     expect(assets.some((url) => /\/PdfReader-[^/]+\.js$/.test(url))).toBe(true)
-    expect(assets.some((url) => /\/PdfReader-[^/]+\.css$/.test(url))).toBe(true)
+    expect(assets.some((url) => /\/(PdfReader|PdfContent)-[^/]+\.css$/.test(url))).toBe(true)
     expect(assets.some((url) => /\/(BookReader|MarkdownDocument)-/.test(url))).toBe(false)
   })
 
