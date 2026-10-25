@@ -110,6 +110,7 @@ export const BATCHES = [
       'code-editor',
       'table-viewer',
       'text-recovery',
+      'text-comparison',
       'draft-recovery',
       'knowledge-base',
       'drag-drop',

@@ -960,3 +960,17 @@ body {
   max-height: none;
   object-fit: contain;
 }
+
+.text-merge-surface .cm-mergeView {
+  min-height: 100%;
+}
+.text-merge-surface .cm-mergeViewEditor {
+  min-width: 0;
+}
+.text-merge-surface .cm-merge-revert {
+  background: var(--muted);
+}
+.text-merge-surface .cm-collapsedLines {
+  color: var(--muted-foreground);
+  background: var(--muted);
+}

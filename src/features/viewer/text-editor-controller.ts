@@ -21,7 +21,7 @@ import type { WorkspaceSettings } from '@/workspace/model/workspace-settings-typ
 import { observeQuery, query } from '@effectweb/query'
 const textDocumentSchema = Schema.Struct({ content: Schema.String, version: Schema.String })
 const textVersionSchema = Schema.Struct({ version: Schema.String })
-type TextDocumentRemote = typeof textDocumentSchema.Type
+export type TextDocumentRemote = typeof textDocumentSchema.Type
 export type TextEditorPaneProps = {
   viewingPath: string
   editableFolders: string[]
@@ -92,6 +92,9 @@ export function textController(props: TextEditorPaneProps) {
     draftError: '',
     draftBackedUp: false,
     recovered: false,
+    reviewed: false,
+    comparison: null as TextDocumentRemote | null,
+    comparisonError: '',
     saveAsOpen: false,
     saveAsPending: false,
     saveAsError: '',
@@ -132,6 +135,34 @@ export function textController(props: TextEditorPaneProps) {
       )
   }
   const actions = {
+    compare: () => {
+      const current = owner.read()
+      if (!current.remote) return
+      owner.cancel(debounceSlot)
+      owner.patch({ comparison: current.remote, comparisonError: '' })
+    },
+    closeComparison: () => owner.patch({ comparison: null, comparisonError: '' }),
+    useReviewed: () => {
+      const current = owner.read()
+      if (!current.comparison || current.saved.waiting) return
+      if (current.remote?.version !== current.comparison.version) {
+        owner.patch({
+          comparisonError:
+            'The file changed again. Review the latest server version before continuing.',
+        })
+        return
+      }
+      owner.patch({
+        base: current.comparison.content,
+        version: current.comparison.version,
+        comparison: null,
+        comparisonError: '',
+        reviewed: current.edit !== current.comparison.content,
+        recovered: false,
+        saved: AsyncResult.initial(),
+      })
+      void persistDraft()
+    },
     tableView: (tableView: boolean) => owner.patch({ tableView }),
     restoreDraft: (draft: TextDraft) =>
       owner.run(
@@ -155,6 +186,8 @@ export function textController(props: TextEditorPaneProps) {
             base: current.remote.content,
             version: draft.version,
             recovered: true,
+            reviewed: false,
+            comparison: null,
             readOnly: false,
             tableView: true,
             draftCandidates: [],
@@ -251,6 +284,8 @@ export function textController(props: TextEditorPaneProps) {
           version: remote.version,
           saved: AsyncResult.initial(),
           recovered: false,
+          reviewed: false,
+          comparison: null,
         })
       void persistDraft()
       clearRecoveredDraft()
@@ -338,7 +373,11 @@ export function textController(props: TextEditorPaneProps) {
   const saveDocument = (quiet: boolean) =>
     Effect.gen(function* () {
       const current = owner.read()
-      if (quiet && (current.edit === current.base || current.recovered)) return
+      if (
+        current.comparison ||
+        (quiet && (current.edit === current.base || current.recovered || current.reviewed))
+      )
+        return
       const saved = yield* enqueueTextDocumentSave(
         createTextDocumentTarget(current.props.viewingPath),
         postSchemaEffect(textVersionSchema, '/api/files/edit', {
@@ -347,7 +386,12 @@ export function textController(props: TextEditorPaneProps) {
           expectedHash: current.version,
         }).pipe(Effect.map((result) => ({ content: current.edit, version: result.version }))),
       )
-      owner.patch({ base: saved.content, version: saved.version, recovered: false })
+      owner.patch({
+        base: saved.content,
+        version: saved.version,
+        recovered: false,
+        reviewed: false,
+      })
       yield* Effect.tryPromise(persistDraft)
       clearRecoveredDraft()
       queryCache.setQueryData(textContentQuery, current.props.viewingPath, saved)
@@ -372,6 +416,8 @@ export function textController(props: TextEditorPaneProps) {
       !isPathEditable(current.props.viewingPath, [...current.props.editableFolders]) ||
       current.readOnly ||
       current.recovered ||
+      current.reviewed ||
+      current.comparison ||
       !(current.settings?.autoSave?.[current.props.viewingPath]?.enabled ?? true) ||
       conflict() ||
       current.edit === current.base
@@ -422,7 +468,7 @@ export function textController(props: TextEditorPaneProps) {
       remote,
       loading: !remote && result.waiting,
       loadError: resourceError(result) ?? '',
-      ...(remote && (!hydrated || current.edit === current.base)
+      ...(remote && !current.comparison && (!hydrated || current.edit === current.base)
         ? { edit: remote.content, base: remote.content, version: remote.version }
         : {}),
     })
@@ -476,6 +522,8 @@ export function textController(props: TextEditorPaneProps) {
                 current.edit !== current.base &&
                 !conflict() &&
                 !current.recovered &&
+                !current.reviewed &&
+                !current.comparison &&
                 isPathEditable(current.props.viewingPath, [...current.props.editableFolders]) &&
                 (current.settings?.autoSave?.[current.props.viewingPath]?.enabled ?? true)
                 ? save(true).await

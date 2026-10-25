@@ -1,3 +1,4 @@
+import { TextComparisonDialog } from './TextComparisonDialog'
 import { openPlaylistImport } from '@/features/music/actions'
 import { LazyTableDocument } from '@/features/table/LazyTableDocument'
 import { LazyPlainTextDocument } from '@/lib/editor/LazyPlainTextDocument'
@@ -293,6 +294,23 @@ export const TextEditorPane = controllerView(
             </button>
           </div>
         </header>
+        {model.comparison ? (
+          <TextComparisonDialog
+            path={props.viewingPath}
+            remote={model.comparison}
+            latestVersion={model.remote?.version}
+            local={model.edit}
+            readOnly={!fileEditable() || model.readOnly}
+            embedded={props.embedded}
+            pending={model.saved.waiting}
+            error={model.comparisonError}
+            onChange={actions.edit}
+            onLatest={actions.compare}
+            onApply={actions.useReviewed}
+            onClose={actions.closeComparison}
+            onDownload={actions.download}
+          />
+        ) : null}
         <div class='flex min-h-0 flex-1 flex-col overflow-hidden'>
           {recovery ? (
             <div
@@ -350,9 +368,32 @@ export const TextEditorPane = controllerView(
             </p>
           ) : null}
 
+          {model.reviewed ? (
+            <div
+              role='status'
+              class='flex shrink-0 flex-wrap items-center gap-2 border-b border-border bg-muted/50 px-3 py-2 text-xs'
+            >
+              <span class='mr-auto'>
+                Changes reviewed. Save when you are ready; automatic saving is paused.
+              </span>
+              {fileEditable() && !conflict() ? (
+                <button
+                  type='button'
+                  class='underline disabled:opacity-40'
+                  disabled={model.saved.waiting}
+                  onClick={() => actions.requestSave(false)}
+                >
+                  Save reviewed version
+                </button>
+              ) : null}
+            </div>
+          ) : null}
           {conflict() ? (
-            <div class='flex items-center justify-between gap-3 border-b border-amber-500/40 bg-amber-500/10 px-4 py-2 text-xs text-amber-900 dark:text-amber-200'>
+            <div class='flex flex-wrap items-center justify-between gap-3 border-b border-amber-500/40 bg-amber-500/10 px-4 py-2 text-xs text-amber-900 dark:text-amber-200'>
               <span>This file changed elsewhere. Your unsaved edits were kept.</span>
+              <button type='button' class='shrink-0 underline' onClick={actions.compare}>
+                Review changes…
+              </button>
               <button
                 type='button'
                 class='shrink-0 underline'

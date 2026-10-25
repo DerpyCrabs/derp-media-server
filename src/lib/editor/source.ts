@@ -10,16 +10,10 @@ import {
 import { invertedEffects } from '@codemirror/commands'
 import type { EditorView } from '@codemirror/view'
 
+import { detectLineSeparator, hasMixedLineEndings, type SourceLineSeparator } from './line-endings'
+export { detectLineSeparator, hasMixedLineEndings } from './line-endings'
+
 export const rawSourcePaste = Annotation.define<string>()
-
-type SourceLineSeparator = '\n' | '\r\n' | '\r'
-
-export function detectLineSeparator(
-  content: string,
-  fallback: SourceLineSeparator = '\n',
-): SourceLineSeparator {
-  return (/\r\n|\r|\n/.exec(content)?.[0] as SourceLineSeparator | undefined) ?? fallback
-}
 
 function sourceOffsetAt(source: string, position: number): number {
   let internalPosition = 0
@@ -35,7 +29,7 @@ function sourceOffsetAt(source: string, position: number): number {
   return rawPosition + position - internalPosition
 }
 
-function sourceSlice(source: string, from: number, to: number): string {
+export function sourceSlice(source: string, from: number, to: number): string {
   return source.slice(sourceOffsetAt(source, from), sourceOffsetAt(source, to))
 }
 
@@ -79,15 +73,6 @@ type SourceState = { text: string; lineSeparator: SourceLineSeparator; mixedLine
 
 export const replaceSource = StateEffect.define<SourceState>()
 const exactSource = StateEffect.define<SourceState>()
-
-export function hasMixedLineEndings(source: string): boolean {
-  let first: string | null = null
-  for (const match of source.matchAll(/\r\n|\r|\n/g)) {
-    if (first === null) first = match[0]
-    else if (match[0] !== first) return true
-  }
-  return false
-}
 
 function replacementSourceEffect(transaction: Transaction): SourceState | null {
   let replacement: SourceState | null = null
