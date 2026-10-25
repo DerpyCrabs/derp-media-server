@@ -1,7 +1,7 @@
 import { LazyImageEditor } from '@/features/image-editor/LazyImageEditor'
 import Pencil from '@effectweb/lucide/icons/pencil'
 import { cn } from '@/lib/ui/cn'
-import { domBinding, modelOwner, view, controllerView, type ControllerModel } from 'effectweb'
+import { list, domBinding, modelOwner, view, controllerView, type ControllerModel } from 'effectweb'
 import { randomId } from '@/lib/random-id'
 import { createActivityId, sendActivity, type ActivityEvent } from '@/features/media-ai/activity'
 import { MediaType, type FileItem } from '@/lib/files/types'
@@ -51,13 +51,53 @@ function imageController(props: ImageViewerPaneProps) {
     editing: false,
     printing: false,
     copying: false,
+    slideshow: 'off' as 'off' | 'playing' | 'paused' | 'ended',
+    slideSeconds: 5,
+    slideLoop: false,
     outputMessage: '',
     menu: null as HTMLElement | null,
     image: responsive.source.model(),
   })
   const actions = {
+    toggleSlideshow: () => {
+      const current = owner.read()
+      if (orderedImages(current.props).length < 2) return
+      if (current.slideshow === 'playing') owner.patch({ slideshow: 'paused', menu: null })
+      else {
+        owner.patch({ slideshow: 'playing', zoom: 'fit', menu: null, outputMessage: '' })
+        select()
+        if (current.slideshow === 'ended') {
+          const index = orderedImages(current.props).findIndex(
+            (file) => file.path === current.props.viewingPath,
+          )
+          if (index > 0) actions.move(-index)
+        }
+      }
+    },
+    stopSlideshow: () => owner.patch({ slideshow: 'off' }),
+    slideSeconds: (slideSeconds: number) => {
+      if ([2, 5, 10, 15, 30].includes(slideSeconds)) owner.patch({ slideSeconds })
+    },
+    slideLoop: (slideLoop: boolean) => owner.patch({ slideLoop }),
+    advanceSlide: () => {
+      const current = owner.read()
+      if (current.slideshow !== 'playing') return
+      const files = orderedImages(current.props)
+      const index = files.findIndex((file) => file.path === current.props.viewingPath)
+      if (index < 0 || files.length < 2 || (index === files.length - 1 && !current.slideLoop)) {
+        owner.patch({ slideshow: 'ended' })
+        return
+      }
+      actions.move(index === files.length - 1 ? -index : 1)
+    },
     menu: (menu: HTMLElement | null) => owner.patch({ menu }),
-    print: () => owner.patch({ printing: true, menu: null, outputMessage: '' }),
+    print: () =>
+      owner.patch({
+        printing: true,
+        menu: null,
+        outputMessage: '',
+        ...(owner.read().slideshow !== 'off' ? { slideshow: 'paused' as const } : {}),
+      }),
     closePrint: () => owner.patch({ printing: false }),
     clearMessage: () => owner.patch({ outputMessage: '' }),
     copy: () => {
@@ -106,7 +146,7 @@ function imageController(props: ImageViewerPaneProps) {
         'drop',
       )
     },
-    edit: () => owner.patch({ editing: true }),
+    edit: () => owner.patch({ editing: true, slideshow: 'off' }),
     closeEdit: () => owner.patch({ editing: false }),
     savedCopy: (path: string) => {
       owner.patch({ editing: false })
@@ -141,12 +181,16 @@ function imageController(props: ImageViewerPaneProps) {
     zoom: (delta: number) => {
       const current = owner.read().zoom
       owner.patch({
+        ...(owner.read().slideshow === 'playing' ? { slideshow: 'paused' as const } : {}),
         zoom: Math.max(25, Math.min(400, (current === 'fit' ? 100 : current) + delta)),
       })
       select()
     },
     actualSize: () => {
-      owner.patch({ zoom: 100 })
+      owner.patch({
+        zoom: 100,
+        ...(owner.read().slideshow === 'playing' ? { slideshow: 'paused' as const } : {}),
+      })
       select()
     },
     rotate: () => owner.patch({ rotation: (owner.read().rotation + 90) % 360 }),
@@ -181,7 +225,19 @@ function imageController(props: ImageViewerPaneProps) {
     })
   }
   owner.own(responsive)
-  owner.own(responsive.source.subscribe((image) => owner.patch({ image })))
+  owner.own(
+    responsive.source.subscribe((image) =>
+      owner.patch({
+        image,
+        ...(image.load.request.kind === 'error' && owner.read().slideshow === 'playing'
+          ? {
+              slideshow: 'paused' as const,
+              outputMessage: 'Slideshow paused: this image could not be loaded.',
+            }
+          : {}),
+      }),
+    ),
+  )
   select()
   return {
     source: owner.source,
@@ -251,7 +307,41 @@ const viewerBehavior = (element: HTMLDivElement, current: () => ImageModel) => {
     last = end
     active = visible
   }
+  let slideTimer: ReturnType<typeof setTimeout> | undefined,
+    slideKey = ''
+  const slideReady = () => {
+    const model = current()
+    const modal = document.activeElement?.closest('[role="dialog"][aria-modal="true"]')
+    return (
+      model.slideshow === 'playing' &&
+      model.props.active !== false &&
+      document.visibilityState === 'visible' &&
+      !model.menu &&
+      !model.printing &&
+      !model.editing &&
+      (!modal || modal === element || element.contains(modal)) &&
+      model.image.load.request.kind === 'idle' &&
+      model.image.load.displayed?.path === model.props.viewingPath
+    )
+  }
+  const updateSlideshow = () => {
+    const model = current()
+    const key = slideReady()
+      ? `${model.props.viewingPath}:${model.slideSeconds}:${model.slideLoop}`
+      : ''
+    if (key === slideKey) return
+    clearTimeout(slideTimer)
+    slideTimer = undefined
+    slideKey = key
+    if (key)
+      slideTimer = setTimeout(() => {
+        slideTimer = undefined
+        slideKey = ''
+        if (slideReady()) current().actions.advanceSlide()
+      }, model.slideSeconds * 1000)
+  }
   const update = () => {
+    updateSlideshow()
     const path = current().props.viewingPath
     if (path !== activityPath) {
       report()
@@ -283,6 +373,36 @@ const viewerBehavior = (element: HTMLDivElement, current: () => ImageModel) => {
       return
     }
     if (event.ctrlKey || event.metaKey || event.altKey) return
+    if (
+      event.key.toLowerCase() === 's' ||
+      (event.key === 'Escape' && current().slideshow !== 'off')
+    ) {
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      if (event.key === 'Escape') current().actions.stopSlideshow()
+      else current().actions.toggleSlideshow()
+      return
+    }
+    if (event.key === 'PageUp' || event.key === 'PageDown') {
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      current().actions.move(event.key === 'PageDown' ? 1 : -1)
+      return
+    }
+    if (event.key.startsWith('Arrow') && current().zoom !== 'fit') {
+      const surface = element.querySelector<HTMLElement>('[data-testid$=surface]')
+      if (surface) {
+        event.preventDefault()
+        event.stopImmediatePropagation()
+        const step = event.shiftKey ? 160 : 60
+        surface.scrollBy({
+          left: event.key === 'ArrowLeft' ? -step : event.key === 'ArrowRight' ? step : 0,
+          top: event.key === 'ArrowUp' ? -step : event.key === 'ArrowDown' ? step : 0,
+          behavior: 'instant',
+        })
+      }
+      return
+    }
     const action =
       event.key === '+' || event.key === '='
         ? () => current().actions.zoom(25)
@@ -402,6 +522,8 @@ const viewerBehavior = (element: HTMLDivElement, current: () => ImageModel) => {
   element.addEventListener('pointercancel', pointerCancel)
   element.addEventListener('click', zoneClick)
   document.addEventListener('visibilitychange', report)
+  document.addEventListener('visibilitychange', updateSlideshow)
+  document.addEventListener('focusin', updateSlideshow)
   window.addEventListener('pagehide', report)
   const timer = setInterval(report, 5000)
   update()
@@ -410,6 +532,7 @@ const viewerBehavior = (element: HTMLDivElement, current: () => ImageModel) => {
     dispose: () => {
       report()
       clearInterval(timer)
+      clearTimeout(slideTimer)
       clearTimeout(resetTimer)
       clearTimeout(flushTimer)
       window.removeEventListener('keydown', keydown, true)
@@ -420,6 +543,8 @@ const viewerBehavior = (element: HTMLDivElement, current: () => ImageModel) => {
       element.removeEventListener('pointercancel', pointerCancel)
       element.removeEventListener('click', zoneClick)
       document.removeEventListener('visibilitychange', report)
+      document.removeEventListener('visibilitychange', updateSlideshow)
+      document.removeEventListener('focusin', updateSlideshow)
       window.removeEventListener('pagehide', report)
     },
   }
@@ -669,6 +794,20 @@ export const ImageViewerPane = controllerView(
           role='menu'
           class='w-56'
         >
+          {images.length > 1 ? (
+            <button
+              role='menuitem'
+              class='flex min-h-10 w-full items-center justify-between rounded px-3 text-sm hover:bg-muted'
+              onClick={actions.toggleSlideshow}
+            >
+              {model.slideshow === 'playing'
+                ? 'Pause slideshow'
+                : model.slideshow === 'paused'
+                  ? 'Resume slideshow'
+                  : 'Start slideshow'}
+              <span class='text-xs text-muted-foreground'>S</span>
+            </button>
+          ) : null}
           <button
             role='menuitem'
             class='flex min-h-10 w-full items-center justify-between rounded px-3 text-sm hover:bg-muted'
@@ -693,6 +832,55 @@ export const ImageViewerPane = controllerView(
             Download image
           </button>
         </FloatingContextMenu>
+        {model.slideshow !== 'off' ? (
+          <div
+            role='group'
+            aria-label='Slideshow controls'
+            class='flex shrink-0 flex-wrap items-center justify-center gap-x-3 gap-y-1 border-b border-white/10 bg-black/90 px-2 py-1.5 text-xs text-white'
+          >
+            <button
+              type='button'
+              class='rounded px-2 py-1 hover:bg-white/15'
+              onClick={actions.toggleSlideshow}
+            >
+              {model.slideshow === 'playing'
+                ? 'Pause slideshow'
+                : model.slideshow === 'ended'
+                  ? 'Replay slideshow'
+                  : 'Resume slideshow'}
+            </button>
+            <label class='flex items-center gap-1'>
+              Interval{' '}
+              <select
+                aria-label='Slideshow interval'
+                class='rounded bg-neutral-800 px-1 py-1 text-white'
+                value={String(model.slideSeconds)}
+                onChange={(event) => actions.slideSeconds(Number(event.currentTarget.value))}
+              >
+                {list([2, 5, 10, 15, 30], (seconds) => (
+                  <option value={String(seconds)}>{seconds}s</option>
+                ))}
+              </select>
+            </label>
+            <label class='flex items-center gap-1'>
+              <input
+                type='checkbox'
+                checked={model.slideLoop}
+                onChange={(event) => actions.slideLoop(event.currentTarget.checked)}
+              />
+              Loop
+            </label>
+            <button
+              type='button'
+              aria-label='Stop slideshow'
+              title='Stop slideshow (Esc)'
+              class='rounded p-1 hover:bg-white/15'
+              onClick={actions.stopSlideshow}
+            >
+              <X size={16} />
+            </button>
+          </div>
+        ) : null}
         {model.copying || model.outputMessage ? (
           <div
             role='status'

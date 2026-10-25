@@ -102,6 +102,7 @@ export const BATCHES = [
       'video-navigation',
       'playback-regressions',
       'image-viewer',
+      'image-slideshow',
       'image-print-copy',
       'image-editor',
       'media-warmup',
