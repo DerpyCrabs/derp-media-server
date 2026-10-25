@@ -1,3 +1,4 @@
+import { LazyTableDocument } from '@/features/table/LazyTableDocument'
 import { LazyPlainTextDocument } from '@/lib/editor/LazyPlainTextDocument'
 import { getMediaExtensionFromPath } from '@/lib/media/media-utils'
 import { domBinding, view, controllerView, resourceError } from 'effectweb'
@@ -29,6 +30,7 @@ export const TextEditorPane = controllerView(
     const recovery = model.draftCandidates.find((draft) => draft.content !== model.remote?.content)
     const ext = () => getMediaExtensionFromPath(props.viewingPath)
     const isMarkdown = () => ext() === 'md'
+    const isTable = () => ext() === 'csv' || ext() === 'tsv'
     const fileName = () => props.viewingPath.split(/[/\\]/).pop() || ''
     const remoteContent = () => model.remote?.content ?? ''
     const markdownContent = () => model.edit
@@ -113,6 +115,24 @@ export const TextEditorPane = controllerView(
                 : 'flex flex-wrap items-center gap-2'
             }
           >
+            {isTable() ? (
+              <div class='flex rounded-md border border-border p-0.5' aria-label='Document view'>
+                <button
+                  class='rounded px-2 py-1 text-xs aria-pressed:bg-muted'
+                  aria-pressed={model.tableView}
+                  onClick={() => actions.tableView(true)}
+                >
+                  Table
+                </button>
+                <button
+                  class='rounded px-2 py-1 text-xs aria-pressed:bg-muted'
+                  aria-pressed={!model.tableView}
+                  onClick={() => actions.tableView(false)}
+                >
+                  Text
+                </button>
+              </div>
+            ) : null}
             {showEditor() ? (
               <>
                 {fileEditable() ? (
@@ -342,7 +362,18 @@ export const TextEditorPane = controllerView(
           ) : null}
           <div class='min-h-0 flex-1 overflow-hidden'>
             {!model.loading && !model.loadError ? (
-              isMarkdown() ? (
+              isTable() && model.tableView ? (
+                <LazyTableDocument
+                  path={props.viewingPath}
+                  content={model.edit}
+                  readOnly={!showEditor()}
+                  onChange={setEditContent}
+                  onBlur={() => {
+                    if (showEditor() && autoSaveEnabled() && !conflict()) saveInternal(true)
+                  }}
+                  onSave={() => actions.save(false)}
+                />
+              ) : isMarkdown() ? (
                 currentTextTargetKey() ? (
                   <LazyMarkdownDocument
                     content={markdownContent()}

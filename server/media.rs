@@ -45,7 +45,7 @@ pub fn media_type(ext: &str) -> &'static str {
         "jpg" | "jpeg" | "png" | "gif" | "webp" | "bmp" | "svg" | "ico" => "image",
         "pdf" => "pdf",
         "epub" | "fb2" | "fb2.zip" => "book",
-        "txt" | "md" | "json" | "xml" | "csv" | "log" | "yaml" | "yml" | "ini" | "conf" | "sh"
+        "txt" | "md" | "json" | "xml" | "csv" | "tsv" | "log" | "yaml" | "yml" | "ini" | "conf" | "sh"
         | "bat" | "ps1" | "js" | "ts" | "jsx" | "tsx" | "css" | "scss" | "html" | "py" | "java"
         | "c" | "cpp" | "h" | "cs" | "go" | "rs" | "php" | "rb" | "swift" | "kt" | "sql"
         | "toml" | "jsonc" | "jsonl" | "ndjson" | "desktop" | "service" | "socket" | "timer"
@@ -137,6 +137,7 @@ pub fn mime_type(ext: &str) -> &'static str {
         "json" => "application/json",
         "xml" => "application/xml",
         "csv" => "text/csv",
+        "tsv" => "text/tab-separated-values",
         "yaml" | "yml" => "text/yaml",
         "sh" => "text/x-shellscript",
         "ps1" => "text/plain",

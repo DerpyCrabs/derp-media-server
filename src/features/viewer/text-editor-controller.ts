@@ -83,6 +83,7 @@ export function textController(props: TextEditorPaneProps) {
     loadError: '',
     settings: undefined as WorkspaceSettings | undefined,
     readOnly: false,
+    tableView: true,
     edit: '',
     base: '',
     version: '',
@@ -131,6 +132,7 @@ export function textController(props: TextEditorPaneProps) {
       )
   }
   const actions = {
+    tableView: (tableView: boolean) => owner.patch({ tableView }),
     restoreDraft: (draft: TextDraft) =>
       owner.run(
         'restore-draft',
@@ -154,6 +156,7 @@ export function textController(props: TextEditorPaneProps) {
             version: draft.version,
             recovered: true,
             readOnly: false,
+            tableView: true,
             draftCandidates: [],
           })
           yield* Effect.tryPromise(persistDraft)
