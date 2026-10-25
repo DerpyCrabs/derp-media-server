@@ -146,7 +146,16 @@ const PdfReader = controllerView(
               onClose={onClose}
             />
           )}
-          renderPage={({ document, page, pageIndex, zoom, frame, searchQuery, activeMatch }) => (
+          renderPage={({
+            document,
+            page,
+            pageIndex,
+            zoom,
+            frame,
+            searchQuery,
+            activeMatch,
+            onNavigatePage,
+          }) => (
             <PdfContent
               document={(document as PdfReaderDocument).pdf}
               page={page}
@@ -156,6 +165,7 @@ const PdfReader = controllerView(
               onRegion={frame.selectRegion}
               searchQuery={searchQuery}
               activeMatch={activeMatch}
+              onNavigatePage={onNavigatePage}
             />
           )}
         />

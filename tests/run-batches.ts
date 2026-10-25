@@ -48,6 +48,7 @@ export const BATCHES = [
       'reader',
       'pdf-password',
       'pdf-print',
+      'pdf-links',
     ],
   },
   {

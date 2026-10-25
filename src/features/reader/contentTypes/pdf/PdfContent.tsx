@@ -1,10 +1,17 @@
+import { resolvePdfDestination } from './pdf-destination'
 import { createDocumentSearchHighlights } from '../../document-search-highlights'
 import type { DocumentMatch } from '../../document-search'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import * as pdfjs from 'pdfjs-dist'
 import { Effect } from 'effect'
 import { domBinding, component, modelOwner, view } from 'effectweb'
-import { TextLayerBuilder } from 'pdfjs-dist/web/pdf_viewer.mjs'
+import {
+  TextLayerBuilder,
+  AnnotationLayerBuilder,
+  PDFLinkService,
+  EventBus,
+  LinkTarget,
+} from 'pdfjs-dist/web/pdf_viewer.mjs'
 import type { ReaderPage, ReaderSelectionMode } from '../../reader-position'
 import type { ReaderSelection } from '../../ReaderSelectionMenu'
 import { RegionLayer } from '../../RegionLayer'
@@ -19,6 +26,7 @@ interface Props {
   activeMatch?: DocumentMatch
   zoom: number
   selectionMode: ReaderSelectionMode
+  onNavigatePage: (index: number) => void
   onRegion: (selection: Omit<ReaderSelection, 'id'>) => void
 }
 const renderSlot = 'pdf-page-render'
@@ -59,7 +67,43 @@ const renderPage = (
         context.setTransform(ratio, 0, 0, ratio, 0, 0)
         const task = page.render({ canvas, canvasContext: context, viewport })
         let textLayer: InstanceType<typeof TextLayerBuilder> | undefined
+        let annotations: InstanceType<typeof AnnotationLayerBuilder> | undefined
         let cancelled = false
+        const links = new PDFLinkService({
+          eventBus: new EventBus(),
+          externalLinkTarget: LinkTarget.BLANK,
+          externalLinkRel: 'noopener noreferrer',
+        })
+        links.setDocument(props.document)
+        links.setViewer({
+          get currentPageNumber() {
+            return current().pageIndex + 1
+          },
+          set currentPageNumber(page: number) {
+            if (!cancelled) current().onNavigatePage(page - 1)
+          },
+          isInPresentationMode: false,
+          scrollPageIntoView: ({ pageNumber }: { pageNumber: number }) => {
+            if (!cancelled) current().onNavigatePage(pageNumber - 1)
+          },
+          nextPage: () => {
+            if (!cancelled) current().onNavigatePage(current().pageIndex + 1)
+          },
+          previousPage: () => {
+            if (!cancelled) current().onNavigatePage(current().pageIndex - 1)
+          },
+          pageLabelToPageNumber: (label: string) => Number(label),
+        })
+        links.goToDestination = async (destination: unknown) => {
+          try {
+            const index = await resolvePdfDestination(props.document, destination)
+            if (!cancelled && index !== null) current().onNavigatePage(index)
+          } catch {
+            /* Broken destinations must not replace the document with an error. */
+          }
+        }
+        links.executeSetOCGState = async () => {}
+
         return yield* Effect.gen(function* () {
           yield* Effect.tryPromise({ try: () => task.promise, catch: (error) => error })
           host.querySelectorAll(':scope > .textLayer').forEach((node) => node.remove())
@@ -79,6 +123,27 @@ const renderPage = (
               catch: (error) => error,
             })
           }
+          if (props.selectionMode === 'text') {
+            annotations = new AnnotationLayerBuilder({
+              pdfPage: page,
+              linkService: links,
+              renderForms: false,
+              enableScripting: false,
+              onAppend: (element: HTMLDivElement) => {
+                if (!cancelled) {
+                  element.dataset.testid = 'pdf-annotations'
+                  host.append(element)
+                }
+              },
+            })
+            yield* Effect.tryPromise({
+              try: () => annotations!.render({ viewport }),
+              catch: (error) => error,
+            })
+            annotations.div
+              ?.querySelectorAll<HTMLAnchorElement>('[data-internal-link] a')
+              .forEach((link) => link.setAttribute('aria-label', link.title || 'Go to linked page'))
+          }
           highlights.update()
           return yield* Effect.never
         }).pipe(
@@ -87,6 +152,8 @@ const renderPage = (
               cancelled = true
               task.cancel()
               textLayer?.cancel()
+              annotations?.cancel()
+              annotations?.div?.remove()
               host.querySelectorAll(':scope > .textLayer').forEach((node) => node.remove())
             }),
           ),
@@ -126,6 +193,8 @@ export const PdfContent = component<Props, { error: string }>(
           height: `${props.page.height * props.zoom}px`,
           '--scale-factor': String(props.zoom),
           '--user-unit': '1',
+          '--scale-round-x': '1px',
+          '--scale-round-y': '1px',
           '--total-scale-factor': String(props.zoom),
         }}
       >

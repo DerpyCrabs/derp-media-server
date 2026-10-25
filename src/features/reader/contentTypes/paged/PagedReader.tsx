@@ -50,6 +50,7 @@ type Props<TDocument extends PagedDocument> = ReaderContentProps & {
     frame: ReaderFrameContent
     searchQuery: string
     activeMatch: DocumentMatch | undefined
+    onNavigatePage: (index: number) => void
   }) => JSX.Element
 }
 const clampZoom = (value: number) => Math.max(0.35, Math.min(3, Number(value.toFixed(2))))
@@ -613,6 +614,7 @@ const PagedReaderView = view<ControllerModel<typeof createPagedReader>>((model) 
                     frame,
                     searchQuery: model.matchedQuery,
                     activeMatch: model.matches[model.matchIndex],
+                    onNavigatePage: actions.navigate,
                   })}
                 </article>
               ))

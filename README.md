@@ -303,6 +303,8 @@ require desktop mode.
   seconds, synchronized through the server. Positive values display subtitles later; 0 resets
   the correction. Playback position and the media file are unchanged.
 
+PDF links work directly on the page: internal and named destinations navigate within the reader without changing its zoom; external links open separately. Image-region selection temporarily disables links so dragging a region does not open one.
+
 PDFs protected by a password prompt for it when opened; passwords are not remembered. **Ctrl/Cmd+P**
 opens PDF printing, also available under Reader settings. Choose All, Current page, or ranges such
 as `1-3, 5`; pages are prepared at up to 150 dpi for the browser print dialog (or the native Qt print dialog in the desktop client). A single print job is

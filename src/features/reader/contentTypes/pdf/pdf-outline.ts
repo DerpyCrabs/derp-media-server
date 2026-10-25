@@ -1,3 +1,4 @@
+import { resolvePdfDestination } from './pdf-destination'
 import { Effect } from 'effect'
 import type { ReaderOutlineItem } from '../../ReaderOutline'
 import type { PdfDocument } from './PdfContent'
@@ -10,16 +11,12 @@ export function mapPdfOutline(
     items ?? [],
     (item, index) =>
       Effect.gen(function* () {
-        const target = yield* Effect.gen(function* () {
-          const destination =
-            typeof item.dest === 'string'
-              ? yield* Effect.tryPromise(() => document.getDestination(item.dest as string))
-              : item.dest
-          if (!destination?.[0]) return 0
-          return yield* Effect.tryPromise(() =>
-            document.getPageIndex(destination[0] as Parameters<PdfDocument['getPageIndex']>[0]),
-          )
-        }).pipe(Effect.catch(() => Effect.succeed(0)))
+        const target = yield* Effect.tryPromise(() =>
+          resolvePdfDestination(document, item.dest),
+        ).pipe(
+          Effect.map((index) => index ?? 0),
+          Effect.catch(() => Effect.succeed(0)),
+        )
         return {
           id: `pdf-outline-${index}-${item.title}`,
           label: item.title || `Page ${target + 1}`,
