@@ -1,10 +1,10 @@
 pkgname=derp-media-client
 pkgver=0.1.0
-pkgrel=2
+pkgrel=3
 pkgdesc='Qt file browser, media viewer and file chooser portal for Derp Media Server'
 arch=('x86_64' 'aarch64')
 license=('MIT')
-depends=('qt6-webengine' 'qt6-webchannel' 'kwindowsystem')
+depends=('qt6-webengine' 'qt6-webchannel' 'qt6-pdf' 'kwindowsystem')
 makedepends=('cmake' 'ninja' 'gcc')
 source=("$pkgname-$pkgver.tar.gz")
 sha256sums=('SKIP')

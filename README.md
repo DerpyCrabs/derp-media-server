@@ -305,7 +305,7 @@ require desktop mode.
 
 PDFs protected by a password prompt for it when opened; passwords are not remembered. **Ctrl/Cmd+P**
 opens PDF printing, also available under Reader settings. Choose All, Current page, or ranges such
-as `1-3, 5`; pages are prepared at up to 150 dpi for the browser print dialog. A single print job is
+as `1-3, 5`; pages are prepared at up to 150 dpi for the browser print dialog (or the native Qt print dialog in the desktop client). A single print job is
 limited to 100 pages and 160 million rendered pixels; download the original for larger jobs or
 vector-quality printing.
 

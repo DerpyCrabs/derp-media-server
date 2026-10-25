@@ -11,6 +11,7 @@ export function printPdf(
     Effect.sync(() => {
       const frame = window.document.createElement('iframe')
       frame.title = 'PDF print document'
+      frame.name = `derp-print-${crypto.randomUUID()}`
       frame.setAttribute('aria-hidden', 'true')
       frame.style.cssText =
         'position:fixed;left:0;bottom:0;width:1px;height:1px;opacity:0;pointer-events:none;border:0'
@@ -93,6 +94,18 @@ export function printPdf(
           )
           progress(index + 1)
         }
+        if (window.derpDesktop) {
+          if (!window.derpDesktop.printFrame)
+            return yield* Effect.fail(
+              new Error(
+                'Update the desktop client to use native printing, or download the original.',
+              ),
+            )
+          return yield* Effect.tryPromise({
+            try: () => window.derpDesktop!.printFrame!(frame.name),
+            catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+          })
+        }
         return yield* Effect.callback<void, Error>((resume) => {
           const target = frame.contentWindow!
           const after = () => resume(Effect.void)
@@ -108,6 +121,7 @@ export function printPdf(
       }),
     ({ frame, urls }) =>
       Effect.sync(() => {
+        void window.derpDesktop?.cancelPrint?.(frame.name).catch(() => {})
         frame.remove()
         for (const url of urls) URL.revokeObjectURL(url)
       }),

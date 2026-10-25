@@ -1,6 +1,6 @@
 # Desktop client (Linux / Hyprland)
 
-The standalone Qt 6 WebEngine application uses native Wayland windows and Qt clipboard/drag-and-drop. It does not depend on Quickshell. Build dependencies on Arch: `qt6-webengine qt6-webchannel kwindowsystem cmake ninja gcc`.
+The standalone Qt 6 WebEngine application uses native Wayland windows and Qt clipboard/drag-and-drop. It does not depend on Quickshell. Build dependencies on Arch: `qt6-webengine qt6-webchannel qt6-pdf kwindowsystem cmake ninja gcc`.
 
 The desktop client uses the existing local server, browser, viewers, readers and saved reader progress. Every browser, image/video viewer, text editor and reader uses the existing workspace presentation, edge to edge. It has no workspace membership or persisted window layout. Start an updated server built from this repository before opening files. The client does not start or package the server.
 
@@ -114,3 +114,7 @@ Native session restoration is off by default. Enable Restore windows on startup 
 With Linux server `desktopMode`, file deletion uses the system Trash. Open **Places → Trash**
 to restore files; **Shift+Delete** requests permanent deletion. Restore never overwrites a file
 and requires write access to the original folder.
+
+PDF printing uses the native Qt print dialog in the desktop client, with printer choice, paper size, orientation, page range and copies. The selected document pages remain alive until printing finishes or is cancelled. Closing the web print preparation dialog also cancels its native job. The native client requires `qt6-pdf`; older clients show an update message instead of silently ignoring Print. Native printer output still requires a manual check with the installed printer; automated checks build the client and exercise the bridge in a browser.
+
+Download actions, including generated image/text exports, use a Save download dialog with overwrite confirmation and a cancellable progress window. Its last directory is remembered. This Qt dialog does not call the app’s own FileChooser portal recursively. User-clicked HTTP/HTTPS links open in the system browser and mail links in the registered mail application. Automatic popups remain blocked.

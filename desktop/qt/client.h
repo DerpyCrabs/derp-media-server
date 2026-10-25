@@ -25,6 +25,8 @@ class ClientWindow : public QWebEngineView {
     QJsonObject target, picker;
     QStringList dropPaths;
     QString parentHandle;
+    QPointer<QObject> printJob;
+    QString printFrameName;
     void showTarget();
     bool ready = false, approvedClose = false, closing = false, targetPending = false;
     std::function<void(uint, QJsonObject)> pickerFinished;

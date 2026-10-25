@@ -46,6 +46,8 @@
       }),
     open: (path, reader = false) => call('open', path, reader),
     openRoot: () => call('open', ''),
+    printFrame: (name) => call('print-frame', name),
+    cancelPrint: (name) => call('cancel-print', name),
     nativeJobs: () => call('native-jobs'),
     cancelNativeJob: (id) => call('cancel-native-job', id),
     decideNativeJob: (id, choice, all) => call('decide-native-job', id, choice, all),

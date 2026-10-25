@@ -1,4 +1,8 @@
 #include "client.h"
+#include "printing.h"
+#include "downloads.h"
+#include <QDesktopServices>
+#include <QWebEngineNewWindowRequest>
 #include <KWindowSystem>
 #include <QClipboard>
 #include <QCloseEvent>
@@ -105,13 +109,24 @@ static QJsonArray applicationsFor(const QString &path) {
 class Page : public QWebEnginePage {
   public:
     Page(QWebEngineProfile *profile, QString origin, QObject *parent)
-        : QWebEnginePage(profile, parent), origin(std::move(origin)) {}
+        : QWebEnginePage(profile, parent), origin(std::move(origin)) {
+        connect(this, &QWebEnginePage::newWindowRequested, this, [](QWebEngineNewWindowRequest &request) {
+            if (request.isUserInitiated()) openExternal(request.requestedUrl());
+        });
+    }
+    static void openExternal(const QUrl &url) {
+        if (url.scheme() == "https" || url.scheme() == "http" || url.scheme() == "mailto")
+            QDesktopServices::openUrl(url);
+    }
 
   protected:
-    bool acceptNavigationRequest(const QUrl &url, NavigationType, bool main) override {
-        return !main ||
-               (url.adjusted(QUrl::RemovePath | QUrl::RemoveQuery | QUrl::RemoveFragment).toString() == origin &&
-                url.path() == "/desktop");
+    bool acceptNavigationRequest(const QUrl &url, NavigationType type, bool main) override {
+        if (!main) return true;
+        const bool sameOrigin = url.adjusted(QUrl::RemovePath | QUrl::RemoveQuery | QUrl::RemoveFragment).toString() == origin;
+        if (sameOrigin && url.path() == "/desktop") return true;
+        if (sameOrigin && url.path() == "/api/files/download") return true;
+        if (type == NavigationTypeLinkClicked) openExternal(url);
+        return false;
     }
     QWebEnginePage *createWindow(WebWindowType) override { return nullptr; }
     void javaScriptConsoleMessage(JavaScriptConsoleMessageLevel level, const QString &message, int line,
@@ -343,6 +358,27 @@ void ClientWindow::closeEvent(QCloseEvent *event) {
 Bridge::Bridge(Client *client, ClientWindow *window) : QObject(window), client(client), window(window) {}
 void Bridge::call(const QString &id, const QString &method, const QJsonArray &args) {
     auto respond = [this, id](QJsonValue value = QJsonValue()) { emit reply(id, {{"value", value}}); };
+    if (method == "print-frame") {
+        const auto name = args.at(0).toString();
+        if (window->printJob || !name.startsWith("derp-print-")) {
+            emit reply(id, {{"error", "Another print dialog is open, or the document is unavailable."}});
+            return;
+        }
+        window->printFrameName = name;
+        QPointer<Bridge> self(this);
+        window->printJob = printDocumentFrame(window->page(), window, name, [self, id](QString error) {
+            if (!self) return;
+            self->window->printJob = nullptr;
+            self->window->printFrameName.clear();
+            emit self->reply(id, error.isEmpty() ? QJsonObject{{"value", QJsonValue()}} : QJsonObject{{"error", error}});
+        });
+        return;
+    }
+    if (method == "cancel-print") {
+        if (window->printFrameName == args.at(0).toString()) cancelDocumentPrint(window->printJob);
+        respond();
+        return;
+    }
     if (method == "native-jobs") {
         respond(client->nativeJobs->snapshot());
         return;
@@ -558,6 +594,7 @@ Client::Client(QString origin) : server(std::move(origin)) {
     sessionFile = qEnvironmentVariable("XDG_STATE_HOME", QDir::homePath() + "/.local/state") +
                   "/derp-media-server/desktop-session.json";
     profile = new QWebEngineProfile("derp-media-client", this);
+    installDownloads(profile);
     QString state =
         qEnvironmentVariable("XDG_STATE_HOME", QDir::homePath() + "/.local/state") + "/derp-media-server/qt-desktop";
     profile->setPersistentStoragePath(state);
