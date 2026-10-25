@@ -121,6 +121,9 @@ impl IndexDb {
              UPDATE entries SET media_type='video' WHERE is_directory=0 AND extension='ogv' AND media_type!='video'
                AND NOT EXISTS(SELECT 1 FROM index_metadata WHERE key='ogg-classification-v1');
              INSERT OR IGNORE INTO index_metadata(key,value) VALUES('ogg-classification-v1','done');
+             UPDATE entries SET media_type='document' WHERE is_directory=0 AND extension IN ('docx','odt') AND media_type!='document'
+               AND NOT EXISTS(SELECT 1 FROM index_metadata WHERE key='office-classification-v1');
+             INSERT OR IGNORE INTO index_metadata(key,value) VALUES('office-classification-v1','done');
              COMMIT;"
         ).map_err(err)?;
         Ok(Self { connection })
@@ -399,7 +402,8 @@ fn err(error: rusqlite::Error) -> String {
 mod classification_tests {
     use super::*;
     #[test]
-    fn reopening_an_existing_index_repairs_ogg_without_recrawling_or_losing_entries() {
+    fn reopening_an_existing_index_repairs_media_classification_without_recrawling_or_losing_entries()
+     {
         let base = std::env::temp_dir().join(format!("derp-ogg-index-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&base).unwrap();
         let path = base.join("index.sqlite");
@@ -417,6 +421,8 @@ mod classification_tests {
                 ("song.oga", "oga", "other"),
                 ("clip.ogv", "ogv", "other"),
                 ("note.txt", "txt", "text"),
+                ("report.docx", "docx", "other"),
+                ("report.odt", "odt", "other"),
             ] {
                 db.connection.execute("INSERT INTO entries(root_id,relative_path,parent_path,name,name_key,path_key,is_directory,extension,media_type,generation) VALUES('root',?1,'',?1,?1,?1,0,?2,?3,1)", params![name,extension,kind]).unwrap();
             }
@@ -440,6 +446,8 @@ mod classification_tests {
                 vec![
                     ("clip.ogv".into(), "video".into()),
                     ("note.txt".into(), "text".into()),
+                    ("report.docx".into(), "document".into()),
+                    ("report.odt".into(), "document".into()),
                     ("song.oga".into(), "audio".into()),
                     ("song.ogg".into(), "audio".into())
                 ]

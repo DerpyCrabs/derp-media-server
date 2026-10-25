@@ -68,6 +68,7 @@ function colorClass(mediaType: MediaType): string {
       return 'text-red-500'
     case MediaType.IMAGE:
       return 'text-green-500'
+    case MediaType.DOCUMENT:
     case MediaType.TEXT:
       return 'text-cyan-500'
     case MediaType.PDF:
@@ -175,6 +176,7 @@ function renderFileIcon(
       return <Video class={`${cls} text-red-500`} size={sz} stroke-width={sw} />
     case MediaType.IMAGE:
       return <ImageIcon class={`${cls} text-green-500`} size={sz} stroke-width={sw} />
+    case MediaType.DOCUMENT:
     case MediaType.TEXT:
       return <FileText class={`${cls} text-cyan-500`} size={sz} stroke-width={sw} />
     case MediaType.PDF:

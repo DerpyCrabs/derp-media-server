@@ -136,6 +136,7 @@ export function canvasWindowDetails(definition: WindowDefinition): {
       [MediaType.TEXT]: 'Document',
       [MediaType.PDF]: 'PDF',
       [MediaType.BOOK]: 'Book',
+      [MediaType.DOCUMENT]: 'Document',
       [MediaType.FOLDER]: 'Folder',
       [MediaType.OTHER]: 'File',
     }[definition.iconType ?? MediaType.OTHER] ?? 'File'
@@ -164,6 +165,7 @@ export function mediaWindowSizeKey(mediaType: MediaType): CanvasWindowSizeKey {
       return 'viewer-text'
     case MediaType.PDF:
     case MediaType.BOOK:
+    case MediaType.DOCUMENT:
       return 'viewer-pdf'
     case MediaType.FOLDER:
     case MediaType.OTHER:

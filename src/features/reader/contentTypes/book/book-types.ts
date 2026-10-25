@@ -1,4 +1,4 @@
-export type BookFormat = 'epub' | 'fb2'
+export type BookFormat = 'epub' | 'fb2' | 'docx' | 'odt'
 
 export type BookMetadata = { title: string; authors: string[]; language?: string; series?: string }
 
@@ -22,6 +22,7 @@ export type BookResource = { path: string; mediaType: string; bytes: Uint8Array 
 
 export type BookDocument = {
   format: BookFormat
+  notices?: string[]
   metadata: BookMetadata
   chapters: BookChapter[]
   outline: BookOutlineItem[]

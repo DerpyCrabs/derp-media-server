@@ -93,7 +93,11 @@ export const ViewerPane = controllerView(
       props.readerKind === 'folder'
         ? 'directory'
         : (props.readerKind ??
-          (type === MediaType.PDF ? 'pdf' : type === MediaType.BOOK ? 'book' : null))
+          (type === MediaType.PDF
+            ? 'pdf'
+            : type === MediaType.BOOK || type === MediaType.DOCUMENT
+              ? 'book'
+              : null))
     const ordered = sortFilesForPath(
       model.files,
       props.directory ?? '',

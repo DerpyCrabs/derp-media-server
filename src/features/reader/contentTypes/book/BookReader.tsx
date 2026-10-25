@@ -1,3 +1,5 @@
+import { list } from 'effectweb'
+import { readResponseBytes } from '@/lib/files/response-bytes'
 import Search from '@effectweb/lucide/icons/search'
 import { DocumentSearchBar } from '../../DocumentSearchBar'
 import { findDocumentMatches, type DocumentMatch } from '../../document-search'
@@ -44,7 +46,7 @@ function loadBook(path: string): Effect.Effect<LoadedBook, unknown> {
           signal,
         })
         if (!response.ok) throw new Error(`Could not open book (${response.status})`)
-        return response.arrayBuffer()
+        return readResponseBytes(response, (/\.(docx|odt)$/i.test(path) ? 64 : 100) * 1024 * 1024)
       },
       catch: (error) => error,
     })
@@ -440,6 +442,7 @@ const BookReader = controllerView(
       actions = model.actions,
       state = model.position
     const loaded = model.book
+    const officeDocument = /\.(docx|odt)$/i.test(props.sourcePath)
     return (
       <ReaderFrame
         {...props}
@@ -464,7 +467,7 @@ const BookReader = controllerView(
             >
               <span class='truncate'>
                 {loaded?.document.chapters.find((chapter) => chapter.id === state.chapterId)
-                  ?.title ?? 'Book'}
+                  ?.title ?? (officeDocument ? 'Document' : 'Book')}
               </span>
             </button>
             <button
@@ -495,22 +498,48 @@ const BookReader = controllerView(
           return true
         }}
         search={
-          model.searchOpen ? (
-            <DocumentSearchBar
-              query={model.searchQuery}
-              searching={model.searching}
-              truncated={model.searchTruncated}
-              matches={model.matches}
-              index={model.matchIndex}
-              location={
-                loaded?.document.chapters[model.matches[model.matchIndex]?.page ?? 0]?.title ??
-                'Chapter'
-              }
-              onSearch={actions.search}
-              onNext={actions.nextMatch}
-              onClose={actions.closeSearch}
-            />
-          ) : undefined
+          <>
+            {model.searchOpen ? (
+              <DocumentSearchBar
+                query={model.searchQuery}
+                searching={model.searching}
+                truncated={model.searchTruncated}
+                matches={model.matches}
+                index={model.matchIndex}
+                location={
+                  loaded?.document.chapters[model.matches[model.matchIndex]?.page ?? 0]?.title ??
+                  'Chapter'
+                }
+                onSearch={actions.search}
+                onNext={actions.nextMatch}
+                onClose={actions.closeSearch}
+              />
+            ) : null}
+            {officeDocument ? (
+              <div class='flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-white/10 bg-neutral-900 px-3 py-1.5 text-xs text-white/70'>
+                <details>
+                  <summary class='cursor-pointer'>Reading preview · Layout may differ</summary>
+                  <div class='max-w-xl py-2'>
+                    <p>
+                      Text, tables and embedded images are shown in a reading layout. Page breaks,
+                      headers, footers, comments and some formatting are omitted. Open the original
+                      for exact layout or editing.
+                    </p>
+                    {list(loaded?.document.notices ?? [], (notice) => (
+                      <p>{notice}</p>
+                    ))}
+                  </div>
+                </details>
+                <a
+                  class='shrink-0 underline hover:text-white'
+                  href={`/api/files/download?path=${encodeURIComponent(props.sourcePath)}`}
+                  download
+                >
+                  Download original
+                </a>
+              </div>
+            ) : null}
+          </>
         }
         settings={() => (
           <BookAppearanceSettings

@@ -48,6 +48,7 @@ export const BATCHES = [
       'hermes-chat',
       'reader',
       'reader-notes',
+      'office-documents',
       'pdf-password',
       'pdf-print',
       'pdf-links',

@@ -101,6 +101,8 @@ const MIME_TYPES: Record<string, string> = {
 
   // PDF
   pdf: 'application/pdf',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  odt: 'application/vnd.oasis.opendocument.text',
   epub: 'application/epub+zip',
   fb2: 'application/x-fictionbook+xml',
   'fb2.zip': 'application/zip',
@@ -164,6 +166,8 @@ export function getMediaType(extension: string): MediaType {
   if (PDF_EXTENSIONS.includes(ext)) {
     return MediaType.PDF
   }
+
+  if (ext === 'docx' || ext === 'odt') return MediaType.DOCUMENT
 
   if (BOOK_EXTENSIONS.includes(ext)) {
     return MediaType.BOOK

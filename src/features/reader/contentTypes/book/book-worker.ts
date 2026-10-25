@@ -7,6 +7,7 @@ import {
   type Node as XmlNode,
 } from '@xmldom/xmldom'
 import { strFromU8, unzipSync } from 'fflate'
+import { parseOfficeDocument } from './office-parser'
 import { normalizeBookPath, resolveBookPath, splitBookHref } from './book-path'
 import type {
   BookChapter,
@@ -450,19 +451,21 @@ self.onmessage = (event: MessageEvent<BookWorkerRequest>) => {
     const bytes = new Uint8Array(event.data.bytes)
     if (bytes.byteLength > MAX_SOURCE) throw new Error('Book file exceeds 100 MB')
     const lower = event.data.fileName.toLowerCase()
-    const document = lower.endsWith('.epub')
-      ? parseEpub(bytes)
-      : lower.endsWith('.fb2.zip') || (lower.endsWith('.zip') && bytes[0] === 0x50)
-        ? (() => {
-            validateZip(bytes)
-            const entries = unzipSync(bytes)
-            const fb2 = Object.entries(entries).filter(([path]) =>
-              path.toLowerCase().endsWith('.fb2'),
-            )
-            if (fb2.length !== 1) throw new Error('FB2 ZIP must contain exactly one .fb2 file')
-            return parseFb2(fb2[0]![1])
-          })()
-        : parseFb2(bytes)
+    const document = /\.(docx|odt)$/.test(lower)
+      ? parseOfficeDocument(bytes, event.data.fileName)
+      : lower.endsWith('.epub')
+        ? parseEpub(bytes)
+        : lower.endsWith('.fb2.zip') || (lower.endsWith('.zip') && bytes[0] === 0x50)
+          ? (() => {
+              validateZip(bytes)
+              const entries = unzipSync(bytes)
+              const fb2 = Object.entries(entries).filter(([path]) =>
+                path.toLowerCase().endsWith('.fb2'),
+              )
+              if (fb2.length !== 1) throw new Error('FB2 ZIP must contain exactly one .fb2 file')
+              return parseFb2(fb2[0]![1])
+            })()
+          : parseFb2(bytes)
     reply({ ok: true, document })
   } catch (error) {
     reply({ ok: false, error: error instanceof Error ? error.message : 'Could not parse book' })

@@ -44,6 +44,7 @@ pub fn media_type(ext: &str) -> &'static str {
         "mp3" | "wav" | "ogg" | "oga" | "m4a" | "flac" | "aac" | "opus" => "audio",
         "jpg" | "jpeg" | "png" | "gif" | "webp" | "bmp" | "svg" | "ico" => "image",
         "pdf" => "pdf",
+        "docx" | "odt" => "document",
         "epub" | "fb2" | "fb2.zip" => "book",
         "m3u" | "m3u8" | "pls" | "xspf" | "txt" | "md" | "json" | "xml" | "csv" | "tsv" | "log"
         | "yaml" | "yml" | "ini" | "conf" | "sh" | "bat" | "ps1" | "js" | "ts" | "jsx" | "tsx"
@@ -130,6 +131,8 @@ pub fn mime_type(ext: &str) -> &'static str {
         "svg" => "image/svg+xml",
         "ico" => "image/x-icon",
         "pdf" => "application/pdf",
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "odt" => "application/vnd.oasis.opendocument.text",
         "epub" => "application/epub+zip",
         "fb2" => "application/x-fictionbook+xml",
         "fb2.zip" => "application/zip",
@@ -421,6 +424,17 @@ fn sort(v: &mut [FileItem]) {
 #[cfg(test)]
 mod classification_tests {
     use super::*;
+    #[test]
+    fn office_documents_have_their_own_type_and_standard_mime() {
+        assert_eq!(media_type("DOCX"), "document");
+        assert_eq!(media_type("odt"), "document");
+        assert_eq!(
+            mime_type("docx"),
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        );
+        assert_eq!(mime_type("odt"), "application/vnd.oasis.opendocument.text");
+        assert_eq!(media_type("docm"), "other");
+    }
     #[test]
     fn ogg_profiles_use_audio_and_video_players_consistently() {
         for extension in ["ogg", "oga", "opus", "OGG"] {

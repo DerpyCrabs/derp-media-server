@@ -277,6 +277,7 @@ export function renderBook(document: BookDocument): RenderedBook {
             'href',
             'src',
             'style',
+            'start',
             'colspan',
             'rowspan',
             'dir',
