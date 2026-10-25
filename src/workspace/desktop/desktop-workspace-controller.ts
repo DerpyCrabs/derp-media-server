@@ -1,3 +1,5 @@
+import { createClosedWindowHistory } from '@/workspace/shared/closed-window-history'
+import { reopenWorkspaceWindows } from '@/workspace/model/workspace-reopen'
 import { desktopWindowGroups, type DesktopWindowGroupModel } from './desktop-window-groups'
 import { Effect, Schema } from 'effect'
 import { modelOwner } from 'effectweb'
@@ -133,6 +135,36 @@ export function createDesktopController(props: { session: WorkspaceSession }) {
   )
   const workspace = workspaceRegistry.document.value
   const setWorkspace = workspaceRegistry.document.update
+  const closedWindows = createClosedWindowHistory()
+  function reopenClosedTab() {
+    if (!workspaceRegistry.state.editable()) return
+    const id = workspaceId()
+    const item = closedWindows.peek(id)
+    const current = workspace()
+    if (!item || !current) return
+    const restored = reopenWorkspaceWindows(current, item)
+    setWorkspace(restored.state)
+    closedWindows.consume(id, item)
+  }
+  const reopenKey = (event: KeyboardEvent) => {
+    if (
+      event.defaultPrevented ||
+      event.altKey ||
+      !(event.ctrlKey || event.metaKey) ||
+      !event.shiftKey ||
+      event.key.toLowerCase() !== 't'
+    )
+      return
+    if (!workspaceRegistry.state.editable() || !closedWindows.peek(workspaceId())) return
+    event.preventDefault()
+    event.stopImmediatePropagation()
+    reopenClosedTab()
+  }
+  window.addEventListener('keydown', reopenKey)
+  owner.own(() => {
+    window.removeEventListener('keydown', reopenKey)
+    closedWindows.dispose()
+  })
   const lifecycle = createWorkspaceLifecycleCommands({
     owner: owner,
     session: workspaceRegistry,
@@ -412,6 +444,7 @@ export function createDesktopController(props: { session: WorkspaceSession }) {
       setWorkspace((current) => {
         if (!current) return current
         const result = WorkspaceDocumentCommands.closeGroups(current, new Set([groupId]))
+        closedWindows.record(workspaceId(), current, result.removed)
         removed.push(...result.removed)
         return result.state
       })
@@ -435,6 +468,7 @@ export function createDesktopController(props: { session: WorkspaceSession }) {
         const result = WorkspaceDocumentCommands.closeTab(prev, tabId, {
           ignorePin: opts?.ignoreTabPinForListenOnlyDismiss,
         })
+        closedWindows.record(workspaceId(), prev, result.removed)
         removed.push(...result.removed)
         return result.state
       })
@@ -1392,6 +1426,8 @@ export function createDesktopController(props: { session: WorkspaceSession }) {
       fileSearchOpen: owner.read().fileSearchOpen,
       setFileSearchOpen,
       workspaceId: workspaceId(),
+      reopenClosedTab,
+      canReopenClosed: workspaceRegistry.state.editable() && !!closedWindows.peek(workspaceId()),
       fileOpenTargetPick: fileOpenTargetPick(),
       fileOpenPickHoverId: fileOpenPickHoverId(),
       hasAnyTaskbarItems: hasAnyTaskbarItems(),
@@ -1479,6 +1515,7 @@ export function createDesktopController(props: { session: WorkspaceSession }) {
   })
   const registryView = workspacePresentationSource(workspaceRegistry.source)
   const dependencies = [
+    closedWindows.source,
     owner.source,
     registryView,
     server.source,

@@ -1,3 +1,5 @@
+import { createClosedWindowHistory } from '@/workspace/shared/closed-window-history'
+import { reopenWorkspaceWindows } from '@/workspace/model/workspace-reopen'
 import { Effect, Schema } from 'effect'
 import { mapSource, modelOwner } from 'effectweb'
 import { apiSchemaEffect, postEffect } from '@/lib/api/client'
@@ -241,6 +243,37 @@ export function createCanvasController(props: { session: WorkspaceSession }) {
   )
   const workspaceSnapshot = workspaceRegistry.document.value
   const setWorkspaceSnapshot = workspaceRegistry.document.update
+  const closedWindows = createClosedWindowHistory()
+  function reopenClosedTab() {
+    if (!workspaceRegistry.state.editable()) return
+    const id = workspaceId()
+    const item = closedWindows.peek(id)
+    const current = workspaceSnapshot()
+    if (!item || !current) return
+    const restored = reopenWorkspaceWindows(current, item)
+    setWorkspaceSnapshot(restored.state)
+    closedWindows.consume(id, item)
+    queueMicrotask(() => ensureWindowsVisible(restored.openedIds))
+  }
+  const reopenKey = (event: KeyboardEvent) => {
+    if (
+      event.defaultPrevented ||
+      event.altKey ||
+      !(event.ctrlKey || event.metaKey) ||
+      !event.shiftKey ||
+      event.key.toLowerCase() !== 't'
+    )
+      return
+    if (!workspaceRegistry.state.editable() || !closedWindows.peek(workspaceId())) return
+    event.preventDefault()
+    event.stopImmediatePropagation()
+    reopenClosedTab()
+  }
+  window.addEventListener('keydown', reopenKey)
+  local.own(() => {
+    window.removeEventListener('keydown', reopenKey)
+    closedWindows.dispose()
+  })
   const emptyWorkspace = defaultPersistedState(DEFAULT_WORKSPACE_SOURCE)
   emptyWorkspace.windows = []
   const workspace = () => workspaceSnapshot() ?? emptyWorkspace
@@ -1218,6 +1251,7 @@ export function createCanvasController(props: { session: WorkspaceSession }) {
       const base = workspaceSnapshot()
       if (!base) return
       const result = WorkspaceDocumentCommands.closeTab(base, windowId)
+      closedWindows.record(workspaceId(), base, result.removed)
       setWorkspaceSnapshot(result.state)
       const removed = result.removed[0]
       const viewing = removed?.initialState.viewing
@@ -1240,6 +1274,7 @@ export function createCanvasController(props: { session: WorkspaceSession }) {
       const base = workspaceSnapshot()
       if (!base) return
       const result = WorkspaceDocumentCommands.closeGroups(base, groupIds)
+      closedWindows.record(workspaceId(), base, result.removed)
       const removedIds = new Set(result.removed.map((target) => target.id))
       const currentItem = playbackSession.getSnapshot().currentItem
       if (
@@ -1873,6 +1908,8 @@ export function createCanvasController(props: { session: WorkspaceSession }) {
       searchOpen: searchOpen(),
       workspacePanelOpen: workspacePanelOpen(),
       workspaceId: workspaceId(),
+      reopenClosedTab,
+      canReopenClosed: workspaceRegistry.state.editable() && !!closedWindows.peek(workspaceId()),
       outlineOpen: outlineOpen(),
       spaceHeld: spaceHeld(),
       geometryActive: geometryActive(),
@@ -1954,6 +1991,7 @@ export function createCanvasController(props: { session: WorkspaceSession }) {
   }
   const presentation = projectionSource({ project, refresh: workspaceRegistry.savingBlockChanged })
   const dependencies = [
+    closedWindows.source,
     local.source,
     workspaceDocumentSource(workspaceRegistry.source),
     server.source,

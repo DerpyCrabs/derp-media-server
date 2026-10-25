@@ -1,5 +1,3 @@
-import { LazyTextPrintDialog } from './LazyTextPrintDialog'
-import Printer from '@effectweb/lucide/icons/printer'
 import { TextComparisonDialog } from './TextComparisonDialog'
 import { openPlaylistImport } from '@/features/music/actions'
 import { LazyTableDocument } from '@/features/table/LazyTableDocument'
@@ -55,13 +53,6 @@ export const TextEditorPane = controllerView(
         use={domBinding(
           {
             dirty: model.edit !== model.base,
-            onPrint: actions.print,
-            canPrint:
-              !model.loading &&
-              !model.loadError &&
-              !model.printDocument &&
-              !model.saveAsOpen &&
-              !model.comparison,
             onSaveAs: actions.openSaveAs,
             canSaveAs: props.editableFolders.length > 0 && !model.saveAsOpen,
           },
@@ -80,7 +71,7 @@ export const TextEditorPane = controllerView(
           class={
             props.embedded
               ? 'flex h-9 shrink-0 flex-wrap items-center gap-1 border-b border-border bg-muted/50 px-2'
-              : 'relative border-border bg-background/90 flex h-auto min-h-12 shrink-0 flex-wrap items-center justify-between gap-2 border-b px-3 py-2'
+              : 'border-border bg-background/90 flex h-auto min-h-12 shrink-0 flex-wrap items-center justify-between gap-2 border-b px-3 py-2'
           }
         >
           {props.embedded ? (
@@ -90,7 +81,7 @@ export const TextEditorPane = controllerView(
             </span>
           ) : null}
           {!props.embedded ? (
-            <div class='min-w-0 flex-1 basis-full pr-10 sm:basis-auto sm:pr-0'>
+            <div class='min-w-0 flex-1'>
               <h2
                 id='text-viewer-title'
                 class={
@@ -123,7 +114,7 @@ export const TextEditorPane = controllerView(
             class={
               props.embedded
                 ? 'ml-auto flex min-w-0 items-center gap-0.5'
-                : 'flex flex-wrap items-center gap-1 sm:gap-2'
+                : 'flex flex-wrap items-center gap-2'
             }
           >
             {['m3u', 'm3u8', 'pls', 'xspf'].includes(ext()) ? (
@@ -173,8 +164,6 @@ export const TextEditorPane = controllerView(
                         }`}
                         onClick={() => toggleAutoSave()}
                         title={autoSaveEnabled() ? 'Auto-save enabled' : 'Auto-save disabled'}
-                        aria-label='Auto-save'
-                        aria-pressed={autoSaveEnabled()}
                       >
                         <span class='inline-flex items-center gap-1.5'>
                           {autoSaveEnabled() ? (
@@ -182,7 +171,7 @@ export const TextEditorPane = controllerView(
                           ) : (
                             <ZapOff class='h-4 w-4' stroke-width={2} />
                           )}
-                          <span class='hidden min-[450px]:inline'>Auto-save</span>
+                          Auto-save
                         </span>
                       </button>
                     ) : null}
@@ -275,20 +264,6 @@ export const TextEditorPane = controllerView(
             ) : null}
             <button
               type='button'
-              title='Print (Ctrl+P)'
-              aria-label='Print document'
-              disabled={model.loading || !!model.loadError}
-              class={
-                props.embedded
-                  ? 'hover:bg-muted inline-flex size-7 items-center justify-center rounded-md disabled:opacity-40'
-                  : 'hover:bg-muted inline-flex size-8 items-center justify-center rounded-md disabled:opacity-40'
-              }
-              onClick={actions.print}
-            >
-              <Printer size={props.embedded ? 14 : 18} />
-            </button>
-            <button
-              type='button'
               title='Download'
               aria-label='Download'
               class={
@@ -311,7 +286,7 @@ export const TextEditorPane = controllerView(
               class={
                 props.embedded
                   ? 'hover:bg-muted inline-flex h-7 w-7 items-center justify-center rounded-md'
-                  : 'hover:bg-muted absolute right-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-md sm:static'
+                  : 'hover:bg-muted inline-flex h-8 w-8 items-center justify-center rounded-md'
               }
               onClick={() => handleClose()}
             >
@@ -334,15 +309,6 @@ export const TextEditorPane = controllerView(
             onApply={actions.useReviewed}
             onClose={actions.closeComparison}
             onDownload={actions.download}
-          />
-        ) : null}
-        {model.printDocument ? (
-          <LazyTextPrintDialog
-            path={props.viewingPath}
-            content={model.printDocument.content}
-            dirty={model.printDocument.dirty}
-            knowledgeBases={[...(props.knowledgeBases ?? [])]}
-            onClose={actions.closePrint}
           />
         ) : null}
         <div class='flex min-h-0 flex-1 flex-col overflow-hidden'>

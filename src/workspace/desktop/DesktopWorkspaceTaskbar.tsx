@@ -26,6 +26,8 @@ export type DesktopWorkspaceTaskbarProps = {
     openBrowser: () => void
     openWorkspaces: () => void
     openSearchResult: (result: FileSearchResult) => void
+    reopenClosedTab: () => void
+    canReopenClosed: boolean
     changeTransition: (value: 'instant' | 'fade') => void
   }
   items: {
@@ -132,6 +134,8 @@ export const DesktopWorkspaceTaskbar = view<DesktopWorkspaceTaskbarProps>((props
             onStopPlayback={props.playback.stop}
           />
           <WorkspaceTaskbarSettings
+            reopenClosedTab={props.commands.reopenClosedTab}
+            canReopenClosed={props.commands.canReopenClosed}
             workspaceTransition={props.items.settings?.workspaceTransition ?? 'fade'}
             onWorkspaceTransitionChange={props.commands.changeTransition}
           />

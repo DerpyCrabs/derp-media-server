@@ -41,7 +41,6 @@ type Props = ReaderPresentation & {
   toolbar: JSX.Element
   search?: JSX.Element
   onFind?: () => void
-  onPrint?: () => void
   overlay?: JSX.Element
   settings?: (close: () => void) => JSX.Element
   settingsWide?: boolean
@@ -266,15 +265,6 @@ function frameController(props: Props) {
       ) {
         event.preventDefault()
         current.props.onFind()
-        return
-      }
-      if (
-        (event.ctrlKey || event.metaKey) &&
-        event.key.toLowerCase() === 'p' &&
-        current.props.onPrint
-      ) {
-        event.preventDefault()
-        current.props.onPrint()
         return
       }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'b') {

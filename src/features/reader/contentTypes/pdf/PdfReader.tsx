@@ -7,7 +7,6 @@ import { modalDialogBackdropClass } from '@/features/explorer/modal-overlay-scop
 import { closeReader } from '../../reader-url'
 import * as pdfjs from 'pdfjs-dist'
 import { buildMediaUrl } from '@/lib/media/build-media-url'
-import { PdfPrintDialog } from './PdfPrintDialog'
 import { PdfContent, type PdfDocument } from './PdfContent'
 import { mapPdfOutline } from './pdf-outline'
 import { PagedReader, type PagedDocument } from '../paged/PagedReader'
@@ -156,15 +155,6 @@ const PdfReader = controllerView(
               <PdfFormBar forms={forms} path={props.sourcePath} embedded={props.embedded} />
             ) : null
           }}
-          renderPrint={(document, currentPage, onClose) => (
-            <PdfPrintDialog
-              pdf={(document as PdfReaderDocument).pdf}
-              path={props.sourcePath}
-              currentPage={currentPage}
-              embedded={props.embedded}
-              onClose={onClose}
-            />
-          )}
           renderPage={({
             document,
             page,

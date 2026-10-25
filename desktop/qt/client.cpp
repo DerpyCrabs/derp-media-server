@@ -1,5 +1,4 @@
 #include "client.h"
-#include "printing.h"
 #include "downloads.h"
 #include <QDesktopServices>
 #include <QWebEngineNewWindowRequest>
@@ -374,27 +373,6 @@ void Bridge::call(const QString &id, const QString &method, const QJsonArray &ar
     }
     if (method == "cancel-download") {
         cancelDocumentDownload(window->page(), QUrl(args.at(0).toString()));
-        respond();
-        return;
-    }
-    if (method == "print-frame") {
-        const auto name = args.at(0).toString();
-        if (window->printJob || !name.startsWith("derp-print-")) {
-            emit reply(id, {{"error", "Another print dialog is open, or the document is unavailable."}});
-            return;
-        }
-        window->printFrameName = name;
-        QPointer<Bridge> self(this);
-        window->printJob = printDocumentFrame(window->page(), window, name, [self, id](QString error) {
-            if (!self) return;
-            self->window->printJob = nullptr;
-            self->window->printFrameName.clear();
-            emit self->reply(id, error.isEmpty() ? QJsonObject{{"value", QJsonValue()}} : QJsonObject{{"error", error}});
-        });
-        return;
-    }
-    if (method == "cancel-print") {
-        if (window->printFrameName == args.at(0).toString()) cancelDocumentPrint(window->printJob);
         respond();
         return;
     }

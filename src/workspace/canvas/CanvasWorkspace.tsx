@@ -369,6 +369,8 @@ export const CanvasWorkspace = controllerView(
               onStopPlayback={() => playbackSession.dispatch({ type: 'stop' })}
             />
             <WorkspaceTaskbarSettings
+              reopenClosedTab={model.reopenClosedTab}
+              canReopenClosed={model.canReopenClosed}
               workspaceTransition={model.settings?.workspaceTransition ?? 'fade'}
               onWorkspaceTransitionChange={(value) => setWorkspaceTransition(value)}
             />

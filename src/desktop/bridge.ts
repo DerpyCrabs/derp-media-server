@@ -10,8 +10,6 @@ export interface DesktopBridge {
   pick?(selection: PickerSelection): Promise<{ overwrite?: string[] }>
   downloadBlob?(url: string, name: string): Promise<boolean>
   cancelDownload?(url: string): Promise<void>
-  printFrame?(name: string): Promise<void>
-  cancelPrint?(name: string): Promise<void>
   nativeJobs?(): Promise<unknown>
   cancelNativeJob?(id: string): Promise<void>
   decideNativeJob?(id: string, choice: string, all: boolean): Promise<void>

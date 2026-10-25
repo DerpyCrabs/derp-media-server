@@ -121,45 +121,6 @@ test('unmodified forms do not create recovery drafts and read-only folders allow
   await expect(page.getByRole('button', { name: 'Restore entries', exact: true })).toHaveCount(0)
 })
 
-test('PDF printing includes current form text instead of the empty original', async ({ page }) => {
-  await page.addInitScript(() => {
-    window.print = () => {
-      const image = document.querySelector('img')!
-      const canvas = document.createElement('canvas')
-      canvas.width = 400
-      canvas.height = 30
-      const context = canvas.getContext('2d')!
-      const scale = image.naturalWidth / 612
-      context.drawImage(image, 50 * scale, 122 * scale, 400 * scale, 30 * scale, 0, 0, 400, 30)
-      const pixels = context.getImageData(0, 0, 400, 30).data
-      let dark = 0
-      for (let index = 0; index < pixels.length; index += 4)
-        if (pixels[index]! < 100 && pixels[index + 1]! < 100 && pixels[index + 2]! < 100) dark++
-      window.top!.postMessage({ type: 'printed-form', dark }, '*')
-      window.dispatchEvent(new Event('afterprint'))
-    }
-    window.addEventListener('message', (event) => {
-      if (event.data?.type === 'printed-form')
-        (window as Window & { printedFormInk?: number }).printedFormInk = event.data.dark
-    })
-  })
-  await page.goto('/?dir=Documents&viewing=Documents%2Freader.pdf')
-  await page
-    .getByRole('textbox', { name: 'Full name', exact: true })
-    .fill('Printed filled application')
-  await page.keyboard.press('Control+p')
-  await page
-    .getByRole('dialog', { name: 'Print PDF', exact: true })
-    .getByRole('button', { name: 'Print', exact: true })
-    .click()
-  await expect
-    .poll(() =>
-      page.evaluate(() => (window as Window & { printedFormInk?: number }).printedFormInk ?? 0),
-    )
-    .toBeGreaterThan(150)
-  await expect(page.locator('iframe[title="PDF print document"]')).toHaveCount(0)
-})
-
 test('blocked backup storage keeps unsaved forms open and still allows a server copy', async ({
   page,
 }) => {

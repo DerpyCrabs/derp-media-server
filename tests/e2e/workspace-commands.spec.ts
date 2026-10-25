@@ -194,3 +194,36 @@ test('read-only workspace commands cannot mutate windows and provide explicit ta
   await page.keyboard.press('Enter')
   await expect(page.locator('[data-window-group]')).toHaveCount(2)
 })
+
+for (const canvas of [false, true]) {
+  test(`reopens an accidentally closed tab in its group (${canvas ? 'canvas' : 'desktop'})`, async ({
+    page,
+    request,
+  }) => {
+    await seed(
+      page,
+      request,
+      [
+        window('first', 'First folder', { tabGroupId: 'group' }),
+        window('second', 'Second folder', { tabGroupId: 'group' }),
+      ],
+      canvas,
+    )
+    await search(page, 'close active tab')
+    await page.keyboard.press('Enter')
+    await expect(palette(page)).toBeHidden()
+    await search(page, 'Second folder')
+    await expect(palette(page).getByRole('option')).toHaveCount(0)
+    await page.keyboard.press('Escape')
+    await page.keyboard.press('Control+Shift+t')
+    await search(page, 'Second folder')
+    await expect(
+      palette(page).getByRole('option', { name: 'Second folder Active', exact: true }),
+    ).toBeVisible()
+    await page.keyboard.press('Escape')
+    await page.getByRole('button', { name: 'Open settings', exact: true }).click()
+    await expect(
+      page.getByRole('button', { name: 'Reopen closed tab', exact: true }),
+    ).toBeDisabled()
+  })
+}

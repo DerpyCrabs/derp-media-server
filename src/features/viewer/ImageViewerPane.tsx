@@ -8,7 +8,6 @@ import { MediaType, type FileItem } from '@/lib/files/types'
 import Ellipsis from '@effectweb/lucide/icons/ellipsis'
 import { Effect } from 'effect'
 import { FloatingContextMenu } from '@/features/explorer/FloatingContextMenu'
-import { ImagePrintDialog } from './ImagePrintDialog'
 import { imageOutput } from './image-output'
 import Maximize2 from '@effectweb/lucide/icons/maximize-2'
 import RotateCw from '@effectweb/lucide/icons/rotate-cw'
@@ -49,7 +48,6 @@ function imageController(props: ImageViewerPaneProps) {
     zoom: 'fit' as number | 'fit',
     rotation: 0,
     editing: false,
-    printing: false,
     copying: false,
     slideshow: 'off' as 'off' | 'playing' | 'paused' | 'ended',
     slideSeconds: 5,
@@ -91,14 +89,6 @@ function imageController(props: ImageViewerPaneProps) {
       actions.move(index === files.length - 1 ? -index : 1)
     },
     menu: (menu: HTMLElement | null) => owner.patch({ menu }),
-    print: () =>
-      owner.patch({
-        printing: true,
-        menu: null,
-        outputMessage: '',
-        ...(owner.read().slideshow !== 'off' ? { slideshow: 'paused' as const } : {}),
-      }),
-    closePrint: () => owner.patch({ printing: false }),
     clearMessage: () => owner.patch({ outputMessage: '' }),
     copy: () => {
       const current = owner.read()
@@ -245,7 +235,7 @@ function imageController(props: ImageViewerPaneProps) {
     receive: (next: ImageViewerPaneProps) => {
       if (next.viewingPath !== owner.read().props.viewingPath) {
         owner.cancel('copy')
-        owner.patch({ printing: false, menu: null, outputMessage: '' })
+        owner.patch({ menu: null, outputMessage: '' })
       }
       owner.patch({
         props: next,
@@ -317,7 +307,6 @@ const viewerBehavior = (element: HTMLDivElement, current: () => ImageModel) => {
       model.props.active !== false &&
       document.visibilityState === 'visible' &&
       !model.menu &&
-      !model.printing &&
       !model.editing &&
       (!modal || modal === element || element.contains(modal)) &&
       model.image.load.request.kind === 'idle' &&
@@ -361,14 +350,13 @@ const viewerBehavior = (element: HTMLDivElement, current: () => ImageModel) => {
       )
     )
       return
-    if (event.defaultPrevented || current().printing || current().menu) return
+    if (event.defaultPrevented || current().menu) return
     if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey) {
       const key = event.key.toLowerCase()
-      if (key === 'p' || (key === 'c' && !window.getSelection()?.toString())) {
+      if (key === 'c' && !window.getSelection()?.toString()) {
         event.preventDefault()
         event.stopImmediatePropagation()
-        if (key === 'p') current().actions.print()
-        else current().actions.copy()
+        current().actions.copy()
       }
       return
     }
@@ -810,13 +798,6 @@ export const ImageViewerPane = controllerView(
           ) : null}
           <button
             role='menuitem'
-            class='flex min-h-10 w-full items-center justify-between rounded px-3 text-sm hover:bg-muted'
-            onClick={actions.print}
-          >
-            Print image…<span class='text-xs text-muted-foreground'>Ctrl+P</span>
-          </button>
-          <button
-            role='menuitem'
             disabled={model.copying}
             class='flex min-h-10 w-full items-center justify-between rounded px-3 text-sm hover:bg-muted disabled:opacity-50'
             onClick={actions.copy}
@@ -893,14 +874,6 @@ export const ImageViewerPane = controllerView(
               </button>
             ) : null}
           </div>
-        ) : null}
-        {model.printing ? (
-          <ImagePrintDialog
-            path={props.viewingPath}
-            rotation={model.rotation}
-            embedded={props.embedded}
-            onClose={actions.closePrint}
-          />
         ) : null}
         <div
           data-testid={props.embedded ? 'workspace-image-surface' : 'image-gesture-surface'}

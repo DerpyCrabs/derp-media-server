@@ -44,7 +44,6 @@ type Props<TDocument extends PagedDocument> = ReaderContentProps & {
   load: (path: string) => Effect.Effect<TDocument, unknown>
   selectionModes: readonly ReaderSelectionMode[]
   renderDocumentBar?: (document: TDocument) => JSX.Element
-  renderPrint?: (document: TDocument, pageIndex: number, onClose: () => void) => JSX.Element
   renderPage: (input: {
     document: TDocument
     page: TDocument['pages'][number]
@@ -141,7 +140,6 @@ function createPagedReader(props: Props<PagedDocument>) {
     props,
     document: null as PagedDocument | null,
     error: '',
-    printOpen: false,
     searchOpen: false,
     searchQuery: '',
     matchedQuery: '',
@@ -155,8 +153,6 @@ function createPagedReader(props: Props<PagedDocument>) {
     size: { width: 0, height: 0 },
   })
   const actions = {
-    openPrint: () => owner.patch({ printOpen: true }),
-    closePrint: () => owner.patch({ printOpen: false }),
     openSearch: () => {
       const query = owner.read().searchQuery
       owner.patch({ searchOpen: true })
@@ -437,12 +433,6 @@ const PagedReaderView = view<ControllerModel<typeof createPagedReader>>((model) 
         </>
       }
       onFind={model.document?.pageText ? actions.openSearch : undefined}
-      onPrint={model.document && props.renderPrint ? actions.openPrint : undefined}
-      overlay={
-        model.printOpen && model.document
-          ? props.renderPrint?.(model.document, state.pageIndex, actions.closePrint)
-          : undefined
-      }
       onEscape={() => {
         if (!model.searchOpen) return false
         actions.closeSearch()
@@ -491,19 +481,6 @@ const PagedReaderView = view<ControllerModel<typeof createPagedReader>>((model) 
                   Download
                 </a>
               )}
-              {model.document && props.renderPrint ? (
-                <button
-                  type='button'
-                  class='rounded border border-white/20 px-2 py-1 text-xs hover:bg-white/10'
-                  title='Print document (Ctrl/Cmd+P)'
-                  onClick={() => {
-                    close()
-                    actions.openPrint()
-                  }}
-                >
-                  Print…
-                </button>
-              ) : null}
             </div>
           </ReaderSetting>
           <ReaderSetting label='View'>

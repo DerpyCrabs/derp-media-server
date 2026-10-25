@@ -48,8 +48,6 @@
     openRoot: () => call('open', ''),
     downloadBlob: (url, name) => call('download-blob', url, name),
     cancelDownload: (url) => call('cancel-download', url),
-    printFrame: (name) => call('print-frame', name),
-    cancelPrint: (name) => call('cancel-print', name),
     nativeJobs: () => call('native-jobs'),
     cancelNativeJob: (id) => call('cancel-native-job', id),
     decideNativeJob: (id, choice, all) => call('decide-native-job', id, choice, all),

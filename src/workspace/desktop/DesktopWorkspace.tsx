@@ -188,6 +188,8 @@ export const DesktopWorkspace = controllerView(
           search={{ open: model.fileSearchOpen, onOpenChange: model.setFileSearchOpen }}
           session={session}
           commands={{
+            reopenClosedTab: model.reopenClosedTab,
+            canReopenClosed: model.canReopenClosed,
             openBrowser: editableOpenBrowser,
             openWorkspaces: () => toggleWorkspacePanelFromTaskbar(),
             changeTransition: (value) => setWorkspaceTransition(value),
