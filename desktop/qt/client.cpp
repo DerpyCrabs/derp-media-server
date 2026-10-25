@@ -358,6 +358,25 @@ void ClientWindow::closeEvent(QCloseEvent *event) {
 Bridge::Bridge(Client *client, ClientWindow *window) : QObject(window), client(client), window(window) {}
 void Bridge::call(const QString &id, const QString &method, const QJsonArray &args) {
     auto respond = [this, id](QJsonValue value = QJsonValue()) { emit reply(id, {{"value", value}}); };
+    if (method == "download-blob") {
+        const QUrl url(args.at(0).toString());
+        const QUrl embeddedOrigin(url.toString().mid(5));
+        const auto origin = embeddedOrigin.adjusted(QUrl::RemovePath | QUrl::RemoveQuery | QUrl::RemoveFragment).toString();
+        if (url.scheme() != "blob" || origin != client->server.origin) {
+            emit reply(id, {{"error", "Only document exports from this window can be downloaded."}});
+            return;
+        }
+        QPointer<Bridge> self(this);
+        downloadDocumentBlob(window->page(), url, args.at(1).toString(), [self, id](bool saved, QString error) {
+            if (self) emit self->reply(id, error.isEmpty() ? QJsonObject{{"value", saved}} : QJsonObject{{"error", error}});
+        });
+        return;
+    }
+    if (method == "cancel-download") {
+        cancelDocumentDownload(window->page(), QUrl(args.at(0).toString()));
+        respond();
+        return;
+    }
     if (method == "print-frame") {
         const auto name = args.at(0).toString();
         if (window->printJob || !name.startsWith("derp-print-")) {

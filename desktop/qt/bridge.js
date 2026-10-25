@@ -46,6 +46,8 @@
       }),
     open: (path, reader = false) => call('open', path, reader),
     openRoot: () => call('open', ''),
+    downloadBlob: (url, name) => call('download-blob', url, name),
+    cancelDownload: (url) => call('cancel-download', url),
     printFrame: (name) => call('print-frame', name),
     cancelPrint: (name) => call('cancel-print', name),
     nativeJobs: () => call('native-jobs'),

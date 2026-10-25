@@ -133,6 +133,8 @@ test('keyboard crop and JPEG download work with no writable folders', async ({ p
   expect(await download.failure()).toBeNull()
   await editor.getByRole('button', { name: 'Close image editor' }).click()
   await expect(editor).not.toBeVisible()
+  await page.getByRole('button', { name: 'Edit image', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Restore image draft', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Discard edits', exact: true })).toHaveCount(0)
 })
 
@@ -306,4 +308,40 @@ test('failed image editor loading leaves a way back to the image', async ({ page
   await expect(page.getByRole('alert')).toContainText('Unable to load the image editor')
   await page.getByRole('button', { name: 'Back to image', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Edit image', exact: true })).toBeVisible()
+})
+
+test('cancelled native image exports retain the editor and recovery until a confirmed save', async ({
+  page,
+}) => {
+  await createImage(page)
+  const editor = page.getByRole('region', { name: 'Image editor' })
+  await editor.getByRole('button', { name: 'Rotate image clockwise' }).click()
+  await page.evaluate(() => {
+    let count = 0
+    Object.assign(window, {
+      derpDesktop: {
+        downloadBlob: async (url: string) => {
+          const response = await fetch(url)
+          if (!response.ok || (await response.blob()).size < 100)
+            throw new Error('Missing export bytes')
+          return ++count > 1
+        },
+        cancelDownload: async () => {},
+      },
+    })
+  })
+  await editor.getByRole('button', { name: 'Save copy', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Save image copy', exact: true })
+  await dialog.getByRole('button', { name: 'Download copy', exact: true }).click()
+  await expect(dialog.getByRole('button', { name: 'Download copy', exact: true })).toBeEnabled()
+  await expect(dialog).toBeVisible()
+  await expect(editor.getByRole('status')).toHaveText('600 × 800 px')
+  await dialog.getByRole('button', { name: 'Download copy', exact: true }).click()
+  await expect(dialog).not.toBeVisible()
+  await editor.getByRole('button', { name: 'Close image editor', exact: true }).click()
+  await expect(editor).not.toBeVisible()
+  await page.getByRole('button', { name: 'Edit image', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Restore image draft', exact: true })).toHaveCount(
+    0,
+  )
 })

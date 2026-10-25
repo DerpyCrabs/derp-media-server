@@ -1,3 +1,4 @@
+import { nativeDownload } from '@/lib/browser/native-download'
 import { Effect } from 'effect'
 import { available, modelOwner } from 'effectweb'
 import { observeQuery } from '@effectweb/query'
@@ -104,12 +105,22 @@ export function createPdfForms(pdf: PdfDocument, path: string, fields: Map<strin
         const content = snapshot()
         const bytes = yield* attempt(() => pdf.saveDocument())
         const blob = new Blob([new Uint8Array(bytes)], { type: 'application/pdf' })
-        if (download) downloadBlob(blob, fileNameFromPath(destination))
+        let confirmed = false
+        if (download && window.derpDesktop?.downloadBlob) {
+          confirmed = yield* nativeDownload(blob, fileNameFromPath(destination))
+          if (!confirmed) {
+            owner.patch({ pending: false })
+            return
+          }
+        } else if (download) downloadBlob(blob, fileNameFromPath(destination))
         else {
           const form = new FormData()
           form.append('targetDir', parentPath(destination))
           form.append('file', blob, fileNameFromPath(destination))
           yield* apiEffect('/api/files/upload?create_only=true', { method: 'POST', body: form })
+          queryCache.invalidateGroup(groups.files)
+        }
+        if (!download || confirmed) {
           saved = content
           owner.patch({ dirty: snapshot() !== saved })
           if (restored) {
@@ -118,12 +129,11 @@ export function createPdfForms(pdf: PdfDocument, path: string, fields: Map<strin
             yield* attempt(() => removeDocumentDraft(draft)).pipe(Effect.catch(() => Effect.void))
           }
           yield* attempt(persist).pipe(Effect.catch(() => Effect.void))
-          queryCache.invalidateGroup(groups.files)
         }
         owner.patch({
           pending: false,
           saveDialog: false,
-          dirty: download ? owner.read().dirty : snapshot() !== saved,
+          dirty: download && !confirmed ? owner.read().dirty : snapshot() !== saved,
           savedPath: download ? '' : destination,
         })
       }).pipe(

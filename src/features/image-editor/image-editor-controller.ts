@@ -1,3 +1,4 @@
+import { nativeDownload } from '@/lib/browser/native-download'
 import {
   createDocumentDraftWriter,
   findDocumentDrafts,
@@ -44,6 +45,7 @@ export function imageEditorController(props: ImageEditorProps) {
   let sourceVersion = randomId()
   let restoredDraft: DocumentDraft | undefined
   let discarded = false
+  let downloadedEdit: ImageTransform | undefined
   const draftWriter = createDocumentDraftWriter(props.path, 'image')
   const owner = modelOwner({
     props,
@@ -70,7 +72,11 @@ export function imageEditorController(props: ImageEditorProps) {
     const edit = currentEdit()
     if (!sourceBlob || !edit) return draftWriter.flush()
     try {
-      await draftWriter.write(dirty() ? JSON.stringify(edit) : null, sourceVersion, sourceBlob)
+      await draftWriter.write(
+        !discarded && (dirty() || downloadedEdit === edit) ? JSON.stringify(edit) : null,
+        sourceVersion,
+        sourceBlob,
+      )
       if (!owner.disposed && edit === currentEdit())
         owner.patch({ draftSaved: dirty(), draftError: '' })
     } catch (error) {
@@ -143,7 +149,16 @@ export function imageEditorController(props: ImageEditorProps) {
             ),
           )
         })
-        if (download) {
+        if (download && window.derpDesktop?.downloadBlob) {
+          const saved = yield* nativeDownload(blob, path)
+          owner.patch({ pending: false })
+          if (saved) {
+            downloadedEdit = undefined
+            owner.patch({ saveDialog: false, exportedEdit: edit })
+            scheduleDraft()
+            clearRecoveredDraft()
+          }
+        } else if (download) {
           yield* Effect.sync(() => {
             const url = URL.createObjectURL(blob)
             const link = document.createElement('a')
@@ -159,9 +174,9 @@ export function imageEditorController(props: ImageEditorProps) {
               ),
               'replace',
             )
+            downloadedEdit = edit
             owner.patch({ pending: false, saveDialog: false, exportedEdit: edit })
             scheduleDraft()
-            clearRecoveredDraft()
           })
         } else {
           const form = new FormData()
@@ -169,6 +184,7 @@ export function imageEditorController(props: ImageEditorProps) {
           form.append('file', blob, fileNameFromPath(path))
           yield* apiEffect('/api/files/upload?create_only=true', { method: 'POST', body: form })
           yield* Effect.sync(() => {
+            downloadedEdit = undefined
             queryCache.invalidateGroup(groups.files)
             owner.patch({ pending: false, saveDialog: false, exportedEdit: edit })
             scheduleDraft()
@@ -358,10 +374,10 @@ export function imageEditorController(props: ImageEditorProps) {
             }))
           )
             return
-          discarded = true
+          discarded = !downloadedEdit || downloadedEdit !== currentEdit()
           owner.cancel('image-draft')
           yield* attempt(persistDraft).pipe(Effect.catch(() => Effect.void))
-          clearRecoveredDraft()
+          if (discarded) clearRecoveredDraft()
           owner.read().props.onClose()
         }),
         'drop',

@@ -196,3 +196,40 @@ test('blocked backup storage keeps unsaved forms open and still allows a server 
   await page.getByRole('button', { name: 'Close reader', exact: true }).click()
   await expect(page.getByTestId('reader-dialog')).not.toBeVisible()
 })
+
+test('cancelled native PDF exports retain entries and confirmed exports clear their backup', async ({
+  page,
+}) => {
+  await page.goto('/?dir=Documents&viewing=Documents%2Freader.pdf')
+  await page.getByRole('textbox', { name: 'Full name', exact: true }).fill('Native export')
+  await expect(
+    page.getByText('Form entries backed up in this browser', { exact: true }),
+  ).toBeVisible()
+  await page.evaluate(() => {
+    let count = 0
+    Object.assign(window, {
+      derpDesktop: {
+        downloadBlob: async (url: string) => {
+          const response = await fetch(url)
+          if (!response.ok || (await response.blob()).size < 100)
+            throw new Error('Missing export bytes')
+          return ++count > 1
+        },
+        cancelDownload: async () => {},
+      },
+    })
+  })
+  await page.getByRole('button', { name: 'Save copy…', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Save filled PDF copy', exact: true })
+  await dialog.getByRole('button', { name: 'Download copy', exact: true }).click()
+  await expect(dialog.getByRole('button', { name: 'Download copy', exact: true })).toBeEnabled()
+  await expect(dialog).toBeVisible()
+  await expect(
+    page.getByText('Form entries backed up in this browser', { exact: true }),
+  ).toBeVisible()
+  await dialog.getByRole('button', { name: 'Download copy', exact: true }).click()
+  await expect(dialog).not.toBeVisible()
+  await page.reload()
+  await expect(page.getByRole('textbox', { name: 'Full name', exact: true })).toHaveValue('')
+  await expect(page.getByRole('button', { name: 'Restore entries', exact: true })).toHaveCount(0)
+})

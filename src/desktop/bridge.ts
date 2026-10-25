@@ -8,6 +8,8 @@ export interface DesktopTarget {
 export interface DesktopBridge {
   onPicker?(callback: (request: PickerRequest) => void): () => void
   pick?(selection: PickerSelection): Promise<{ overwrite?: string[] }>
+  downloadBlob?(url: string, name: string): Promise<boolean>
+  cancelDownload?(url: string): Promise<void>
   printFrame?(name: string): Promise<void>
   cancelPrint?(name: string): Promise<void>
   nativeJobs?(): Promise<unknown>

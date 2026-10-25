@@ -305,7 +305,7 @@ require desktop mode.
 
 PDF links work directly on the page: internal and named destinations navigate within the reader without changing its zoom; external links open separately. Image-region selection temporarily disables links so dragging a region does not open one.
 
-Fillable PDFs support text fields, checkboxes, radio buttons and choices directly on the page. **Save copy…** or **Ctrl/Cmd+S** saves a separate editable PDF; Download and Print include current entries. Form entries are backed up in the current browser profile and offered for recovery when reopened. A different source PDF is never filled from an older draft automatically; its entries remain downloadable as JSON. Downloads retain recovery data because the browser cannot confirm that a save dialog was accepted. PDF JavaScript calculations, digital signatures and XFA forms are not supported.
+Fillable PDFs support text fields, checkboxes, radio buttons and choices directly on the page. **Save copy…** or **Ctrl/Cmd+S** saves a separate editable PDF; Download and Print include current entries. Form entries are backed up in the current browser profile and offered for recovery when reopened. A different source PDF is never filled from an older draft automatically; its entries remain downloadable as JSON. Browser downloads retain recovery data because the browser cannot confirm that a save dialog was accepted; native exports clear it only after a completed save. PDF JavaScript calculations, digital signatures and XFA forms are not supported.
 
 PDFs protected by a password prompt for it when opened; passwords are not remembered. **Ctrl/Cmd+P**
 opens PDF printing, also available under Reader settings. Choose All, Current page, or ranges such
@@ -313,7 +313,7 @@ as `1-3, 5`; pages are prepared at up to 150 dpi for the browser print dialog (o
 limited to 100 pages and 160 million rendered pixels; download the original for larger jobs or
 vector-quality printing.
 
-Image edits are backed up in the current browser profile, including the source image bytes. Reopening Edit image offers to restore a draft after a reload or a closed workspace window, even if the original file has since changed. Saving a copy or explicitly discarding edits removes that view’s backup. Storage failures are shown in the editor; drafts are local to the browser and may be removed when browser data is cleared.
+Image edits are backed up in the current browser profile, including the source image bytes. Reopening Edit image offers to restore a draft after a reload or a closed workspace window, even if the original file has since changed. Saving a server copy, completing a native export or explicitly discarding edits removes that view’s backup. Browser downloads retain the backup, including after closing the editor, because their completion cannot be confirmed. Storage failures are shown in the editor; drafts are local to the browser and may be removed when browser data is cleared.
 
 Image editing follows [Gwenview](https://docs.kde.org/stable_kf6/en/gwenview/gwenview/image_operations.html)
 and [Preview](https://support.apple.com/guide/preview/crop-resize-or-rotate-an-image-prvw2015/mac).
