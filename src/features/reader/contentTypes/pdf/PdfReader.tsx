@@ -1,5 +1,7 @@
+import { PdfFormBar } from './PdfFormBar'
+import { createPdfForms, type PdfForms } from './pdf-forms'
 import { Effect, Exit } from 'effect'
-import { view, controllerView, modelOwner, domBinding } from 'effectweb'
+import { view, controllerView, modelOwner, domBinding, observe } from 'effectweb'
 import { modalFocus } from '@/lib/ui/modal-focus'
 import { modalDialogBackdropClass } from '@/features/explorer/modal-overlay-scope'
 import { closeReader } from '../../reader-url'
@@ -11,7 +13,7 @@ import { mapPdfOutline } from './pdf-outline'
 import { PagedReader, type PagedDocument } from '../paged/PagedReader'
 import type { ReaderPage } from '../../reader-position'
 import type { ReaderContentProps } from '../../reader-types'
-type PdfReaderDocument = PagedDocument & { pdf: PdfDocument }
+type PdfReaderDocument = PagedDocument & { pdf: PdfDocument; forms?: PdfForms }
 type PasswordRequest = (update: (password: string | Error) => void, reason: number) => void
 const loadPdf = (
   path: string,
@@ -61,7 +63,18 @@ const loadPdf = (
           textCache.set(index, text)
           return text
         })
-      return { pdf, pages, outline, pageText, release: () => destroy }
+      const fields = yield* Effect.tryPromise(() => pdf.getFieldObjects())
+      const forms = fields ? createPdfForms(pdf, path, fields) : undefined
+      return {
+        pdf,
+        pages,
+        outline,
+        pageText,
+        forms,
+        download: forms?.download,
+        beforeClose: forms?.beforeClose,
+        release: () => (forms?.close() ?? Effect.void).pipe(Effect.andThen(destroy)),
+      }
     }).pipe(Effect.onExit((exit) => (Exit.isFailure(exit) ? destroy : Effect.void)))
   })
 
@@ -137,6 +150,12 @@ const PdfReader = controllerView(
           {...props}
           load={model.actions.load}
           selectionModes={['text', 'image']}
+          renderDocumentBar={(document) => {
+            const forms = (document as PdfReaderDocument).forms
+            return forms ? (
+              <PdfFormBar forms={forms} path={props.sourcePath} embedded={props.embedded} />
+            ) : null
+          }}
           renderPrint={(document, currentPage, onClose) => (
             <PdfPrintDialog
               pdf={(document as PdfReaderDocument).pdf}
@@ -155,19 +174,28 @@ const PdfReader = controllerView(
             searchQuery,
             activeMatch,
             onNavigatePage,
-          }) => (
-            <PdfContent
-              document={(document as PdfReaderDocument).pdf}
-              page={page}
-              pageIndex={pageIndex}
-              zoom={zoom}
-              selectionMode={frame.selectionMode}
-              onRegion={frame.selectRegion}
-              searchQuery={searchQuery}
-              activeMatch={activeMatch}
-              onNavigatePage={onNavigatePage}
-            />
-          )}
+          }) => {
+            const forms = (document as PdfReaderDocument).forms
+            const content = (revision = 0, pending = false) => (
+              <PdfContent
+                forms={forms}
+                formRevision={revision}
+                formPending={pending}
+                document={(document as PdfReaderDocument).pdf}
+                page={page}
+                pageIndex={pageIndex}
+                zoom={zoom}
+                selectionMode={frame.selectionMode}
+                onRegion={frame.selectRegion}
+                searchQuery={searchQuery}
+                activeMatch={activeMatch}
+                onNavigatePage={onNavigatePage}
+              />
+            )
+            return forms
+              ? observe(forms.source, (state) => content(state.revision, state.pending))
+              : content()
+          }}
         />
         {model.passwordOpen ? (
           <div

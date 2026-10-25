@@ -110,7 +110,7 @@ function frameController(props: Props) {
           Effect.catch((error) =>
             showAppAlertEffect(
               error instanceof Error ? error.message : String(error),
-              'Could not save reading progress',
+              'Could not close document',
             ),
           ),
         ),

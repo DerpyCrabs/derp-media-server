@@ -1050,7 +1050,7 @@ test('a failed position flush keeps the reader open and allows close to retry', 
     await route.fulfill({ status: 503, json: { error: 'Reading position could not be saved' } })
   })
   await page.getByLabel('Close reader').click()
-  await expect(page.getByRole('heading', { name: 'Could not save reading progress' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Could not close document' })).toBeVisible()
   await expect(page.getByText('Reading position could not be saved', { exact: true })).toBeVisible()
   await expect(page.getByTestId('pdf-canvas').first()).toBeVisible()
   await page.getByRole('button', { name: 'OK', exact: true }).click()

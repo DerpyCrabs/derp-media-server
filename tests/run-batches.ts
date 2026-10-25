@@ -49,6 +49,7 @@ export const BATCHES = [
       'pdf-password',
       'pdf-print',
       'pdf-links',
+      'pdf-forms',
     ],
   },
   {

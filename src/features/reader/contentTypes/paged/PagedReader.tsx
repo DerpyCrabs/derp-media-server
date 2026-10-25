@@ -36,11 +36,14 @@ export type PagedDocument<TPage extends ReaderPage = ReaderPage> = {
   pages: TPage[]
   outline: ReaderOutlineItem[]
   release?: () => Effect.Effect<void>
+  beforeClose?: () => Effect.Effect<void, unknown>
+  download?: () => void
   pageText?: (index: number) => Effect.Effect<string, unknown>
 }
 type Props<TDocument extends PagedDocument> = ReaderContentProps & {
   load: (path: string) => Effect.Effect<TDocument, unknown>
   selectionModes: readonly ReaderSelectionMode[]
+  renderDocumentBar?: (document: TDocument) => JSX.Element
   renderPrint?: (document: TDocument, pageIndex: number, onClose: () => void) => JSX.Element
   renderPage: (input: {
     document: TDocument
@@ -259,6 +262,7 @@ function createPagedReader(props: Props<PagedDocument>) {
         owner.cancel(debounceSlot)
         yield* owner.awaitIdle(saveSlot)
         yield* persist()
+        yield* owner.read().document?.beforeClose?.() ?? Effect.void
       }),
   }
   const apply = (position: PagedReaderPosition) => {
@@ -445,32 +449,48 @@ const PagedReaderView = view<ControllerModel<typeof createPagedReader>>((model) 
         return true
       }}
       search={
-        model.searchOpen ? (
-          <DocumentSearchBar
-            query={model.searchQuery}
-            searching={model.searching}
-            truncated={model.searchTruncated}
-            error={model.searchError}
-            matches={model.matches}
-            index={model.matchIndex}
-            location={`Page ${(model.matches[model.matchIndex]?.page ?? 0) + 1}`}
-            onSearch={actions.search}
-            onNext={actions.nextMatch}
-            onClose={actions.closeSearch}
-          />
-        ) : undefined
+        <>
+          {model.document ? props.renderDocumentBar?.(model.document) : null}
+          {model.searchOpen ? (
+            <DocumentSearchBar
+              query={model.searchQuery}
+              searching={model.searching}
+              truncated={model.searchTruncated}
+              error={model.searchError}
+              matches={model.matches}
+              index={model.matchIndex}
+              location={`Page ${(model.matches[model.matchIndex]?.page ?? 0) + 1}`}
+              onSearch={actions.search}
+              onNext={actions.nextMatch}
+              onClose={actions.closeSearch}
+            />
+          ) : undefined}
+        </>
       }
       settings={(close) => (
         <>
           <ReaderSetting label='File'>
             <div class='flex gap-2'>
-              <a
-                href={`/api/files/download?path=${encodeURIComponent(props.sourcePath)}`}
-                download
-                class='rounded border border-white/20 px-2 py-1 text-xs hover:bg-white/10'
-              >
-                Download
-              </a>
+              {model.document?.download ? (
+                <button
+                  type='button'
+                  class='rounded border border-white/20 px-2 py-1 text-xs hover:bg-white/10'
+                  onClick={() => {
+                    close()
+                    model.document?.download?.()
+                  }}
+                >
+                  Download
+                </button>
+              ) : (
+                <a
+                  href={`/api/files/download?path=${encodeURIComponent(props.sourcePath)}`}
+                  download
+                  class='rounded border border-white/20 px-2 py-1 text-xs hover:bg-white/10'
+                >
+                  Download
+                </a>
+              )}
               {model.document && props.renderPrint ? (
                 <button
                   type='button'

@@ -305,6 +305,8 @@ require desktop mode.
 
 PDF links work directly on the page: internal and named destinations navigate within the reader without changing its zoom; external links open separately. Image-region selection temporarily disables links so dragging a region does not open one.
 
+Fillable PDFs support text fields, checkboxes, radio buttons and choices directly on the page. **Save copy…** or **Ctrl/Cmd+S** saves a separate editable PDF; Download and Print include current entries. Form entries are backed up in the current browser profile and offered for recovery when reopened. A different source PDF is never filled from an older draft automatically; its entries remain downloadable as JSON. Downloads retain recovery data because the browser cannot confirm that a save dialog was accepted. PDF JavaScript calculations, digital signatures and XFA forms are not supported.
+
 PDFs protected by a password prompt for it when opened; passwords are not remembered. **Ctrl/Cmd+P**
 opens PDF printing, also available under Reader settings. Choose All, Current page, or ranges such
 as `1-3, 5`; pages are prepared at up to 150 dpi for the browser print dialog (or the native Qt print dialog in the desktop client). A single print job is

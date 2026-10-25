@@ -1,3 +1,5 @@
+import { randomId } from '@/lib/random-id'
+import { AnnotationMode } from 'pdfjs-dist'
 import { Effect } from 'effect'
 import type { PdfDocument } from './PdfContent'
 
@@ -11,7 +13,7 @@ export function printPdf(
     Effect.sync(() => {
       const frame = window.document.createElement('iframe')
       frame.title = 'PDF print document'
-      frame.name = `derp-print-${crypto.randomUUID()}`
+      frame.name = `derp-print-${randomId()}`
       frame.setAttribute('aria-hidden', 'true')
       frame.style.cssText =
         'position:fixed;left:0;bottom:0;width:1px;height:1px;opacity:0;pointer-events:none;border:0'
@@ -29,6 +31,7 @@ export function printPdf(
     }),
     ({ frame, doc, style, urls }) =>
       Effect.gen(function* () {
+        const printAnnotationStorage = document.annotationStorage.print
         let pixels = 0
         for (const [index, number] of pages.entries()) {
           const page = yield* Effect.tryPromise(() => document.getPage(number + 1))
@@ -56,6 +59,8 @@ export function printPdf(
                   canvasContext: canvas.getContext('2d')!,
                   viewport,
                   intent: 'print',
+                  annotationMode: AnnotationMode.ENABLE_STORAGE,
+                  printAnnotationStorage,
                   background: '#fff',
                 })
                 yield* Effect.tryPromise(() => task.promise).pipe(
