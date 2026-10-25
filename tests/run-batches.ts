@@ -55,6 +55,7 @@ export const BATCHES = [
     tests: [
       'editable-folders',
       'file-tools',
+      'archive-viewer',
       'favorite-places',
       'desktop',
       'desktop-audio',

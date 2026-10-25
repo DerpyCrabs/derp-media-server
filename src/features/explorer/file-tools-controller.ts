@@ -1,3 +1,4 @@
+import { archiveEntrySchema as entrySchema, archiveQuery } from './archive-contents'
 import { Effect, Schema } from 'effect'
 import { available, modelOwner } from 'effectweb'
 import { query, observeQuery } from '@effectweb/query'
@@ -53,20 +54,6 @@ const hiddenQuery = query({
   groups: [groups.files],
   load: (path: string) =>
     apiSchemaEffect(directoryFilesSchema, `/api/files/hidden?dir=${encodeURIComponent(path)}`),
-})
-const entrySchema = Schema.Struct({
-  path: Schema.String,
-  size: Schema.Number,
-  directory: Schema.Boolean,
-})
-const archiveQuery = query({
-  name: 'archive-contents',
-  groups: [groups.files],
-  load: (path: string) =>
-    apiSchemaEffect(
-      Schema.Struct({ entries: Schema.Array(entrySchema) }),
-      `/api/files/archive?path=${encodeURIComponent(path)}`,
-    ),
 })
 const propertiesQuery = query({
   name: 'file-properties',
@@ -179,7 +166,7 @@ export function createFileTools(host: () => FileBrowserHost, files: () => readon
     if (result._tag === 'Failure')
       owner.patch({
         error:
-          'Could not read this ZIP archive. It may be damaged, encrypted, or contain unsafe paths.',
+          'Could not read this archive. It may be damaged, encrypted, or contain unsafe paths.',
       })
   })
   const properties = observeQuery(owner, queryCache, propertiesQuery, (result) => {

@@ -1,3 +1,4 @@
+import { modalFocus } from '@/lib/ui/modal-focus'
 import { list, available, modelOwner, resourceError, view, controllerView } from 'effectweb'
 import { cn } from '@/lib/ui/cn'
 import { AsyncResult } from 'effect/reactivity'
@@ -10,7 +11,7 @@ import ArrowUp from '@effectweb/lucide/icons/arrow-up'
 import Folder from '@effectweb/lucide/icons/folder'
 import LoaderCircle from '@effectweb/lucide/icons/loader-circle'
 import { observeQuery, query } from '@effectweb/query'
-type MoveOrCopyMode = 'move' | 'copy'
+type MoveOrCopyMode = 'move' | 'copy' | 'extract'
 type MoveToDialogProps = {
   overlayScope?: ModalOverlayScope
   onClose: () => void
@@ -79,6 +80,7 @@ export const MoveToDialog = controllerView(
     const browsePath = model.browsePath
     const setBrowsePath = model.actions.browse
     const setSelectedRoot = model.actions.chooseRoot
+    const isExtract = () => props.mode === 'extract'
     const isCopy = () => (props.mode ?? 'move') === 'copy'
     const files = available(model.result)?.files ?? []
     const error = resourceError(model.result)
@@ -125,16 +127,23 @@ export const MoveToDialog = controllerView(
       <div
         class={modalDialogBackdropClass(props.overlayScope)}
         role='presentation'
-        onClick={() => props.onClose()}
+        onClick={() => {
+          if (!props.isPending) props.onClose()
+        }}
       >
         <div
           role='dialog'
+          use={modalFocus({
+            onEscape: () => {
+              if (!props.isPending) props.onClose()
+            },
+          })}
           aria-modal='true'
           class='w-full max-w-md rounded-lg border border-border bg-card text-card-foreground shadow-lg p-6'
           onClick={(e) => e.stopPropagation()}
         >
           <h2 class='text-lg font-semibold truncate pr-6'>
-            {isCopy() ? 'Copy' : 'Move'} &quot;{props.fileName}&quot;
+            {isExtract() ? 'Extract' : isCopy() ? 'Copy' : 'Move'} &quot;{props.fileName}&quot;
           </h2>
           <p class='text-sm text-muted-foreground mt-1'>
             {isCopy() ? 'Choose an editable destination folder' : 'Choose a destination folder'}
@@ -234,23 +243,29 @@ export const MoveToDialog = controllerView(
               type='button'
               class='h-9 px-4 rounded-md border border-input bg-background text-sm font-medium hover:bg-accent'
               disabled={props.isPending}
-              onClick={() => props.onClose()}
+              onClick={() => {
+                if (!props.isPending) props.onClose()
+              }}
             >
               Cancel
             </button>
             <button
               type='button'
               class='h-9 px-4 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50'
-              disabled={isSameAsSource() || props.isPending}
+              disabled={(!isExtract() && isSameAsSource()) || props.isPending}
               onClick={() => props.onConfirm(browsePath)}
             >
-              {props.isPending
-                ? isCopy()
-                  ? 'Copying...'
-                  : 'Moving...'
-                : isCopy()
-                  ? 'Copy here'
-                  : 'Move here'}
+              {isExtract()
+                ? props.isPending
+                  ? 'Starting…'
+                  : 'Extract here'
+                : props.isPending
+                  ? isCopy()
+                    ? 'Copying...'
+                    : 'Moving...'
+                  : isCopy()
+                    ? 'Copy here'
+                    : 'Move here'}
             </button>
           </div>
         </div>

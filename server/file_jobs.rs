@@ -183,12 +183,12 @@ pub async fn start_job(state: Shared, mut request: Request) -> AppResult<String>
         let name = request
             .name
             .as_deref()
-            .filter(|n| valid_name(n) && n.to_lowercase().ends_with(".zip"))
-            .ok_or_else(|| AppError::bad("Enter a ZIP filename"))?;
+            .filter(|n| valid_name(n) && crate::archives::Format::for_path(FsPath::new(n)).is_ok())
+            .ok_or_else(|| AppError::bad("Enter a ZIP, TAR, TAR.GZ or TAR.XZ filename"))?;
         writable(&state, &join(&request.destination, name))?;
     }
     if request.operation == Operation::ExtractArchive && request.paths.len() != 1 {
-        return Err(AppError::bad("Select one ZIP archive"));
+        return Err(AppError::bad("Select one archive"));
     }
     let id = uuid::Uuid::new_v4().to_string();
     let job = Arc::new(Job {
@@ -413,42 +413,16 @@ async fn run(state: &Shared, job: &Arc<Job>, request: Request) -> AppResult<()> 
 fn archive_error(e: impl std::fmt::Display) -> AppError {
     AppError::bad(format!("Archive: {e}"))
 }
-fn safe_member(entry: &zip::read::ZipFile<'_, std::fs::File>) -> AppResult<String> {
-    let path = entry
-        .enclosed_name()
-        .ok_or_else(|| AppError::bad("Archive contains an unsafe path"))?;
-    let name = path.to_string_lossy().replace('\\', "/");
-    if name.starts_with('/')
-        || name
-            .split('/')
-            .any(|p| p == ".." || p.contains(':') || p.starts_with(".derp-"))
-        || entry
-            .unix_mode()
-            .is_some_and(|mode| mode & 0o170000 == 0o120000)
-    {
-        return Err(AppError::bad(
-            "Archive contains a symbolic link or unsafe path",
-        ));
-    }
-    Ok(name.trim_end_matches('/').to_string())
-}
 fn inspect_archive(path: &FsPath) -> AppResult<Vec<Value>> {
-    let mut archive = zip::ZipArchive::new(std::fs::File::open(path).map_err(AppError::io)?)
-        .map_err(archive_error)?;
-    if archive.len() > 100000 {
-        return Err(AppError::bad("Archive has too many entries"));
-    }
-    let mut entries = Vec::new();
-    for i in 0..archive.len() {
-        let entry = archive.by_index(i).map_err(archive_error)?;
-        entries.push(
-            json!({"path":safe_member(&entry)?,"size":entry.size(),"directory":entry.is_dir()}),
-        );
-    }
-    Ok(entries)
+    crate::archives::inspect(path).map(|entries| {
+        entries
+            .into_iter()
+            .map(|entry| serde_json::to_value(entry).unwrap())
+            .collect()
+    })
 }
 fn copy_bytes(
-    input: &mut impl std::io::Read,
+    input: &mut (impl std::io::Read + ?Sized),
     output: &mut impl std::io::Write,
     job: &Job,
 ) -> AppResult<()> {
@@ -464,12 +438,68 @@ fn copy_bytes(
     }
     Ok(())
 }
+fn write_tar<W: std::io::Write>(
+    output: W,
+    sources: &[(std::path::PathBuf, String)],
+    job: &Job,
+) -> AppResult<W> {
+    struct ProgressReader<'a> {
+        file: std::fs::File,
+        job: &'a Job,
+    }
+    impl std::io::Read for ProgressReader<'_> {
+        fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+            self.job.check().map_err(|e| std::io::Error::other(e.1))?;
+            let n = self.file.read(buffer)?;
+            self.job.bytes(n as u64);
+            Ok(n)
+        }
+    }
+    let mut archive = tar::Builder::new(output);
+    for (source, name) in sources {
+        for entry in walkdir::WalkDir::new(source) {
+            job.check()?;
+            let entry = entry.map_err(archive_error)?;
+            let relative = entry.path().strip_prefix(source).map_err(archive_error)?;
+            let member = std::path::Path::new(name).join(relative);
+            job.update(|p| p.current = member.to_string_lossy().into_owned());
+            if entry.file_type().is_symlink() {
+                return Err(AppError::bad("Symbolic links cannot be archived"));
+            }
+            let metadata = entry.metadata().map_err(archive_error)?;
+            let mut header = tar::Header::new_gnu();
+            header.set_metadata(&metadata);
+            // Ownership is local to the instance; archives should be portable.
+            header.set_uid(0);
+            header.set_gid(0);
+            if entry.file_type().is_dir() {
+                header.set_size(0);
+                archive
+                    .append_data(&mut header, &member, std::io::empty())
+                    .map_err(archive_error)?;
+            } else if entry.file_type().is_file() {
+                let reader = ProgressReader {
+                    file: std::fs::File::open(entry.path()).map_err(AppError::io)?,
+                    job,
+                };
+                archive
+                    .append_data(&mut header, &member, reader)
+                    .map_err(archive_error)?;
+            } else {
+                return Err(AppError::bad("Unsupported file type in archive"));
+            }
+        }
+        job.update(|p| p.completed += 1);
+    }
+    archive.into_inner().map_err(archive_error)
+}
 async fn create_archive(
     state: &Shared,
     job: &Arc<Job>,
     request: &Request,
     policy: &mut ConflictChoice,
 ) -> AppResult<()> {
+    let format = crate::archives::Format::for_path(FsPath::new(request.name.as_deref().unwrap()))?;
     let target = join(&request.destination, request.name.as_deref().unwrap());
     if request
         .paths
@@ -498,6 +528,28 @@ async fn create_archive(
             .create_new(true)
             .open(&output)
             .map_err(AppError::io)?;
+        use crate::archives::Format;
+        match format {
+            Format::Tar => {
+                write_tar(file, &sources, &work)?;
+                return Ok(());
+            }
+            Format::Gzip => {
+                let encoder = flate2::write::GzEncoder::new(file, flate2::Compression::fast());
+                write_tar(encoder, &sources, &work)?
+                    .finish()
+                    .map_err(archive_error)?;
+                return Ok(());
+            }
+            Format::Xz => {
+                let encoder = xz2::write::XzEncoder::new(file, 1);
+                write_tar(encoder, &sources, &work)?
+                    .finish()
+                    .map_err(archive_error)?;
+                return Ok(());
+            }
+            Format::Zip => {}
+        }
         let mut archive = zip::ZipWriter::new(file);
         let options = zip::write::SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Deflated)
@@ -558,9 +610,17 @@ async fn extract_archive(
 ) -> AppResult<()> {
     let archive_path = media::resolve(&state.config, &request.paths[0])?.full;
     let inspect = archive_path.clone();
-    let entries = tokio::task::spawn_blocking(move || inspect_archive(&inspect))
-        .await
-        .map_err(archive_error)??;
+    let inspect_job = job.clone();
+    let entries = tokio::task::spawn_blocking(move || {
+        crate::archives::inspect_checked(&inspect, || inspect_job.check()).map(|entries| {
+            entries
+                .into_iter()
+                .map(|entry| serde_json::to_value(entry).unwrap())
+                .collect::<Vec<_>>()
+        })
+    })
+    .await
+    .map_err(archive_error)??;
     let selected: Vec<_> = entries
         .iter()
         .filter(|entry| {
@@ -599,31 +659,14 @@ async fn extract_archive(
     let work = job.clone();
     let names = members.clone();
     let result = tokio::task::spawn_blocking(move || -> AppResult<()> {
-        let mut archive =
-            zip::ZipArchive::new(std::fs::File::open(archive_path).map_err(AppError::io)?)
-                .map_err(archive_error)?;
-        std::fs::create_dir(&output).map_err(AppError::io)?;
-        for i in 0..archive.len() {
-            work.check()?;
-            let mut entry = archive.by_index(i).map_err(archive_error)?;
-            let member = safe_member(&entry)?;
-            if !names.contains(&member) {
-                continue;
-            }
-            work.update(|p| p.current = member.clone());
-            let destination = output.join(&member);
-            if entry.is_dir() {
-                std::fs::create_dir_all(destination).map_err(AppError::io)?;
-            } else {
-                std::fs::create_dir_all(destination.parent().unwrap()).map_err(AppError::io)?;
-                let mut file = std::fs::OpenOptions::new()
-                    .write(true)
-                    .create_new(true)
-                    .open(destination)
-                    .map_err(AppError::io)?;
-                copy_bytes(&mut entry, &mut file, &work)?;
-            }
-        }
+        crate::archives::extract(
+            &archive_path,
+            &output,
+            &names,
+            |input, output| copy_bytes(input, output, &work),
+            || work.check(),
+            |member| work.update(|p| p.current = member.to_string()),
+        )?;
         Ok(())
     })
     .await
@@ -911,27 +954,30 @@ mod tests {
         assert!(app.media.join("private.txt").exists());
     }
     #[tokio::test]
-    async fn zip_round_trip_and_selective_extraction() {
-        let app = TestApp::new();
-        app.write("source/a.txt", b"one");
-        app.write("source/nested/b.txt", b"two");
-        std::fs::create_dir(app.media.join("out")).unwrap();
-        let mut req = request(Operation::CreateArchive, &["source"], "");
-        req.name = Some("test.zip".into());
-        let id = start_job(app.state.clone(), req).await.unwrap();
-        assert_eq!(wait(&app.state, &id, None).await.status, "completed");
-        let entries = inspect_archive(&app.media.join("test.zip")).unwrap();
-        assert_eq!(entries.len(), 4);
-        let mut req = request(Operation::ExtractArchive, &["test.zip"], "out");
-        req.entries = Some(vec!["source/nested".into()]);
-        let id = start_job(app.state.clone(), req).await.unwrap();
-        let result = wait(&app.state, &id, None).await;
-        assert_eq!(result.status, "completed", "{:?}", result.errors);
-        assert_eq!(
-            std::fs::read(app.media.join("out/source/nested/b.txt")).unwrap(),
-            b"two"
-        );
-        assert!(!app.media.join("out/source/a.txt").exists());
+    async fn archive_round_trip_and_selective_extraction() {
+        for extension in ["zip", "tar", "tar.gz", "tgz", "tar.xz", "txz"] {
+            let app = TestApp::new();
+            let archive_name = format!("test.{extension}");
+            app.write("source/a.txt", b"one");
+            app.write("source/nested/b.txt", b"two");
+            std::fs::create_dir(app.media.join("out")).unwrap();
+            let mut req = request(Operation::CreateArchive, &["source"], "");
+            req.name = Some(archive_name.clone());
+            let id = start_job(app.state.clone(), req).await.unwrap();
+            assert_eq!(wait(&app.state, &id, None).await.status, "completed");
+            let entries = inspect_archive(&app.media.join(&archive_name)).unwrap();
+            assert_eq!(entries.len(), 4);
+            let mut req = request(Operation::ExtractArchive, &[&archive_name], "out");
+            req.entries = Some(vec!["source/nested".into()]);
+            let id = start_job(app.state.clone(), req).await.unwrap();
+            let result = wait(&app.state, &id, None).await;
+            assert_eq!(result.status, "completed", "{:?}", result.errors);
+            assert_eq!(
+                std::fs::read(app.media.join("out/source/nested/b.txt")).unwrap(),
+                b"two"
+            );
+            assert!(!app.media.join("out/source/a.txt").exists());
+        }
     }
     #[tokio::test]
     async fn zip_slip_is_rejected() {

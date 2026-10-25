@@ -1,3 +1,5 @@
+import { isArchivePath } from '@/features/explorer/archive-contents'
+import { ArchiveViewerPane } from './ArchiveViewerPane'
 import { modalScroll } from './modal-scroll'
 import { available, domBinding, modelOwner, view, controllerView } from 'effectweb'
 import { queryCache } from '@/lib/api/cache'
@@ -173,7 +175,15 @@ export const ViewerPane = controllerView(
             onClose={props.onClose}
           />
         ) : null}
-        {path && !kind && type === MediaType.OTHER ? (
+        {path && !kind && !model.asText && isArchivePath(path) ? (
+          <ArchiveViewerPane
+            path={path}
+            embedded={embedded}
+            editableFolders={props.editableFolders}
+            onClose={props.onClose}
+          />
+        ) : null}
+        {path && !kind && type === MediaType.OTHER && !isArchivePath(path) ? (
           <div
             role={!embedded ? 'dialog' : undefined}
             aria-modal={!embedded ? 'true' : undefined}

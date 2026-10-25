@@ -1,3 +1,4 @@
+import { isArchivePath } from './archive-contents'
 import type { FileItem } from '@/lib/files/types'
 import { list, view } from 'effectweb'
 import { modalFocus } from '@/lib/ui/modal-focus'
@@ -30,7 +31,9 @@ export const FileToolsPanel = view<{
     return (
       <MoveToDialog
         overlayScope={scope}
-        mode={state.panel === 'move' ? 'move' : 'copy'}
+        mode={
+          state.panel === 'move' ? 'move' : state.panel === 'extractArchive' ? 'extract' : 'copy'
+        }
         fileName={`${selected.length} selected item(s)`}
         filePath={selected[0] ?? ''}
         editableFolders={host.editableFolders}
@@ -72,7 +75,7 @@ export const FileToolsPanel = view<{
                 location: 'Go to location',
                 properties: 'Properties',
                 archive: 'Archive contents',
-                createArchive: 'Create ZIP',
+                createArchive: 'Create archive',
                 operations: 'File operations',
                 delete:
                   state.trashAvailable && !state.permanentDelete ? 'Move to trash' : 'Delete files',
@@ -183,17 +186,17 @@ export const FileToolsPanel = view<{
                 </button>
                 <button
                   class={button}
-                  disabled={selected.length !== 1 || !selected[0]?.toLowerCase().endsWith('.zip')}
+                  disabled={selected.length !== 1 || !isArchivePath(selected[0] ?? '')}
                   onClick={() => tools.open('archive')}
                 >
-                  Browse ZIP
+                  Browse archive
                 </button>
                 <button
                   class={button}
                   disabled={!selected.length || !host.editableFolders.length}
                   onClick={() => tools.open('createArchive')}
                 >
-                  Create ZIP…
+                  Create archive…
                 </button>
               </div>
             ) : null}
@@ -373,9 +376,10 @@ export const FileToolsPanel = view<{
             }}
           >
             <label class='block'>
-              ZIP filename
+              Archive filename
               <input
                 class={input}
+                placeholder='Archive.zip, .tar, .tar.gz or .tar.xz'
                 value={state.name}
                 onInput={(event) => tools.patch({ name: event.currentTarget.value })}
               />
@@ -389,7 +393,7 @@ export const FileToolsPanel = view<{
               />
             </label>
             <button class={button} disabled={state.jobs.pending}>
-              Create ZIP
+              Create archive
             </button>
           </form>
         ) : null}

@@ -1,5 +1,6 @@
 mod activity;
 mod app;
+mod archives;
 mod config;
 mod desktop_trash;
 mod error;
