@@ -113,6 +113,16 @@ impl IndexDb {
                 .execute("INSERT INTO entries_fts(entries_fts) VALUES('rebuild')", [])
                 .map_err(|error| error.to_string())?;
         }
+        connection.execute_batch(
+            "CREATE TABLE IF NOT EXISTS index_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+             BEGIN;
+             UPDATE entries SET media_type='audio' WHERE is_directory=0 AND extension IN ('ogg','oga') AND media_type!='audio'
+               AND NOT EXISTS(SELECT 1 FROM index_metadata WHERE key='ogg-classification-v1');
+             UPDATE entries SET media_type='video' WHERE is_directory=0 AND extension='ogv' AND media_type!='video'
+               AND NOT EXISTS(SELECT 1 FROM index_metadata WHERE key='ogg-classification-v1');
+             INSERT OR IGNORE INTO index_metadata(key,value) VALUES('ogg-classification-v1','done');
+             COMMIT;"
+        ).map_err(err)?;
         Ok(Self { connection })
     }
 
@@ -383,4 +393,68 @@ fn canonical(value: &str) -> String {
 }
 fn err(error: rusqlite::Error) -> String {
     error.to_string()
+}
+
+#[cfg(test)]
+mod classification_tests {
+    use super::*;
+    #[test]
+    fn reopening_an_existing_index_repairs_ogg_without_recrawling_or_losing_entries() {
+        let base = std::env::temp_dir().join(format!("derp-ogg-index-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&base).unwrap();
+        let path = base.join("index.sqlite");
+        {
+            let mut db = IndexDb::open(&path).unwrap();
+            let root = Root {
+                id: "root".into(),
+                name: "Media".into(),
+                path: base.clone(),
+                source: "config".into(),
+            };
+            db.sync_roots(&[root]).unwrap();
+            for (name, extension, kind) in [
+                ("song.ogg", "ogg", "video"),
+                ("song.oga", "oga", "other"),
+                ("clip.ogv", "ogv", "other"),
+                ("note.txt", "txt", "text"),
+            ] {
+                db.connection.execute("INSERT INTO entries(root_id,relative_path,parent_path,name,name_key,path_key,is_directory,extension,media_type,generation) VALUES('root',?1,'',?1,?1,?1,0,?2,?3,1)", params![name,extension,kind]).unwrap();
+            }
+            db.connection
+                .execute("DELETE FROM index_metadata", [])
+                .unwrap();
+        }
+        {
+            let db = IndexDb::open(&path).unwrap();
+            let mut query = db
+                .connection
+                .prepare("SELECT name,media_type FROM entries ORDER BY name")
+                .unwrap();
+            let rows: Vec<(String, String)> = query
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+                .unwrap()
+                .collect::<Result<_, _>>()
+                .unwrap();
+            assert_eq!(
+                rows,
+                vec![
+                    ("clip.ogv".into(), "video".into()),
+                    ("note.txt".into(), "text".into()),
+                    ("song.oga".into(), "audio".into()),
+                    ("song.ogg".into(), "audio".into())
+                ]
+            );
+            assert_eq!(
+                db.connection
+                    .query_row(
+                        "SELECT count(*) FROM entries_fts WHERE entries_fts MATCH 'song'",
+                        [],
+                        |r| r.get::<_, i64>(0)
+                    )
+                    .unwrap(),
+                2
+            );
+        }
+        fs::remove_dir_all(base).unwrap();
+    }
 }

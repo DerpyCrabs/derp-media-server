@@ -41,6 +41,15 @@ fn reconcile_item(
         )
         .map_err(sql_error)?
         > 0;
+    let reclassified = tx.execute(
+        "UPDATE media_catalog SET kind=?2,analyzed=0,retry_after=0,description='',tags='',duration=0 WHERE path=?1 AND kind!=?2",
+        params![path, kind],
+    ).map_err(sql_error)? > 0;
+    if reclassified {
+        tx.execute("DELETE FROM media_prepared WHERE path=?1", [path])
+            .map_err(sql_error)?;
+        changed = true;
+    }
     changed |= tx.execute("UPDATE media_catalog SET fingerprint=coalesce(?1,fingerprint),name=?2,analyzed=0,retry_after=0,description='',tags='',duration=0 WHERE path=?3 AND ((?1 IS NOT NULL AND fingerprint!=?1) OR name!=?2)",params![fingerprint,name,path]).map_err(sql_error)? > 0;
     tx.execute(
         "UPDATE media_catalog SET seen=?1 WHERE path=?2",
@@ -1454,6 +1463,48 @@ mod tests {
             )
             .unwrap();
         assert_eq!(invalidated, ("".into(), 0, 0.0));
+    }
+    #[test]
+    fn reclassifying_ogg_invalidates_wrong_media_analysis_and_preserves_feedback() {
+        let c = Connection::open_in_memory().unwrap();
+        super::super::initialize(&c).unwrap();
+        reconcile_item(&c, "song.ogg", "song.ogg", "video", 1, Some("100:1")).unwrap();
+        c.execute(
+            "UPDATE media_catalog SET analyzed=1,description='video',duration=30",
+            [],
+        )
+        .unwrap();
+        c.execute("INSERT INTO media_prepared(library_key,path,fingerprint,metadata_json) VALUES('library','song.ogg','100:1','{}')",[]).unwrap();
+        c.execute(
+            "INSERT INTO media_feedback(path,kind,until) VALUES('song.ogg','more',0)",
+            [],
+        )
+        .unwrap();
+        assert!(reconcile_item(&c, "song.ogg", "song.ogg", "audio", 2, Some("100:1")).unwrap());
+        let result: (String, i64, String) = c
+            .query_row(
+                "SELECT kind,analyzed,description FROM media_catalog",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(result, ("audio".into(), 0, "".into()));
+        assert_eq!(
+            c.query_row("SELECT count(*) FROM media_prepared", [], |r| r
+                .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            c.query_row(
+                "SELECT kind FROM media_feedback WHERE path='song.ogg'",
+                [],
+                |r| r.get::<_, String>(0)
+            )
+            .unwrap(),
+            "more"
+        );
+        assert!(!reconcile_item(&c, "song.ogg", "song.ogg", "audio", 3, Some("100:1")).unwrap());
     }
     #[test]
     fn bounded_context_handles_large_unicode_metadata() {

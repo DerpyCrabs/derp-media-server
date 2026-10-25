@@ -40,8 +40,8 @@ pub struct FileItem {
 
 pub fn media_type(ext: &str) -> &'static str {
     match ext.to_ascii_lowercase().as_str() {
-        "mp4" | "webm" | "ogg" | "mov" | "avi" | "mkv" | "m4v" => "video",
-        "mp3" | "wav" | "m4a" | "flac" | "aac" | "opus" => "audio",
+        "mp4" | "webm" | "ogv" | "mov" | "avi" | "mkv" | "m4v" => "video",
+        "mp3" | "wav" | "ogg" | "oga" | "m4a" | "flac" | "aac" | "opus" => "audio",
         "jpg" | "jpeg" | "png" | "gif" | "webp" | "bmp" | "svg" | "ico" => "image",
         "pdf" => "pdf",
         "epub" | "fb2" | "fb2.zip" => "book",
@@ -111,7 +111,7 @@ pub fn mime_type(ext: &str) -> &'static str {
     match ext.to_ascii_lowercase().as_str() {
         "mp4" => "video/mp4",
         "webm" => "video/webm",
-        "ogg" => "video/ogg",
+        "ogv" => "video/ogg",
         "mov" => "video/quicktime",
         "avi" => "video/x-msvideo",
         "mkv" => "video/x-matroska",
@@ -121,7 +121,7 @@ pub fn mime_type(ext: &str) -> &'static str {
         "m4a" => "audio/mp4",
         "flac" => "audio/flac",
         "aac" => "audio/aac",
-        "opus" => "audio/opus",
+        "ogg" | "oga" | "opus" => "audio/ogg",
         "jpg" | "jpeg" => "image/jpeg",
         "png" => "image/png",
         "gif" => "image/gif",
@@ -416,4 +416,18 @@ fn sort(v: &mut [FileItem]) {
             .then_with(|| b.is_directory.cmp(&a.is_directory))
             .then_with(|| natord::compare_ignore_case(&a.name, &b.name))
     })
+}
+
+#[cfg(test)]
+mod classification_tests {
+    use super::*;
+    #[test]
+    fn ogg_profiles_use_audio_and_video_players_consistently() {
+        for extension in ["ogg", "oga", "opus", "OGG"] {
+            assert_eq!(media_type(extension), "audio");
+            assert_eq!(mime_type(extension), "audio/ogg");
+        }
+        assert_eq!(media_type("ogv"), "video");
+        assert_eq!(mime_type("ogv"), "video/ogg");
+    }
 }

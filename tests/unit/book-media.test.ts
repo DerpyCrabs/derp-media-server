@@ -63,3 +63,13 @@ test('desktop configuration files and extensionless documents are recognized as 
   }
   expect(getMediaTypeFromPath('folder/program')).toBe(MediaType.OTHER)
 })
+
+test('Ogg audio and video extensions select the matching player and registered MIME type', () => {
+  for (const extension of ['ogg', 'oga', 'opus']) {
+    expect(getMediaType(extension)).toBe(MediaType.AUDIO)
+    expect(getMediaTypeFromPath(`Music/Track.${extension.toUpperCase()}`)).toBe(MediaType.AUDIO)
+    expect(getMimeType(extension)).toBe('audio/ogg')
+  }
+  expect(getMediaType('ogv')).toBe(MediaType.VIDEO)
+  expect(getMimeType('ogv')).toBe('video/ogg')
+})

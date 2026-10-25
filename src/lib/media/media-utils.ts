@@ -1,7 +1,7 @@
 import { MediaType } from '@/lib/files/types'
 
-const VIDEO_EXTENSIONS = ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv', 'm4v']
-const AUDIO_EXTENSIONS = ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac', 'opus']
+const VIDEO_EXTENSIONS = ['mp4', 'webm', 'ogv', 'mov', 'avi', 'mkv', 'm4v']
+const AUDIO_EXTENSIONS = ['mp3', 'wav', 'ogg', 'oga', 'm4a', 'flac', 'aac', 'opus']
 const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'ico']
 const PDF_EXTENSIONS = ['pdf']
 const BOOK_EXTENSIONS = ['epub', 'fb2', 'fb2.zip']
@@ -73,7 +73,7 @@ const MIME_TYPES: Record<string, string> = {
   // Video
   mp4: 'video/mp4',
   webm: 'video/webm',
-  ogg: 'video/ogg',
+  ogv: 'video/ogg',
   mov: 'video/quicktime',
   avi: 'video/x-msvideo',
   mkv: 'video/x-matroska',
@@ -85,7 +85,9 @@ const MIME_TYPES: Record<string, string> = {
   m4a: 'audio/mp4',
   flac: 'audio/flac',
   aac: 'audio/aac',
-  opus: 'audio/opus',
+  opus: 'audio/ogg',
+  ogg: 'audio/ogg',
+  oga: 'audio/ogg',
 
   // Image
   jpg: 'image/jpeg',
