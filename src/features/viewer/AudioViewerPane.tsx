@@ -1,3 +1,4 @@
+import { openSleepTimer, sleepTimerLabel } from '@/features/playback/sleep-timer'
 import { QueuePanel } from '@/features/music/QueuePanel'
 import { PlaybackSetting } from '@/features/playback/PlaybackSetting'
 import {
@@ -335,6 +336,13 @@ const Transport = view<{ model: Model; active: boolean }>((props) => {
       <div class='w-[72px] shrink-0'>
         <PlaybackSetting
           label='Audio playback speed'
+          status={
+            model.playback.sleepTimer ? sleepTimerLabel(model.playback.sleepTimer) : undefined
+          }
+          action={{
+            label: sleepTimerLabel(model.playback.sleepTimer),
+            onClick: () => openSleepTimer(),
+          }}
           value={String(props.active ? model.playback.playbackRate : 1)}
           disabled={!props.active}
           options={[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3].map((rate) => ({

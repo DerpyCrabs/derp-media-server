@@ -82,6 +82,7 @@ export const BATCHES = [
     id: '5',
     tests: [
       'audio-player',
+      'playback-sleep-timer',
       'music-listening',
       'music-playlists',
       'playlist-interchange',

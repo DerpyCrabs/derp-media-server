@@ -213,7 +213,10 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
       attachment.appliedSeekId === pending.id &&
       attachment.metadataLoaded &&
       !element.seeking &&
-      (element.readyState ?? 4) >= 2 &&
+      ((element.readyState ?? 4) >= 2 ||
+        (element.ended &&
+          Number.isFinite(element.duration) &&
+          pending.position >= element.duration - 0.025)) &&
       Math.abs(element.currentTime - pending.position) <= 0.15
     ) {
       session.dispatch({
@@ -503,7 +506,12 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
       const shouldResume = attachment.resumeAfterSeek
       attachment.seeking = false
       attachment.resumeAfterSeek = false
-      if (shouldResume && session.getSnapshot().desiredPlaying && element.paused) {
+      if (
+        shouldResume &&
+        session.getSnapshot().desiredPlaying &&
+        element.paused &&
+        !element.ended
+      ) {
         play(attachment)
       }
     }
@@ -551,11 +559,16 @@ export function createMediaElementHost(session: PlaybackSession): MediaElementHo
     }
     const onEnded: EventListener = () => {
       if (!validEvent()) return
+      if (session.getSnapshot().pendingSeek && !applySeek(attachment, true)) return
       const before = session.getSnapshot()
       const repeat = before.repeat || (!!before.loop && before.loop.end !== null)
       attachment.repeating = repeat
       const eventGeneration = attachment.generation
       session.dispatch({ type: 'mediaEnded', generation: eventGeneration })
+      if (!session.getSnapshot().desiredPlaying) {
+        attachment.repeating = false
+        return
+      }
       if (!repeat || active !== attachment || attachment.generation !== eventGeneration) return
       try {
         element.currentTime = session.getSnapshot().pendingSeek?.position ?? before.loop?.start ?? 0

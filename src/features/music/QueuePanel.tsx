@@ -1,3 +1,4 @@
+import { openSleepTimer, sleepTimerLabel } from '@/features/playback/sleep-timer'
 import { component, view, observe, list, Portal } from 'effectweb'
 import ArrowDown from '@effectweb/lucide/icons/arrow-down'
 import ArrowUp from '@effectweb/lucide/icons/arrow-up'
@@ -105,6 +106,19 @@ export const QueuePanel = component<
                       }}
                     >
                       Playlists
+                    </button>
+                  </div>
+                  <div class='border-b border-border px-4 py-1'>
+                    <button
+                      type='button'
+                      class='min-h-10 rounded-lg px-3 text-sm text-muted-foreground hover:bg-secondary disabled:opacity-40'
+                      disabled={!snapshot.currentItem}
+                      onClick={() => {
+                        setOpen(false)
+                        openSleepTimer()
+                      }}
+                    >
+                      {sleepTimerLabel(snapshot.sleepTimer)}
                     </button>
                   </div>
                   <QueueRadioControls />

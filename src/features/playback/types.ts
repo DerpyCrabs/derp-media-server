@@ -52,6 +52,10 @@ export type PlaybackSource = Readonly<{
 
 export type PlaybackLoop = Readonly<{ start: number; end: number | null }>
 
+export type PlaybackSleepTimer = Readonly<
+  { kind: 'deadline'; endsAt: number } | { kind: 'end'; locator: string } | { kind: 'expired' }
+>
+
 export type PlaybackSnapshot = Readonly<{
   revision: number
   phase: PlaybackPhase
@@ -70,6 +74,7 @@ export type PlaybackSnapshot = Readonly<{
   repeat: boolean
   playbackRate: number
   loop: PlaybackLoop | null
+  sleepTimer: PlaybackSleepTimer | null
   source: PlaybackSource | null
   error: string | null
 }>
@@ -132,6 +137,7 @@ export type PlaybackCommand =
   | Readonly<{ type: 'setMuted'; muted: boolean }>
   | Readonly<{ type: 'setRepeat'; repeat: boolean }>
   | Readonly<{ type: 'setLoop'; loop: PlaybackLoop | null }>
+  | Readonly<{ type: 'setSleepTimer'; duration: number | 'end' | null }>
   | Readonly<{ type: 'toggleRepeat' | 'checkpoint' | 'stop' | 'destroy' }>
 
 export type PlaybackOutcome = Readonly<{

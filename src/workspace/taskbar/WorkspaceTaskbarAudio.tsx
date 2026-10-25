@@ -1,3 +1,4 @@
+import { openSleepTimer, sleepTimerLabel } from '@/features/playback/sleep-timer'
 import { PlaybackSetting } from '@/features/playback/PlaybackSetting'
 import { PlaybackScrubber } from '@/features/playback/create-playback-scrubber'
 import { QueuePanel } from '@/features/music/QueuePanel'
@@ -290,6 +291,11 @@ export const WorkspaceTaskbarAudio = controllerView(
                 <div class='w-24'>
                   <PlaybackSetting
                     label='Audio playback speed'
+                    status={playback.sleepTimer ? sleepTimerLabel(playback.sleepTimer) : undefined}
+                    action={{
+                      label: sleepTimerLabel(playback.sleepTimer),
+                      onClick: () => openSleepTimer(),
+                    }}
                     value={String(playback.playbackRate)}
                     options={[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3].map((rate) => ({
                       value: String(rate),

@@ -642,6 +642,53 @@ describe('PlaybackMediaHost', () => {
     host.dispose()
   })
 
+  test('seeking to the exact end settles even when the browser has no remaining frame data', () => {
+    const session = createPlaybackSession({
+      sourceResolver: { resolve: (request) => Effect.sync(() => resolver(request)) },
+    })
+    const host = createMediaElementHost(session),
+      media = new FakeMediaElement()
+    session.dispatch({ type: 'load', item: item('seek-end'), autoplay: true })
+    attach(host, media, 'audio')
+    media.ready(30)
+    Object.assign(media, { readyState: 1 })
+    session.dispatch({ type: 'setSleepTimer', duration: 'end' })
+    session.dispatch({ type: 'seek', position: 30 })
+    expect(session.getSnapshot().pendingSeek).not.toBeNull()
+    media.end()
+    expect(session.getSnapshot()).toMatchObject({
+      pendingSeek: null,
+      phase: 'ended',
+      desiredPlaying: false,
+      sleepTimer: { kind: 'expired' },
+    })
+    host.dispose()
+    session.dispatch({ type: 'destroy' })
+  })
+
+  test('end-of-item sleep timer prevents the media host from restarting repeat', () => {
+    const session = createPlaybackSession({
+      sourceResolver: { resolve: (request) => Effect.sync(() => resolver(request)) },
+    })
+    const host = createMediaElementHost(session),
+      media = new FakeMediaElement()
+    session.dispatch({ type: 'load', item: item('sleep'), autoplay: true })
+    attach(host, media, 'audio')
+    media.ready(30)
+    session.dispatch({ type: 'setRepeat', repeat: true })
+    session.dispatch({ type: 'setSleepTimer', duration: 'end' })
+    const calls = media.playCalls
+    media.end()
+    expect(media.paused).toBe(true)
+    expect(media.playCalls).toBe(calls)
+    expect(session.getSnapshot()).toMatchObject({
+      desiredPlaying: false,
+      sleepTimer: { kind: 'expired' },
+    })
+    host.dispose()
+    session.dispatch({ type: 'destroy' })
+  })
+
   test('keeps repeat intent across native pause and ended events', () => {
     const session = createPlaybackSession({
       sourceResolver: { resolve: (request) => Effect.sync(() => resolver(request)) },

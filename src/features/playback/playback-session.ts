@@ -8,6 +8,7 @@ import type {
   PlaybackItem,
   PlaybackMode,
   PlaybackLoop,
+  PlaybackSleepTimer,
   PlaybackOutcome,
   PlaybackPhase,
   PlaybackPersistence,
@@ -40,6 +41,7 @@ type MutableState = {
   repeat: boolean
   playbackRate: number
   loop: PlaybackLoop | null
+  sleepTimer: PlaybackSleepTimer | null
   transport: Transport
   timeline: {
     position: number
@@ -230,6 +232,7 @@ export function createPlaybackSession(options: CreatePlaybackSessionOptions): Pl
     repeat: restored?.repeat ?? false,
     playbackRate: 1,
     loop: null,
+    sleepTimer: null,
     transport: restoredItem ? { kind: 'resolving', previous: null } : { kind: 'idle' },
     timeline: {
       position: finiteAtLeast(restored?.position ?? 0, 0),
@@ -248,6 +251,30 @@ export function createPlaybackSession(options: CreatePlaybackSessionOptions): Pl
   let notifying = false
   let queuedNotification = false
   let cachedSnapshot: PlaybackSnapshot | null = null
+
+  let sleepTimeout: ReturnType<typeof setTimeout> | undefined
+  const clearSleepTimeout = () => {
+    clearTimeout(sleepTimeout)
+    sleepTimeout = undefined
+  }
+  owner.own(clearSleepTimeout)
+  function expireSleepTimer() {
+    clearSleepTimeout()
+    state.sleepTimer = Object.freeze({ kind: 'expired' })
+    state.desiredPlaying = false
+    notify()
+  }
+  function scheduleSleepTimer() {
+    clearSleepTimeout()
+    const timer = state.sleepTimer
+    if (timer?.kind !== 'deadline') return
+    const remaining = timer.endsAt - Date.now()
+    if (remaining <= 0) {
+      expireSleepTimer()
+      return
+    }
+    sleepTimeout = setTimeout(scheduleSleepTimer, Math.min(remaining, 30000))
+  }
 
   function snapshot(): PlaybackSnapshot {
     return (cachedSnapshot ??= Object.freeze({
@@ -268,6 +295,7 @@ export function createPlaybackSession(options: CreatePlaybackSessionOptions): Pl
       repeat: state.repeat,
       playbackRate: state.playbackRate,
       loop: state.loop,
+      sleepTimer: state.sleepTimer,
       source: playbackSource(state.transport),
       error: state.transport.kind === 'error' ? state.transport.message : null,
     }))
@@ -284,6 +312,14 @@ export function createPlaybackSession(options: CreatePlaybackSessionOptions): Pl
   }
 
   function notify(forcePersist = true, save = true) {
+    if (!currentItem(state)) {
+      clearSleepTimeout()
+      state.sleepTimer = null
+    } else if (
+      state.sleepTimer?.kind === 'end' &&
+      state.sleepTimer.locator !== currentItem(state)?.locator
+    )
+      state.sleepTimer = null
     state.revision += 1
     cachedSnapshot = null
     if (save) persist(forcePersist)
@@ -442,6 +478,7 @@ export function createPlaybackSession(options: CreatePlaybackSessionOptions): Pl
   }
 
   function selectIndex(index: number, autoplay: boolean): PlaybackOutcome {
+    if (state.sleepTimer?.kind === 'expired') state.sleepTimer = null
     state.currentIndex = index
     const item = currentItem(state)!
     resetTimeline(legacyPosition(item))
@@ -452,9 +489,12 @@ export function createPlaybackSession(options: CreatePlaybackSessionOptions): Pl
 
   function dispatch(command: PlaybackCommand): PlaybackOutcome {
     if (state.transport.kind === 'destroyed') return reject('destroyed')
+    if (state.sleepTimer?.kind === 'deadline' && state.sleepTimer.endsAt <= Date.now())
+      expireSleepTimer()
     switch (command.type) {
       case 'load': {
         if (!validItem(command.item)) return reject('invalid')
+        if (state.sleepTimer?.kind === 'expired') state.sleepTimer = null
         const item = normalizeItem(command.item)
         const isSame = sameItem(currentItem(state), item)
         const mode = modeFor(item, command.mode ?? (isSame ? state.mode : undefined))
@@ -594,6 +634,7 @@ export function createPlaybackSession(options: CreatePlaybackSessionOptions): Pl
       }
       case 'play':
         if (!currentItem(state)) return reject('emptyQueue')
+        if (state.sleepTimer?.kind === 'expired') state.sleepTimer = null
         if (state.desiredPlaying && state.transport.kind !== 'error') return unchanged()
         state.desiredPlaying = true
         if (
@@ -678,6 +719,10 @@ export function createPlaybackSession(options: CreatePlaybackSessionOptions): Pl
       }
       case 'mediaPlay': {
         if (!currentGeneration(command.generation)) return reject('staleSource')
+        if (state.sleepTimer?.kind === 'expired') {
+          notify(false, false)
+          return unchanged()
+        }
         const source = playbackSource(state.transport)!
         state.transport = { kind: 'attached', source, playing: true }
         state.desiredPlaying = true
@@ -700,6 +745,14 @@ export function createPlaybackSession(options: CreatePlaybackSessionOptions): Pl
         if (!currentGeneration(command.generation)) return reject('staleSource')
         if (state.transport.kind === 'error') return unchanged()
         if (state.timeline.pending) return unchanged()
+        if (state.sleepTimer?.kind === 'end' || state.sleepTimer?.kind === 'expired') {
+          const source = playbackSource(state.transport)!
+          state.timeline.position = state.timeline.duration
+          state.transport = { kind: 'ended', source }
+          state.buffering = false
+          expireSleepTimer()
+          return changed()
+        }
         if (state.loop && state.loop.end !== null) {
           requestSeek(state.loop.start)
           state.desiredPlaying = true
@@ -753,11 +806,31 @@ export function createPlaybackSession(options: CreatePlaybackSessionOptions): Pl
         return selectIndex(state.currentIndex - 1, true)
       case 'retry':
         if (!currentItem(state)) return reject('emptyQueue')
+        if (state.sleepTimer?.kind === 'expired') state.sleepTimer = null
         state.desiredPlaying = true
         return resolveSource('retry')
       case 'refreshSource':
         if (command.fallback) fallback = command.fallback
         return resolveSource('refresh')
+      case 'setSleepTimer': {
+        if (command.duration !== null && !currentItem(state)) return reject('emptyQueue')
+        if (
+          typeof command.duration === 'number' &&
+          (!Number.isFinite(command.duration) ||
+            command.duration <= 0 ||
+            command.duration > 86400000)
+        )
+          return reject('invalid')
+        state.sleepTimer =
+          command.duration === null
+            ? null
+            : command.duration === 'end'
+              ? Object.freeze({ kind: 'end', locator: currentItem(state)!.locator })
+              : Object.freeze({ kind: 'deadline', endsAt: Date.now() + command.duration })
+        scheduleSleepTimer()
+        notify(false, false)
+        return changed()
+      }
       case 'setMode': {
         const item = currentItem(state)
         if (!item) return reject('emptyQueue')
@@ -827,6 +900,8 @@ export function createPlaybackSession(options: CreatePlaybackSessionOptions): Pl
         persist(true)
         return unchanged()
       case 'stop':
+        clearSleepTimeout()
+        state.sleepTimer = null
         stopResolution()
         state.queue = []
         state.queueContext = null
@@ -841,6 +916,8 @@ export function createPlaybackSession(options: CreatePlaybackSessionOptions): Pl
         notify(true, false)
         return changed()
       case 'destroy':
+        clearSleepTimeout()
+        state.sleepTimer = null
         stopResolution()
         owner.dispose()
         persist(true)

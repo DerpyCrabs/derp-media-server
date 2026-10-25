@@ -9,6 +9,7 @@ type Props = {
   value: string
   options: readonly Option[]
   disabled?: boolean
+  status?: string
   mount?: HTMLElement
   action?: { label: string; onClick: () => void }
   onChange: (value: string) => void
@@ -66,6 +67,7 @@ export const PlaybackSetting = component<
         <button
           type='button'
           aria-label={props.label}
+          title={props.status ? `${props.label} · ${props.status}` : props.label}
           aria-haspopup='menu'
           aria-expanded={model.open ? 'true' : 'false'}
           disabled={props.disabled}
@@ -81,6 +83,9 @@ export const PlaybackSetting = component<
           <span class='min-w-0 flex-1 truncate'>
             {props.options.find((option) => option.value === props.value)?.label}
           </span>
+          {props.status ? (
+            <span aria-label={props.status} class='h-1.5 w-1.5 shrink-0 rounded-full bg-primary' />
+          ) : null}
           <ChevronDown class='text-muted-foreground h-3.5 w-3.5 shrink-0' />
         </button>
         <FloatingContextMenu

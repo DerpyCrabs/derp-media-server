@@ -1,3 +1,4 @@
+import { SleepTimerHost } from './features/playback/SleepTimerHost'
 import { observe, view } from 'effectweb'
 import { browserHistory } from '@/lib/browser/browser-history'
 import { MediaCenterPage } from './media-center/MediaCenterPage'
@@ -12,6 +13,7 @@ import { MusicDialogs } from './features/music/MusicDialogs'
 export const App = view(() => (
   <>
     <PlaybackMediaHost />
+    <SleepTimerHost />
     <MusicDialogs />
     <GlobalForbiddenToast />
     <AppDialogHost />

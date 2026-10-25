@@ -1,3 +1,4 @@
+import { openSleepTimer, sleepTimerLabel } from './sleep-timer'
 import { VideoNavigationDialog } from './VideoNavigationDialog'
 import { chapterAt, precisePlaybackTime } from './video-navigation'
 import type { PlaybackLoop } from './types'
@@ -773,6 +774,17 @@ export const VideoControls = controllerView(
                 </button>
               </div>
               <div class='space-y-3'>
+                <button
+                  type='button'
+                  disabled={!props.active}
+                  class='min-h-9 w-full rounded px-2 text-left text-sm hover:bg-accent disabled:opacity-40'
+                  onClick={() => {
+                    setSettingsOpen(false)
+                    openSleepTimer(fullscreen ? model.container : undefined)
+                  }}
+                >
+                  {sleepTimerLabel(model.playback.sleepTimer)}
+                </button>
                 <button
                   class='flex min-h-9 w-full items-center justify-between rounded px-2 text-left text-sm hover:bg-accent'
                   onClick={() => model.actions.navigation(true)}

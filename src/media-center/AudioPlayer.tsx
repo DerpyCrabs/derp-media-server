@@ -1,3 +1,4 @@
+import { openSleepTimer, sleepTimerLabel } from '@/features/playback/sleep-timer'
 import { PlaybackSetting } from '@/features/playback/PlaybackSetting'
 import { QueuePanel } from '@/features/music/QueuePanel'
 import { MediaType } from '@/lib/files/types'
@@ -287,6 +288,13 @@ export const AudioPlayer = controllerView(
             <div class='hidden w-[72px] shrink-0 min-[650px]:block'>
               <PlaybackSetting
                 label='Audio playback speed'
+                status={
+                  model.playback.sleepTimer ? sleepTimerLabel(model.playback.sleepTimer) : undefined
+                }
+                action={{
+                  label: sleepTimerLabel(model.playback.sleepTimer),
+                  onClick: () => openSleepTimer(),
+                }}
                 value={String(model.playback.playbackRate)}
                 options={[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3].map((rate) => ({
                   value: String(rate),
