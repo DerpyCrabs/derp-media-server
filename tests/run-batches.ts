@@ -111,6 +111,7 @@ export const BATCHES = [
       'pdf-viewer',
       'download',
       'text-editor',
+      'text-print',
       'code-editor',
       'table-viewer',
       'text-recovery',

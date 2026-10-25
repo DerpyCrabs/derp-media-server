@@ -43,7 +43,13 @@ const copySlot = 'text-copy'
 const closeSlot = 'text-close'
 export const dirtyGuard = (
   element: HTMLDivElement,
-  current: () => { dirty: boolean; onSaveAs: () => void; canSaveAs: boolean },
+  current: () => {
+    dirty: boolean
+    onSaveAs: () => void
+    canSaveAs: boolean
+    onPrint: () => void
+    canPrint: boolean
+  },
 ) => {
   const warn = (event: BeforeUnloadEvent) => {
     if (current().dirty) {
@@ -52,6 +58,18 @@ export const dirtyGuard = (
     }
   }
   const keydown = (event: KeyboardEvent) => {
+    if (
+      current().canPrint &&
+      (event.ctrlKey || event.metaKey) &&
+      !event.shiftKey &&
+      !event.altKey &&
+      event.key.toLowerCase() === 'p'
+    ) {
+      event.preventDefault()
+      event.stopPropagation()
+      current().onPrint()
+      return
+    }
     if (
       current().canSaveAs &&
       (event.ctrlKey || event.metaKey) &&
@@ -95,6 +113,7 @@ export function textController(props: TextEditorPaneProps) {
     reviewed: false,
     comparison: null as TextDocumentRemote | null,
     comparisonError: '',
+    printDocument: null as { content: string; dirty: boolean } | null,
     saveAsOpen: false,
     saveAsPending: false,
     saveAsError: '',
@@ -217,6 +236,14 @@ export function textController(props: TextEditorPaneProps) {
         'drop',
       ),
     openSaveAs: () => owner.patch({ saveAsOpen: true, saveAsError: '' }),
+    print: () => {
+      const current = owner.read()
+      if (!current.loading && !current.loadError)
+        owner.patch({
+          printDocument: { content: current.edit, dirty: current.edit !== current.base },
+        })
+    },
+    closePrint: () => owner.patch({ printDocument: null }),
     closeSaveAs: () => {
       if (!owner.read().saveAsPending) owner.patch({ saveAsOpen: false })
     },
