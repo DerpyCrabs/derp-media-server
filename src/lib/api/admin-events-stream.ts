@@ -49,6 +49,8 @@ export function handleAdminEvent(
   } else if (data.type === 'book-recommendations-changed') {
     handlers.invalidate('mediaAi')
     handlers.invalidate('recommendations')
+  } else if (data.type === 'reader-notes-changed') {
+    handlers.invalidate('readerNotes')
   } else if (data.type === 'reader-state-changed') {
     handlers.invalidate('mediaAi')
   } else if (data.type === 'playback-preferences-changed') {

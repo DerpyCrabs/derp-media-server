@@ -66,6 +66,7 @@ fn router(state: Shared) -> Router {
         .merge(routes::media::router())
         .merge(crate::video_playback::router())
         .merge(routes::reader_state::router())
+        .merge(crate::reader_notes::router())
         .merge(routes::sse::router())
         .fallback(crate::html::fallback)
         .layer(DefaultBodyLimit::max(1_048_576))

@@ -22,6 +22,7 @@ pub fn moved_in_transaction(
         .stats
         .move_paths_in_transaction(transaction, old_path, new_path)?;
     crate::media_ai::move_paths(transaction, old_path, new_path)?;
+    crate::reader_notes::move_paths(transaction, old_path, new_path)?;
     reader_state::move_prefix_in_transaction(transaction, old_path, new_path)
 }
 
@@ -39,6 +40,7 @@ pub fn removed_in_transaction(
         .remove_paths_in_transaction(transaction, path, changed_at)?;
     state.stats.remove_paths_in_transaction(transaction, path)?;
     crate::media_ai::remove_paths(transaction, path)?;
+    crate::reader_notes::remove_paths(transaction, path)?;
     reader_state::remove_prefix_in_transaction(transaction, None, path)
 }
 

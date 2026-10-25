@@ -1,6 +1,6 @@
 import { randomId } from '@/lib/random-id'
 
-export type DraftKind = 'text' | 'image' | 'pdf'
+export type DraftKind = 'text' | 'image' | 'pdf' | 'reader-note'
 export type DocumentDraft = {
   kind?: DraftKind
   attachment?: Blob
@@ -51,7 +51,8 @@ function isDraft(value: unknown): value is DocumentDraft {
     (!('kind' in value) ||
       value.kind === 'text' ||
       value.kind === 'image' ||
-      value.kind === 'pdf') &&
+      value.kind === 'pdf' ||
+      value.kind === 'reader-note') &&
     'id' in value &&
     typeof value.id === 'string' &&
     'path' in value &&

@@ -1,3 +1,7 @@
+import { createReaderNotes } from './reader-notes-controller'
+import { ReaderNotesPanel } from './ReaderNotesPanel'
+import type { NoteLocation, NotePlace } from './reader-notes'
+import type { ReaderNavigation } from './ReaderOutline'
 import { showAppAlertEffect } from '@/lib/ui/app-dialog'
 import { cn } from '@/lib/ui/cn'
 import { Effect } from 'effect'
@@ -41,7 +45,10 @@ type Props = ReaderPresentation & {
   overlay?: JSX.Element
   settings?: (close: () => void) => JSX.Element
   settingsWide?: boolean
-  outline?: JSX.Element
+  hasContents: boolean
+  outline?: (navigation: ReaderNavigation) => JSX.Element
+  notePlace?: (anchor?: HTMLElement) => NotePlace | undefined
+  onNoteNavigate?: (location: NoteLocation) => void
   content: (frame: ReaderFrameContent) => JSX.Element
   onViewport?: (viewport: HTMLDivElement) => void
   onScroll?: (viewport: HTMLDivElement) => void
@@ -60,10 +67,34 @@ function frameController(props: Props) {
     menuHost,
     preferences: readerPreferences.read(),
     settingsOpen: false,
+    navigationTab: 'contents' as 'contents' | 'notes',
     fullscreen: false,
     selection: null as ReaderSelection | null,
   })
+  const notes = createReaderNotes({
+    path: props.sourcePath,
+    place: (anchor) => owner.read().props.notePlace?.(anchor),
+    navigate: (location) => owner.read().props.onNoteNavigate?.(location),
+    show: () => {
+      owner.patch({ navigationTab: 'notes' })
+      readerPreferences.patch({ outlineOpen: true })
+    },
+  })
+  owner.own(notes.lifetime)
+  const beforeClose = () =>
+    notes
+      .beforeClose()
+      .pipe(Effect.andThen(Effect.suspend(() => owner.read().props.beforeClose?.() ?? Effect.void)))
   const actions = {
+    notes: () => notes,
+    navigationTab: (navigationTab: 'contents' | 'notes') => owner.patch({ navigationTab }),
+    saveQuote: () => {
+      const selection = owner.read().selection
+      if (selection?.kind === 'text' && notes.create(selection.text, selection.anchor)) {
+        owner.patch({ selection: null })
+        window.getSelection()?.removeAllRanges()
+      }
+    },
     settings: (open: boolean) => owner.patch({ settingsOpen: open }),
     clearSelection: () => {
       owner.patch({ selection: null })
@@ -101,7 +132,7 @@ function frameController(props: Props) {
       owner.run(
         closeSlot,
         Effect.gen(function* () {
-          yield* owner.read().props.beforeClose?.() ?? Effect.void
+          yield* beforeClose()
           yield* readerPreferences.flush()
           const onClose = owner.read().props.onClose
           if (onClose) onClose()
@@ -146,6 +177,10 @@ function frameController(props: Props) {
           id: ++selectionId,
           kind: 'text',
           text,
+          anchor:
+            range.startContainer instanceof HTMLElement
+              ? range.startContainer
+              : (range.startContainer.parentElement ?? undefined),
           ...menuPositionForRect(rect, viewport),
         },
       })
@@ -193,7 +228,7 @@ function frameController(props: Props) {
     document.body.append(menuHost)
     const stopClose = registerDesktopCloseHandler(() =>
       Effect.gen(function* () {
-        yield* owner.read().props.beforeClose?.() ?? Effect.void
+        yield* beforeClose()
         yield* readerPreferences.flush()
       }),
     )
@@ -242,6 +277,13 @@ function frameController(props: Props) {
         current.props.onPrint()
         return
       }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'b') {
+        event.preventDefault()
+        owner.patch({ navigationTab: 'notes' })
+        readerPreferences.patch({ outlineOpen: true })
+        if (event.altKey) notes.create()
+        return
+      }
       if (event.key === 'Escape') {
         if (current.props.onEscape?.()) {
           event.preventDefault()
@@ -250,6 +292,8 @@ function frameController(props: Props) {
         }
         if (current.settingsOpen) owner.patch({ settingsOpen: false })
         else if (current.selection) actions.clearSelection()
+        else if (current.navigationTab === 'notes' && current.preferences.outlineOpen)
+          readerPreferences.patch({ outlineOpen: false })
         else if (!current.props.embedded || current.props.onClose) void actions.dismiss()
         return
       }
@@ -345,7 +389,12 @@ export const ReaderFrame = controllerView(
               aria-label='Toggle document outline'
               data-testid='reader-outline-button'
               class={`${buttonClass} col-start-1 row-start-1`}
-              onClick={() => readerPreferences.patch({ outlineOpen: !preferences.outlineOpen })}
+              onClick={() => {
+                const open =
+                  preferences.outlineOpen && (props.hasContents || model.navigationTab === 'notes')
+                if (!props.hasContents) actions.navigationTab('notes')
+                readerPreferences.patch({ outlineOpen: !open })
+              }}
             >
               <PanelLeft size={18} />
             </button>
@@ -426,7 +475,57 @@ export const ReaderFrame = controllerView(
         </header>
         {props.search}
         <div class='relative flex min-h-0 flex-1'>
-          {preferences.outlineOpen ? props.outline : null}
+          {preferences.outlineOpen && (props.hasContents || model.navigationTab === 'notes')
+            ? props.outline?.({
+                tabs: props.hasContents ? (
+                  <div
+                    class='flex shrink-0 gap-1 border-b border-[#303030] p-1'
+                    role='tablist'
+                    aria-label='Document navigation'
+                    onKeyDown={(event) => {
+                      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+                      event.preventDefault()
+                      event.stopPropagation()
+                      const next =
+                        event.key === 'Home'
+                          ? 'contents'
+                          : event.key === 'End'
+                            ? 'notes'
+                            : model.navigationTab === 'contents'
+                              ? 'notes'
+                              : 'contents'
+                      actions.navigationTab(next)
+                      event.currentTarget
+                        .querySelectorAll<HTMLButtonElement>('[role=tab]')
+                        [next === 'contents' ? 0 : 1]?.focus()
+                    }}
+                  >
+                    <button
+                      role='tab'
+                      tabIndex={model.navigationTab === 'contents' ? 0 : -1}
+                      aria-selected={model.navigationTab === 'contents'}
+                      class='min-h-8 flex-1 rounded text-xs hover:bg-white/10 aria-selected:bg-white/15'
+                      onClick={() => actions.navigationTab('contents')}
+                    >
+                      Contents
+                    </button>
+                    <button
+                      role='tab'
+                      tabIndex={model.navigationTab === 'notes' ? 0 : -1}
+                      aria-selected={model.navigationTab === 'notes'}
+                      class='min-h-8 flex-1 rounded text-xs hover:bg-white/10 aria-selected:bg-white/15'
+                      onClick={() => actions.navigationTab('notes')}
+                    >
+                      Notes
+                    </button>
+                  </div>
+                ) : undefined,
+                notes:
+                  model.navigationTab === 'notes' ? (
+                    <ReaderNotesPanel controller={actions.notes()} />
+                  ) : undefined,
+              })
+            : null}
           <div
             use={domBinding(actions.viewport, viewportBinding)}
             data-testid='reader-viewport'
@@ -455,6 +554,7 @@ export const ReaderFrame = controllerView(
               defaultAction={preferences.defaultAction}
               aiDetail={preferences.aiDetail}
               onTextChange={actions.selectionText}
+              onSaveQuote={props.notePlace ? actions.saveQuote : undefined}
             />
           ) : null}
         </Portal>

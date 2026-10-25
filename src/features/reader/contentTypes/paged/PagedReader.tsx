@@ -551,25 +551,36 @@ const PagedReaderView = view<ControllerModel<typeof createPagedReader>>((model) 
           </ReaderSetting>
         </>
       )}
-      outline={
-        model.document?.outline.length ? (
-          <ReaderOutline
-            title='Contents'
-            items={model.document.outline}
-            active={state.pageIndex}
-            onNavigate={(target) => typeof target === 'number' && actions.navigate(target)}
-            onClose={() => readerPreferences.patch({ outlineOpen: false })}
-            expanded={state.outlineExpanded}
-            onToggle={(id) =>
-              actions.change({
-                outlineExpanded: state.outlineExpanded.includes(id)
-                  ? state.outlineExpanded.filter((item) => item !== id)
-                  : [...state.outlineExpanded, id],
-              })
-            }
-          />
-        ) : undefined
-      }
+      outline={(navigation) => (
+        <ReaderOutline
+          title='Contents'
+          navigation={navigation}
+          items={model.document?.outline ?? []}
+          active={state.pageIndex}
+          onNavigate={(target) => typeof target === 'number' && actions.navigate(target)}
+          onClose={() => readerPreferences.patch({ outlineOpen: false })}
+          expanded={state.outlineExpanded}
+          onToggle={(id) =>
+            actions.change({
+              outlineExpanded: state.outlineExpanded.includes(id)
+                ? state.outlineExpanded.filter((item) => item !== id)
+                : [...state.outlineExpanded, id],
+            })
+          }
+        />
+      )}
+      hasContents={!!model.document?.outline.length}
+      notePlace={(anchor) => {
+        if (!model.document) return undefined
+        const index = Number(
+          anchor?.closest<HTMLElement>('[data-reader-page-index]')?.dataset.readerPageIndex ??
+            state.pageIndex,
+        )
+        return { location: { kind: 'paged', pageIndex: index }, label: `Page ${index + 1}` }
+      }}
+      onNoteNavigate={(location) => {
+        if (location.kind === 'paged') actions.navigate(location.pageIndex)
+      }}
       onViewport={actions.attach}
       onScroll={actions.scroll}
       beforeClose={actions.persist}

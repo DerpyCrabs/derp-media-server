@@ -10,6 +10,7 @@ export const groups = {
   playback: queryGroup('playback'),
   music: queryGroup('music'),
   playlists: queryGroup('playlists'),
+  readerNotes: queryGroup('reader-notes'),
   mediaAi: queryGroup('media-ai'),
   recommendations: queryGroup('recommendations'),
 }

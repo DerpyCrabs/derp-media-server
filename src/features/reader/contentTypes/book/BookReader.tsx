@@ -159,13 +159,13 @@ function bookController(props: ReaderContentProps) {
       owner.patch({ viewport: element })
       if (pendingPosition) apply(pendingPosition)
     },
-    navigate: (chapterId: string, anchor?: string) => {
+    navigate: (chapterId: string, anchor?: string, progress = 0) => {
       if (chapterId)
         apply({
           kind: 'book',
           chapterId,
           anchor,
-          chapterProgress: 0,
+          chapterProgress: progress,
           outlineExpanded: [...owner.read().position.outlineExpanded],
         })
     },
@@ -518,21 +518,46 @@ const BookReader = controllerView(
             onChange={(bookAppearance) => readerPreferences.patch({ bookAppearance })}
           />
         )}
-        outline={
-          loaded?.outline.length ? (
-            <ReaderOutline
-              title='Contents'
-              items={loaded.outline}
-              active={state.chapterId}
-              onNavigate={(target, anchor) =>
-                typeof target === 'string' && actions.navigate(target, anchor)
-              }
-              onClose={() => readerPreferences.patch({ outlineOpen: false })}
-              expanded={state.outlineExpanded}
-              onToggle={actions.toggle}
-            />
-          ) : undefined
-        }
+        outline={(navigation) => (
+          <ReaderOutline
+            title='Contents'
+            navigation={navigation}
+            items={loaded?.outline ?? []}
+            active={state.chapterId}
+            onNavigate={(target, anchor) =>
+              typeof target === 'string' && actions.navigate(target, anchor)
+            }
+            onClose={() => readerPreferences.patch({ outlineOpen: false })}
+            expanded={state.outlineExpanded}
+            onToggle={actions.toggle}
+          />
+        )}
+        hasContents={!!loaded?.outline.length}
+        notePlace={(anchor) => {
+          if (!loaded) return undefined
+          const chapter = anchor?.closest<HTMLElement>('[data-book-chapter]')
+          const chapterId = chapter?.dataset.bookChapter ?? state.chapterId
+          const bounds = chapter?.getBoundingClientRect()
+          const progress =
+            anchor && bounds
+              ? Math.max(
+                  0,
+                  Math.min(
+                    1,
+                    (anchor.getBoundingClientRect().top - bounds.top) / Math.max(1, bounds.height),
+                  ),
+                )
+              : state.chapterProgress
+          return {
+            location: { kind: 'book', chapterId, progress, anchor: '' },
+            label:
+              loaded.document.chapters.find((item) => item.id === chapterId)?.title || 'Bookmark',
+          }
+        }}
+        onNoteNavigate={(location) => {
+          if (location.kind === 'book')
+            actions.navigate(location.chapterId, location.anchor || undefined, location.progress)
+        }}
         onViewport={actions.attach}
         onScroll={actions.scroll}
         beforeClose={actions.persist}
@@ -571,7 +596,7 @@ const BookReader = controllerView(
                 currentChapterId={state.chapterId}
                 positionReady={model.positionReady}
                 viewport={model.viewport}
-                onNavigate={actions.navigate}
+                onNavigate={(chapterId, anchor) => actions.navigate(chapterId, anchor)}
                 searchQuery={model.searchOpen && !model.searching ? model.searchQuery : ''}
                 activeMatch={model.matches[model.matchIndex]}
               />

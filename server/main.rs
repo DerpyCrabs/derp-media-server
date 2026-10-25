@@ -20,6 +20,7 @@ mod path_metadata;
 mod playback_cache;
 #[cfg(test)]
 mod queue_test_support;
+mod reader_notes;
 mod reader_state;
 mod routes;
 mod server;

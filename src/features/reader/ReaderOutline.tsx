@@ -1,8 +1,9 @@
 import { cn } from '@/lib/ui/cn'
-import { view, list, entities } from 'effectweb'
+import { view, list, entities, type JSX } from 'effectweb'
 import ChevronDown from '@effectweb/lucide/icons/chevron-down'
 import ChevronRight from '@effectweb/lucide/icons/chevron-right'
 import X from '@effectweb/lucide/icons/x'
+export type ReaderNavigation = { tabs: JSX.Element; notes?: JSX.Element }
 export type ReaderOutlineItem = {
   id: string
   label: string
@@ -61,6 +62,7 @@ const OutlineItem = view<{
 })
 export const ReaderOutline = view<{
   title: string
+  navigation?: ReaderNavigation
   items: ReaderOutlineItem[]
   active: string | number
   onNavigate: (target: string | number, anchor?: string) => void
@@ -74,7 +76,9 @@ export const ReaderOutline = view<{
       class='absolute inset-y-0 left-0 z-20 flex w-[min(320px,86vw)] flex-col border-r border-[#343434] bg-[#151515] shadow-xl md:relative md:shadow-none'
     >
       <header class='flex h-10 shrink-0 items-center gap-2 border-b border-[#303030] px-2'>
-        <h2 class='min-w-0 flex-1 truncate text-sm font-semibold'>{props.title}</h2>
+        <h2 class='min-w-0 flex-1 truncate text-sm font-semibold'>
+          {props.navigation?.notes ? 'Notes' : props.title}
+        </h2>
         <button
           type='button'
           aria-label='Close document outline'
@@ -84,20 +88,23 @@ export const ReaderOutline = view<{
           <X size={16} />
         </button>
       </header>
-      <nav class='min-h-0 flex-1 overflow-auto px-1 py-2' aria-label='Document outline'>
-        <ul>
-          {list(entities(props.items), (item) => (
-            <OutlineItem
-              item={item}
-              active={props.active}
-              level={0}
-              expanded={props.expanded}
-              onToggle={props.onToggle}
-              onNavigate={props.onNavigate}
-            />
-          ))}
-        </ul>
-      </nav>
+      {props.navigation?.tabs}
+      {props.navigation?.notes ?? (
+        <nav class='min-h-0 flex-1 overflow-auto px-1 py-2' aria-label='Document outline'>
+          <ul>
+            {list(entities(props.items), (item) => (
+              <OutlineItem
+                item={item}
+                active={props.active}
+                level={0}
+                expanded={props.expanded}
+                onToggle={props.onToggle}
+                onNavigate={props.onNavigate}
+              />
+            ))}
+          </ul>
+        </nav>
+      )}
     </aside>
   )
 })

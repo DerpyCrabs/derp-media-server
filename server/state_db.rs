@@ -204,6 +204,7 @@ pub(crate) fn initialize(config: &Config) -> Result<(), String> {
             .map_err(|error| error.to_string())?;
         transaction.commit().map_err(|error| error.to_string())?;
     }
+    crate::reader_notes::initialize(&connection).map_err(|e| e.1)?;
     crate::activity::initialize(&connection).map_err(|e| e.1)?;
     crate::media_ai::initialize(&connection).map_err(|e| e.1)?;
     crate::music::initialize(&connection).map_err(|e| e.1)?;

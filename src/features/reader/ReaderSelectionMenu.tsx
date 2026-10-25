@@ -1,3 +1,4 @@
+import BookmarkPlus from '@effectweb/lucide/icons/bookmark-plus'
 import Languages from '@effectweb/lucide/icons/languages'
 import RefreshCw from '@effectweb/lucide/icons/refresh-cw'
 import Sparkles from '@effectweb/lucide/icons/sparkles'
@@ -25,6 +26,7 @@ type Props = {
   defaultAction: ReaderDefaultAction
   aiDetail: ReaderAiDetail
   onTextChange: (text: string) => void
+  onSaveQuote?: () => void
 }
 const capabilitySlot = 'reader-ai-capability'
 const editableText = (element: HTMLDivElement, current: () => string) => {
@@ -143,7 +145,7 @@ export const ReaderSelectionMenu = controllerView(
           <div class='relative min-w-0 rounded-[7px] border border-[#444] bg-[#202020] focus-within:border-[#666]'>
             <div
               use={domBinding(props.selection.text, editableText)}
-              class='reader-selection-preview box-border max-h-44 min-w-0 overflow-auto py-[7px] pr-[76px] pl-2 text-[0.86rem] leading-[1.35] whitespace-pre-wrap text-[#e8e8e8] outline-none [overflow-wrap:anywhere] [scrollbar-color:#555_#181818]'
+              class='reader-selection-preview box-border max-h-44 min-w-0 overflow-auto py-[7px] pr-[108px] pl-2 text-[0.86rem] leading-[1.35] whitespace-pre-wrap text-[#e8e8e8] outline-none [overflow-wrap:anywhere] [scrollbar-color:#555_#181818]'
               style={{ 'min-height': `calc(${previewRows()} * 1.35em + 14px)` }}
               role='textbox'
               aria-label='Selected text'
@@ -153,7 +155,29 @@ export const ReaderSelectionMenu = controllerView(
               onInput={(event) => props.onTextChange(event.currentTarget.textContent ?? '')}
               onPointerDown={(event) => event.stopPropagation()}
             />
-            <div class='absolute top-1/2 right-1 flex -translate-y-1/2 gap-1'>
+            <div class='absolute top-1/2 right-1 flex -translate-y-1/2 items-center gap-1'>
+              {props.onSaveQuote ? (
+                <button
+                  type='button'
+                  aria-label='Save quote'
+                  title='Save quote'
+                  class='grid size-8 place-items-center rounded hover:bg-white/10'
+                  onPointerDown={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    props.onSaveQuote?.()
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      props.onSaveQuote?.()
+                    }
+                  }}
+                >
+                  <BookmarkPlus size={16} />
+                </button>
+              ) : null}
               <SelectionActionButton
                 kind='translate'
                 busy={busy && model.task === 'translate'}

@@ -46,6 +46,7 @@ export const BATCHES = [
       'workspace-split-view',
       'hermes-chat',
       'reader',
+      'reader-notes',
       'pdf-password',
       'pdf-print',
       'pdf-links',

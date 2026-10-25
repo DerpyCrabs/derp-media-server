@@ -327,6 +327,12 @@ Viewer interactions are informed by [GNOME Image Viewer](https://help.gnome.org/
 [gedit search and editing shortcuts](https://help.gnome.org/users/gedit/stable/gedit-shortcut-keys.html.ar),
 and [VLC playback and subtitle controls](https://docs.videolan.me/vlc-user/en/support/faq/faqwindows.html).
 
+Playlist interactions follow the existing player queue and contextual song actions, as in [GNOME Music](https://help.gnome.org/gnome-music/index.html) and [Elisa](https://docs.kde.org/stable5/en/elisa/elisa/elisa.pdf). Playlist changes affect saved lists, not music files; repeated additions keep each file once. Automatic lists use the prepared library and combine all conditions. Large lists show 100 songs at a time with **Show more songs**; search selections survive filtering and paging.
+
+Video frame capture uses the familiar **Shift+S** shortcut from [VLC](https://docs.videolan.me/vlc-user/desktop/3.0/en/basic/tipsandtricks/index.html#take-a-snapshot) and the subtitle-free capture behavior in [mpv](https://mpv.io/manual/stable/#keyboard-control). A preview identifies the captured frame before export; the filename includes its absolute playback time, including compatibility streams. Capture is limited to 40 megapixels / 16,384 pixels per side and waits for a decoded frame instead of saving a loading or seeking state.
+
+Reading notes live in the existing **Contents / Notes** sidebar for PDFs, books and image-page readers. **Ctrl/Cmd+B** opens notes; **Ctrl/Cmd+Alt+B** bookmarks the current location. Select document text and choose **Save quote** to keep a passage with your own comment. Notes can be edited, filtered, deleted and exported as Markdown without modifying the original document. Unfinished notes have a browser-local recovery copy; saved notes follow file renames. After a document is replaced, earlier notes remain readable and exportable, with their outdated navigation disabled. Concurrent edits are checked before saving. This follows [calibre's selection and annotation workflow](https://github.com/kovidgoyal/calibre/blob/master/manual/viewer.rst); notes belong to this server's library rather than being embedded PDF annotations.
+
 ### Filesystem write permissions
 
 Set `writeAccess` to `"filesystem"` to allow file operations according to the OS permissions of the account running the server:
@@ -377,7 +383,3 @@ Rust, Axum, Effect, EffectWeb, Vite, Tailwind CSS v4, Bun, TypeScript, Playwrigh
 ## License
 
 MIT
-
-Playlist interactions follow the existing player queue and contextual song actions, as in [GNOME Music](https://help.gnome.org/gnome-music/index.html) and [Elisa](https://docs.kde.org/stable5/en/elisa/elisa/elisa.pdf). Playlist changes affect saved lists, not music files; repeated additions keep each file once. Automatic lists use the prepared library and combine all conditions. Large lists show 100 songs at a time with **Show more songs**; search selections survive filtering and paging.
-
-Video frame capture uses the familiar **Shift+S** shortcut from [VLC](https://docs.videolan.me/vlc-user/desktop/3.0/en/basic/tipsandtricks/index.html#take-a-snapshot) and the subtitle-free capture behavior in [mpv](https://mpv.io/manual/stable/#keyboard-control). A preview identifies the captured frame before export; the filename includes its absolute playback time, including compatibility streams. Capture is limited to 40 megapixels / 16,384 pixels per side and waits for a decoded frame instead of saving a loading or seeking state.
