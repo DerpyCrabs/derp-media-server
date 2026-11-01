@@ -1,3 +1,4 @@
+import { beginNativeOperation, finishNativeOperation } from '@/desktop/native-trace'
 import { Schema } from 'effect'
 import { Effect } from 'effect'
 import { available, modelOwner } from 'effectweb'
@@ -153,6 +154,7 @@ export function createResponsiveImage(initial: Options) {
       return
     }
     const path = options.path
+    const trace = beginNativeOperation(2, path)
     dispatch({ kind: 'start' })
     owner.run(
       spinnerSlot,
@@ -186,6 +188,7 @@ export function createResponsiveImage(initial: Options) {
             const previous = owner.read().load.displayed?.path
             owner.patch({ pixels: { width: image.naturalWidth, height: image.naturalHeight } })
             dispatch({ kind: 'display', src, path })
+            finishNativeOperation(trace)
             if (previous && previous !== path) options.onDisplayPath?.(path)
             prefetch()
           }),
@@ -193,12 +196,14 @@ export function createResponsiveImage(initial: Options) {
         Effect.catch(() =>
           Effect.sync(() => {
             owner.cancel(spinnerSlot)
+            finishNativeOperation(trace, 12)
             if (!forcedOriginal && enabled) {
               forcedOriginal = true
               update()
             } else dispatch({ kind: 'error' })
           }),
         ),
+        Effect.ensuring(Effect.sync(() => finishNativeOperation(trace, 13))),
       ),
       'replace',
     )

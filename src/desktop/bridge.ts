@@ -6,6 +6,7 @@ export interface DesktopTarget {
 }
 
 export interface DesktopBridge {
+  trace?(this: void, phase: number, operation: number, kind: number, pathHash: number): void
   onPicker?(callback: (request: PickerRequest) => void): () => void
   pick?(selection: PickerSelection): Promise<{ overwrite?: string[] }>
   downloadBlob?(url: string, name: string): Promise<boolean>

@@ -1,3 +1,4 @@
+import { beginNativeOperation, finishNativeOperation } from '@/desktop/native-trace'
 import { directoryListingSchema } from '@/lib/files/file-schemas'
 import { Cause, Effect, Schema } from 'effect'
 import { AsyncResult } from 'effect/reactivity'
@@ -29,6 +30,7 @@ const pageSlot = 'directory-next-page'
 const pollSlot = 'directory-poll'
 const loadingSlot = 'directory-deferred-loading'
 export function createFileBrowserListing(path: string) {
+  const trace = beginNativeOperation(1, path)
   const owner = modelOwner({
     result: AsyncResult.initial<InfiniteData<DirectoryListing, number>, Error>(),
     loadingMore: false,
@@ -47,6 +49,8 @@ export function createFileBrowserListing(path: string) {
   owner.own(
     resource.subscribe((result) => {
       owner.patch({ result })
+      if (available(result) && !result.waiting) finishNativeOperation(trace)
+      else if (AsyncResult.isFailure(result) && !result.waiting) finishNativeOperation(trace, 12)
       if (AsyncResult.isFailure(result) && !result.waiting) {
         const error = Cause.squash(result.cause)
         if (isApiError(error) && error.status === 403) pushForbiddenNotice(error.message)
@@ -97,7 +101,10 @@ export function createFileBrowserListing(path: string) {
   return {
     source: owner.source,
     read: owner.read,
-    dispose: owner.dispose,
+    dispose: () => {
+      finishNativeOperation(trace, 13)
+      owner.dispose()
+    },
     loadNextPage,
     refresh: resource.refresh,
   }
