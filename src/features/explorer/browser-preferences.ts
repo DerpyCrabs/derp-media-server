@@ -4,7 +4,7 @@ import { readPersistedState, writePersistedState } from '@/lib/state/client-stor
 
 const key = 'file-browser-preferences'
 const schema = Schema.Struct({ showHidden: Schema.Boolean })
-const owner = modelOwner(readPersistedState(key, schema) ?? { showHidden: false })
+const owner = modelOwner(readPersistedState(key, schema) ?? { showHidden: true })
 export const browserPreferences = {
   read: owner.read,
   source: owner.source,

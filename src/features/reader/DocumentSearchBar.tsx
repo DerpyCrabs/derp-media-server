@@ -1,3 +1,8 @@
+import { Input } from '@/lib/ui/input'
+import { Button } from '@/lib/ui/button'
+import ArrowUp from '@effectweb/lucide/icons/arrow-up'
+import ArrowDown from '@effectweb/lucide/icons/arrow-down'
+import X from '@effectweb/lucide/icons/x'
 import { domMount, view } from 'effectweb'
 import type { DocumentMatch } from './document-search'
 const focusSearch = domMount((input: HTMLInputElement) => {
@@ -17,64 +22,59 @@ export const DocumentSearchBar = view<{
   onClose: () => void
 }>((props) => (
   <div
-    class='flex shrink-0 flex-wrap items-center gap-2 border-b border-white/15 bg-neutral-900 px-3 py-2 text-sm'
+    class='flex shrink-0 items-center gap-1.5 border-b border-border bg-background px-3 py-2 text-foreground'
     role='search'
     aria-label='Document search'
   >
-    <input
-      aria-label='Find in document'
+    <Input
       type='search'
+      aria-label='Find in document'
+      placeholder='Find in document'
       value={props.query}
       use={focusSearch}
-      class='min-w-20 flex-1 rounded border border-white/25 bg-neutral-800 px-2 py-1'
+      class='min-w-0 flex-1'
       onInput={(event) => props.onSearch(event.currentTarget.value)}
       onKeyDown={(event) => {
         if (event.key === 'Enter') {
           event.preventDefault()
           props.onNext(event.shiftKey ? -1 : 1)
+        } else if (event.key === 'Escape') {
+          event.preventDefault()
+          event.stopPropagation()
+          props.onClose()
         }
       }}
     />
-    <span role='status' class='text-xs text-neutral-300'>
+    <span role='status' class='shrink-0 text-xs text-muted-foreground'>
       {props.searching
         ? 'Searching…'
         : props.error ||
           (props.query.trim()
             ? props.matches.length
-              ? `${props.index + 1} of ${props.matches.length}${props.truncated ? '+' : ''}`
+              ? `${props.index + 1}/${props.matches.length}${props.truncated ? '+' : ''}`
               : 'No matches'
             : '')}
     </span>
-    <button
-      type='button'
+    <Button
+      variant='outline'
+      size='icon'
       aria-label='Previous match'
       disabled={!props.matches.length}
       onClick={() => props.onNext(-1)}
-      class='rounded px-2 py-1 hover:bg-white/10 disabled:opacity-40'
     >
-      ↑
-    </button>
-    <button
-      type='button'
+      <ArrowUp />
+    </Button>
+    <Button
+      variant='outline'
+      size='icon'
       aria-label='Next match'
       disabled={!props.matches.length}
       onClick={() => props.onNext(1)}
-      class='rounded px-2 py-1 hover:bg-white/10 disabled:opacity-40'
     >
-      ↓
-    </button>
-    <button
-      type='button'
-      aria-label='Close search'
-      onClick={props.onClose}
-      class='rounded px-2 py-1 hover:bg-white/10'
-    >
-      ×
-    </button>
-    {props.matches[props.index] ? (
-      <p class='w-full truncate text-xs text-neutral-400'>
-        {props.location} · {props.matches[props.index]!.excerpt}
-      </p>
-    ) : null}
+      <ArrowDown />
+    </Button>
+    <Button variant='ghost' size='icon' aria-label='Close search' onClick={props.onClose}>
+      <X />
+    </Button>
   </div>
 ))

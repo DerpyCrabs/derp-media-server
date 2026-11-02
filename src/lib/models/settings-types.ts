@@ -36,6 +36,7 @@ export interface GlobalSettings {
   sortOrders: Record<string, FileSortOrder>
   fileColumns: FileColumnSettings
   favorites: string[]
+  sidebarFolders?: string[]
   knowledgeBases: string[]
   customIcons: Record<string, string>
   autoSave: Record<string, AutoSaveSettings>

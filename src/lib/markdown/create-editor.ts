@@ -1,3 +1,4 @@
+import { createCodeSearchPanel } from '@/lib/editor/CodeSearchPanel'
 import { search, searchKeymap } from '@codemirror/search'
 import {
   detectLineSeparator,
@@ -82,7 +83,7 @@ export function createMarkdownEditor(
     extensions: [
       markdownLanguage,
       markdownEditorTheme,
-      search({ top: true }),
+      search({ top: true, createPanel: createCodeSearchPanel }),
       EditorView.lineWrapping,
       EditorState.tabSize.of(2),
       sourceTrackingExtensions(options.doc),

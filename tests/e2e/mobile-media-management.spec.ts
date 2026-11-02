@@ -6,7 +6,7 @@ test.describe('mobile media management', () => {
   test('exposes 44px action targets and preserves the chosen view', async ({ page }) => {
     await page.goto('/?dir=Images')
     await page.getByRole('button', { name: 'Display options' }).click()
-    await page.getByRole('menuitem', { name: 'Grid view' }).click()
+    await page.getByRole('menuitemradio', { name: 'Grid view' }).click()
     await expect(page.locator('.file-browser-grid')).toBeVisible()
     const more = page.getByRole('button', { name: 'More actions for photo.jpg', exact: true })
     await expect(more).toHaveCSS('width', '44px')
@@ -35,7 +35,7 @@ test.describe('mobile media management', () => {
       page.waitForResponse(
         (response) => response.url().includes('/api/settings/viewMode') && response.ok(),
       ),
-      page.getByRole('menuitem', { name: 'List view' }).click(),
+      page.getByRole('menuitemradio', { name: 'List view' }).click(),
     ])
     await page.reload()
     await expect(page.locator('table')).toBeVisible()
@@ -68,7 +68,7 @@ test.describe('mobile media management', () => {
     await page.goto('/?dir=Documents&viewing=Documents%2Fsample.pdf')
     await expect(page.getByTestId('pdf-canvas')).toBeVisible()
     await expect(page.locator('embed')).toHaveCount(0)
-    const controls = page.getByRole('dialog').locator('button')
+    const controls = page.getByRole('dialog').locator('button:visible')
     for (let i = 0; i < (await controls.count()); i += 1) {
       const box = await controls.nth(i).boundingBox()
       expect(box?.height).toBe(32)

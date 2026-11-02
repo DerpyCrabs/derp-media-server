@@ -1,4 +1,5 @@
-export const modalScroll = (_element: HTMLDivElement, current: () => boolean) => {
+export const modalScroll = (element: HTMLDivElement, current: () => boolean) => {
+  const document = element.ownerDocument
   let restore: (() => void) | undefined
   const update = () => {
     if (current() && !restore) {

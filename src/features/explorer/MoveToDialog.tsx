@@ -1,12 +1,11 @@
-import { modalFocus } from '@/lib/ui/modal-focus'
+import { Button } from '@/lib/ui/button'
+import { Dialog } from '@/lib/ui/dialog'
 import { list, available, modelOwner, resourceError, view, controllerView } from 'effectweb'
-import { cn } from '@/lib/ui/cn'
 import { AsyncResult } from 'effect/reactivity'
 import { groups, queryCache } from '@/lib/api/cache'
 import { fetchDirectoryFilesEffect } from '@/lib/files/files-client'
 import type { FileItem } from '@/lib/files/types'
 import type { ModalOverlayScope } from './modal-overlay-scope'
-import { modalDialogBackdropClass } from './modal-overlay-scope'
 import ArrowUp from '@effectweb/lucide/icons/arrow-up'
 import Folder from '@effectweb/lucide/icons/folder'
 import LoaderCircle from '@effectweb/lucide/icons/loader-circle'
@@ -96,7 +95,7 @@ export const MoveToDialog = controllerView(
       const rawFiles = files
       const normalizedFilePath = props.filePath.replace(/\\/g, '/')
       return rawFiles
-        .filter((f) => f.isDirectory)
+        .filter((f) => f.isDirectory && !f.isVirtual)
         .map((f) => {
           const navPath = f.path.replace(/\\/g, '/')
           return { name: f.name, navPath }
@@ -124,134 +123,28 @@ export const MoveToDialog = controllerView(
       return '/' + normalizedBrowse().slice(offset)
     }
     return (
-      <div
-        class={modalDialogBackdropClass(props.overlayScope)}
-        role='presentation'
-        onClick={() => {
-          if (!props.isPending) props.onClose()
+      <Dialog
+        open
+        onOpenChange={(open) => {
+          if (!open && !props.isPending) props.onClose()
         }}
-      >
-        <div
-          role='dialog'
-          use={modalFocus({
-            onEscape: () => {
-              if (!props.isPending) props.onClose()
-            },
-          })}
-          aria-modal='true'
-          class='w-full max-w-md rounded-lg border border-border bg-card text-card-foreground shadow-lg p-6'
-          onClick={(e) => e.stopPropagation()}
-        >
-          <h2 class='text-lg font-semibold truncate pr-6'>
-            {isExtract() ? 'Extract' : isCopy() ? 'Copy' : 'Move'} &quot;{props.fileName}&quot;
-          </h2>
-          <p class='text-sm text-muted-foreground mt-1'>
-            {isCopy() ? 'Choose an editable destination folder' : 'Choose a destination folder'}
-          </p>
-
-          {props.editableFolders.length > 1 ? (
-            <div class='flex gap-1.5 flex-wrap mt-3'>
-              {list(
-                props.editableFolders,
-                (folder) => folder,
-                (folder) => {
-                  const nf = folder.replace(/\\/g, '/')
-                  return (
-                    <button
-                      type='button'
-                      class={cn([
-                        'text-xs h-7 px-2 rounded-md border text-sm font-medium',
-                        {
-                          'bg-primary text-primary-foreground border-primary': selectedRoot === nf,
-                          'border-input bg-background hover:bg-accent': selectedRoot !== nf,
-                        },
-                      ])}
-                      onClick={() => handleRootChange(folder)}
-                    >
-                      {folder || 'Library'}
-                    </button>
-                  )
-                },
-              )}
-            </div>
-          ) : null}
-
-          <div class='flex items-center gap-1.5 text-sm text-muted-foreground px-1 mt-3'>
-            <Folder class='h-3.5 w-3.5 shrink-0' stroke-width={2} />
-            <span class='font-mono text-xs truncate'>{displayPath()}</span>
-          </div>
-
-          <div class='border border-border rounded-md max-h-64 overflow-y-auto mt-2'>
-            {!error ? (
-              !loading ? (
-                <div class='divide-y divide-border'>
-                  {canGoUp() ? (
-                    <button
-                      type='button'
-                      class='flex items-center gap-2.5 w-full px-3 py-2 hover:bg-muted/50 text-left transition-colors'
-                      onClick={() => goUp()}
-                    >
-                      <ArrowUp class='h-4 w-4 text-muted-foreground shrink-0' stroke-width={2} />
-                      <span class='text-sm font-medium'>..</span>
-                    </button>
-                  ) : null}
-                  {folders().length === 0 && !canGoUp() ? (
-                    <div class='px-3 py-8 text-center text-sm text-muted-foreground'>
-                      No subfolders
-                    </div>
-                  ) : null}
-                  {list(
-                    folders(),
-                    (folder) => folder.navPath,
-                    (folder) => (
-                      <button
-                        type='button'
-                        class='flex items-center gap-2.5 w-full px-3 py-2 hover:bg-muted/50 text-left transition-colors'
-                        onClick={() => setBrowsePath(folder.navPath)}
-                      >
-                        <Folder class='h-4 w-4 text-muted-foreground shrink-0' stroke-width={2} />
-                        <span class='text-sm truncate'>{folder.name}</span>
-                      </button>
-                    ),
-                  )}
-                </div>
-              ) : (
-                <div
-                  role='status'
-                  aria-label='Loading folders'
-                  class='flex items-center justify-center py-8'
-                >
-                  <LoaderCircle
-                    class='h-5 w-5 animate-spin text-muted-foreground'
-                    stroke-width={2}
-                  />
-                </div>
-              )
-            ) : (
-              <div class='px-3 py-6 text-center text-sm text-destructive'>{error}</div>
-            )}
-          </div>
-
-          {props.error ? (
-            <p class='mt-3 text-sm text-destructive rounded-md bg-destructive/10 border border-destructive/50 px-3 py-2'>
-              {props.error?.message}
-            </p>
-          ) : null}
-
-          <div class='flex justify-end gap-2 mt-6'>
-            <button
+        title={`${isExtract() ? 'Extract' : isCopy() ? 'Copy' : 'Move'} ${props.fileName}`}
+        class='sm:max-w-lg max-h-[85dvh] overflow-y-auto'
+        footer={
+          <>
+            <Button
+              variant='outline'
               type='button'
-              class='h-9 px-4 rounded-md border border-input bg-background text-sm font-medium hover:bg-accent'
               disabled={props.isPending}
               onClick={() => {
                 if (!props.isPending) props.onClose()
               }}
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
+              variant='default'
               type='button'
-              class='h-9 px-4 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50'
               disabled={(!isExtract() && isSameAsSource()) || props.isPending}
               onClick={() => props.onConfirm(browsePath)}
             >
@@ -266,10 +159,93 @@ export const MoveToDialog = controllerView(
                   : isCopy()
                     ? 'Copy here'
                     : 'Move here'}
-            </button>
+            </Button>
+          </>
+        }
+      >
+        {props.editableFolders.length > 1 ? (
+          <div class='flex gap-1.5 flex-wrap mt-3'>
+            {list(
+              props.editableFolders,
+              (folder) => folder,
+              (folder) => {
+                const nf = folder.replace(/\\/g, '/')
+                return (
+                  <Button
+                    variant={selectedRoot === nf ? 'default' : 'outline'}
+                    type='button'
+                    class='h-7 px-2 text-xs'
+                    onClick={() => handleRootChange(folder)}
+                  >
+                    {folder || 'Library'}
+                  </Button>
+                )
+              },
+            )}
           </div>
+        ) : null}
+
+        <div class='flex items-center gap-1.5 text-sm text-muted-foreground px-1'>
+          <Folder class='h-3.5 w-3.5 shrink-0' stroke-width={2} />
+          <span class='font-mono text-xs truncate'>{displayPath()}</span>
         </div>
-      </div>
+
+        <div class='border border-border rounded-md max-h-64 overflow-y-auto'>
+          {!error ? (
+            !loading ? (
+              <div class='divide-y divide-border'>
+                {canGoUp() ? (
+                  <Button
+                    variant='ghost'
+                    type='button'
+                    class='flex items-center gap-2.5 w-full px-3 py-2 hover:bg-muted/50 justify-start text-left transition-colors'
+                    onClick={() => goUp()}
+                  >
+                    <ArrowUp class='size-4 text-muted-foreground shrink-0' stroke-width={2} />
+                    <span class='text-sm font-medium'>..</span>
+                  </Button>
+                ) : null}
+                {folders().length === 0 && !canGoUp() ? (
+                  <div class='px-3 py-8 text-center text-sm text-muted-foreground'>
+                    No subfolders
+                  </div>
+                ) : null}
+                {list(
+                  folders(),
+                  (folder) => folder.navPath,
+                  (folder) => (
+                    <Button
+                      variant='ghost'
+                      type='button'
+                      class='flex items-center gap-2.5 w-full px-3 py-2 hover:bg-muted/50 justify-start text-left transition-colors'
+                      onClick={() => setBrowsePath(folder.navPath)}
+                    >
+                      <Folder class='size-4 text-muted-foreground shrink-0' stroke-width={2} />
+                      <span class='text-sm truncate'>{folder.name}</span>
+                    </Button>
+                  ),
+                )}
+              </div>
+            ) : (
+              <div
+                role='status'
+                aria-label='Loading folders'
+                class='flex items-center justify-center py-8'
+              >
+                <LoaderCircle class='h-5 w-5 animate-spin text-muted-foreground' stroke-width={2} />
+              </div>
+            )
+          ) : (
+            <div class='px-3 py-6 text-center text-sm text-destructive'>{error}</div>
+          )}
+        </div>
+
+        {props.error ? (
+          <p class='mt-3 text-sm text-destructive rounded-md bg-destructive/10 border border-destructive/50 px-3 py-2'>
+            {props.error?.message}
+          </p>
+        ) : null}
+      </Dialog>
     )
   }),
 )

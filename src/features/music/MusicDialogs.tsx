@@ -1,6 +1,6 @@
+import { Button } from '@/lib/ui/button'
 import { observe, view, Portal } from 'effectweb'
-import X from '@effectweb/lucide/icons/x'
-import { modalFocus } from '@/lib/ui/modal-focus'
+import { Dialog } from '@/lib/ui/dialog'
 import { musicUiSource, playMusic, setMusicDialog, type MusicDialog } from './actions'
 import { PlaylistDialog } from './PlaylistDialog'
 import { openPlaylists } from './actions'
@@ -9,7 +9,8 @@ import { getPlaybackSession } from '@/features/playback/PlaybackProvider'
 const DialogContent = view<{ request: MusicDialog }>((props) => {
   return (
     <>
-      <button
+      <Button
+        variant='default'
         class='min-h-11 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90'
         onClick={() => {
           playMusic(getPlaybackSession(), props.request.items, {
@@ -20,8 +21,9 @@ const DialogContent = view<{ request: MusicDialog }>((props) => {
         }}
       >
         Play all
-      </button>
-      <button
+      </Button>
+      <Button
+        variant='ghost'
         class='ml-2 min-h-11 rounded-lg px-4 text-sm hover:bg-secondary'
         onClick={() =>
           openPlaylists(
@@ -31,7 +33,7 @@ const DialogContent = view<{ request: MusicDialog }>((props) => {
         }
       >
         Add to playlist…
-      </button>
+      </Button>
       <TrackList items={props.request.items} title={props.request.title} />
     </>
   )
@@ -43,37 +45,16 @@ export const MusicDialogs = view(() =>
       <>
         {playlists ? <PlaylistDialog request={playlists} /> : null}
         {dialog ? (
-          <Portal>
-            <div
-              class='fixed inset-0 z-[20000] flex items-center justify-center bg-black/55 p-3 sm:p-6'
-              role='presentation'
-              onPointerDown={(event) => {
-                if (event.target === event.currentTarget) setMusicDialog(null)
-              }}
-            >
-              <div
-                use={modalFocus({ onEscape: () => setMusicDialog(null) })}
-                role='dialog'
-                aria-modal='true'
-                aria-label={title()}
-                class='flex max-h-[90dvh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl'
-              >
-                <div class='flex shrink-0 items-center justify-between border-b border-border px-5 py-3'>
-                  <h2 class='text-lg font-semibold'>{title()}</h2>
-                  <button
-                    aria-label='Close music dialog'
-                    class='grid size-11 place-items-center rounded-lg hover:bg-secondary'
-                    onClick={() => setMusicDialog(null)}
-                  >
-                    <X size={20} />
-                  </button>
-                </div>
-                <div class='overflow-y-auto p-5'>
-                  <DialogContent request={dialog} />
-                </div>
-              </div>
-            </div>
-          </Portal>
+          <Dialog
+            open
+            title={title()}
+            onOpenChange={(open) => {
+              if (!open) setMusicDialog(null)
+            }}
+            class='sm:max-w-2xl max-h-[90dvh] overflow-y-auto'
+          >
+            <DialogContent request={dialog} />
+          </Dialog>
         ) : null}
         {notice ? (
           <Portal>

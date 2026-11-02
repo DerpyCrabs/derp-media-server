@@ -1,4 +1,3 @@
-import type { PdfForms } from './pdf-forms'
 import { resolvePdfDestination } from './pdf-destination'
 import { createDocumentSearchHighlights } from '../../document-search-highlights'
 import type { DocumentMatch } from '../../document-search'
@@ -20,9 +19,6 @@ import 'pdfjs-dist/web/pdf_viewer.css'
 export type PdfDocument = pdfjs.PDFDocumentProxy
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 interface Props {
-  forms?: PdfForms
-  formRevision?: number
-  formPending?: boolean
   document: PdfDocument
   page: ReaderPage
   pageIndex: number
@@ -44,10 +40,7 @@ const renderPage = (
   let signature = ''
   const draw = () => {
     const props = current()
-    host.querySelectorAll<HTMLElement>(':scope > .annotationLayer').forEach((layer) => {
-      layer.inert = Boolean(props.formPending)
-    })
-    const key = `${props.formRevision}:${props.page.id}:${props.zoom}:${props.selectionMode}:${Boolean(props.searchQuery)}:${near}`
+    const key = `${props.page.id}:${props.zoom}:${props.selectionMode}:${Boolean(props.searchQuery)}:${near}`
     if (signature === key) {
       highlights.update()
       return
@@ -65,23 +58,17 @@ const renderPage = (
         })
         const viewport = page.getViewport({ scale: props.zoom })
         const ratio = window.devicePixelRatio || 1
-        const context = canvas.getContext('2d')
-        if (!context) return undefined
         canvas.width = Math.floor(viewport.width * ratio)
         canvas.height = Math.floor(viewport.height * ratio)
         canvas.style.width = `${viewport.width}px`
         canvas.style.height = `${viewport.height}px`
-        context.setTransform(ratio, 0, 0, ratio, 0, 0)
         const annotationCanvasMap = new Map<string, HTMLCanvasElement>()
         const task = page.render({
           annotationCanvasMap,
           canvas,
-          canvasContext: context,
+          transform: [ratio, 0, 0, ratio, 0, 0],
           viewport,
-          annotationMode:
-            props.forms && props.selectionMode === 'text'
-              ? pdfjs.AnnotationMode.ENABLE_FORMS
-              : pdfjs.AnnotationMode.ENABLE_STORAGE,
+          annotationMode: pdfjs.AnnotationMode.ENABLE,
         })
         let textLayer: InstanceType<typeof TextLayerBuilder> | undefined
         let annotations: InstanceType<typeof AnnotationLayerBuilder> | undefined
@@ -144,17 +131,13 @@ const renderPage = (
             annotations = new AnnotationLayerBuilder({
               pdfPage: page,
               linkService: links,
-              renderForms: Boolean(props.forms),
+              renderForms: false,
               annotationStorage: props.document.annotationStorage,
               annotationCanvasMap,
-              fieldObjectsPromise: Promise.resolve(
-                (props.forms?.fields ?? null) as unknown as Record<string, object[]> | null,
-              ),
               enableScripting: false,
               onAppend: (element: HTMLDivElement) => {
                 if (!cancelled) {
                   element.dataset.testid = 'pdf-annotations'
-                  element.inert = Boolean(current().formPending)
                   host.append(element)
                 }
               },
@@ -163,19 +146,6 @@ const renderPage = (
               try: () => annotations!.render({ viewport }),
               catch: (error) => error,
             })
-            annotations.div
-              ?.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(
-                'input, select, textarea',
-              )
-              .forEach((field) => {
-                if (!field.getAttribute('aria-label'))
-                  field.setAttribute(
-                    'aria-label',
-                    field.closest('[title]')?.getAttribute('title') ||
-                      field.name ||
-                      'PDF form field',
-                  )
-              })
             annotations.div
               ?.querySelectorAll<HTMLAnchorElement>('[data-internal-link] a')
               .forEach((link) => link.setAttribute('aria-label', link.title || 'Go to linked page'))
@@ -206,14 +176,9 @@ const renderPage = (
     { rootMargin: '3600px 0px' },
   )
   observer.observe(host)
-  const changed = () => queueMicrotask(() => current().forms?.changed())
-  host.addEventListener('input', changed)
-  host.addEventListener('change', changed)
   return {
     update: draw,
     dispose: () => {
-      host.removeEventListener('input', changed)
-      host.removeEventListener('change', changed)
       observer.disconnect()
       owner.dispose()
       highlights.dispose()

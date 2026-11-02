@@ -130,9 +130,9 @@ test.describe('Workspace taskbar pins', () => {
 
     await expect(getWindowGroups(page)).toHaveCount(2)
     const viewerContent = getWindowGroups(page).nth(1).locator('.workspace-window-content')
-    await expect(viewerContent.getByText('readme', { exact: false })).toBeVisible({
-      timeout: 5_000,
-    })
+    await expect(
+      viewerContent.getByRole('heading', { name: 'readme.txt', exact: true }),
+    ).toBeVisible({ timeout: 5_000 })
   })
 
   test('clicking pinned unsupported file shows unsupported file viewer', async () => {

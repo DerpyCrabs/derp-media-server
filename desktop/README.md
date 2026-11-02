@@ -17,6 +17,21 @@ bun run desktop -- /absolute/path/to/library/book.pdf
 
 `bun run desktop` builds the Qt shell with CMake; it does not rebuild or start the server. `bun run dev` also serves the desktop page. Every CLI file/directory argument opens a new native window, including repeated paths. Relative paths and local `file://` URIs are accepted. Use `--` before filenames starting with a dash. No arguments opens the library; `--tray` starts without a visible window. The tray's New browser window action always opens a new window. Close closes a window; Ctrl+Shift+T or the tray’s Reopen closed window action reopens it. Quit flushes documents and exits the resident process.
 
+Derp Files opens your home directory when launched without a path, including new windows opened with Ctrl+N. If the server cannot access your home directory, it opens the library root. In whole-computer mode, the filesystem lives under Files, alongside Favorites and Hermes Sessions.
+
+## Separate applications
+
+The package installs Derp Files, Images, Video, Music, Text and Reader. Files handles folders and archives; Reader handles PDF, books and office documents. Each entry advertises its supported MIME types for Open With. Defaults are not changed.
+
+```
+derp-media-client --viewer=image
+derp-media-client --viewer=reader -- /absolute/path/report.pdf
+```
+
+The supported viewer names are `image`, `video`, `audio`, `text`, and `reader`. Without a file, a viewer opens the shared picker filtered to supported files. Choosing a file replaces the picker in the same window; Cancel closes that window. Explicit file arguments open directly, including multiple paths.
+
+The picker reuses the file manager’s navigation, file icons, list/grid views, Places and sorting. One click selects, double-click or Enter opens, Ctrl/Shift enables multiple selection when requested, Alt+Left/Right returns through folders, Alt+Up opens the parent, and Ctrl+L edits the location. Type filters apply to library-search results as well as the current folder. Open is disabled until a file is selected; folder selection can confirm the current folder. Save requests retain an editable filename and overwrite confirmation. Changing the type filter clears the old selection.
+
 ## Configuration
 
 On first start, the app creates `$XDG_CONFIG_HOME/derp-media-server/desktop.json` (normally `~/.config/derp-media-server/desktop.json`):
@@ -41,7 +56,7 @@ cd dist/arch
 makepkg -si
 ```
 
-The generated PKGBUILD uses a checksummed snapshot of the current desktop sources, including uncommitted changes. It builds with CMake and uses the system Qt libraries. It installs `derp-media-client`, its desktop entry and icon, a user service, and the FileChooser portal backend. It does not change your defaults or enable autostart automatically.
+The generated PKGBUILD uses a checksummed snapshot of the current desktop sources, including uncommitted changes. It builds with CMake and uses the system Qt libraries. It installs `derp-media-client`, its file-manager and viewer desktop entries and icon, a user service, and the FileChooser portal backend. It does not change your defaults or enable autostart automatically.
 
 ```
 derp-media-client ~/Media
@@ -64,7 +79,7 @@ A panel with a system tray, such as Waybar's tray module, shows the tray icon. T
 The application appears in Nautilus's Open With list for supported types. You can select it as default there or explicitly use:
 
 ```
-xdg-mime default derp-media-client.desktop application/pdf
+xdg-mime default derp-reader.desktop application/pdf
 xdg-mime default derp-media-client.desktop inode/directory
 ```
 
@@ -101,7 +116,7 @@ Restart `xdg-desktop-portal.service` after changing the preference. Applications
 
 The Files button adds Ctrl/Cmd-click and Shift-click selection, Ctrl/Cmd+A, bulk copy/move/delete, copy/cut/paste, properties (including Unix permission bits), and an editable location dialog (Ctrl/Cmd+L). Ordinary clicks still open media. Hidden files are opt-in; internal operation staging files remain hidden. Operations show progress, cancellation, partial failures, and replace/skip/keep-both conflict choices with an apply-to-remaining option. Deletion is explicitly permanent.
 
-ZIP, TAR, TAR.GZ/TGZ and TAR.XZ/TXZ archives open directly in a compact viewer with folder navigation, a case-insensitive filter and selection across folders. Extract all or selected entries into an editable folder; conflicts offer Skip, Keep both and Replace. Create archive supports the same formats, selected by the filename extension. TAR extraction preserves executable permission bits. Symbolic links, hard links, special files, duplicate files and unsafe paths are rejected before extraction; encrypted archives and in-place archive editing are not supported. Archives remain unchanged when extracted. The interaction follows [Ark’s extraction flow](https://docs.kde.org/stable_kf6/en/ark/ark/ark-extract.html).
+ZIP, TAR, TAR.GZ/TGZ and TAR.XZ/TXZ archives open directly in the file manager with folder navigation, a case-insensitive filter and selection across folders. Extract all or selected entries into an editable folder; conflicts offer Skip, Keep both and Replace. Create archive supports the same formats, selected by the filename extension. TAR extraction preserves executable permission bits. Symbolic links, hard links, special files, duplicate files and unsafe paths are rejected before extraction; encrypted archives and in-place archive editing are not supported. Archives remain unchanged when extracted. The interaction follows [Ark’s extraction flow](https://docs.kde.org/stable_kf6/en/ark/ark/ark-extract.html).
 
 The native client adds Home, Downloads, Documents, and mounted devices that are inside configured media roots, Open terminal here (`xdg-terminal-exec`), and installed Open with applications (`gio`). These capabilities are not exposed in ordinary browsers. All destination writes still require the server’s `editableFolders` or configured filesystem write access. This does not grant access outside media roots.
 
@@ -115,4 +130,6 @@ With Linux server `desktopMode`, file deletion uses the system Trash. Open **Pla
 to restore files; **Shift+Delete** requests permanent deletion. Restore never overwrites a file
 and requires write access to the original folder.
 
-Download actions, including generated image/text exports, use a Save download dialog with overwrite confirmation and a cancellable progress window. Its last directory is remembered. This Qt dialog does not call the app’s own FileChooser portal recursively. User-clicked HTTP/HTTPS links open in the system browser and mail links in the registered mail application. Automatic popups remain blocked.
+Browser Download actions are hidden only in the native client, independently of server `desktopMode`. The web interface retains them. Native documents use Save as / Save copy. Any remaining WebEngine download requests use a Save download dialog with overwrite confirmation and a cancellable progress window. Its last directory is remembered. This Qt dialog does not call the app’s own FileChooser portal recursively. User-clicked HTTP/HTTPS links open in the system browser and mail links in the registered mail application. Automatic popups remain blocked.
+
+Files and folders can be opened with their system association using **Open in default app** in the file context menu. The same action is available in the existing viewer menus (image and document actions, audio/video playback options, and reader settings). It uses `gio open` with a resolved local file URI, including for HTML files. This is a native-client capability and does not depend on `desktopMode`; browser menus are unchanged.

@@ -1,0 +1,417 @@
+diff --git a/dist/component.d.ts b/dist/component.d.ts
+index b56baa004170577d7dad099fce908e93df30c8aa..1ca1abcfaeca7e06680b17d76e1c4a2410ac1056 100644
+--- a/dist/component.d.ts
++++ b/dist/component.d.ts
+@@ -87,6 +87,10 @@ export type ViewController<Props, Model> = {
+     readonly beforeDispose?: () => void;
+     readonly lifetime: ControllerLifetime;
+ };
++/** DOM ownership for this placement, captured without changing ambient browser globals. */
++export interface ControllerHost {
++    readonly document: Document;
++}
+ /**
+  * A controller created from the view's props and released with the view. Use it when a view
+  * needs a controller object (`modelOwner`, queries, subscriptions) rather than named messages.
+@@ -97,14 +101,14 @@ export type ViewController<Props, Model> = {
+ export declare function controllerView<Props, Model extends object, Controller extends object>(definition: Identity<Props> & {
+     readonly init?: never;
+     readonly update?: never;
+-    readonly controller: (props: Props) => Controller & ViewController<Props, Model> & {
++    readonly controller: (props: Props, host: ControllerHost) => Controller & ViewController<Props, Model> & {
+         readonly actions?: 'Return actions directly: { source, save, dispose }; they reach the view as model.actions';
+     };
+ }, view: View<RenderedModel<Model, ControllerActions<NoInfer<Controller>>>, never>): View<Props, never>;
+ /** Mount an existing program without introducing a second state owner. Internal. */
+ export declare function programView<Props, Model, Message>(definition: {
+     identity?: (props: Props) => unknown;
+-    create: (props: Props, runtime: UiRuntime<never>, report: ReportError) => Program<Model, Message>;
++    create: (props: Props, runtime: UiRuntime<never>, report: ReportError, host: ControllerHost) => Program<Model, Message>;
+     receive: (source: Program<Model, Message>, props: Props) => void;
+     /** Capture DOM state before child disposal, on unmount or identity replacement. */
+     beforeDispose?: (source: Program<Model, Message>) => void;
+diff --git a/dist/component.js b/dist/component.js
+index 71d2bf6455d2071567c1982b2ea7d13430afe32f..b49c4233571fbee53d9f440f16857e2bbbad64ff 100644
+--- a/dist/component.js
++++ b/dist/component.js
+@@ -1,3 +1,4 @@
++import { ownerDocument } from "./dom-document.js";
+ import * as Cause from "effect/Cause";
+ import * as Effect from "effect/Effect";
+ import { compiled, Scope as RenderScope, viewRegion } from "./dom.js";
+@@ -152,8 +153,8 @@ function controllerView(definition, view) {
+   const controllers = /* @__PURE__ */ new WeakMap();
+   return programView({
+     ...definition.identity ? { identity: definition.identity } : {},
+-    create(props) {
+-      const controller = definition.controller(props);
++    create(props, _runtime, _report, host) {
++      const controller = definition.controller(props, host);
+       const lifetime = controller.lifetime;
+       const rendered = controllerSource(
+         controller
+@@ -185,7 +186,8 @@ function programView(definition) {
+       const source = definition.create(
+         initialProps,
+         scope.settlement.runtime ?? defaultUiRuntime,
+-        scope.report
++        scope.report,
++        { document: ownerDocument(parent) }
+       );
+       if (scope.disposed) {
+         closeProgram(scope, source);
+diff --git a/dist/dom-document.d.ts b/dist/dom-document.d.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..cbb56073b6e52355cbe274a1a036d9cd6b0eb75a
+--- /dev/null
++++ b/dist/dom-document.d.ts
+@@ -0,0 +1,6 @@
++/** The DOM host owns node construction, including mounts into another realm. */
++export declare function ownerDocument(node: Node): Document;
++export declare function isElement(node: Node): node is Element;
++export declare function isFocusable(node: Element | null): node is Element & {
++    focus(options?: FocusOptions): void;
++};
+diff --git a/dist/dom-document.js b/dist/dom-document.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..5076fcdc101ee1a84b9582967a6bc36b2fa9d4dd
+--- /dev/null
++++ b/dist/dom-document.js
+@@ -0,0 +1,14 @@
++function ownerDocument(node) {
++  return node.nodeType === 9 ? node : node.ownerDocument;
++}
++function isElement(node) {
++  return node.nodeType === 1;
++}
++function isFocusable(node) {
++  return node !== null && "focus" in node && typeof node.focus === "function";
++}
++export {
++  isElement,
++  isFocusable,
++  ownerDocument
++};
+diff --git a/dist/dom.d.ts b/dist/dom.d.ts
+index 94379620cd74eeb91dbc8f5a6528a3ad685a263a..c524048b64c276b979d105f9e4d2c673ac12fa37 100644
+--- a/dist/dom.d.ts
++++ b/dist/dom.d.ts
+@@ -168,4 +168,4 @@ export declare function viewRegion<M, E>(scope: Scope<M, E>, parent: Node, befor
+     report?: ReportError;
+ }): (next: View<M, E> | undefined) => void;
+ export declare function attach<M, E, T extends Element>(scope: Scope<M, E>, element: T, dependencies: Dependencies, read: () => DomMount<NoInfer<T>> | undefined): void;
+-export declare function portal<M, E>(scope: Scope<M, E>, build: Build<M, E>, mount?: () => Element | undefined): void;
++export declare function portal<M, E>(scope: Scope<M, E>, build: Build<M, E>, mount?: () => Element | undefined, document?: Document): void;
+diff --git a/dist/dom.js b/dist/dom.js
+index f4352fb5536bf9632558b3fe699627669a37b464..92b7e0d71ce412cf54f206adf5e5ccd586fd2a01 100644
+--- a/dist/dom.js
++++ b/dist/dom.js
+@@ -1,3 +1,4 @@
++import { ownerDocument, isElement, isFocusable } from "./dom-document.js";
+ import {
+   profiling,
+   profileCall,
+@@ -315,8 +316,9 @@ function viewContent(definition) {
+ }
+ function boundRange(fragment, mark) {
+   const first = mark ? mark.nextSibling : fragment.firstChild;
+-  if (first && first === fragment.lastChild && first instanceof Element)
++  if (first && first === fragment.lastChild && isElement(first))
+     return { start: first, end: first };
++  const document = ownerDocument(fragment);
+   const start = document.createComment("");
+   const end = document.createComment("");
+   fragment.insertBefore(start, first);
+@@ -450,15 +452,22 @@ const untemplated = /* @__PURE__ */ new Set([
+ ]);
+ const loading = /* @__PURE__ */ new Set(["iframe", "video", "audio", "object", "embed", "script"]);
+ const templates = /* @__PURE__ */ new WeakMap();
+-function staticTemplate(tag, value, svg) {
+-  let entry = templates.get(value);
+-  if (!entry) templates.set(value, entry = {});
++function documentTemplates(document) {
++  let cache = templates.get(document);
++  if (!cache) templates.set(document, cache = /* @__PURE__ */ new WeakMap());
++  return cache;
++}
++function staticTemplate(document, tag, value, svg) {
++  const cache = documentTemplates(document);
++  let entry = cache.get(value);
++  if (!entry) cache.set(value, entry = {});
+   const key = svg ? "svg" : "html";
+   let template = entry[key];
+-  if (template === void 0) entry[key] = template = buildStatic(tag, value, svg) ?? null;
++  if (template === void 0)
++    entry[key] = template = buildStatic(document, tag, value, svg) ?? null;
+   return template ?? void 0;
+ }
+-function buildStatic(tag, value, svg) {
++function buildStatic(document, tag, value, svg) {
+   if (untemplated.has(tag) || tag.includes("-")) return void 0;
+   const node = svg ? document.createElementNS(svgNamespace, tag) : document.createElement(tag);
+   const attrs = value.attrs;
+@@ -477,22 +486,23 @@ function buildStatic(tag, value, svg) {
+       node.appendChild(document.createTextNode(String(item)));
+     else if (item instanceof MarkupPlacement && item.still) {
+       const childTag = item.definition.tag;
+-      const child2 = buildStatic(childTag, item, childTag === "svg" || nested);
++      const child2 = buildStatic(document, childTag, item, childTag === "svg" || nested);
+       if (!child2) return void 0;
+       node.appendChild(child2);
+     } else return void 0;
+   }
+   return node;
+ }
+-function siteSkeleton(site, svg) {
+-  let entry = templates.get(site);
+-  if (!entry) templates.set(site, entry = {});
++function siteSkeleton(document, site, svg) {
++  const cache = documentTemplates(document);
++  let entry = cache.get(site);
++  if (!entry) cache.set(site, entry = {});
+   const key = svg ? "svg" : "html";
+   let template = entry[key];
+-  if (template === void 0) entry[key] = template = buildSkeleton(site, svg) ?? null;
++  if (template === void 0) entry[key] = template = buildSkeleton(document, site, svg) ?? null;
+   return template ?? void 0;
+ }
+-function buildSkeleton(site, svg) {
++function buildSkeleton(document, site, svg) {
+   const [tag, attrs, children] = site;
+   if (attrs && loading.has(tag)) return void 0;
+   const node = svg ? document.createElementNS(svgNamespace, tag) : document.createElement(tag);
+@@ -503,12 +513,12 @@ function buildSkeleton(site, svg) {
+     else if (child2 === 1) node.appendChild(document.createTextNode(""));
+     else if (child2 instanceof MarkupPlacement) {
+       const tagName = child2.definition.tag;
+-      const built = buildStatic(tagName, child2, tagName === "svg" || nested);
++      const built = buildStatic(document, tagName, child2, tagName === "svg" || nested);
+       if (!built) return void 0;
+       node.appendChild(built);
+     } else {
+       const shape = child2;
+-      const built = buildSkeleton(shape, shape[0] === "svg" || nested);
++      const built = buildSkeleton(document, shape, shape[0] === "svg" || nested);
+       if (!built) return void 0;
+       node.appendChild(built);
+     }
+@@ -571,7 +581,7 @@ class ElementMount {
+     let value;
+     if (input instanceof BlockPlacement) {
+       const site = input.site;
+-      const skeleton = siteSkeleton(site, svg);
++      const skeleton = siteSkeleton(ownerDocument(parent), site, svg);
+       if (skeleton) {
+         this.node = skeleton.cloneNode(true);
+         this.select = tag === "select";
+@@ -590,7 +600,7 @@ class ElementMount {
+       }
+       value = expand(input, false);
+     } else value = input;
+-    const template = value.still ? staticTemplate(tag, value, svg) : void 0;
++    const template = value.still ? staticTemplate(ownerDocument(parent), tag, value, svg) : void 0;
+     if (template) {
+       this.node = template.cloneNode(true);
+       this.select = false;
+@@ -599,7 +609,7 @@ class ElementMount {
+       this.children = value.children;
+       this.kind = Children.Static;
+     } else {
+-      const doc = parent.ownerDocument ?? document;
++      const doc = ownerDocument(parent);
+       this.node = svg ? doc.createElementNS(svgNamespace, tag) : doc.createElement(tag);
+       this.select = tag === "select";
+       try {
+@@ -1050,7 +1060,7 @@ class ElementMount {
+     if (next === "" && this.kind === Children.None) return;
+     this.clearChildren();
+     if (next === "") return;
+-    this.textNode = document.createTextNode(next);
++    this.textNode = ownerDocument(node).createTextNode(next);
+     node.appendChild(this.textNode);
+     this.kind = Children.Text;
+   }
+@@ -1146,22 +1156,24 @@ const observationDefinition = contentDefinition((scope, parent, before) => {
+ function observe(source, render) {
+   return new SlotPlacement(observationDefinition, { source, render });
+ }
+-const Portal = /* @__PURE__ */ compiled((scope) => {
++const Portal = /* @__PURE__ */ compiled((scope, parent) => {
+   portal(
+     scope,
+-    (child2, parent, before) => {
++    (child2, parent2, before) => {
+       text(
+         child2,
+-        parent,
++        parent2,
+         before,
+         () => [child2.value.children],
+         () => child2.value.children
+       );
+     },
+-    () => scope.value.mount
++    () => scope.value.mount,
++    ownerDocument(parent)
+   );
+ });
+ function markers(parent, before) {
++  const document = ownerDocument(parent);
+   const start = document.createComment("");
+   const end = document.createComment("");
+   parent.insertBefore(start, before);
+@@ -1216,7 +1228,7 @@ function svgChildren(parent) {
+   return parent.nodeType === 1 && parent.namespaceURI === svgNamespace && parent.localName !== "foreignObject";
+ }
+ function buildFragment(parent) {
+-  const fragment = (parent.ownerDocument ?? document).createDocumentFragment();
++  const fragment = ownerDocument(parent).createDocumentFragment();
+   fragmentSvg.set(fragment, svgChildren(parent));
+   return fragment;
+ }
+@@ -1709,7 +1721,7 @@ class ContentSlot {
+         );
+       } catch (error) {
+         if (!this.node && !this.container) {
+-          this.node = document.createTextNode("");
++          this.node = ownerDocument(parent).createTextNode("");
+           parent.insertBefore(this.node, before);
+           this.parent = void 0;
+         }
+@@ -1737,7 +1749,7 @@ class ContentSlot {
+       const parent = last.parentNode;
+       this.content = void 0;
+       if (!(this.container && next === "")) {
+-        this.node = document.createTextNode(next);
++        this.node = ownerDocument(parent).createTextNode(next);
+         parent.insertBefore(this.node, last.nextSibling);
+       }
+       previous.mounted.dispose();
+@@ -1749,7 +1761,7 @@ class ContentSlot {
+       return;
+     }
+     if (this.container && next === "") return;
+-    this.node = document.createTextNode(next);
++    this.node = ownerDocument(this.parent).createTextNode(next);
+     this.parent.insertBefore(this.node, this.before);
+     if (!this.container) this.parent = void 0;
+   }
+@@ -1797,7 +1809,7 @@ const arrayContent = {
+   mount: (parent, before, value, report, settlement) => mountArray(parent, before, value, report, settlement)
+ };
+ function mountArray(parent, before, initial, report, settlement) {
+-  const end = document.createComment("");
++  const end = ownerDocument(parent).createComment("");
+   parent.insertBefore(end, before);
+   const cells = [];
+   let disposed = false;
+@@ -1981,10 +1993,10 @@ function delegationHost(host) {
+   const count = delegationHosts.get(host) ?? 0;
+   delegationHosts.set(host, count + 1);
+   if (!count) {
+-    const document2 = host.ownerDocument ?? host;
+-    const resets = resetDocuments.get(document2) ?? 0;
+-    resetDocuments.set(document2, resets + 1);
+-    if (!resets) document2.addEventListener("reset", dispatchControl, true);
++    const document = host.ownerDocument ?? host;
++    const resets = resetDocuments.get(document) ?? 0;
++    resetDocuments.set(document, resets + 1);
++    if (!resets) document.addEventListener("reset", dispatchControl, true);
+     host.addEventListener("reset", dispatchControl, true);
+     for (const type of delegatedTypes) listenAt(host, type);
+     for (const type of controlEvents) host.addEventListener(type, dispatchControl, true);
+@@ -1999,12 +2011,12 @@ function delegationHost(host) {
+       return;
+     }
+     delegationHosts.delete(host);
+-    const document2 = host.ownerDocument ?? host;
+-    const resets = (resetDocuments.get(document2) ?? 1) - 1;
+-    if (resets) resetDocuments.set(document2, resets);
++    const document = host.ownerDocument ?? host;
++    const resets = (resetDocuments.get(document) ?? 1) - 1;
++    if (resets) resetDocuments.set(document, resets);
+     else {
+-      resetDocuments.delete(document2);
+-      document2.removeEventListener("reset", dispatchControl, true);
++      resetDocuments.delete(document);
++      document.removeEventListener("reset", dispatchControl, true);
+     }
+     host.removeEventListener("reset", dispatchControl, true);
+     for (const type of delegatedTypes) {
+@@ -2082,7 +2094,7 @@ class EventBinding {
+   }
+ }
+ function keyedRows(scope, parent, before, read, outer, indexUsed, create) {
+-  const end = document.createComment("");
++  const end = ownerDocument(parent).createComment("");
+   parent.insertBefore(end, before);
+   const rows = /* @__PURE__ */ new Map();
+   let reconciled = true;
+@@ -2120,7 +2132,7 @@ function keyedRows(scope, parent, before, read, outer, indexUsed, create) {
+     }
+     const collection = "items" in next ? next : void 0;
+     const items = collection ? collection.items : next;
+-    if (!items.length && rows.size && target instanceof Element && target.firstChild === ordered[0]?.range.start && target.lastChild === end) {
++    if (!items.length && rows.size && isElement(target) && target.firstChild === ordered[0]?.range.start && target.lastChild === end) {
+       detached(() => {
+         for (const row of rows.values()) {
+           row.dispose();
+@@ -2170,7 +2182,7 @@ function keyedRows(scope, parent, before, read, outer, indexUsed, create) {
+           survivor = true;
+           break;
+         }
+-      if (!survivor && target instanceof Element && target.firstChild === ordered[0].range.start && target.lastChild === end) {
++      if (!survivor && isElement(target) && target.firstChild === ordered[0].range.start && target.lastChild === end) {
+         detached(() => {
+           for (const row of rows.values()) {
+             row.dispose();
+@@ -2244,7 +2256,8 @@ function keyedRows(scope, parent, before, read, outer, indexUsed, create) {
+         const first = row.range.start;
+         const last = row.range.end;
+         if (!stationary.has(index) && last.nextSibling !== anchor) {
+-          const focused = document.activeElement instanceof HTMLElement ? document.activeElement : void 0;
++          const document = ownerDocument(target);
++          const focused = document.activeElement;
+           let node = first;
+           while (node) {
+             const following = node.nextSibling;
+@@ -2255,7 +2268,7 @@ function keyedRows(scope, parent, before, read, outer, indexUsed, create) {
+             if (node === last) break;
+             node = following;
+           }
+-          if (focused?.isConnected && document.activeElement !== focused)
++          if (isFocusable(focused) && focused.isConnected && document.activeElement !== focused)
+             focused.focus({ preventScroll: true });
+         }
+         anchor = first;
+@@ -2393,7 +2406,7 @@ function attach(scope, element, dependencies, read) {
+     });
+   });
+ }
+-function portal(scope, build, mount2 = () => void 0) {
++function portal(scope, build, mount2 = () => void 0, document = globalThis.document) {
+   let target;
+   let range;
+   let child2;
+@@ -2441,7 +2454,7 @@ function portal(scope, build, mount2 = () => void 0) {
+       undelegate?.();
+       undelegate = delegationHost(next);
+       target = next;
+-      if (focused instanceof HTMLElement && focused.isConnected && focused.ownerDocument.activeElement !== focused)
++      if (isFocusable(focused) && focused.isConnected && focused.ownerDocument.activeElement !== focused)
+         focused.focus({ preventScroll: true });
+     }
+     child2.set(scope.value);
+diff --git a/dist/index.d.ts b/dist/index.d.ts
+index 6b36851c6643f213816bf589a3148c5d28d4d255..c225bb07fd0856e35bc1d7946b918d96c03c431f 100644
+--- a/dist/index.d.ts
++++ b/dist/index.d.ts
+@@ -5,7 +5,7 @@ export { Portal, composeMounts, domBinding, domMount, type DomMount, type DomLif
+ export { available, resourceError } from './result.js';
+ export { errorBoundary } from './boundary.js';
+ export { collection, entities, sequence, type Rows, type Collection } from './collection.js';
+-export { component, controllerView, type ComponentOwner, type FieldsPatch, type ViewController, type ControllerLifetime, type ControllerModel, } from './component.js';
++export { component, controllerView, type ComponentOwner, type FieldsPatch, type ViewController, type ControllerLifetime, type ControllerHost, type ControllerModel, } from './component.js';
+ export { modelOwner, type ModelOwner, type ModelFields, type DisposableOwner, type OwnedRun, type Ownable, type RunPolicy, } from './owner.js';
+ export { program, type RunKey, type Command, type Program, type RunningProgram, type Send, type Transition, } from './program.js';
+ export { mapSource, clock, type Source } from './source.js';

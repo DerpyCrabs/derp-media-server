@@ -41,7 +41,8 @@ test.describe('Workspace taskbar chrome', () => {
     await page.getByRole('button', { name: 'Open settings' }).click()
     const dialog = page.getByRole('dialog', { name: 'Settings' })
     await expect(dialog).toBeVisible()
-    await dialog.getByRole('button', { name: 'Dark' }).click()
+    await dialog.getByRole('button', { name: 'Theme mode', exact: true }).click()
+    await page.getByRole('option', { name: 'Dark', exact: true }).click()
     await expect(page.locator('html')).toHaveAttribute('data-theme', /dark/)
     await page.reload()
     await expect(page.locator('html')).toHaveAttribute('data-theme', /dark/)
@@ -95,9 +96,7 @@ test.describe('Workspace taskbar chrome', () => {
     await page.getByRole('button', { name: 'Open settings' }).click()
     const settingsDialog = page.getByRole('dialog', { name: 'Settings' })
     await expect(settingsDialog).toBeVisible()
-    const assistCheckbox = settingsDialog.getByRole('checkbox', {
-      name: 'Show snap assist when dragging to the top-center handle',
-    })
+    const assistCheckbox = settingsDialog.getByRole('checkbox', { name: 'Snap assist' })
     await assistCheckbox.setChecked(false)
     await page.keyboard.press('Escape')
     await expect(settingsDialog).not.toBeVisible()
@@ -109,9 +108,7 @@ test.describe('Workspace taskbar chrome', () => {
     await page.getByRole('button', { name: 'Open settings' }).click()
     const dialogAfter = page.getByRole('dialog', { name: 'Settings' })
     await expect(dialogAfter).toBeVisible()
-    const assistCheckboxAfter = dialogAfter.getByRole('checkbox', {
-      name: 'Show snap assist when dragging to the top-center handle',
-    })
+    const assistCheckboxAfter = dialogAfter.getByRole('checkbox', { name: 'Snap assist' })
     await expect(assistCheckboxAfter).not.toBeChecked()
 
     await assistCheckboxAfter.setChecked(true)

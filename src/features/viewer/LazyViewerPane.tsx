@@ -1,3 +1,4 @@
+import { Button } from '@/lib/ui/button'
 import X from '@effectweb/lucide/icons/x'
 import { modalScroll } from './modal-scroll'
 import { Effect } from 'effect'
@@ -28,15 +29,17 @@ const Placeholder = view<{ props: ViewerPaneProps; failed?: boolean }>(({ props,
         {failed ? 'Unable to load viewer. Reload the page to try again.' : 'Loading viewer…'}
       </p>
       {props.presentation === 'modal' ? (
-        <button
+        <Button
+          size='icon'
+          variant='ghost'
           type='button'
           title='Close'
           aria-label='Close'
           class='hover:bg-muted absolute top-2 right-2 inline-flex h-8 w-8 items-center justify-center rounded-md'
           onClick={() => props.onClose?.()}
         >
-          <X class='h-4 w-4' />
-        </button>
+          <X class='size-4' />
+        </Button>
       ) : null}
     </div>
   </div>

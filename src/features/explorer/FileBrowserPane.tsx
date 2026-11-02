@@ -24,6 +24,7 @@ export type FileBrowserPaneListing = Readonly<{
   scrollScope?: string | undefined
   showEmpty: boolean
   canUpload: boolean
+  warmThumbnails?: boolean
 }>
 export type FileBrowserPaneLayout = Readonly<{
   gridContainerClass?: string
@@ -77,7 +78,6 @@ export const FileBrowserPane = view<FileBrowserPaneProps>((props) => {
   const listColSpan = () => tableColumns().length
   const tableClass = () => {
     if (props.listing.columns.createdDate) return 'min-w-[32rem]'
-    if (props.listing.columns.size) return 'min-w-[22rem]'
     return ''
   }
   const parentCard = () => {
@@ -223,6 +223,7 @@ export const FileBrowserPane = view<FileBrowserPaneProps>((props) => {
         <div class={props.layout?.gridContainerClass}>
           <VirtualDirectoryGrid
             files={props.listing.files}
+            warmThumbnails={props.listing.warmThumbnails}
             onMoveFocus={props.rows.onMoveFocus}
             focusOnLoad={props.rows.focusOnLoad}
             onFocused={props.rows.onFocused}
@@ -243,6 +244,7 @@ export const FileBrowserPane = view<FileBrowserPaneProps>((props) => {
         <div class={props.layout?.listContainerClass}>
           <VirtualDirectoryList
             files={props.listing.files}
+            warmThumbnails={props.listing.warmThumbnails}
             onMoveFocus={props.rows.onMoveFocus}
             focusOnLoad={props.rows.focusOnLoad}
             onFocused={props.rows.onFocused}

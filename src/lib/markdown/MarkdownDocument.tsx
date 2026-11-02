@@ -1,6 +1,7 @@
+import { ImageLightbox } from '@/lib/ui/image-lightbox'
 import { Effect } from 'effect'
 import { cn } from '@/lib/ui/cn'
-import { domBinding, domMount, component, view } from 'effectweb'
+import { domBinding, component, view } from 'effectweb'
 import { createMarkdownEditor } from './create-editor'
 import type { MarkdownDocumentProps, MarkdownEditorRuntime } from './types'
 type EditorBinding = MarkdownDocumentProps & { openImage: (src: string, alt?: string) => void }
@@ -40,13 +41,6 @@ const editorBinding = (parent: HTMLDivElement, current: () => EditorBinding) => 
     dispose: () => editor.destroy(),
   }
 }
-const focusDialog = domMount((element: HTMLDivElement) => {
-  const previous = document.activeElement
-  element.focus()
-  return () => {
-    if (previous instanceof HTMLElement && previous.isConnected) previous.focus()
-  }
-})
 const MarkdownDocument = component<
   MarkdownDocumentProps,
   { expandedImage: { src: string; alt: string } | null }
@@ -75,37 +69,11 @@ const MarkdownDocument = component<
           )}
         />
         {model.expandedImage ? (
-          <div
-            role='dialog'
-            aria-modal='true'
-            aria-label='View image fullscreen'
-            tabindex={0}
-            use={focusDialog}
-            class='absolute inset-0 z-[100] flex cursor-zoom-out items-center justify-center bg-black/90 p-4'
-            onClick={(event) => event.target === event.currentTarget && close()}
-            onKeyDown={(event) => {
-              if (['Escape', 'Enter', ' '].includes(event.key)) {
-                event.preventDefault()
-                close()
-              }
-            }}
-          >
-            <button
-              type='button'
-              class='absolute top-4 right-4 z-10 rounded-md p-2 text-white/80 transition-colors hover:bg-white/10 hover:text-white'
-              onClick={close}
-              aria-label='Close'
-            >
-              ×
-            </button>
-            <img
-              src={model.expandedImage.src}
-              alt={model.expandedImage.alt}
-              class='max-h-full max-w-full cursor-default object-contain'
-              draggable={false}
-              loading='eager'
-            />
-          </div>
+          <ImageLightbox
+            src={model.expandedImage.src}
+            alt={model.expandedImage.alt || 'View image fullscreen'}
+            onClose={close}
+          />
         ) : null}
       </div>
     )

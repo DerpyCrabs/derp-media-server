@@ -11,6 +11,10 @@ export const LazyPlainTextDocument = lazyView(
   {
     failure: view(({ model }) => (
       <div class='flex h-full min-h-0 flex-col'>
+        <header class='flex h-10 shrink-0 items-center gap-1 border-b px-2'>
+          {model.toolbar}
+          {model.toolbarEnd}
+        </header>
         <p role='alert' class='border-b border-border p-3 text-sm text-destructive'>
           The editor could not be loaded. Reload the page to try again. Your text is still available
           below.
@@ -20,8 +24,14 @@ export const LazyPlainTextDocument = lazyView(
         </pre>
       </div>
     )),
-    pending: view<PlainTextDocumentProps>(() => (
-      <p class='p-4 text-sm text-muted-foreground'>Loading editor…</p>
+    pending: view<PlainTextDocumentProps>((props) => (
+      <div class='flex h-full flex-col'>
+        <header class='flex h-10 shrink-0 items-center gap-1 border-b px-2'>
+          {props.toolbar}
+          {props.toolbarEnd}
+        </header>
+        <p class='p-4 text-sm text-muted-foreground'>Loading editor…</p>
+      </div>
     )),
   },
 )

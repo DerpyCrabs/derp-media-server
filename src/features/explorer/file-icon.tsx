@@ -56,7 +56,7 @@ function norm(p: string) {
 }
 type IconSize = 'md' | 'sm'
 function sizeProps(size: IconSize): { cls: string; sz: number; sw: number } {
-  return size === 'sm' ? { cls: 'h-3.5 w-3.5', sz: 14, sw: 2 } : { cls: 'h-5 w-5', sz: 20, sw: 2 }
+  return size === 'sm' ? { cls: 'size-3.5', sz: 14, sw: 2 } : { cls: 'size-5', sz: 20, sw: 2 }
 }
 function colorClass(mediaType: MediaType): string {
   switch (mediaType) {
@@ -254,6 +254,7 @@ export function gridHeroIcon(
   file: FileItem,
   ctx: FileIconContext = EMPTY_FILE_ICON_CONTEXT,
   appearance?: VirtualAppearance,
+  thumbnails = true,
 ): JSX.Element {
   if (appearance) return gridHeroIconScaleWrap(virtualAppearanceIcon(appearance, 'md'))
   const fp = norm(file.path)
@@ -262,6 +263,7 @@ export function gridHeroIcon(
     return gridHeroIconScaleWrap(fileItemIcon(file, ctx))
   }
   if (
+    thumbnails &&
     (file.type === MediaType.VIDEO || file.type === MediaType.IMAGE) &&
     !file.isDirectory &&
     !file.isVirtual

@@ -34,7 +34,7 @@ int main(int argc, char **argv) {
         return result;
     }();
     if (arguments.contains("--help") || arguments.contains("-h")) {
-        printf("Usage: derp-media-client [--tray] [--] [FILE_OR_DIRECTORY ...]\n");
+        printf("Usage: derp-media-client [--tray] [--viewer=image|video|audio|text|reader] [--] [FILE_OR_DIRECTORY ...]\n");
         return 0;
     }
     QDir().mkpath(configDir);

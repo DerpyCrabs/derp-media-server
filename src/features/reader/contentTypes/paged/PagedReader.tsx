@@ -1,3 +1,7 @@
+import { NativeOpenButton } from '@/desktop/NativeOpen'
+import { BrowserDownload } from '@/lib/ui/browser-download'
+import { Input } from '@/lib/ui/input'
+import { Button } from '@/lib/ui/button'
 import { DocumentSearchBar } from '../../DocumentSearchBar'
 import Search from '@effectweb/lucide/icons/search'
 import { findDocumentMatches, type DocumentMatch } from '../../document-search'
@@ -83,22 +87,23 @@ const PageIndicator = component<
   { init: () => ({ open: false, draft: '' }) },
   view((model, patch) => (
     <div class='relative'>
-      <button
+      <Button
+        variant='outline'
         type='button'
         data-testid='reader-page-indicator'
-        class='flex h-8 min-w-[104px] items-center justify-center rounded-lg border border-[#3a3a3a] bg-[#181818] px-2 text-sm tabular-nums hover:border-[#777]'
+        class='flex h-8 min-w-[104px] items-center justify-center rounded-lg border border-border bg-background px-2 text-sm tabular-nums hover:border-border'
         title='Go to page'
         onClick={() => patch({ open: true, draft: String(model.props.page + 1) })}
       >
         Page {Math.min(model.props.page + 1, Math.max(1, model.props.count))} /{' '}
         {Math.max(1, model.props.count)}
-      </button>
+      </Button>
       {model.open ? (
-        <div class='absolute top-[38px] left-1/2 z-50 -translate-x-1/2 rounded-lg border border-[#3a3a3a] bg-[#181818] p-[5px] shadow-[0_14px_34px_rgb(0_0_0/42%)]'>
-          <input
+        <div class='absolute top-[38px] left-1/2 z-50 -translate-x-1/2 rounded-lg border border-border bg-background p-[5px] shadow-[0_14px_34px_rgb(0_0_0/42%)]'>
+          <Input
             use={focusPageInput}
             data-testid='reader-page-input'
-            class='h-8 w-20 rounded-md border border-[#3a3a3a] bg-[#202020] px-2 text-center text-sm outline-none focus:border-[#777]'
+            class='h-8 w-20 rounded-md border border-border bg-background px-2 text-center text-sm outline-none focus:border-border'
             value={model.draft}
             inputmode='numeric'
             autofocus
@@ -340,6 +345,7 @@ function createPagedReader(props: Props<PagedDocument>) {
       const initial =
         position ??
         normalizePagedReaderPosition({
+          fitMode: viewport && viewport.clientWidth < 768 ? 'width' : 'manual',
           outlineExpanded: document.outline.flatMap(function collect(item): string[] {
             return [item.id, ...item.children.flatMap(collect)]
           }),
@@ -420,15 +426,16 @@ const PagedReaderView = view<ControllerModel<typeof createPagedReader>>((model) 
             onNavigate={actions.navigate}
           />
           {model.document?.pageText ? (
-            <button
+            <Button
+              variant='outline'
+              size='icon'
               type='button'
               aria-label='Find in document'
               title='Find in document (Ctrl/Cmd+F)'
-              class='inline-flex size-8 shrink-0 items-center justify-center rounded hover:bg-white/10'
               onClick={actions.openSearch}
             >
-              <Search size={17} />
-            </button>
+              <Search class='size-[17px]' size={17} />
+            </Button>
           ) : null}
         </>
       }
@@ -459,30 +466,36 @@ const PagedReaderView = view<ControllerModel<typeof createPagedReader>>((model) 
       }
       settings={(close) => (
         <>
-          <ReaderSetting label='File'>
-            <div class='flex gap-2'>
-              {model.document?.download ? (
-                <button
-                  type='button'
-                  class='rounded border border-white/20 px-2 py-1 text-xs hover:bg-white/10'
-                  onClick={() => {
-                    close()
-                    model.document?.download?.()
-                  }}
-                >
-                  Download
-                </button>
-              ) : (
-                <a
-                  href={`/api/files/download?path=${encodeURIComponent(props.sourcePath)}`}
-                  download
-                  class='rounded border border-white/20 px-2 py-1 text-xs hover:bg-white/10'
-                >
-                  Download
-                </a>
-              )}
-            </div>
-          </ReaderSetting>
+          <BrowserDownload>
+            <ReaderSetting label='File'>
+              <div class='flex gap-2'>
+                {model.document?.download ? (
+                  <Button
+                    variant='outline'
+                    type='button'
+                    class='rounded border border-border px-2 py-1 text-xs hover:bg-muted'
+                    onClick={() => {
+                      close()
+                      model.document?.download?.()
+                    }}
+                  >
+                    Download
+                  </Button>
+                ) : (
+                  <BrowserDownload>
+                    <a
+                      href={`/api/files/download?path=${encodeURIComponent(props.sourcePath)}`}
+                      download
+                      class='rounded border border-border px-2 py-1 text-xs hover:bg-muted'
+                    >
+                      Download
+                    </a>
+                  </BrowserDownload>
+                )}
+              </div>
+            </ReaderSetting>
+          </BrowserDownload>
+          <NativeOpenButton path={props.sourcePath} onDone={close} />
           <ReaderSetting label='View'>
             <Segmented
               values={['continuous', 'page']}
@@ -505,25 +518,29 @@ const PagedReaderView = view<ControllerModel<typeof createPagedReader>>((model) 
           </ReaderSetting>
           <ReaderSetting label='Zoom'>
             <div class='grid grid-cols-[minmax(0,1fr)_72px_minmax(0,1fr)] items-center'>
-              <button
+              <Button
+                size='icon'
+                variant='outline'
                 type='button'
                 aria-label='Reader zoom out'
-                class='flex h-8 w-full items-center justify-center rounded-lg border border-[#3a3a3a] bg-[#202020] hover:border-[#777]'
+                class='flex h-8 w-full items-center justify-center rounded-lg border border-border bg-background hover:border-border'
                 onClick={() => actions.change({ fitMode: 'manual', zoom: clampZoom(zoom - 0.1) })}
               >
-                <ZoomOut size={17} />
-              </button>
-              <span class='text-center text-sm text-[#b8b8b8] tabular-nums'>
+                <ZoomOut class='size-[17px]' size={17} />
+              </Button>
+              <span class='text-center text-sm text-muted-foreground tabular-nums'>
                 {Math.round(zoom * 100)}%
               </span>
-              <button
+              <Button
+                size='icon'
+                variant='outline'
                 type='button'
                 aria-label='Reader zoom in'
-                class='flex h-8 w-full items-center justify-center rounded-lg border border-[#3a3a3a] bg-[#202020] hover:border-[#777]'
+                class='flex h-8 w-full items-center justify-center rounded-lg border border-border bg-background hover:border-border'
                 onClick={() => actions.change({ fitMode: 'manual', zoom: clampZoom(zoom + 0.1) })}
               >
-                <ZoomIn size={17} />
-              </button>
+                <ZoomIn class='size-[17px]' size={17} />
+              </Button>
             </div>
           </ReaderSetting>
         </>
@@ -583,23 +600,25 @@ const PagedReaderView = view<ControllerModel<typeof createPagedReader>>((model) 
       content={(frame) => (
         <>
           {model.loading ? (
-            <div class='flex h-full items-center justify-center text-sm text-white/60'>
+            <div class='flex h-full items-center justify-center text-sm text-muted-foreground'>
               Opening...
             </div>
           ) : null}
           {model.error ? (
             <div
               role='alert'
-              class='flex h-full flex-col items-center justify-center gap-3 p-8 text-center text-red-300'
+              class='flex h-full flex-col items-center justify-center gap-3 p-8 text-center text-destructive'
             >
               <p>{model.error}</p>
-              <a
-                class='rounded border border-white/25 px-3 py-1.5 text-sm text-white hover:border-white/60'
-                href={buildMediaUrl(props.sourcePath.replace(/\\/g, '/'))}
-                download
-              >
-                Download original
-              </a>
+              <BrowserDownload>
+                <a
+                  class='rounded border border-input px-3 py-1.5 text-sm text-foreground hover:border-ring'
+                  href={buildMediaUrl(props.sourcePath.replace(/\\/g, '/'))}
+                  download
+                >
+                  Download original
+                </a>
+              </BrowserDownload>
             </div>
           ) : null}
           {model.document

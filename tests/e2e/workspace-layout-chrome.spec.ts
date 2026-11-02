@@ -386,27 +386,30 @@ test.describe('Vertical viewport (portrait)', () => {
     expect(bounds.height).toBeLessThan(viewport.height - TASKBAR_HEIGHT)
   })
 
-  test('layout picker shows four mini grids', async () => {
+  test('narrow layout picker offers full-width rows', async () => {
     const groups = getWindowGroups(page)
 
     const maximizeBtn = groups.first().locator('button:has(.lucide-maximize-2)')
     await maximizeBtn.click({ button: 'right' })
     await expect(page.locator('[data-tiling-picker]')).toBeVisible()
 
-    await expect(page.locator('[data-assist-mini-grid]')).toHaveCount(4)
+    await expect(page.getByRole('button', { name: 'Top half', exact: true })).toBeEnabled()
+    await expect(page.getByRole('button', { name: 'Bottom half', exact: true })).toBeEnabled()
+    await expect(page.locator('[data-assist-mini-grid]')).toHaveCount(0)
     const pickerBox = await page.locator('[data-tiling-picker]').boundingBox()
     if (!pickerBox) throw new Error('Layout picker not laid out')
     expect(pickerBox.width).toBeLessThan(240)
   })
 
   test('snapping to top-half via picker fills top half of viewport', async () => {
+    await page.setViewportSize({ width: 390, height: 844 })
     const groups = getWindowGroups(page)
 
     const maximizeBtn = groups.first().locator('button:has(.lucide-maximize-2)')
     await maximizeBtn.click({ button: 'right' })
     await expect(page.locator('[data-tiling-picker]')).toBeVisible()
 
-    await assistMiniGrid(page, '2x2').getByTestId('snap-assist-vgutter-two-cols-top').click()
+    await page.getByRole('button', { name: 'Top half', exact: true }).click()
     await waitForWindowBoundsStable(page, groups.first())
 
     const bounds = await getWindowBounds(groups.first())
@@ -428,11 +431,7 @@ test.describe('Vertical viewport (portrait)', () => {
     await maximizeBtn.click({ button: 'right' })
     await expect(page.locator('[data-tiling-picker]')).toBeVisible()
 
-    await assistMiniGrid(page, '2x2')
-      .locator(
-        '[data-assist-master-grid] button[data-grid-cols="2"][data-gc0="0"][data-gc1="1"][data-gr0="1"][data-gr1="1"]',
-      )
-      .click()
+    await page.getByRole('button', { name: 'Bottom half', exact: true }).click()
     await waitForWindowBoundsStable(page, groups.first())
 
     const bounds = await getWindowBounds(groups.first())
@@ -654,4 +653,17 @@ test.describe('State Persistence', () => {
     const reloadedVideo = page.locator(`${WORKSPACE_VISIBLE_WINDOW_GROUP} video`)
     await expect(reloadedVideo).toBeVisible({ timeout: 10_000 })
   })
+})
+
+test('compact layout arrow keeps its icon inside the button', async () => {
+  await gotoWorkspace(page)
+  const button = page.getByRole('button', { name: 'Choose window layout' }).first()
+  const icon = button.locator('svg')
+  await expect(icon).toHaveCSS('width', '10px')
+  const outer = (await button.boundingBox())!
+  const inner = (await icon.boundingBox())!
+  expect(inner.x).toBeGreaterThanOrEqual(outer.x)
+  expect(inner.x + inner.width).toBeLessThanOrEqual(outer.x + outer.width)
+  await button.click()
+  await expect(page.getByRole('dialog', { name: 'Choose window layout' })).toBeVisible()
 })

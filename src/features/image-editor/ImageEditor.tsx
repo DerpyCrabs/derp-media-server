@@ -1,4 +1,12 @@
+import { DropdownMenu, type MenuEntry } from '@/lib/ui/menu'
+import Ellipsis from '@effectweb/lucide/icons/ellipsis'
+import Link from '@effectweb/lucide/icons/link'
+import Unlink from '@effectweb/lucide/icons/unlink'
+import { Input } from '@/lib/ui/input'
+import { Button } from '@/lib/ui/button'
 import { controllerView, view, domBinding, list, type ControllerModel } from 'effectweb'
+import Check from '@effectweb/lucide/icons/check'
+import ChevronDown from '@effectweb/lucide/icons/chevron-down'
 import Crop from '@effectweb/lucide/icons/crop'
 import RotateCw from '@effectweb/lucide/icons/rotate-cw'
 import FlipHorizontal from '@effectweb/lucide/icons/flip-horizontal'
@@ -8,32 +16,93 @@ import Redo2 from '@effectweb/lucide/icons/redo-2'
 import X from '@effectweb/lucide/icons/x'
 import { SaveFileDialog } from '@/features/explorer/SaveFileDialog'
 import { imageEditorController } from './image-editor-controller'
-import { cropImage, validImageSize, selectionFromPoints, type CropRect } from './image-transform'
+import { cropImage, validImageSize, resizeCrop, type CropRect } from './image-transform'
 
 type Model = ControllerModel<typeof imageEditorController>
-const buttonClass =
-  'inline-flex size-8 shrink-0 items-center justify-center rounded hover:bg-muted disabled:opacity-35'
-const inputClass = 'w-20 rounded border border-input bg-background px-2 py-1 text-sm'
 const exportFormats = [
-  { value: 'image/png', extension: 'png', label: 'PNG — lossless, transparency' },
-  { value: 'image/jpeg', extension: 'jpg', label: 'JPEG — smaller, white background' },
+  { value: 'image/png', extension: 'png', label: 'PNG' },
+  { value: 'image/jpeg', extension: 'jpg', label: 'JPEG' },
 ]
-const cropFields: readonly { key: keyof CropRect; label: string }[] = [
-  { key: 'x', label: 'Left' },
-  { key: 'y', label: 'Top' },
-  { key: 'width', label: 'Width' },
-  { key: 'height', label: 'Height' },
+const cropRatios = [
+  { label: 'Free', ratio: null },
+  { label: 'Square', ratio: 1 },
+  { label: '4:3', ratio: 4 / 3 },
+  { label: '3:2', ratio: 3 / 2 },
+  { label: '16:9', ratio: 16 / 9 },
+  { label: '4:5', ratio: 4 / 5 },
+  { label: '9:16', ratio: 9 / 16 },
 ]
-const canvasBinding = (canvas: HTMLCanvasElement, current: () => Model) => {
+const cropHandles = [
+  {
+    id: 'nw',
+    label: 'top left',
+    position: '-left-5 -top-5',
+    mark: 'left-5 top-5 border-l-2 border-t-2',
+    cursor: 'cursor-nwse-resize',
+  },
+  {
+    id: 'ne',
+    label: 'top right',
+    position: '-right-5 -top-5',
+    mark: 'right-5 top-5 border-r-2 border-t-2',
+    cursor: 'cursor-nesw-resize',
+  },
+  {
+    id: 'sw',
+    label: 'bottom left',
+    position: '-left-5 -bottom-5',
+    mark: 'left-5 bottom-5 border-l-2 border-b-2',
+    cursor: 'cursor-nesw-resize',
+  },
+  {
+    id: 'se',
+    label: 'bottom right',
+    position: '-right-5 -bottom-5',
+    mark: 'right-5 bottom-5 border-r-2 border-b-2',
+    cursor: 'cursor-nwse-resize',
+  },
+  {
+    id: 'n',
+    label: 'top',
+    position: 'left-1/2 -translate-x-1/2 -top-5',
+    mark: 'left-3 top-5 border-t-2',
+    cursor: 'cursor-ns-resize',
+  },
+  {
+    id: 's',
+    label: 'bottom',
+    position: 'left-1/2 -translate-x-1/2 -bottom-5',
+    mark: 'left-3 bottom-5 border-b-2',
+    cursor: 'cursor-ns-resize',
+  },
+  {
+    id: 'w',
+    label: 'left',
+    position: 'top-1/2 -translate-y-1/2 -left-5',
+    mark: 'top-3 left-5 border-l-2',
+    cursor: 'cursor-ew-resize',
+  },
+  {
+    id: 'e',
+    label: 'right',
+    position: 'top-1/2 -translate-y-1/2 -right-5',
+    mark: 'top-3 right-5 border-r-2',
+    cursor: 'cursor-ew-resize',
+  },
+]
+const previewBinding = (image: HTMLImageElement, current: () => Model) => {
+  const canvas = document.createElement('canvas')
+  let generation = 0
+  let url: string | undefined
   let previous: unknown
-  const stage = canvas.parentElement!
+  const stage = image.parentElement!
   const host = stage.parentElement!
   const layout = () => {
     const edit = current().history[current().cursor]
     if (!edit) return
     const scale = Math.min(
-      Math.max(1, host.clientWidth - 32) / edit.width,
-      Math.max(1, host.clientHeight - 32) / edit.height,
+      Math.max(1, host.clientWidth - 48) / edit.width,
+      Math.max(1, host.clientHeight - 48) / edit.height,
     )
     stage.style.width = `${edit.width * scale}px`
     stage.style.height = `${edit.height * scale}px`
@@ -46,11 +115,27 @@ const canvasBinding = (canvas: HTMLCanvasElement, current: () => Model) => {
     if (edit && previous !== edit) {
       previous = edit
       state.actions.draw(canvas)
+      const request = ++generation
+      canvas.toBlob((blob) => {
+        if (!blob || generation !== request) return
+        const previousUrl = url
+        url = URL.createObjectURL(blob)
+        image.src = url
+        if (previousUrl) URL.revokeObjectURL(previousUrl)
+      })
       layout()
     }
   }
   update()
-  return { update, dispose: () => observer.disconnect() }
+  return {
+    update,
+    dispose: () => {
+      generation++
+      observer.disconnect()
+      if (url) URL.revokeObjectURL(url)
+      canvas.width = canvas.height = 1
+    },
+  }
 }
 const editorBehavior = (element: HTMLDivElement, current: () => Model) => {
   const warn = (event: BeforeUnloadEvent) => {
@@ -66,16 +151,26 @@ const editorBehavior = (element: HTMLDivElement, current: () => Model) => {
     if (mod && event.key.toLowerCase() === 's') {
       event.preventDefault()
       event.stopPropagation()
+      if (current().tool === 'crop') current().actions.crop()
       current().actions.save()
     } else if (!input && mod && event.key.toLowerCase() === 'z') {
       event.preventDefault()
       event.stopPropagation()
       if (event.shiftKey) current().actions.redo()
       else current().actions.undo()
+    } else if (!input && event.key === 'Enter' && current().tool === 'crop') {
+      event.preventDefault()
+      event.stopPropagation()
+      current().actions.crop()
+    } else if (event.key === 'Enter' && current().tool === 'resize') {
+      event.preventDefault()
+      event.stopPropagation()
+      current().actions.resize()
     } else if (event.key === 'Escape') {
       event.preventDefault()
       event.stopPropagation()
-      current().actions.close()
+      if (current().tool !== 'none') current().actions.cancelTool()
+      else current().actions.close()
     }
   }
   let cursor = current().cursor
@@ -115,38 +210,33 @@ const cropBinding = (element: HTMLDivElement, current: () => Model) => {
   const down = (event: PointerEvent) => {
     if (current().tool !== 'crop' || event.button !== 0 || current().pending) return
     event.preventDefault()
-    const handle =
-      event.target instanceof Element ? (event.target.getAttribute('data-crop-handle') ?? '') : ''
+    const target =
+      event.target instanceof Element
+        ? event.target.closest<HTMLElement>('[data-crop-handle]')
+        : null
+    const handle = target?.getAttribute('data-crop-handle') ?? ''
+    if (!handle || !current().selection) return
+    target?.focus({ preventScroll: true })
     drag = { id: event.pointerId, start: point(event), selection: current().selection, handle }
     element.setPointerCapture(event.pointerId)
-    if (!handle)
-      current().actions.selection(
-        selectionFromPoints(drag.start, drag.start, current().history[current().cursor]!),
-      )
   }
   const move = (event: PointerEvent) => {
-    if (!drag || drag.id !== event.pointerId) return
-    const edit = current().history[current().cursor]!,
-      end = point(event),
-      selection = drag.selection
-    if (drag.handle === 'move' && selection) {
-      current().actions.selection({
-        ...selection,
-        x: Math.round(
-          Math.max(0, Math.min(edit.width - selection.width, selection.x + end.x - drag.start.x)),
-        ),
-        y: Math.round(
-          Math.max(0, Math.min(edit.height - selection.height, selection.y + end.y - drag.start.y)),
-        ),
-      })
-    } else if (drag.handle && selection) {
-      const anchor = {
-        x: drag.handle.includes('w') ? selection.x + selection.width : selection.x,
-        y: drag.handle.includes('n') ? selection.y + selection.height : selection.y,
-      }
-      current().actions.selection(selectionFromPoints(anchor, end, edit))
-    } else current().actions.selection(selectionFromPoints(drag.start, end, edit))
+    if (!drag || drag.id !== event.pointerId || !drag.selection) return
+    const state = current(),
+      edit = state.history[state.cursor]!,
+      end = point(event)
+    state.actions.selection(
+      resizeCrop(
+        drag.selection,
+        drag.handle,
+        end.x - drag.start.x,
+        end.y - drag.start.y,
+        edit,
+        state.cropRatio,
+      ),
+    )
   }
+
   const up = (event: PointerEvent) => {
     if (drag?.id !== event.pointerId) return
     move(event)
@@ -168,6 +258,16 @@ const cropBinding = (element: HTMLDivElement, current: () => Model) => {
     element.removeEventListener('pointercancel', cancel)
   }
 }
+function cropKeyDown(model: Model, handle: string, event: KeyboardEvent) {
+  const delta = event.shiftKey ? 10 : 1
+  const dx = event.key === 'ArrowLeft' ? -delta : event.key === 'ArrowRight' ? delta : 0
+  const dy = event.key === 'ArrowUp' ? -delta : event.key === 'ArrowDown' ? delta : 0
+  const edit = model.history[model.cursor]
+  if ((!dx && !dy) || !edit || !model.selection) return
+  event.preventDefault()
+  event.stopPropagation()
+  model.actions.selection(resizeCrop(model.selection, handle, dx, dy, edit, model.cropRatio))
+}
 const ImageEditor = controllerView(
   { controller: imageEditorController, identity: (props) => props.path },
   view((model) => {
@@ -177,6 +277,56 @@ const ImageEditor = controllerView(
     const fileName = model.props.path.split('/').at(-1) ?? ''
     const dot = model.props.path.lastIndexOf('.')
     const suggestedPath = `${dot > model.props.path.lastIndexOf('/') ? model.props.path.slice(0, dot) : model.props.path}-edited.png`
+    const menu: MenuEntry[] = [
+      {
+        kind: 'item',
+        label: 'Undo',
+        shortcut: 'Ctrl/⌘ Z',
+        icon: <Undo2 />,
+        disabled: !ready || model.cursor === 0,
+        onSelect: model.actions.undo,
+      },
+      {
+        kind: 'item',
+        label: 'Redo',
+        shortcut: '⇧Ctrl/⌘ Z',
+        icon: <Redo2 />,
+        disabled: !ready || model.cursor >= model.history.length - 1,
+        onSelect: model.actions.redo,
+      },
+      { kind: 'separator' },
+      {
+        kind: 'item',
+        label: 'Rotate clockwise',
+        icon: <RotateCw />,
+        disabled: !ready,
+        onSelect: model.actions.rotate,
+      },
+      {
+        kind: 'item',
+        label: 'Flip horizontally',
+        icon: <FlipHorizontal />,
+        disabled: !ready,
+        onSelect: model.actions.flip,
+      },
+      ...(model.draftCandidates.length
+        ? [
+            { kind: 'separator' as const },
+            {
+              kind: 'item' as const,
+              label: 'Restore unsaved edits',
+              disabled: model.pending,
+              onSelect: model.actions.restoreDraft,
+            },
+            {
+              kind: 'item' as const,
+              label: 'Discard recovered edits',
+              disabled: model.pending,
+              onSelect: model.actions.discardDraft,
+            },
+          ]
+        : []),
+    ]
     return (
       <div
         role='region'
@@ -186,238 +336,188 @@ const ImageEditor = controllerView(
         class={
           model.props.embedded
             ? 'relative flex h-full min-h-0 flex-col bg-background text-foreground outline-none'
-            : 'fixed inset-0 z-50 flex flex-col bg-background text-foreground outline-none'
+            : 'fixed inset-0 z-[60] flex flex-col bg-background text-foreground outline-none'
         }
         use={domBinding(model, editorBehavior)}
       >
-        <header class='flex shrink-0 flex-wrap items-center gap-1 border-b border-border px-2 py-1'>
-          <span class='mr-auto min-w-0 max-w-48 truncate px-1 text-sm' title={fileName}>
-            {fileName}
-          </span>
-          <button
-            type='button'
-            class={buttonClass}
-            aria-label='Undo image edit'
-            title='Undo (Ctrl+Z)'
-            disabled={!ready || model.cursor === 0}
-            onClick={model.actions.undo}
-          >
-            <Undo2 size={16} />
-          </button>
-          <button
-            type='button'
-            class={buttonClass}
-            aria-label='Redo image edit'
-            title='Redo (Ctrl+Shift+Z)'
-            disabled={!ready || model.cursor >= model.history.length - 1}
-            onClick={model.actions.redo}
-          >
-            <Redo2 size={16} />
-          </button>
-          <button
-            type='button'
-            class='rounded bg-primary px-3 py-1.5 text-sm text-primary-foreground disabled:opacity-40'
-            disabled={!ready}
-            onClick={model.actions.save}
-          >
-            Save copy
-          </button>
-          <button
-            type='button'
-            class={buttonClass}
-            aria-label='Close image editor'
-            disabled={model.pending}
-            onClick={model.actions.close}
-          >
-            <X size={16} />
-          </button>
-        </header>
-        {model.draftCandidates.length ? (
-          <div
-            role='note'
-            class='flex shrink-0 flex-wrap items-center gap-2 border-b border-border bg-muted/50 px-3 py-2 text-xs'
-          >
-            <span class='min-w-0 flex-1'>
-              Saved image edits found. Restore uses the original image saved with the draft.
-              {model.draftCandidates.length > 1
-                ? ` ${model.draftCandidates.length} versions available.`
-                : ''}
-            </span>
-            <button
-              class='rounded border border-input px-2 py-1 hover:bg-muted disabled:opacity-40'
-              disabled={model.loading || model.pending}
-              onClick={model.actions.restoreDraft}
-            >
-              Restore image draft
-            </button>
-            <button
-              class='rounded border border-input px-2 py-1 hover:bg-muted disabled:opacity-40'
-              disabled={model.pending}
-              onClick={model.actions.discardDraft}
-            >
-              Discard image draft
-            </button>
-          </div>
-        ) : null}
-        {model.draftError ? (
-          <p
-            role='alert'
-            class='shrink-0 border-b border-border px-3 py-2 text-xs text-destructive'
-          >
-            {model.draftError}
-          </p>
-        ) : null}
-        <div
+        <header
+          class='flex h-12 shrink-0 items-center gap-1 border-b border-border px-2'
           role='toolbar'
           aria-label='Image editing tools'
-          class='flex shrink-0 flex-wrap items-center gap-1 border-b border-border px-2 py-1'
         >
-          <button
-            type='button'
-            class={buttonClass}
-            aria-label='Crop image'
-            title='Crop'
-            aria-pressed={model.tool === 'crop'}
-            disabled={!ready}
-            onClick={() => model.actions.tool('crop')}
-          >
-            <Crop size={17} />
-          </button>
-          <button
-            type='button'
-            class={buttonClass}
-            aria-label='Rotate image clockwise'
-            title='Rotate clockwise'
-            disabled={!ready}
-            onClick={model.actions.rotate}
-          >
-            <RotateCw size={17} />
-          </button>
-          <button
-            type='button'
-            class={buttonClass}
-            aria-label='Flip image horizontally'
-            title='Flip horizontally'
-            disabled={!ready}
-            onClick={model.actions.flip}
-          >
-            <FlipHorizontal size={17} />
-          </button>
-          <button
-            type='button'
-            class={buttonClass}
-            aria-label='Resize image'
-            title='Resize'
-            aria-pressed={model.tool === 'resize'}
-            disabled={!ready}
-            onClick={() => model.actions.tool('resize')}
-          >
-            <Scaling size={17} />
-          </button>
-          {edit ? (
-            <span class='ml-auto px-2 text-xs text-muted-foreground' role='status'>
-              {edit.width} × {edit.height} px
-            </span>
-          ) : null}
-        </div>
-        {model.tool === 'crop' && edit ? (
-          <div class='flex shrink-0 flex-wrap items-end gap-2 border-b border-border p-2'>
-            {selection ? (
-              <>
-                {list(
-                  cropFields,
-                  (field) => field.key,
-                  (field) => (
-                    <label class='flex flex-col gap-1 text-xs'>
-                      {field.label}
-                      <input
-                        aria-label={`Crop ${field.label.toLowerCase()}`}
-                        type='number'
-                        min={field.key === 'x' || field.key === 'y' ? 0 : 1}
-                        step={1}
-                        class={inputClass}
-                        value={selection[field.key]}
-                        onInput={(event) =>
-                          model.actions.cropField(field.key, event.currentTarget.valueAsNumber)
-                        }
-                      />
-                    </label>
-                  ),
-                )}
-                <button
-                  type='button'
-                  class='rounded border border-input px-3 py-1 text-sm disabled:opacity-40'
-                  disabled={!cropImage(edit, selection)}
-                  onClick={model.actions.crop}
+          {model.tool === 'resize' ? (
+            <>
+              <Button
+                variant='ghost'
+                size='icon'
+                class='size-11 shrink-0'
+                aria-label='Cancel resize'
+                onClick={model.actions.cancelTool}
+              >
+                <X />
+              </Button>
+              <div class='flex min-w-0 flex-1 items-center justify-center gap-1'>
+                <Input
+                  aria-label='Image width'
+                  title='Width in pixels'
+                  type='number'
+                  min={1}
+                  max={16384}
+                  step={1}
+                  class='h-11 min-w-0 w-24'
+                  value={model.resizeWidth}
+                  onInput={(event) =>
+                    model.actions.resizeField('width', event.currentTarget.valueAsNumber)
+                  }
+                />
+                <Button
+                  variant='ghost'
+                  size='icon'
+                  class='size-11 shrink-0'
+                  aria-label='Keep proportions'
+                  title='Keep proportions'
+                  aria-pressed={model.keepRatio}
+                  onClick={() => model.actions.keepRatio(!model.keepRatio)}
                 >
-                  Apply crop
-                </button>
-              </>
-            ) : (
-              <>
-                <p class='py-1 text-sm text-muted-foreground'>
-                  Drag on the image to select an area.
-                </p>
-                <button
-                  type='button'
-                  class='rounded border border-input px-3 py-1 text-sm'
-                  onClick={model.actions.selectAll}
-                >
-                  Select all
-                </button>
-              </>
-            )}
-          </div>
-        ) : null}
-        {model.tool === 'resize' && edit ? (
-          <div class='flex shrink-0 flex-wrap items-end gap-2 border-b border-border p-2'>
-            <label class='flex flex-col gap-1 text-xs'>
-              Width
-              <input
-                aria-label='Image width'
-                type='number'
-                min={1}
-                max={16384}
-                step={1}
-                class={inputClass}
-                value={model.resizeWidth}
-                onInput={(event) =>
-                  model.actions.resizeField('width', event.currentTarget.valueAsNumber)
+                  {model.keepRatio ? <Link /> : <Unlink />}
+                </Button>
+                <Input
+                  aria-label='Image height'
+                  title='Height in pixels'
+                  type='number'
+                  min={1}
+                  max={16384}
+                  step={1}
+                  class='h-11 min-w-0 w-24'
+                  value={model.resizeHeight}
+                  onInput={(event) =>
+                    model.actions.resizeField('height', event.currentTarget.valueAsNumber)
+                  }
+                />
+                <span class='text-xs text-muted-foreground'>px</span>
+              </div>
+              <Button
+                variant='ghost'
+                size='icon'
+                class='size-11 shrink-0'
+                aria-label='Apply size'
+                disabled={!validImageSize(model.resizeWidth, model.resizeHeight)}
+                onClick={model.actions.resize}
+              >
+                <Check />
+              </Button>
+            </>
+          ) : model.tool === 'crop' ? (
+            <>
+              <Button
+                variant='ghost'
+                size='icon'
+                class='size-11'
+                aria-label='Cancel crop'
+                onClick={model.actions.cancelTool}
+              >
+                <X />
+              </Button>
+              <div class='flex flex-1 justify-center'>
+                <DropdownMenu
+                  aria-label='Crop proportions'
+                  align='center'
+                  trigger={
+                    <Button variant='ghost' class='h-11' aria-label='Crop proportions'>
+                      {cropRatios.find((item) => item.ratio === model.cropRatio)?.label ??
+                        'Original'}
+                      <ChevronDown />
+                    </Button>
+                  }
+                  items={[
+                    ...cropRatios.map((item) => ({
+                      kind: 'radio' as const,
+                      label: item.label,
+                      value: item.label,
+                      checked: model.cropRatio === item.ratio,
+                      onSelect: () => model.actions.cropRatio(item.ratio),
+                    })),
+                    { kind: 'separator' },
+                    {
+                      kind: 'item',
+                      label: 'Original proportions',
+                      onSelect: () => edit && model.actions.cropRatio(edit.width / edit.height),
+                    },
+                    {
+                      kind: 'item',
+                      label: 'Reset selection',
+                      onSelect: () => model.actions.cropRatio(model.cropRatio),
+                    },
+                  ]}
+                />
+              </div>
+              <Button
+                variant='ghost'
+                size='icon'
+                class='size-11'
+                aria-label='Apply crop'
+                disabled={!edit || !selection || !cropImage(edit, selection)}
+                onClick={model.actions.crop}
+              >
+                <Check />
+              </Button>
+            </>
+          ) : (
+            <>
+              <span class='min-w-0 flex-1 truncate text-sm font-medium' title={fileName}>
+                {fileName}
+              </span>
+              <Button
+                variant='ghost'
+                size='icon'
+                aria-label='Crop image'
+                title='Crop'
+                aria-pressed={false}
+                disabled={!ready}
+                onClick={() => model.actions.tool('crop')}
+              >
+                <Crop />
+              </Button>
+              <Button
+                variant='ghost'
+                size='icon'
+                aria-label='Resize image'
+                title='Resize'
+                aria-pressed={false}
+                disabled={!ready}
+                onClick={() => model.actions.tool('resize')}
+              >
+                <Scaling />
+              </Button>
+              <DropdownMenu
+                aria-label='Image edit actions'
+                align='end'
+                trigger={
+                  <Button variant='ghost' size='icon' aria-label='Image edit actions'>
+                    <Ellipsis />
+                  </Button>
                 }
+                items={menu}
               />
-            </label>
-            <label class='flex flex-col gap-1 text-xs'>
-              Height
-              <input
-                aria-label='Image height'
-                type='number'
-                min={1}
-                max={16384}
-                step={1}
-                class={inputClass}
-                value={model.resizeHeight}
-                onInput={(event) =>
-                  model.actions.resizeField('height', event.currentTarget.valueAsNumber)
-                }
-              />
-            </label>
-            <label class='flex items-center gap-1 py-1 text-xs'>
-              <input
-                type='checkbox'
-                checked={model.keepRatio}
-                onChange={(event) => model.actions.keepRatio(event.currentTarget.checked)}
-              />
-              Keep proportions
-            </label>
-            <button
-              type='button'
-              class='rounded border border-input px-3 py-1 text-sm disabled:opacity-40'
-              disabled={!validImageSize(model.resizeWidth, model.resizeHeight)}
-              onClick={model.actions.resize}
-            >
-              Apply size
-            </button>
-          </div>
+              <Button disabled={!ready} onClick={model.actions.save}>
+                Save copy
+              </Button>
+              <Button
+                variant='ghost'
+                size='icon'
+                aria-label='Close image editor'
+                disabled={model.pending}
+                onClick={model.actions.close}
+              >
+                <X />
+              </Button>
+            </>
+          )}
+        </header>
+        {model.draftError ? (
+          <p role='alert' class='px-3 py-2 text-xs text-destructive'>
+            {model.draftError}
+          </p>
         ) : null}
         {model.loading ? (
           <p role='status' class='p-4 text-sm'>
@@ -429,10 +529,10 @@ const ImageEditor = controllerView(
             {model.error}
           </p>
         ) : null}
-        <div class='flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-black/90 p-4'>
+        <div class='flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-black/90 p-6'>
           {edit ? (
             <div
-              class='relative max-h-full max-w-full overflow-hidden'
+              class='relative max-h-full max-w-full'
               style={{
                 'aspect-ratio': `${edit.width} / ${edit.height}`,
 
@@ -442,15 +542,19 @@ const ImageEditor = controllerView(
               use={domBinding(model, cropBinding)}
               data-testid='image-edit-stage'
             >
-              <canvas
-                role='img'
-                aria-label='Edited image preview'
+              <img
+                alt='Edited image preview'
+                draggable={false}
                 class='block h-full w-full'
-                use={domBinding(model, canvasBinding)}
+                use={domBinding(model, previewBinding)}
               />
               {selection && model.tool === 'crop' ? (
                 <div
                   data-crop-handle='move'
+                  role='group'
+                  tabindex={0}
+                  aria-label='Move crop selection'
+                  onKeyDown={(event) => cropKeyDown(model, 'move', event)}
                   class='absolute cursor-move border border-white'
                   style={{
                     left: `${(selection.x / edit.width) * 100}%`,
@@ -460,39 +564,45 @@ const ImageEditor = controllerView(
                     'box-shadow': '0 0 0 9999px #0008',
                   }}
                 >
-                  <span
-                    data-crop-handle='nw'
-                    class='absolute -left-1.5 -top-1.5 size-3 cursor-nwse-resize border border-black bg-white'
-                  />
-                  <span
-                    data-crop-handle='ne'
-                    class='absolute -right-1.5 -top-1.5 size-3 cursor-nesw-resize border border-black bg-white'
-                  />
-                  <span
-                    data-crop-handle='sw'
-                    class='absolute -bottom-1.5 -left-1.5 size-3 cursor-nesw-resize border border-black bg-white'
-                  />
-                  <span
-                    data-crop-handle='se'
-                    class='absolute -bottom-1.5 -right-1.5 size-3 cursor-nwse-resize border border-black bg-white'
-                  />
+                  <div
+                    class='pointer-events-none absolute inset-0 grid grid-cols-3 grid-rows-3'
+                    aria-hidden='true'
+                  >
+                    <div class='col-start-2 row-span-3 border-x border-white/30' />
+                    <div class='absolute inset-x-0 top-1/3 h-1/3 border-y border-white/30' />
+                  </div>
+                  {list(
+                    cropHandles,
+                    (handle) => handle.id,
+                    (handle) => (
+                      <Button
+                        variant='ghost'
+                        size='icon'
+                        data-crop-handle={handle.id}
+                        aria-label={`Resize crop ${handle.label}`}
+                        onKeyDown={(event) => {
+                          cropKeyDown(model, handle.id, event)
+                        }}
+                        class={`absolute z-10 size-11 touch-none rounded-none border-0 bg-transparent p-0 hover:bg-transparent dark:hover:bg-transparent active:translate-y-0 ${handle.position} ${handle.cursor}`}
+                      >
+                        <span
+                          aria-hidden='true'
+                          class={`pointer-events-none absolute size-5 border-white drop-shadow-md ${handle.mark}`}
+                        />
+                      </Button>
+                    ),
+                  )}
                 </div>
               ) : null}
             </div>
           ) : null}
         </div>
-        {model.cursor > 0 && edit !== model.exportedEdit ? (
-          <p class='shrink-0 border-t border-border px-3 py-1 text-xs text-muted-foreground'>
-            {model.draftSaved ? 'Edits backed up in this browser' : 'Unsaved image edits'}
-          </p>
-        ) : null}
         {model.saveDialog ? (
           <SaveFileDialog
             title='Save image copy'
             suggestedPath={suggestedPath}
             editableFolders={model.props.editableFolders}
             formats={exportFormats}
-            description='Exports the visible image. Animation and original metadata are not included.'
             pending={model.pending}
             error={model.error}
             overlayScope={model.props.embedded ? 'window' : 'viewport'}

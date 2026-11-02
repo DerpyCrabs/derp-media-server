@@ -1,3 +1,4 @@
+import { fileJobs } from './file-jobs'
 import { modelOwner } from 'effectweb'
 import { operationError } from './file-browser-mutations'
 import { normalizeNewFilePath } from '@/lib/files/new-file-name'
@@ -42,6 +43,8 @@ type FileBrowserActionDialog =
 export function createFileBrowserActions() {
   const owner = modelOwner({
     actionDialog: null as FileBrowserActionDialog,
+    jobPending: false,
+    jobError: undefined as Error | undefined,
     menu: null as FileRowMenuState | null,
   })
   return {
@@ -55,7 +58,7 @@ export function createFileBrowserActions() {
     ) => {
       const actionDialog = () => state.actionDialog
       const setActionDialog = (actionDialog: FileBrowserActionDialog) =>
-        owner.patch({ actionDialog })
+        owner.patch({ actionDialog, jobError: undefined })
       const createFolderOpen = () => actionDialog()?.kind === 'create-folder'
       const dialogTarget = (kind: 'rename' | 'move' | 'copy' | 'remove') => {
         const dialog = actionDialog()
@@ -184,20 +187,33 @@ export function createFileBrowserActions() {
       function confirmMove(destination: string) {
         const target = moveTarget()
         if (!target) return
-        const name = target.path.split(/[/\\]/).pop()!
-        const normalizedDestination = destination.replace(/\\/g, '/').replace(/\/+$/, '')
-        const newPath = normalizedDestination ? `${normalizedDestination}/${name}` : name
-        void controller.mutations.moveMutation.run(
-          { oldPath: target.path.replace(/\\/g, '/'), newPath },
-          closeMove,
+        if (owner.read().jobPending) return
+        owner.patch({ jobPending: true, jobError: undefined })
+        fileJobs.start(
+          { operation: 'move', paths: [target.path], destination },
+          {
+            success: () => {
+              owner.patch({ jobPending: false })
+              closeMove()
+            },
+            failure: (jobError) => owner.patch({ jobPending: false, jobError }),
+          },
         )
       }
       function confirmCopy(destination: string) {
         const target = copyTarget()
         if (!target) return
-        void controller.mutations.copyMutation.run(
-          { sourcePath: target.path, destinationDir: destination },
-          closeCopy,
+        if (owner.read().jobPending) return
+        owner.patch({ jobPending: true, jobError: undefined })
+        fileJobs.start(
+          { operation: 'copy', paths: [target.path], destination },
+          {
+            success: () => {
+              owner.patch({ jobPending: false })
+              closeCopy()
+            },
+            failure: (jobError) => owner.patch({ jobPending: false, jobError }),
+          },
         )
       }
       function confirmDelete() {
@@ -223,8 +239,8 @@ export function createFileBrowserActions() {
         close: closeMove,
         filePath: moveTarget()?.path ?? '',
         confirm: confirmMove,
-        pending: controller.mutations.moveMutation.result.waiting,
-        error: operationError(controller.mutations.moveMutation.result),
+        pending: state.jobPending,
+        error: state.jobError,
       }
       const remove: ExplorerDeleteDialog = {
         target: deleteTarget(),
@@ -268,8 +284,8 @@ export function createFileBrowserActions() {
             target: copyTarget(),
             close: closeCopy,
             confirm: confirmCopy,
-            pending: controller.mutations.copyMutation.result.waiting,
-            error: operationError(controller.mutations.copyMutation.result),
+            pending: state.jobPending,
+            error: state.jobError,
             editableFolders: options.editableFolders,
           }
         : undefined

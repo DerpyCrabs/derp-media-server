@@ -114,3 +114,31 @@ test.describe('SSE Live Updates', () => {
     }
   })
 })
+
+test('a throwing SharedWorker does not prevent mounting or live file updates', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, 'SharedWorker', {
+      configurable: true,
+      value: class {
+        constructor() {
+          throw new DOMException('Unavailable in this runtime', 'NotSupportedError')
+        }
+      },
+    })
+  })
+  const errors: string[] = []
+  page.on('pageerror', (error) => errors.push(error.message))
+  await gotoWithSSE(page, '/?dir=MediaContent')
+  await expect(page.locator('table')).toBeVisible()
+  const fileName = `sse-fallback-${randomUUID()}.txt`
+  const filePath = `MediaContent/${fileName}`
+  try {
+    await createFile(page, filePath)
+    await expect(page.locator('table').getByText(fileName)).toBeVisible()
+    await deleteFile(page, filePath)
+    await expect(page.locator('table').getByText(fileName)).not.toBeVisible()
+    expect(errors).toEqual([])
+  } finally {
+    await deleteFile(page, filePath)
+  }
+})

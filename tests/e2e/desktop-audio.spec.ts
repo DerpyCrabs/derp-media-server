@@ -71,7 +71,8 @@ test('native audio opens, keeps playing when changing tracks, and follows the ne
   await page.getByRole('slider', { name: 'Playback position', exact: true }).press('End')
   await expect(page).toHaveURL(/viewing=Music%2Ftrack.mp3/)
   await expect(page.getByRole('button', { name: 'Pause', exact: true })).toBeVisible()
-  await page.getByRole('button', { name: 'Audio playback speed', exact: true }).click()
+  await page.getByRole('button', { name: 'Playback options', exact: true }).click()
+  await page.getByRole('menuitem', { name: /^Speed/ }).hover()
   await page.getByRole('menuitemradio', { name: '1.5×', exact: true }).click()
   await expect
     .poll(() => page.locator('audio').evaluate((el: HTMLAudioElement) => el.playbackRate))
@@ -123,7 +124,7 @@ test('native audio plays a saved playlist in its own order and keeps the viewer 
     await dialog.getByRole('button', { name: /Native listening order/ }).click()
     await dialog.getByRole('button', { name: 'Play all', exact: true }).click()
     await expect(page).toHaveURL(/viewing=Music%2Ftrack.mp3/)
-    await dialog.getByRole('button', { name: 'Close playlists' }).click()
+    await dialog.getByRole('button', { name: 'Close', exact: true }).click()
     await expect(page.getByRole('button', { name: 'Previous track', exact: true })).toBeDisabled()
     await page.getByRole('button', { name: 'Next track', exact: true }).click()
     await expect(page).toHaveURL(/viewing=Music%2Ftrack.flac/)

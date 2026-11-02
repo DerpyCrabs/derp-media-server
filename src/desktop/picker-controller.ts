@@ -14,6 +14,7 @@ export function createPicker(options: {
   directory: Accessor<string>
   navigate: (path: string) => void
   bridge: DesktopBridge | undefined
+  confirm?: typeof showAppConfirmEffect
 }) {
   const initial = {
     selected: [] as readonly FileItem[],
@@ -50,7 +51,7 @@ export function createPicker(options: {
       owner.cancel(copySlot)
       previousRequest = request
       requestGeneration += 1
-      owner.patch({ pending: false, error: '' })
+      owner.patch({ pending: false, error: '', selected: [], anchor: '' })
       if (request)
         owner.patch({
           name: request.name,
@@ -72,7 +73,7 @@ export function createPicker(options: {
   }
   const stop = owner.source.subscribe(receive)
   const eligible = (file: FileItem) =>
-    !file.isVirtual && file.isDirectory === !!options.request()?.directory
+    !file.isVirtual && file.isDirectory === !!options.request()?.directory && visible(file)
   const visible = (file: FileItem) => pickerFileVisible(file, options.request(), filter())
   function accept(files = selected()) {
     const work = Effect.gen(function* () {
@@ -109,7 +110,7 @@ export function createPicker(options: {
         if (!current()) return
         if (
           result.overwrite?.length &&
-          (yield* showAppConfirmEffect({
+          (yield* (options.confirm ?? showAppConfirmEffect)({
             title: 'Replace file?',
             message: `${selection.name} already exists. Replace it?`,
             confirmLabel: 'Replace',
@@ -175,6 +176,7 @@ export function createPicker(options: {
       }
     },
     keyDown(event, ordered) {
+      if (event.altKey) return
       if (['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
         event.preventDefault()
         const current = (event.target as HTMLElement).closest<HTMLElement>('[data-file-path]')

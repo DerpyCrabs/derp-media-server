@@ -8,7 +8,10 @@ import type { UploadToastState } from './types'
 const uploadSlot = 'upload'
 const toastSlot = 'upload-toast'
 const dropSlot = 'collect-drop'
-export function createUploadDrop(context: () => { currentPath: string; editable: boolean }) {
+export function createUploadDrop(
+  context: () => { currentPath: string; editable: boolean },
+  window: Window = globalThis.window,
+) {
   const owner = modelOwner({ toast: { kind: 'hidden' } as UploadToastState, dragOver: false })
   let dragDepth = 0
   const hideToast = () => {

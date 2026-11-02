@@ -1,3 +1,4 @@
+import { waitForDocumentDraft } from './document-draft-helpers'
 import fs from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
 const original =
@@ -52,21 +53,20 @@ test('review copies individual server changes with keyboard and preserves exact 
     'last = mine',
   )
   await expect(dialog.getByRole('status')).toHaveText('1 change')
-  await dialog.getByRole('button', { name: 'Undo', exact: true }).click()
+  await dialog.getByRole('button', { name: 'Comparison actions' }).click()
+  await page.getByRole('menuitem', { name: 'Undo', exact: true }).click()
   await expect(dialog.getByRole('status')).toHaveText('2 changes')
-  await dialog.getByRole('button', { name: 'Redo', exact: true }).click()
+  await dialog.getByRole('button', { name: 'Comparison actions' }).click()
+  await page.getByRole('menuitem', { name: 'Redo', exact: true }).click()
   await expect(dialog.getByRole('status')).toHaveText('1 change')
   await page.request.post('/api/settings/autoSave', {
     data: { filePath: path, enabled: true, readOnly: false },
   })
   await dialog.getByRole('button', { name: 'Use reviewed version', exact: true }).click()
   await expect(dialog).not.toBeVisible()
-  await expect(
-    page.getByText('Changes reviewed. Save when you are ready; automatic saving is paused.'),
-  ).toBeVisible()
   await page.waitForTimeout(2200)
   expect((await read(page, path)).content).toBe(remote)
-  await page.getByRole('button', { name: 'Save reviewed version', exact: true }).click()
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
   await expect
     .poll(async () => (await read(page, path)).content)
     .toBe(remote.replace('last = old', 'last = mine'))
@@ -100,12 +100,11 @@ test('a new remote revision blocks completion while preserving edits and allows 
     'typed during review',
   )
   expect((await read(page, path)).content).not.toContain('typed during review')
-  await expect(
-    page.getByText('Unsaved changes · Draft backed up in this browser', { exact: true }),
-  ).toBeVisible()
+  await waitForDocumentDraft(page, path, 'typed during review')
   page.on('dialog', (dialog) => dialog.accept())
   await page.reload()
-  await page.getByRole('button', { name: 'Restore draft', exact: true }).click()
+  await page.getByRole('button', { name: 'Document actions' }).click()
+  await page.getByRole('menuitem', { name: 'Restore unsaved changes', exact: true }).click()
   await expect(page.getByRole('textbox', { name: /compare-.*\.txt editor$/ })).toContainText(
     'typed during review',
   )
@@ -121,9 +120,11 @@ test('the server side is read only, entire-version acceptance can be undone, and
   await page.keyboard.press('Control+a')
   await page.keyboard.insertText('do not replace server')
   await expect(server).toContainText('first = remote')
-  await dialog.getByRole('button', { name: 'Use entire server version', exact: true }).click()
+  await dialog.getByRole('button', { name: 'Comparison actions' }).click()
+  await page.getByRole('menuitem', { name: 'Use entire server version', exact: true }).click()
   await expect(dialog.getByRole('status')).toHaveText('0 changes')
-  await dialog.getByRole('button', { name: 'Undo', exact: true }).click()
+  await dialog.getByRole('button', { name: 'Comparison actions' }).click()
+  await page.getByRole('menuitem', { name: 'Undo', exact: true }).click()
   await expect(
     dialog.getByRole('textbox', { name: 'Reviewed version', exact: true }),
   ).toContainText('last = mine')
@@ -136,26 +137,41 @@ test('the server side is read only, entire-version acceptance can be undone, and
   expect((await read(page, path)).content).toBe(remote)
 })
 
-test('copying mixed line endings and a final line without a newline preserves exact server bytes', async ({
-  page,
-}) => {
-  const { path, remote, dialog } = await setup(page)
-  const exact = remote.replace('first = remote\r\n', 'first = mixed\r').replace(/\r\n$/, '')
-  await changeServer(page, path, exact)
-  await dialog.getByRole('button', { name: 'Review latest server version', exact: true }).click()
-  await dialog.getByRole('button', { name: 'Use this server change', exact: true }).first().click()
-  await dialog.getByRole('button', { name: 'Use this server change', exact: true }).first().click()
-  await expect(dialog.getByRole('status')).toHaveText('0 changes')
-  await expect(dialog.getByText(/Server: Mixed line endings/)).toBeVisible()
-  await dialog.getByRole('button', { name: 'Use reviewed version', exact: true }).click()
-  await expect(dialog).not.toBeVisible()
-  const downloading = page.waitForEvent('download')
-  await page.getByRole('button', { name: 'Download', exact: true }).click()
-  const downloaded = await downloading
-  expect(fs.readFileSync((await downloaded.path())!, 'utf8')).toBe(exact)
-  expect((await read(page, path)).content).toBe(exact)
-  await expect(page.locator('footer[role="status"]')).toHaveCount(0)
-})
+for (const width of [1280, 390]) {
+  test(`copying mixed line endings preserves exact server bytes (${width}px)`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 })
+    const { path, remote, dialog } = await setup(page)
+    if (width < 600) {
+      await expect(dialog.locator('.cm-mergeView')).toHaveCount(0)
+      expect(
+        await dialog
+          .locator('.text-merge-surface')
+          .evaluate((node) => node.scrollWidth <= node.clientWidth),
+      ).toBe(true)
+    }
+    const exact = remote.replace('first = remote\r\n', 'first = mixed\r').replace(/\r\n$/, '')
+    await changeServer(page, path, exact)
+    await dialog.getByRole('button', { name: 'Review latest server version', exact: true }).click()
+    await dialog
+      .getByRole('button', { name: 'Use this server change', exact: true })
+      .first()
+      .click()
+    await dialog
+      .getByRole('button', { name: 'Use this server change', exact: true })
+      .first()
+      .click()
+    await expect(dialog.getByRole('status')).toHaveText('0 changes')
+    await dialog.getByRole('button', { name: 'Use reviewed version', exact: true }).click()
+    await expect(dialog).not.toBeVisible()
+    const downloading = page.waitForEvent('download')
+    await page.getByRole('button', { name: 'Document actions' }).click()
+    await page.getByRole('menuitem', { name: 'Download', exact: true }).click()
+    const downloaded = await downloading
+    expect(fs.readFileSync((await downloaded.path())!, 'utf8')).toBe(exact)
+    expect((await read(page, path)).content).toBe(exact)
+    await expect(page.locator('footer[role="status"]')).toHaveCount(0)
+  })
+}
 
 test('oversized comparisons keep the draft available without attempting an unbounded diff', async ({
   page,
@@ -163,13 +179,11 @@ test('oversized comparisons keep the draft available without attempting an unbou
   const { path, dialog } = await setup(page)
   await changeServer(page, path, 'remote '.repeat(310000))
   await dialog.getByRole('button', { name: 'Review latest server version', exact: true }).click()
-  await expect(dialog.getByText(/Side-by-side comparison supports/)).toBeVisible()
+  await expect(dialog.getByText('This file is too large for comparison.')).toBeVisible()
   await expect(
     dialog.getByRole('button', { name: 'Use reviewed version', exact: true }),
   ).toBeDisabled()
-  await expect(
-    dialog.getByRole('button', { name: 'Download your draft', exact: true }),
-  ).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Save a copy', exact: true })).toBeVisible()
   await dialog.getByRole('button', { name: 'Close comparison', exact: true }).click()
   await expect(page.getByRole('textbox', { name: /compare-.*\.txt editor$/ })).toContainText(
     'last = mine',

@@ -678,6 +678,14 @@ fn parse_config(source: &str, editable_folders_env_present: bool) -> Result<RawC
 }
 
 impl Config {
+    pub fn filesystem_root(&self) -> bool {
+        self.desktop_mode && self.roots.len() == 1 && self.roots[0].path == Path::new("/")
+    }
+
+    pub fn named_roots(&self) -> bool {
+        self.roots.len() > 1 || self.filesystem_root()
+    }
+
     pub fn load() -> Result<Self, String> {
         let cwd = env::current_dir().map_err(|e| e.to_string())?;
         let mut config_path = env::var("CONFIG_PATH")
@@ -788,7 +796,11 @@ impl Config {
                 });
             }
         } else {
-            let name = root_name(&primary, None).unwrap_or_else(|_| "Media".into());
+            let name = if whole_computer {
+                "Files".into()
+            } else {
+                root_name(&primary, None).unwrap_or_else(|_| "Media".into())
+            };
             roots.push(MediaRoot {
                 id: "config:primary".into(),
                 name,

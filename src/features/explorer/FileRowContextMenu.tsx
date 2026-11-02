@@ -1,7 +1,8 @@
+import { NativeOpenButton } from '@/desktop/NativeOpen'
+import { MenuItem } from '@/lib/ui/menu-item'
 import { component, view } from 'effectweb'
 import type { FileItem } from '@/lib/files/types'
 import { FloatingContextMenu } from './FloatingContextMenu'
-import Eye from '@effectweb/lucide/icons/eye'
 import Info from '@effectweb/lucide/icons/info'
 import AppWindow from '@effectweb/lucide/icons/app-window'
 import BookOpen from '@effectweb/lucide/icons/book-open'
@@ -52,152 +53,161 @@ export const FileRowContextMenu = component(
           const showRename = () => available('rename')
           return (
             <>
-              {available('preview') ? (
-                <button
-                  type='button'
-                  role='menuitem'
-                  data-slot='context-menu-item'
-                  class='flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
-                  onClick={() => props.model.run('preview', ctx.file)}
-                >
-                  <Eye class='size-4' />
-                  Quick preview<span class='ml-auto pl-4 text-xs text-muted-foreground'>Space</span>
-                </button>
-              ) : null}
               {canVirtual('rename') ? (
-                <button
+                <MenuItem
+                  variant='ghost'
                   type='button'
                   data-slot='context-menu-item'
                   class='flex w-full cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
                   onClick={() => props.model.runVirtual('rename', ctx.file)}
                 >
                   Rename
-                </button>
+                </MenuItem>
               ) : null}
               {canVirtual('branch') ? (
-                <button
+                <MenuItem
+                  variant='ghost'
                   type='button'
                   data-slot='context-menu-item'
                   class='flex w-full cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
                   onClick={() => props.model.runVirtual('branch', ctx.file)}
                 >
                   Branch
-                </button>
+                </MenuItem>
               ) : null}
               {canVirtual('moveToProject') ? (
-                <button
+                <MenuItem
+                  variant='ghost'
                   type='button'
                   data-slot='context-menu-item'
                   class='flex w-full cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
                   onClick={() => props.model.runVirtual('moveToProject', ctx.file)}
                 >
                   Move to project…
-                </button>
+                </MenuItem>
               ) : null}
               {canVirtual('copyId') ? (
-                <button
+                <MenuItem
+                  variant='ghost'
                   type='button'
                   data-slot='context-menu-item'
                   class='flex w-full cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
                   onClick={() => props.model.runVirtual('copyId', ctx.file)}
                 >
                   Copy session ID
-                </button>
+                </MenuItem>
               ) : null}
               {canVirtual('addProjectFolder') ? (
-                <button
+                <MenuItem
+                  variant='ghost'
                   type='button'
                   data-slot='context-menu-item'
                   class='flex w-full cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
                   onClick={() => props.model.runVirtual('addProjectFolder', ctx.file)}
                 >
                   Add gateway directory…
-                </button>
+                </MenuItem>
               ) : null}
               {canVirtual('removeProjectFolder') ? (
-                <button
+                <MenuItem
+                  variant='ghost'
                   type='button'
                   data-slot='context-menu-item'
                   class='flex w-full cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
                   onClick={() => props.model.runVirtual('removeProjectFolder', ctx.file)}
                 >
                   Remove gateway directory…
-                </button>
+                </MenuItem>
               ) : null}
               {canVirtual('setPrimaryFolder') ? (
-                <button
+                <MenuItem
+                  variant='ghost'
                   type='button'
                   data-slot='context-menu-item'
                   class='flex w-full cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
                   onClick={() => props.model.runVirtual('setPrimaryFolder', ctx.file)}
                 >
                   Set primary directory…
-                </button>
+                </MenuItem>
               ) : null}
               {canVirtual('setAppearance') ? (
-                <button
+                <MenuItem
+                  variant='ghost'
                   type='button'
                   data-slot='context-menu-item'
                   class='flex w-full cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
                   onClick={() => props.model.runVirtual('setAppearance', ctx.file)}
                 >
                   Appearance…
-                </button>
+                </MenuItem>
               ) : null}
               {canVirtual('archive') ? (
-                <button
+                <MenuItem
+                  variant='ghost'
                   type='button'
                   data-slot='context-menu-item'
                   class='flex w-full cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
                   onClick={() => props.model.runVirtual('archive', ctx.file)}
                 >
                   Archive
-                </button>
+                </MenuItem>
               ) : null}
               {canVirtual('restore') ? (
-                <button
+                <MenuItem
+                  variant='ghost'
                   type='button'
                   data-slot='context-menu-item'
                   class='flex w-full cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
                   onClick={() => props.model.runVirtual('restore', ctx.file)}
                 >
                   Restore
-                </button>
+                </MenuItem>
               ) : null}
               {canVirtual('deleteProject') ? (
-                <button
+                <MenuItem
+                  variant='ghost'
                   type='button'
                   data-slot='context-menu-item'
                   class='text-destructive flex w-full cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
                   onClick={() => props.model.runVirtual('deleteProject', ctx.file)}
                 >
                   Delete Project
-                </button>
+                </MenuItem>
               ) : null}
               {canVirtual('deletePermanently') ? (
-                <button
+                <MenuItem
+                  variant='ghost'
                   type='button'
                   data-slot='context-menu-item'
                   class='text-destructive flex w-full cursor-pointer items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
                   onClick={() => props.model.runVirtual('deletePermanently', ctx.file)}
                 >
                   Delete Permanently
-                </button>
+                </MenuItem>
+              ) : null}
+              {!ctx.file.isVirtual ? (
+                <NativeOpenButton
+                  path={ctx.file.path}
+                  role='menuitem'
+                  onDone={props.model.dismiss}
+                />
               ) : null}
               {available('set-icon') ? (
-                <button
+                <MenuItem
+                  variant='ghost'
                   type='button'
                   data-slot='context-menu-item'
                   class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
                   role='menuitem'
                   onClick={() => props.model.run('set-icon', ctx.file)}
                 >
-                  <Pencil class='h-4 w-4 shrink-0' stroke-width={2} />
+                  <Pencil class='size-4 shrink-0' stroke-width={2} />
                   Set icon
-                </button>
+                </MenuItem>
               ) : null}
               {available('pick-new-tab-target') ? (
-                <button
+                <MenuItem
+                  variant='ghost'
                   type='button'
                   data-slot='context-menu-item'
                   data-testid='workspace-pick-new-tab-target'
@@ -206,12 +216,13 @@ export const FileRowContextMenu = component(
                   title='Choose which window receives files opened in a new tab'
                   onClick={() => props.model.run('pick-new-tab-target', ctx.file)}
                 >
-                  <Settings class='h-4 w-4 shrink-0' stroke-width={2} />
+                  <Settings class='size-4 shrink-0' stroke-width={2} />
                   Choose where new tabs open…
-                </button>
+                </MenuItem>
               ) : null}
               {available('primary-open') ? (
-                <button
+                <MenuItem
+                  variant='ghost'
                   type='button'
                   data-slot='context-menu-item'
                   class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
@@ -219,15 +230,16 @@ export const FileRowContextMenu = component(
                   onClick={() => props.model.run('primary-open', ctx.file)}
                 >
                   {props.model.primaryOpenUsesNewWindow(ctx.file) ? (
-                    <AppWindow class='h-4 w-4 shrink-0' stroke-width={2} />
+                    <AppWindow class='size-4 shrink-0' stroke-width={2} />
                   ) : (
-                    <ExternalLink class='h-4 w-4 shrink-0' stroke-width={2} />
+                    <ExternalLink class='size-4 shrink-0' stroke-width={2} />
                   )}
                   {props.model.label('primary-open', ctx.file)}
-                </button>
+                </MenuItem>
               ) : null}
               {available('split-view') ? (
-                <button
+                <MenuItem
+                  variant='ghost'
                   type='button'
                   data-slot='context-menu-item'
                   data-testid='workspace-file-menu-open-split-view'
@@ -235,9 +247,9 @@ export const FileRowContextMenu = component(
                   role='menuitem'
                   onClick={() => props.model.run('split-view', ctx.file)}
                 >
-                  <Columns2 class='h-4 w-4 shrink-0' stroke-width={2} />
+                  <Columns2 class='size-4 shrink-0' stroke-width={2} />
                   Open in split view
-                </button>
+                </MenuItem>
               ) : null}
               {available('open-with') ? (
                 <div
@@ -245,7 +257,8 @@ export const FileRowContextMenu = component(
                   onPointerEnter={() => setOpenWithOpen(true)}
                   onPointerLeave={() => setOpenWithOpen(false)}
                 >
-                  <button
+                  <MenuItem
+                    variant='ghost'
                     type='button'
                     data-slot='context-menu-item'
                     data-testid='open-with-menu'
@@ -261,66 +274,76 @@ export const FileRowContextMenu = component(
                       }
                     }}
                   >
-                    <Library class='h-4 w-4 shrink-0' stroke-width={2} />
+                    <Library class='size-4 shrink-0' stroke-width={2} />
                     <span class='flex-1 text-left'>Open with...</span>
-                    <ChevronRight class='h-4 w-4 shrink-0' stroke-width={2} />
-                  </button>
+                    <ChevronRight class='size-4 shrink-0' stroke-width={2} />
+                  </MenuItem>
                   {openWithOpen() ? (
                     <div
                       role='menu'
                       data-testid='open-with-submenu'
                       class='absolute top-[-4px] left-[calc(100%-2px)] z-10 min-w-36 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md'
                     >
-                      <button
+                      <MenuItem
+                        variant='ghost'
                         type='button'
                         role='menuitem'
                         data-testid='open-with-browser'
                         class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
                         onClick={() => props.model.run('open-with-browser', ctx.file)}
                       >
-                        <FolderOpen class='h-4 w-4 shrink-0' stroke-width={2} />
+                        <FolderOpen class='size-4 shrink-0' stroke-width={2} />
                         Browser
-                      </button>
-                      <button
+                      </MenuItem>
+                      <MenuItem
+                        variant='ghost'
                         type='button'
                         role='menuitem'
                         data-testid='open-with-reader'
                         class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
                         onClick={() => props.model.run('open-with-reader', ctx.file)}
                       >
-                        <BookOpen class='h-4 w-4 shrink-0' stroke-width={2} />
+                        <BookOpen class='size-4 shrink-0' stroke-width={2} />
                         Reader
-                      </button>
+                      </MenuItem>
                     </div>
                   ) : null}
                 </div>
               ) : null}
               {available('other-surface') ? (
-                <button
+                <MenuItem
+                  variant='ghost'
                   type='button'
                   data-slot='context-menu-item'
                   class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
                   role='menuitem'
                   onClick={() => props.model.run('other-surface', ctx.file)}
                 >
-                  <AppWindow class='h-4 w-4 shrink-0' stroke-width={2} />
+                  <AppWindow class='size-4 shrink-0' stroke-width={2} />
                   {props.model.label('other-surface', ctx.file)}
-                </button>
+                </MenuItem>
               ) : null}
               {available('add-to-taskbar') ? (
-                <button
+                <MenuItem
+                  variant='ghost'
                   type='button'
                   data-slot='context-menu-item'
                   class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
                   role='menuitem'
                   onClick={() => props.model.run('add-to-taskbar', ctx.file)}
                 >
-                  <Pin class='h-4 w-4 shrink-0' stroke-width={2} />
+                  <Pin class='size-4 shrink-0' stroke-width={2} />
                   Add to taskbar
-                </button>
+                </MenuItem>
+              ) : null}
+              {available('sidebar') ? (
+                <MenuItem onClick={() => props.model.run('sidebar', ctx.file)}>
+                  {props.model.label('sidebar', ctx.file)}
+                </MenuItem>
               ) : null}
               {available('favorite') ? (
-                <button
+                <MenuItem
+                  variant='ghost'
                   type='button'
                   data-slot='context-menu-item'
                   class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
@@ -328,14 +351,15 @@ export const FileRowContextMenu = component(
                   onClick={() => props.model.run('favorite', ctx.file)}
                 >
                   <Star
-                    class={`h-4 w-4 shrink-0 ${props.model.active('favorite', ctx.file) ? 'fill-yellow-400 text-yellow-400' : ''}`}
+                    class={`size-4 shrink-0 ${props.model.active('favorite', ctx.file) ? 'fill-yellow-400 text-yellow-400' : ''}`}
                     stroke-width={2}
                   />
                   {props.model.label('favorite', ctx.file)}
-                </button>
+                </MenuItem>
               ) : null}
               {available('knowledge-base') ? (
-                <button
+                <MenuItem
+                  variant='ghost'
                   type='button'
                   data-slot='context-menu-item'
                   class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
@@ -343,14 +367,15 @@ export const FileRowContextMenu = component(
                   onClick={() => props.model.run('knowledge-base', ctx.file)}
                 >
                   <BookOpen
-                    class={`h-4 w-4 shrink-0 ${props.model.active('knowledge-base', ctx.file) ? 'fill-primary text-primary' : ''}`}
+                    class={`size-4 shrink-0 ${props.model.active('knowledge-base', ctx.file) ? 'fill-primary text-primary' : ''}`}
                     stroke-width={2}
                   />
                   {props.model.label('knowledge-base', ctx.file)}
-                </button>
+                </MenuItem>
               ) : null}
               {available('download') ? (
-                <button
+                <MenuItem
+                  variant='ghost'
                   type='button'
                   data-slot='context-menu-item'
                   class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
@@ -358,10 +383,11 @@ export const FileRowContextMenu = component(
                   onClick={() => props.model.run('download', ctx.file)}
                 >
                   {props.model.label('download', ctx.file)}
-                </button>
+                </MenuItem>
               ) : null}
               {available('copy-native') ? (
-                <button
+                <MenuItem
+                  variant='ghost'
                   type='button'
                   data-slot='context-menu-item'
                   role='menuitem'
@@ -369,10 +395,11 @@ export const FileRowContextMenu = component(
                   onClick={() => props.model.run('copy-native', ctx.file)}
                 >
                   Copy
-                </button>
+                </MenuItem>
               ) : null}
               {showCopyTo() ? (
-                <button
+                <MenuItem
+                  variant='ghost'
                   type='button'
                   data-slot='context-menu-item'
                   class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
@@ -380,11 +407,12 @@ export const FileRowContextMenu = component(
                   onClick={() => props.model.run('copy', ctx.file)}
                 >
                   Copy to...
-                </button>
+                </MenuItem>
               ) : null}
               {showEditSeparator() ? <div class='bg-border my-1 h-px' role='separator' /> : null}
               {showMove() ? (
-                <button
+                <MenuItem
+                  variant='ghost'
                   type='button'
                   data-slot='context-menu-item'
                   class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
@@ -392,10 +420,11 @@ export const FileRowContextMenu = component(
                   onClick={() => props.model.run('move', ctx.file)}
                 >
                   Move to...
-                </button>
+                </MenuItem>
               ) : null}
               {showRename() ? (
-                <button
+                <MenuItem
+                  variant='ghost'
                   type='button'
                   data-slot='context-menu-item'
                   class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
@@ -403,10 +432,11 @@ export const FileRowContextMenu = component(
                   onClick={() => props.model.run('rename', ctx.file)}
                 >
                   Rename
-                </button>
+                </MenuItem>
               ) : null}
               {showDeleteFile() ? (
-                <button
+                <MenuItem
+                  variant='ghost'
                   type='button'
                   data-slot='context-menu-item'
                   class='text-destructive flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
@@ -414,12 +444,13 @@ export const FileRowContextMenu = component(
                   onClick={() => props.model.run('delete', ctx.file)}
                 >
                   {props.model.label('delete', ctx.file)}
-                </button>
+                </MenuItem>
               ) : null}
               {available('properties') ? (
                 <>
                   <div class='my-1 h-px bg-border' role='separator' />
-                  <button
+                  <MenuItem
+                    variant='ghost'
                     type='button'
                     role='menuitem'
                     data-slot='context-menu-item'
@@ -428,7 +459,7 @@ export const FileRowContextMenu = component(
                   >
                     <Info class='size-4' />
                     Properties
-                  </button>
+                  </MenuItem>
                 </>
               ) : null}
             </>

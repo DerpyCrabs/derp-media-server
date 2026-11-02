@@ -1,3 +1,5 @@
+import { dialogsForWindow } from '@/lib/ui/app-dialog'
+import { Button } from '@/lib/ui/button'
 import { createDesktopMediaFocus } from './media-focus'
 import { getPlaybackSession } from '@/features/playback/PlaybackProvider'
 import { fileJobs } from '@/features/explorer/file-jobs'
@@ -12,7 +14,7 @@ import { FileBrowser, type FileBrowserHost } from '@/features/explorer/FileBrows
 import { EMPTY_FILE_ICON_CONTEXT } from '@/features/explorer/file-icon'
 import { ViewerPane } from '@/features/viewer/LazyViewerPane'
 import { subscribeAdminEvents } from '@/lib/api/admin-events-stream'
-import { navigateSearchParams, browserHistory } from '@/lib/browser/browser-history'
+import { acquireWindowHistory } from '@/lib/browser/window-history'
 import { applyPathMutationToUrl } from '@/lib/browser/url-state-actions'
 import { isPathEditable, parentPath } from '@/lib/files/path-utils'
 import { FileSearchButton } from '@/features/explorer/FileSearchPalette'
@@ -21,9 +23,16 @@ import type { DesktopTarget, PickerRequest } from './bridge'
 import { PickerControls } from './PickerControls'
 import { createPicker } from './picker-controller'
 import { pickerFileVisible } from './picker-files'
-import { runDesktopOperation } from './operations'
+import { acquireDesktopOperations } from './operations'
 import { observeQuery } from '@effectweb/query'
-function desktopController() {
+function desktopController({ browserWindow }: { browserWindow: Window }) {
+  const window = browserWindow
+  const document = window.document
+  const history = acquireWindowHistory(window)
+  const browserHistory = history.source
+  const navigateSearchParams = history.navigate
+  const operations = acquireDesktopOperations(window)
+  const runDesktopOperation = operations.run
   const bridge = window.derpDesktop
   const owner = modelOwner({
     bridge,
@@ -33,19 +42,25 @@ function desktopController() {
     status: {} as { pending?: boolean; error?: string },
     pickerRequest: undefined as PickerRequest | undefined,
   })
-  if (bridge) owner.own(createDesktopMediaFocus(getPlaybackSession()))
+  if (bridge && !globalThis.window.derpRuntime)
+    owner.own(createDesktopMediaFocus(getPlaybackSession()))
   const params = () => new URLSearchParams(owner.read().location.search)
   const picker = createPicker({
     request: () => owner.read().pickerRequest as PickerRequest | undefined,
     directory: () => params().get('dir') ?? '',
     navigate: (path) => navigateSearchParams({ dir: path }, 'push'),
     bridge,
+    confirm: dialogsForWindow(window).confirm,
   })
   const config = observeQuery(owner, queryCache, configQuery, 'config', available)
   config.select(true)
   const settings = observeQuery(owner, queryCache, settingsQuery, 'settings', available)
   settings.select(true)
   function receive(target: DesktopTarget) {
+    if (!target.isDirectory) {
+      owner.patch({ pickerRequest: undefined })
+      picker.receive()
+    }
     const viewer = !target.isDirectory || target.reader
     const kind =
       target.reader && target.isDirectory
@@ -69,7 +84,7 @@ function desktopController() {
     picker.receive()
   })
   const stopOpen = bridge?.onOpen(receive),
-    stopClose = bridge?.onBeforeClose(() => Effect.runPromise(flushDesktopClose()))
+    stopClose = bridge?.onBeforeClose(() => Effect.runPromise(flushDesktopClose(window)))
   if (bridge) runDesktopOperation(() => bridge.ready())
   const operation = (event: Event) => {
     const status = (event as CustomEvent<{ pending?: boolean; error?: string }>).detail
@@ -87,7 +102,7 @@ function desktopController() {
   }
   window.addEventListener('keydown', escape)
   window.addEventListener('desktop-operation', operation)
-  const stopEvents = subscribeAdminEvents(applyPathMutationToUrl)
+  const stopEvents = subscribeAdminEvents((mutation) => applyPathMutationToUrl(mutation, window))
   const update = () => {
     owner.patch({ location: browserHistory.model() })
     picker.receive()
@@ -99,6 +114,8 @@ function desktopController() {
   const presentation = modelOwner({ ...owner.read(), pickerState: picker.source.model() })
   const actions = {
     picker,
+    navigateSearchParams,
+    runDesktopOperation,
     setStatus: (status: { pending?: boolean; error?: string }) => owner.patch({ status }),
   }
   const stops = [
@@ -116,6 +133,8 @@ function desktopController() {
         stopClose?.()
         stopEvents()
         stopHistory()
+        history.dispose()
+        operations.dispose()
         window.removeEventListener('keydown', escape)
         window.removeEventListener('desktop-operation', operation)
         picker.dispose()
@@ -129,7 +148,7 @@ export const DesktopPage = controllerView(
   { controller: desktopController },
   view((model) => {
     const { bridge } = model
-    const { picker, setStatus } = model.actions
+    const { picker, setStatus, navigateSearchParams, runDesktopOperation } = model.actions
     const params = () => new URLSearchParams(model.location.search),
       status = model.status,
       pickerRequest = model.pickerRequest
@@ -199,6 +218,12 @@ export const DesktopPage = controllerView(
         <>
           <FileSearchButton
             title='Search library'
+            resultFilter={
+              pickerRequest
+                ? (file) =>
+                    pickerFileVisible({ ...file, size: 0 }, pickerRequest, model.pickerState.filter)
+                : undefined
+            }
             class='inline-flex h-7 w-7 shrink-0 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
             iconClass='h-3.5 w-3.5'
             onSelect={(file) => {
@@ -207,19 +232,23 @@ export const DesktopPage = controllerView(
               else open(file.path)
             }}
           />
-          <button
-            type='button'
-            title='Paste files (Ctrl+V)'
-            aria-label='Paste files'
-            class='inline-flex h-7 w-7 shrink-0 items-center justify-center text-sm font-medium transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40'
-            disabled={!editable()}
-            onClick={() => {
-              if (bridge) runDesktopOperation(() => bridge.paste(directory()))
-            }}
-          >
-            <ClipboardPaste class='h-3.5 w-3.5' aria-hidden='true' stroke-width={2} />
-          </button>
-          <ThemeSwitcher compact />
+          {!pickerRequest ? (
+            <Button
+              size='icon'
+              variant='ghost'
+              type='button'
+              title='Paste files (Ctrl+V)'
+              aria-label='Paste files'
+              class='inline-flex h-7 w-7 shrink-0 items-center justify-center text-sm font-medium transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40'
+              disabled={!editable()}
+              onClick={() => {
+                if (bridge) runDesktopOperation(() => bridge.paste(directory()))
+              }}
+            >
+              <ClipboardPaste class='size-3.5' aria-hidden='true' stroke-width={2} />
+            </Button>
+          ) : null}
+          {!pickerRequest ? <ThemeSwitcher compact /> : null}
         </>
       ),
     }
@@ -239,9 +268,14 @@ export const DesktopPage = controllerView(
             >
               {status.error || 'Working…'}
               {status.error ? (
-                <button type='button' class='float-right px-2' onClick={() => setStatus({})}>
+                <Button
+                  variant='ghost'
+                  type='button'
+                  class='float-right px-2'
+                  onClick={() => setStatus({})}
+                >
                   Dismiss
-                </button>
+                </Button>
               ) : null}
             </div>
           ) : null}

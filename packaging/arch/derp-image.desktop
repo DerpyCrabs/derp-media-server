@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Derp Images
+GenericName=Image viewer
+Exec=derp-media-client --viewer=image -- %U
+Icon=derp-image
+Terminal=false
+Categories=Graphics;Viewer;
+MimeType=image/jpeg;image/png;image/gif;image/webp;image/bmp;image/svg+xml;image/x-icon;
+StartupNotify=true
+StartupWMClass=derp-media-client

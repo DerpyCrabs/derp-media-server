@@ -29,8 +29,11 @@ const directoryListingBootstrapSchema = Schema.Struct({
 const pageSlot = 'directory-next-page'
 const pollSlot = 'directory-poll'
 const loadingSlot = 'directory-deferred-loading'
-export function createFileBrowserListing(path: string) {
-  const trace = beginNativeOperation(1, path)
+export function createFileBrowserListing(
+  path: string,
+  traceSink?: import('@/desktop/bridge').DesktopBridge['trace'] | null,
+) {
+  const trace = beginNativeOperation(1, path, traceSink)
   const owner = modelOwner({
     result: AsyncResult.initial<InfiniteData<DirectoryListing, number>, Error>(),
     loadingMore: false,

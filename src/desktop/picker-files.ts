@@ -13,7 +13,7 @@ function globMatches(name: string, pattern: string) {
     } else source += char.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   }
   try {
-    return new RegExp(`^${source}$`).test(name)
+    return new RegExp(`^${source}$`, 'i').test(name)
   } catch {
     return name === pattern
   }

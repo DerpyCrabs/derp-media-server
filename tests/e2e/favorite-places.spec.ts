@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { nativeSidebar } from '../fixtures/native-sidebar'
 
 test('favorite folders become shared Places and follow rename and removal without desktop mode', async ({
   page,
@@ -25,37 +26,43 @@ test('favorite folders become shared Places and follow rename and removal withou
       })
     ).ok(),
   ).toBe(true)
+  await nativeSidebar(context)
   const second = await context.newPage()
   try {
-    await page.goto(`/?dir=${encodeURIComponent(`${base}/First`)}`)
-    await second.goto('/')
+    await page.goto(`/desktop?mode=browser&dir=${encodeURIComponent(`${base}/First`)}`)
+    await second.goto('/desktop?mode=browser')
     expect((await (await request.get('/api/config')).json()).desktopMode).toBe(false)
     await page.locator('table').getByText('Work', { exact: true }).click({ button: 'right' })
     await page.getByRole('menuitem', { name: 'Favorite', exact: true }).click()
-    await expect(second.getByRole('button', { name: 'Places', exact: true })).toBeVisible()
-    await second.getByRole('button', { name: 'Places', exact: true }).click()
-    await expect(second.getByRole('menuitem', { name: 'Work', exact: true })).toBeVisible()
-    await expect(second.getByRole('menuitem', { name: 'Work', exact: true })).toBeFocused()
-    await second.keyboard.press('Enter')
-    await expect(second.locator(`[data-file-path="${base}/First/Work/note.txt"]`)).toBeFocused()
+    await expect(second.getByRole('navigation', { name: 'Places' })).toBeVisible()
+    await expect(
+      second
+        .getByRole('navigation', { name: 'Places' })
+        .getByRole('button', { name: 'Work', exact: true }),
+    ).toBeVisible()
+    await second
+      .getByRole('navigation', { name: 'Places' })
+      .getByRole('button', { name: 'Work', exact: true })
+      .click()
     await request.post('/api/settings/favorite', { data: { filePath: `${base}/Second/Work` } })
     await request.post('/api/settings/favorite', {
       data: { filePath: `${base}/First/Work/note.txt` },
     })
-    await second.getByRole('button', { name: 'Places', exact: true }).click()
     await expect(
-      second.getByRole('menuitem', { name: `Work ${base}/First/Work`, exact: true }),
+      second
+        .getByRole('navigation', { name: 'Places' })
+        .getByRole('button', { name: `Work /${base}/First/Work`, exact: true }),
     ).toBeVisible()
     await expect(
-      second.getByRole('menuitem', { name: `Work ${base}/Second/Work`, exact: true }),
+      second
+        .getByRole('navigation', { name: 'Places' })
+        .getByRole('button', { name: `Work /${base}/Second/Work`, exact: true }),
     ).toBeVisible()
-    await expect(second.getByRole('menuitem', { name: 'note.txt', exact: true })).toHaveCount(0)
-    await second.keyboard.press('End')
     await expect(
-      second.getByRole('menuitem', { name: `Work ${base}/Second/Work`, exact: true }),
-    ).toBeFocused()
-    await second.keyboard.press('Escape')
-    await expect(second.getByRole('button', { name: 'Places', exact: true })).toBeFocused()
+      second
+        .getByRole('navigation', { name: 'Places' })
+        .getByRole('button', { name: 'note.txt', exact: true }),
+    ).toHaveCount(0)
     expect(
       (
         await request.post('/api/files/rename', {
@@ -63,16 +70,24 @@ test('favorite folders become shared Places and follow rename and removal withou
         })
       ).ok(),
     ).toBe(true)
-    await page.getByRole('button', { name: 'Places', exact: true }).click()
-    await expect(page.getByRole('menuitem', { name: 'Renamed', exact: true })).toBeVisible()
     await expect(
-      page.getByRole('menuitem', { name: `Work ${base}/First/Work`, exact: true }),
+      page
+        .getByRole('navigation', { name: 'Places' })
+        .getByRole('button', { name: 'Renamed', exact: true }),
+    ).toBeVisible()
+    await expect(
+      page
+        .getByRole('navigation', { name: 'Places' })
+        .getByRole('button', { name: `Work /${base}/First/Work`, exact: true }),
     ).toHaveCount(0)
     expect(
       (await request.post('/api/files/delete', { data: { path: `${base}/First/Renamed` } })).ok(),
     ).toBe(true)
-    await expect(page.getByRole('menuitem', { name: 'Renamed', exact: true })).toHaveCount(0)
-    await page.keyboard.press('Escape')
+    await expect(
+      page
+        .getByRole('navigation', { name: 'Places' })
+        .getByRole('button', { name: 'Renamed', exact: true }),
+    ).toHaveCount(0)
     await request.post('/api/settings/favorite', { data: { filePath: `${base}/Second/Work` } })
     await expect
       .poll(async () =>

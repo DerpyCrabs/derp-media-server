@@ -7,6 +7,7 @@ type VirtualDirectoryListProps = {
   onFocused?: () => void
   onMoveFocus?: (from: FileItem, to: FileItem, event: KeyboardEvent) => void
   files: readonly FileItem[]
+  warmThumbnails?: boolean
   includeParent: boolean
   scrollTarget:
     | { kind: 'window' }
@@ -54,6 +55,7 @@ export const VirtualDirectoryList = component(
         use={domBinding(
           {
             files,
+            warmThumbnails: props.warmThumbnails,
             onMoveFocus: props.onMoveFocus,
             focusOnLoad: props.focusOnLoad,
             onFocused: props.onFocused,

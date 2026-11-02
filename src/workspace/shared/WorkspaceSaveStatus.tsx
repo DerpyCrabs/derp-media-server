@@ -1,3 +1,4 @@
+import { Button } from '@/lib/ui/button'
 import CircleAlert from '@effectweb/lucide/icons/circle-alert'
 import { observe, view } from 'effectweb'
 import type { WorkspaceSession } from './WorkspaceSession'
@@ -15,24 +16,26 @@ export const WorkspaceSaveStatus = view<{ session: WorkspaceSession }>((props) =
         <CircleAlert class='size-3.5 shrink-0' />
         <span class='truncate'>{failure.message}</span>
         {failure.retryable ? (
-          <button
+          <Button
+            variant='ghost'
             type='button'
             class='shrink-0 font-semibold underline underline-offset-2 disabled:opacity-50'
             disabled={state.saving}
             onClick={() => props.session.document.retrySave()}
           >
             Retry
-          </button>
+          </Button>
         ) : null}
         {failure.takeover ? (
-          <button
+          <Button
+            variant='ghost'
             type='button'
             class='shrink-0 font-semibold underline underline-offset-2 disabled:opacity-50'
             disabled={state.saving}
             onClick={() => props.session.lifecycle.takeControl()}
           >
             Take control
-          </button>
+          </Button>
         ) : null}
       </div>
     )

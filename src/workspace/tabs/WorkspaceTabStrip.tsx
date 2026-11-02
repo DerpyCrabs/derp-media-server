@@ -1,3 +1,5 @@
+import { MenuItem } from '@/lib/ui/menu-item'
+import { Button } from '@/lib/ui/button'
 import { component, view, domBinding, list } from 'effectweb'
 import type { FileDragData } from '@/lib/files/file-drag-data'
 import { getFileDragData, hasFileDragData } from '@/lib/files/file-drag-data'
@@ -32,7 +34,6 @@ const TabStripDropSlot = view<{
     <div
       data-tab-drop-slot={props.active ? `${props.groupId}:${props.groupSlotIndex}` : undefined}
       data-merge-highlight={props.active && props.mergeHighlight ? '' : undefined}
-      data-no-window-drag
       class={`flex h-full shrink-0 items-stretch border-0 p-0 ${
         props.active
           ? `min-w-[12px] w-[12px] ${props.highlighted ? 'bg-primary/80' : ''}`
@@ -63,6 +64,7 @@ export type WorkspaceTabStripProps = {
   onActivateTab: (groupId: string, tabId: string) => void
   onFocusWindow: (tabId: string) => void
   onCloseTab: (tabId: string) => void
+  onReopenClosedTab?: () => void
   onToggleTabPinned?: (tabId: string) => void
   onTabPullStart?: (groupId: string, tabId: string, e: PointerEvent) => void
   onDropFile?: (data: FileDragData, groupInsertIndex?: number) => void
@@ -306,11 +308,26 @@ export const WorkspaceTabStrip = component<
             const showExit = isSplitLeft && !!props.onExitSplitView
             const showUseSplit =
               !splitLeftId && allTabs().length >= 2 && !!props.onUseAsSplitLeftTab
-            if (!showPin && !showExit && !showUseSplit) return null
+            if (!showPin && !showExit && !showUseSplit && !props.onReopenClosedTab) return null
             return (
               <>
+                {props.onReopenClosedTab ? (
+                  <MenuItem
+                    variant='ghost'
+                    role='menuitem'
+                    class='w-full justify-between gap-6'
+                    onClick={() => {
+                      props.onReopenClosedTab?.()
+                      setTabMenu(null)
+                    }}
+                  >
+                    Reopen closed tab{' '}
+                    <kbd class='hidden text-xs text-muted-foreground sm:inline'>⇧⌘/Ctrl T</kbd>
+                  </MenuItem>
+                ) : null}
                 {showExit ? (
-                  <button
+                  <MenuItem
+                    variant='ghost'
                     type='button'
                     data-slot='context-menu-item'
                     data-testid='workspace-tab-menu-exit-split'
@@ -322,10 +339,11 @@ export const WorkspaceTabStrip = component<
                     }}
                   >
                     Exit split view
-                  </button>
+                  </MenuItem>
                 ) : null}
                 {showUseSplit ? (
-                  <button
+                  <MenuItem
+                    variant='ghost'
                     type='button'
                     data-slot='context-menu-item'
                     data-testid='workspace-tab-menu-use-split-left'
@@ -337,10 +355,11 @@ export const WorkspaceTabStrip = component<
                     }}
                   >
                     Use as split left tab
-                  </button>
+                  </MenuItem>
                 ) : null}
                 {showPin && toggle ? (
-                  <button
+                  <MenuItem
+                    variant='ghost'
                     type='button'
                     data-slot='context-menu-item'
                     data-testid={
@@ -353,9 +372,9 @@ export const WorkspaceTabStrip = component<
                       setTabMenu(null)
                     }}
                   >
-                    <Pin class='h-4 w-4 shrink-0' stroke-width={2} />
+                    <Pin class='size-4 shrink-0' stroke-width={2} />
                     {tab.tabPinned ? 'Unpin tab' : 'Pin tab'}
-                  </button>
+                  </MenuItem>
                 ) : null}
               </>
             )
@@ -387,7 +406,9 @@ export const WorkspaceTabStrip = component<
                 {getWorkspaceWindowTitle(tab)}
               </span>
               {!tab.tabPinned ? (
-                <button
+                <Button
+                  size='icon'
+                  variant='ghost'
                   type='button'
                   data-no-window-drag
                   data-testid='workspace-tab-close'
@@ -399,8 +420,8 @@ export const WorkspaceTabStrip = component<
                     props.onCloseTab(tab.id)
                   }}
                 >
-                  <X class='lucide-x h-3 w-3' stroke-width={2} />
-                </button>
+                  <X class='lucide-x size-3' stroke-width={2} />
+                </Button>
               ) : null}
             </div>
           ) : null)(leftTab())}
@@ -456,7 +477,9 @@ export const WorkspaceTabStrip = component<
                           {getWorkspaceWindowTitle(tab)}
                         </span>
                         {!tab.tabPinned ? (
-                          <button
+                          <Button
+                            size='icon'
+                            variant='ghost'
                             type='button'
                             data-no-window-drag
                             data-testid='workspace-tab-close'
@@ -468,8 +491,8 @@ export const WorkspaceTabStrip = component<
                               props.onCloseTab(tab.id)
                             }}
                           >
-                            <X class='lucide-x h-3 w-3' stroke-width={2} />
-                          </button>
+                            <X class='lucide-x size-3' stroke-width={2} />
+                          </Button>
                         ) : null}
                       </div>
                     </div>
@@ -492,12 +515,13 @@ export const WorkspaceTabStrip = component<
                 onSlotDrop={handleSlotDrop}
               />
               {overflow().left ? (
-                <button
+                <Button
+                  variant='ghost'
                   type='button'
                   data-no-window-drag
                   data-tab-drop-slot={`${props.groupId}:${startGroupSlotIndex()}`}
                   aria-label='Scroll tabs left'
-                  class='absolute inset-0 z-10 flex items-center justify-center bg-muted/90 text-muted-foreground'
+                  class='absolute inset-0 z-10 flex h-full w-full items-center justify-center rounded-none border-0 p-0 bg-muted/90 text-muted-foreground active:translate-y-0'
                   onMouseDown={(e) => e.stopPropagation()}
                   onClick={() => scrollBy(-120)}
                   onDragOver={(e) => handleSlotDragOver(e, startGroupSlotIndex())}
@@ -505,7 +529,7 @@ export const WorkspaceTabStrip = component<
                   onDrop={(e) => handleSlotDrop(e, startGroupSlotIndex())}
                 >
                   <span class='text-[10px]'>&#9666;</span>
-                </button>
+                </Button>
               ) : null}
             </div>
             <div
@@ -579,7 +603,9 @@ export const WorkspaceTabStrip = component<
                           {getWorkspaceWindowTitle(tab)}
                         </span>
                         {!tab.tabPinned ? (
-                          <button
+                          <Button
+                            size='icon'
+                            variant='ghost'
                             type='button'
                             data-no-window-drag
                             data-testid='workspace-tab-close'
@@ -591,8 +617,8 @@ export const WorkspaceTabStrip = component<
                               props.onCloseTab(tab.id)
                             }}
                           >
-                            <X class='lucide-x h-3 w-3' stroke-width={2} />
-                          </button>
+                            <X class='lucide-x size-3' stroke-width={2} />
+                          </Button>
                         ) : null}
                       </div>
                     </div>
@@ -613,12 +639,13 @@ export const WorkspaceTabStrip = component<
             </div>
             <div class='relative flex h-full w-3 shrink-0 items-stretch justify-center'>
               {overflow().right ? (
-                <button
+                <Button
+                  variant='ghost'
                   type='button'
                   data-no-window-drag
                   data-tab-drop-slot={`${props.groupId}:${endGroupSlotIndex()}`}
                   aria-label='Scroll tabs right'
-                  class='absolute inset-0 z-10 flex items-center justify-center bg-muted/90 text-muted-foreground'
+                  class='absolute inset-0 z-10 flex h-full w-full items-center justify-center rounded-none border-0 p-0 bg-muted/90 text-muted-foreground active:translate-y-0'
                   onMouseDown={(e) => e.stopPropagation()}
                   onClick={() => scrollBy(120)}
                   onDragOver={(e) => handleSlotDragOver(e, endGroupSlotIndex())}
@@ -626,7 +653,7 @@ export const WorkspaceTabStrip = component<
                   onDrop={(e) => handleSlotDrop(e, endGroupSlotIndex())}
                 >
                   <span class='text-[10px]'>&#9656;</span>
-                </button>
+                </Button>
               ) : null}
             </div>
           </div>

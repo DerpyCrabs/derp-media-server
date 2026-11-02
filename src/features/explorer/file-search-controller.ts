@@ -1,3 +1,5 @@
+import { viewWindow } from '@/lib/browser/view-window'
+import type { ControllerHost } from 'effectweb'
 import { Cause, Effect, Schema } from 'effect'
 import { AsyncResult } from 'effect/reactivity'
 import { modelOwner } from 'effectweb'
@@ -14,12 +16,13 @@ import {
   type FileSearchResponse,
 } from '@/lib/files/file-search'
 import { observeQuery, query } from '@effectweb/query'
-import { showAppConfirmEffect } from '@/lib/ui/app-dialog'
+import { dialogsForWindow } from '@/lib/ui/app-dialog'
 
 export type FileSearchPaletteProps = {
   title: string
   onClose: () => void
   onSelect: (result: FileSearchResult) => void
+  resultFilter?: (result: FileSearchResult) => boolean
 }
 type Selection = { key: string; index: number }
 type ReindexMode = 'reconcile' | 'full'
@@ -55,7 +58,13 @@ const pollingSlot = 'file-search-poll'
 const reindexSlot = 'file-search-reindex'
 const confirmRebuildSlot = 'file-search-confirm-rebuild'
 
-export function createFileSearchPalette(props: FileSearchPaletteProps) {
+export function createFileSearchPalette(
+  props: FileSearchPaletteProps,
+  host: ControllerHost = { document: globalThis.document },
+) {
+  const window = viewWindow(host)
+  const showAppConfirmEffect = dialogsForWindow(window).confirm
+
   const owner = modelOwner<FileSearchModel>({
     props,
     listId: `file-search-${crypto.randomUUID()}`,

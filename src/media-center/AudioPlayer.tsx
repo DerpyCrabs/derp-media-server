@@ -1,5 +1,6 @@
-import { openSleepTimer, sleepTimerLabel } from '@/features/playback/sleep-timer'
-import { PlaybackSetting } from '@/features/playback/PlaybackSetting'
+import { Slider } from '@/lib/ui/slider'
+import { AudioPlaybackMenu } from '@/features/playback/AudioPlaybackMenu'
+import { Button } from '@/lib/ui/button'
 import { QueuePanel } from '@/features/music/QueuePanel'
 import { MediaType } from '@/lib/files/types'
 import Monitor from '@effectweb/lucide/icons/monitor'
@@ -182,61 +183,67 @@ export const AudioPlayer = controllerView(
         <div class='container mx-auto px-2 py-1.5 min-[650px]:px-4 min-[650px]:py-3'>
           <div class='flex min-w-0 items-center gap-2 min-[650px]:gap-4'>
             <div class='flex shrink-0 items-center gap-0.5 min-[650px]:gap-2'>
-              <button
+              <Button
+                size='icon'
+                variant='ghost'
                 type='button'
                 aria-label='Previous track'
                 disabled={!hasPreviousAudio()}
                 onClick={playPrevious}
-                class='inline-flex size-8 shrink-0 items-center justify-center rounded-md hover:bg-accent disabled:opacity-50 min-[650px]:size-10'
+                class='size-8 shrink-0 min-[650px]:size-10'
               >
                 <StepBack class='size-3.5 min-[650px]:size-4' />
-              </button>
-              <button
+              </Button>
+              <Button
+                variant='default'
                 type='button'
                 aria-label={model.playback.desiredPlaying ? 'Pause' : 'Play'}
                 disabled={!currentItem}
                 onClick={() => session.dispatch({ type: 'toggle' })}
-                class='inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 min-[650px]:size-10'
+                size='icon'
+                class='size-8 shrink-0 min-[650px]:size-10'
               >
                 {model.playback.desiredPlaying ? (
                   <Pause class='size-3.5 min-[650px]:size-4' />
                 ) : (
                   <Play class='size-3.5 min-[650px]:size-4' />
                 )}
-              </button>
-              <button
+              </Button>
+              <Button
+                size='icon'
+                variant='ghost'
                 type='button'
                 aria-label='Next track'
                 disabled={!hasNextAudio()}
                 onClick={playNext}
-                class='inline-flex size-8 shrink-0 items-center justify-center rounded-md hover:bg-accent disabled:opacity-50 min-[650px]:size-10'
+                class='size-8 shrink-0 min-[650px]:size-10'
               >
                 <StepForward class='size-3.5 min-[650px]:size-4' />
-              </button>
-              <button
+              </Button>
+              <Button
+                size='icon'
+                variant={isRepeat ? 'default' : 'ghost'}
                 type='button'
                 aria-label={isRepeat ? 'Disable repeat' : 'Enable repeat'}
                 aria-pressed={isRepeat ? 'true' : 'false'}
                 disabled={!currentItem}
                 onClick={() => session.dispatch({ type: 'toggleRepeat' })}
-                class={
-                  isRepeat
-                    ? 'inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground disabled:opacity-50 min-[650px]:size-10'
-                    : 'inline-flex size-8 shrink-0 items-center justify-center rounded-md hover:bg-accent disabled:opacity-50 min-[650px]:size-10'
-                }
+                class='size-8 shrink-0 min-[650px]:size-10'
               >
                 <Repeat class='size-3.5 min-[650px]:size-4' />
-              </button>
+              </Button>
               {isVideoFile() ? (
-                <button
+                <Button
+                  size='icon'
+                  variant='ghost'
                   type='button'
                   disabled={!currentItem}
                   onClick={handleShowVideo}
                   aria-label='Show video'
-                  class='inline-flex size-8 shrink-0 items-center justify-center rounded-md hover:bg-accent disabled:opacity-50 min-[650px]:size-10'
+                  class='size-8 shrink-0 min-[650px]:size-10'
                 >
                   <Monitor class='size-3.5 min-[650px]:size-4' />
-                </button>
+                </Button>
               ) : null}
             </div>
 
@@ -259,61 +266,47 @@ export const AudioPlayer = controllerView(
             <div class='hidden h-8 w-px shrink-0 bg-border min-[650px]:block' />
 
             <div class='hidden min-w-[140px] items-center gap-2 lg:flex'>
-              <button
+              <Button
+                variant='ghost'
                 type='button'
                 aria-label={model.playback.muted ? 'Unmute' : 'Mute'}
                 onClick={() => session.dispatch({ type: 'setMuted', muted: !model.playback.muted })}
-                class='inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md hover:bg-accent'
+                size='icon'
+                class='size-10 shrink-0'
               >
-                {model.playback.muted ? <VolumeX class='h-4 w-4' /> : <Volume2 class='h-4 w-4' />}
-              </button>
-              <input
-                type='range'
+                {model.playback.muted ? <VolumeX class='size-4' /> : <Volume2 class='size-4' />}
+              </Button>
+              <Slider
                 aria-label='Volume'
                 aria-valuetext={`${Math.round((model.playback.muted ? 0 : model.playback.volume) * 100)} percent`}
                 min={0}
                 max={1}
                 step={0.01}
                 value={model.playback.muted ? 0 : model.playback.volume}
-                onInput={(event) =>
-                  session.dispatch({
-                    type: 'setVolume',
-                    volume: Number.parseFloat(event.currentTarget.value),
-                  })
-                }
-                class='h-2 flex-1 cursor-pointer appearance-none rounded-lg bg-secondary [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary'
+                onValueChange={(value) => session.dispatch({ type: 'setVolume', volume: value })}
+                class='min-w-10 flex-1'
               />
             </div>
 
-            <div class='hidden w-[72px] shrink-0 min-[650px]:block'>
-              <PlaybackSetting
-                label='Audio playback speed'
-                status={
-                  model.playback.sleepTimer ? sleepTimerLabel(model.playback.sleepTimer) : undefined
-                }
-                action={{
-                  label: sleepTimerLabel(model.playback.sleepTimer),
-                  onClick: () => openSleepTimer(),
-                }}
-                value={String(model.playback.playbackRate)}
-                options={[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3].map((rate) => ({
-                  value: String(rate),
-                  label: `${rate}×`,
-                }))}
-                onChange={(value) =>
-                  session.dispatch({ type: 'setPlaybackRate', rate: Number(value) })
-                }
+            <div class='shrink-0'>
+              <AudioPlaybackMenu
+                rate={model.playback.playbackRate}
+                timer={model.playback.sleepTimer}
+                disabled={false}
+                onRate={(rate) => session.dispatch({ type: 'setPlaybackRate', rate })}
               />
             </div>
             <QueuePanel />
             <div class='hidden h-8 w-px shrink-0 bg-border md:block' />
 
-            <div class='flex min-w-0 flex-1 items-center gap-2 min-[650px]:w-[200px] min-[650px]:flex-none min-[650px]:gap-3 lg:w-[280px]'>
-              <div class='size-9 shrink-0 overflow-hidden rounded bg-secondary min-[650px]:size-12'>
-                {displayImageUrl() ? (
-                  <img src={displayImageUrl()!} alt='Album art' class='size-full object-cover' />
-                ) : null}
-              </div>
+            <div class='order-first flex min-w-0 flex-1 items-center gap-2 min-[650px]:order-none min-[650px]:w-[200px] min-[650px]:flex-none min-[650px]:gap-3 lg:w-[280px]'>
+              {displayImageUrl() ? (
+                <img
+                  src={displayImageUrl()!}
+                  alt='Album art'
+                  class='size-9 shrink-0 rounded object-cover min-[650px]:size-12'
+                />
+              ) : null}
 
               <div class='min-w-0 flex-1'>
                 {!metadataQuery.isLoading ? (
@@ -321,9 +314,11 @@ export const AudioPlayer = controllerView(
                     <div class='truncate text-xs font-medium min-[650px]:text-sm'>
                       {model.metadata?.title || fileName()}
                     </div>
-                    <div class='truncate text-[11px] text-muted-foreground min-[650px]:text-xs'>
-                      {model.metadata?.artist || 'Unknown Artist'}
-                    </div>
+                    {model.metadata?.artist ? (
+                      <div class='truncate text-[11px] text-muted-foreground min-[650px]:text-xs'>
+                        {model.metadata.artist}
+                      </div>
+                    ) : null}
                   </>
                 ) : null}
               </div>

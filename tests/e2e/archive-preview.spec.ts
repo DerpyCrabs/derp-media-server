@@ -26,15 +26,15 @@ test.afterAll(() => fs.rmSync(path.join(root(), source), { force: true }))
 async function open(page: Page) {
   await page.goto(`/?dir=Documents&viewing=${encodeURIComponent(source)}`)
   const viewer = page.getByRole('dialog', { name: 'Archive contents', exact: true })
-  await expect(viewer.getByText('8 files', { exact: false })).toBeVisible()
+  await expect(viewer.locator('[data-file-path="Folder"]')).toBeVisible()
   return viewer
 }
 test('read-only text preview preserves source bytes, supports search and downloads only one entry', async ({
   page,
 }) => {
   const viewer = await open(page)
-  await viewer.getByRole('button', { name: 'Folder', exact: true }).click()
-  await viewer.getByRole('button', { name: 'README.txt', exact: true }).click()
+  await viewer.locator('[data-file-path="Folder"]').click()
+  await viewer.locator('[data-file-path="Folder/README.txt"]').click()
   const preview = page.getByRole('dialog', { name: 'Archive file preview', exact: true })
   const text = preview.getByRole('document', { name: 'Archive text preview' })
   await expect(text).toContainText('Настройки')
@@ -51,15 +51,19 @@ test('read-only text preview preserves source bytes, supports search and downloa
   expect(saved.suggestedFilename()).toBe('README.txt')
   expect(fs.readFileSync((await saved.path())!, 'utf8')).toBe(exactText)
   await preview.getByRole('button', { name: 'Back to archive' }).click()
-  await expect(viewer.getByRole('button', { name: 'README.txt', exact: true })).toBeFocused()
+  await expect(viewer.locator('[data-file-path="Folder/README.txt"]')).toBeFocused()
   expect(fs.readFileSync(path.join(root(), source)).equals(Buffer.from(archiveBytes))).toBe(true)
   expect(fs.existsSync(path.join(root(), 'Documents/Folder'))).toBe(false)
 })
 test('images and PDF pages preview without extracting and close back to the same archive', async ({
   page,
 }) => {
+  const warmed: string[] = []
+  page.on('request', (request) => {
+    if (request.url().includes('/api/warm/thumbnail/')) warmed.push(request.url())
+  })
   const viewer = await open(page)
-  await viewer.getByRole('button', { name: 'photo.png', exact: true }).click()
+  await viewer.locator('[data-file-path="photo.png"]').click()
   const preview = page.getByRole('dialog', { name: 'Archive file preview', exact: true })
   await expect
     .poll(() =>
@@ -72,7 +76,7 @@ test('images and PDF pages preview without extracting and close back to the same
   await expect(preview.getByRole('button', { name: 'Fit image' })).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(preview).toHaveCount(0)
-  await viewer.getByRole('button', { name: 'book.pdf', exact: true }).click()
+  await viewer.locator('[data-file-path="book.pdf"]').click()
   await expect(preview.getByTestId('pdf-text-layer')).toContainText('Selectable reader text')
   await preview.getByRole('button', { name: 'Next page', exact: true }).click()
   await expect(preview.getByRole('textbox', { name: 'Preview PDF page' })).toHaveValue('2')
@@ -85,7 +89,8 @@ test('images and PDF pages preview without extracting and close back to the same
   await preview.getByRole('textbox', { name: 'Preview PDF page' }).press('Enter')
   await expect(preview.getByRole('button', { name: 'Next page', exact: true })).toBeDisabled()
   await preview.getByRole('button', { name: 'Back to archive' }).click()
-  await expect(viewer.getByRole('button', { name: 'book.pdf', exact: true })).toBeFocused()
+  await expect(viewer.locator('[data-file-path="book.pdf"]')).toBeFocused()
+  expect(warmed.filter((url) => /\/(photo\.png|clip\.mp4)(?:\?|$)/.test(url))).toEqual([])
 })
 test('audio and video previews decode and stop when closed', async ({ page }) => {
   const viewer = await open(page)
@@ -93,12 +98,17 @@ test('audio and video previews decode and stop when closed', async ({ page }) =>
     ['track.mp3', 'audio'],
     ['clip.mp4', 'video'],
   ]) {
-    await viewer.getByRole('button', { name, exact: true }).click()
+    await viewer.locator(`[data-file-path="${name}"]`).click()
     const preview = page.getByRole('dialog', { name: 'Archive file preview', exact: true })
     await expect
       .poll(() => preview.locator(tag!).evaluate((media: HTMLMediaElement) => media.readyState))
       .toBeGreaterThanOrEqual(1)
-    await preview.locator(tag!).evaluate((media: HTMLMediaElement) => media.play())
+    await expect(preview.locator(tag!)).not.toHaveAttribute('controls')
+    await preview.locator(tag!).evaluate((media: HTMLMediaElement) => {
+      media.muted = true
+    })
+    await preview.getByRole('button', { name: 'Play preview', exact: true }).click()
+    await expect(preview.getByRole('button', { name: 'Pause preview', exact: true })).toBeVisible()
     await expect
       .poll(() => preview.locator(tag!).evaluate((media: HTMLMediaElement) => media.currentTime))
       .toBeGreaterThan(0)
@@ -117,13 +127,15 @@ test('binary files remain downloadable, oversized entries fail clearly and keybo
   request,
 }) => {
   const viewer = await open(page)
-  await viewer.getByRole('checkbox', { name: 'Select binary.dat', exact: true }).check()
+  await viewer.locator('[data-file-path="binary.dat"]').click({ modifiers: ['Control'] })
   await page.keyboard.press('Control+p')
   const preview = page.getByRole('dialog', { name: 'Archive file preview', exact: true })
-  await expect(preview.getByText('No inline preview', { exact: false })).toBeVisible()
+  await expect(
+    preview.getByText('Extract this file to open it in another application.'),
+  ).toBeVisible()
   await expect(preview.getByRole('button', { name: 'Download file' })).toBeEnabled()
   await preview.getByRole('button', { name: 'Back to archive' }).click()
-  await viewer.getByRole('button', { name: 'too-large.txt', exact: true }).click()
+  await viewer.locator('[data-file-path="too-large.txt"]').click()
   await expect(preview.getByRole('alert')).toContainText('too large to preview')
   await page.keyboard.press('Escape')
   await expect(viewer).toBeVisible()

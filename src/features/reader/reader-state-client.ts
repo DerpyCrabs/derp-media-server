@@ -64,7 +64,7 @@ export const DEFAULT_READER_PREFERENCES: ReaderPreferences = {
   selectionMode: 'text',
   defaultAction: 'define',
   aiDetail: 'compact',
-  outlineOpen: true,
+  outlineOpen: false,
 }
 
 const finiteInRange = (value: unknown, minimum: number, maximum: number, fallback: number) => {
@@ -218,7 +218,7 @@ function parsePreferences(input: typeof legacyReaderPreferencesSchema.Type): Rea
         ? input.defaultAction
         : 'define',
     aiDetail: input.aiDetail === 'detailed' ? 'detailed' : 'compact',
-    outlineOpen: input.outlineOpen !== false,
+    outlineOpen: input.outlineOpen === true,
   }
 }
 

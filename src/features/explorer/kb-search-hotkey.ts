@@ -1,9 +1,12 @@
-export function registerKbSearchHotkeys(options: {
-  active: () => boolean
-  isOpen: () => boolean
-  setOpen: (open: boolean) => void
-  focusInput: () => void
-}) {
+export function registerKbSearchHotkeys(
+  options: {
+    active: () => boolean
+    isOpen: () => boolean
+    setOpen: (open: boolean) => void
+    focusInput: () => void
+  },
+  document: Document = globalThis.document,
+) {
   const listener = (event: KeyboardEvent) => {
     if (!options.active()) return
     if (event.key === 'Escape' && options.isOpen()) {

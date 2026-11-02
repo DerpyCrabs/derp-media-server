@@ -19,7 +19,10 @@ const searchQuery = query({
 const debounceSlot = 'kb-search-debounce'
 const focusSlot = 'kb-search-focus'
 type Context = { currentPath: string; knowledgeBases: readonly string[]; active: boolean }
-export function createKnowledgeBaseSearch(context: () => Context) {
+export function createKnowledgeBaseSearch(
+  context: () => Context,
+  document: Document = globalThis.document,
+) {
   const owner = modelOwner({
     query: '',
     debouncedQuery: '',
@@ -64,15 +67,20 @@ export function createKnowledgeBaseSearch(context: () => Context) {
     )
   }
   owner.own(
-    registerKbSearchHotkeys({
-      active: () => {
-        const value = context()
-        return !!getKnowledgeBaseRoot(value.currentPath, [...value.knowledgeBases]) && value.active
+    registerKbSearchHotkeys(
+      {
+        active: () => {
+          const value = context()
+          return (
+            !!getKnowledgeBaseRoot(value.currentPath, [...value.knowledgeBases]) && value.active
+          )
+        },
+        isOpen: () => owner.read().open,
+        setOpen,
+        focusInput: focus,
       },
-      isOpen: () => owner.read().open,
-      setOpen,
-      focusInput: focus,
-    }),
+      document,
+    ),
   )
   const setInputElement = (element: HTMLInputElement | undefined) => {
     input = element

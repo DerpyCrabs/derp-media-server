@@ -1,3 +1,4 @@
+import { Button } from '@/lib/ui/button'
 import { view } from 'effectweb'
 import LoaderCircle from '@effectweb/lucide/icons/loader-circle'
 export const DirectoryListingErrorPanel = view<{ onRetry: () => void; detail?: string }>(
@@ -8,13 +9,14 @@ export const DirectoryListingErrorPanel = view<{ onRetry: () => void; detail?: s
         {props.detail?.trim() ? (
           <p class='text-muted-foreground mt-1 text-xs wrap-break-word'>{props.detail}</p>
         ) : null}
-        <button
+        <Button
+          variant='default'
           type='button'
           class='bg-primary text-primary-foreground hover:bg-primary/90 mt-3 inline-flex h-9 items-center rounded-md px-4 text-sm font-medium shadow-sm'
           onClick={() => props.onRetry()}
         >
           Retry
-        </button>
+        </Button>
       </div>
     )
   },

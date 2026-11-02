@@ -3,7 +3,7 @@ import type { FileItem } from '@/lib/files/types'
 import type { FileColumnScope } from '@/lib/models/settings-types'
 import type { VirtualEntry } from '@/lib/files/virtual-directory'
 import { getKnowledgeBaseRoot } from '@/lib/files/path-utils'
-import { resetBreadcrumbFloating } from './breadcrumb-floating-store'
+import { breadcrumbFloatingForWindow } from './breadcrumb-floating-store'
 import { createFileBrowserDragController } from './file-browser-drag'
 import { createExplorerSettings } from './explorer-settings'
 import { createFileOperations } from './file-browser-mutations'
@@ -26,7 +26,11 @@ export type FileBrowserControllerOptions = Readonly<{
   onInlineFileCreated?: (path: string) => void
   onInlineFolderCreated?: (path: string) => void
 }>
-export function createFileBrowserController(options: FileBrowserControllerOptions) {
+export function createFileBrowserController(
+  options: FileBrowserControllerOptions,
+  window: Window = globalThis.window,
+) {
+  const { resetBreadcrumbFloating } = breadcrumbFloatingForWindow(window)
   const settings = createExplorerSettings()
   const operations = createFileOperations({ onFileCreated: options.onFileCreated })
   const folders = () =>
@@ -42,13 +46,16 @@ export function createFileBrowserController(options: FileBrowserControllerOption
         ...(available(settings.read().result)?.knowledgeBases ?? []),
       ]) !== null,
   })
-  const search = createKnowledgeBaseSearch(() => ({
-    currentPath: options.currentPath(),
-    knowledgeBases: available(settings.read().result)?.knowledgeBases ?? [],
-    active: options.isActive?.() ?? true,
-  }))
-  const upload = createUploadDrop(context)
-  const paste = createPasteSession(context, operations, options.onFileSaved)
+  const search = createKnowledgeBaseSearch(
+    () => ({
+      currentPath: options.currentPath(),
+      knowledgeBases: available(settings.read().result)?.knowledgeBases ?? [],
+      active: options.isActive?.() ?? true,
+    }),
+    window.document,
+  )
+  const upload = createUploadDrop(context, window)
+  const paste = createPasteSession(context, operations, options.onFileSaved, window)
   const inline = createInlineCreate(
     context,
     operations,
@@ -62,13 +69,16 @@ export function createFileBrowserController(options: FileBrowserControllerOption
       newPath: destinationDir ? `${destinationDir}/${name}` : name,
     })
   }
-  const drag = createFileBrowserDragController({
-    files: options.files,
-    currentPath: options.currentPath,
-    editableFolders: options.editableFolders,
-    allowMoveFile: () => (options.editable() ? moveFile : undefined),
-    virtualOpenTarget: (file) => options.virtualEntry?.(file)?.openTarget,
-  })
+  const drag = createFileBrowserDragController(
+    {
+      files: options.files,
+      currentPath: options.currentPath,
+      editableFolders: options.editableFolders,
+      allowMoveFile: () => (options.editable() ? moveFile : undefined),
+      virtualOpenTarget: (file) => options.virtualEntry?.(file)?.openTarget,
+    },
+    window,
+  )
   const owner = modelOwner({
     settings: settings.read(),
     operations: operations.read(),

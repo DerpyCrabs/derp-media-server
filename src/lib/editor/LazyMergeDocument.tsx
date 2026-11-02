@@ -9,13 +9,19 @@ export const LazyMergeDocument = lazyView(
       (module) => module.default,
     ),
   {
-    pending: view<MergeDocumentProps>(() => (
-      <p class='p-4 text-sm text-muted-foreground'>Loading comparison…</p>
+    pending: view<MergeDocumentProps>((props) => (
+      <div class='flex items-center gap-2 p-2'>
+        <span class='mr-auto text-sm text-muted-foreground'>Loading comparison…</span>
+        {props.toolbarEnd}
+      </div>
     )),
-    failure: view(() => (
-      <p role='alert' class='p-4 text-sm text-destructive'>
-        Comparison could not be loaded. Close this dialog and download your draft before reloading.
-      </p>
+    failure: view<{ model: MergeDocumentProps }>((props) => (
+      <div class='p-2'>
+        <div class='flex justify-end gap-1'>{props.model.toolbarEnd}</div>
+        <p role='alert' class='p-2 text-sm text-destructive'>
+          Comparison could not be loaded.
+        </p>
+      </div>
     )),
   },
 )

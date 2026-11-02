@@ -15,7 +15,7 @@ test.describe('Editable Folders', () => {
     await page.locator('input[placeholder*="File name"]').fill('test-note.md')
     await page.getByRole('button', { name: 'Create' }).click()
     // Close auto-opened text viewer
-    await page.locator('button[title="Close"]').click()
+    await page.getByRole('button', { name: 'Close', exact: true }).click()
     await expect(page.locator('table').getByText('test-note.md')).toBeVisible()
   })
 
@@ -25,7 +25,7 @@ test.describe('Editable Folders', () => {
     await page.locator('input[placeholder*="File name"]').fill('rename-me.md')
     await page.getByRole('button', { name: 'Create' }).click()
     // Close auto-opened text viewer
-    await page.locator('button[title="Close"]').click()
+    await page.getByRole('button', { name: 'Close', exact: true }).click()
     await expect(page.locator('table').getByText('rename-me.md')).toBeVisible()
 
     await page.locator('table tr').filter({ hasText: 'rename-me.md' }).click({ button: 'right' })
@@ -82,7 +82,7 @@ test.describe('Editable Folders', () => {
     await page.locator('input[placeholder*="File name"]').fill('move-me.txt')
     await page.getByRole('button', { name: 'Create' }).click()
     // Close auto-opened text viewer
-    await page.locator('button[title="Close"]').click()
+    await page.getByRole('button', { name: 'Close', exact: true }).click()
     await expect(page.locator('table').getByText('move-me.txt')).toBeVisible()
 
     await page.locator('table tr').filter({ hasText: 'move-me.txt' }).click({ button: 'right' })

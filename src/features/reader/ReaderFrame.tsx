@@ -1,8 +1,13 @@
+import { viewWindow } from '@/lib/browser/view-window'
+import type { ControllerHost } from 'effectweb'
+import { Disclosure } from '@/lib/ui/disclosure'
+import { Popover } from '@/lib/ui/popover'
+import { Button } from '@/lib/ui/button'
 import { createReaderNotes } from './reader-notes-controller'
 import { ReaderNotesPanel } from './ReaderNotesPanel'
 import type { NoteLocation, NotePlace } from './reader-notes'
 import type { ReaderNavigation } from './ReaderOutline'
-import { showAppAlertEffect } from '@/lib/ui/app-dialog'
+import { dialogsForWindow } from '@/lib/ui/app-dialog'
 import { cn } from '@/lib/ui/cn'
 import { Effect } from 'effect'
 import {
@@ -56,7 +61,11 @@ type Props = ReaderPresentation & {
   beforeClose?: () => Effect.Effect<void, unknown>
 }
 const closeSlot = 'reader-close'
-function frameController(props: Props) {
+function frameController(props: Props, host: ControllerHost = { document: globalThis.document }) {
+  const window = viewWindow(host)
+  const document = host.document
+  const showAppAlertEffect = dialogsForWindow(window).alert
+
   let viewport: HTMLDivElement | undefined
   let root: HTMLDivElement | undefined
   let selectionId = 0
@@ -73,7 +82,12 @@ function frameController(props: Props) {
   const notes = createReaderNotes({
     path: props.sourcePath,
     place: (anchor) => owner.read().props.notePlace?.(anchor),
-    navigate: (location) => owner.read().props.onNoteNavigate?.(location),
+    navigate: (location) => {
+      owner.read().props.onNoteNavigate?.(location)
+      const outline = root?.querySelector<HTMLElement>('[data-testid="reader-outline"]')
+      if (outline && getComputedStyle(outline).position === 'absolute')
+        readerPreferences.patch({ outlineOpen: false })
+    },
     show: () => {
       owner.patch({ navigationTab: 'notes' })
       readerPreferences.patch({ outlineOpen: true })
@@ -160,7 +174,7 @@ function frameController(props: Props) {
     if (!selected || selected.isCollapsed || !selected.rangeCount) return
     const range = selected.getRangeAt(0)
     const node = range.commonAncestorContainer
-    const element = node instanceof Element ? node : node.parentElement
+    const element = node instanceof window.Element ? node : node.parentElement
     const text = selected.toString().replace(/\s+/g, ' ').trim()
     if (!element || !viewport.contains(element) || !text) return
     const rect = visibleRectForRange(
@@ -225,21 +239,25 @@ function frameController(props: Props) {
   const attach = (element: HTMLDivElement) => {
     actions.root(element)
     document.body.append(menuHost)
-    const stopClose = registerDesktopCloseHandler(() =>
-      Effect.gen(function* () {
-        yield* beforeClose()
-        yield* readerPreferences.flush()
-      }),
+    const stopClose = registerDesktopCloseHandler(
+      () =>
+        Effect.gen(function* () {
+          yield* beforeClose()
+          yield* readerPreferences.flush()
+        }),
+      window,
     )
     let frame = 0
     const released = (event: MouseEvent) => {
       if (
-        event.target instanceof Element &&
+        event.target instanceof window.Element &&
         event.target.closest('[data-testid="reader-selection-menu"]')
       )
         return
-      cancelAnimationFrame(frame)
-      frame = requestAnimationFrame(() => captureText({ x: event.clientX, y: event.clientY }))
+      window.cancelAnimationFrame(frame)
+      frame = window.requestAnimationFrame(() =>
+        captureText({ x: event.clientX, y: event.clientY }),
+      )
     }
     const fullscreen = () => {
       const active = document.fullscreenElement === element
@@ -282,8 +300,7 @@ function frameController(props: Props) {
         }
         if (current.settingsOpen) owner.patch({ settingsOpen: false })
         else if (current.selection) actions.clearSelection()
-        else if (current.navigationTab === 'notes' && current.preferences.outlineOpen)
-          readerPreferences.patch({ outlineOpen: false })
+        else if (current.preferences.outlineOpen) readerPreferences.patch({ outlineOpen: false })
         else if (!current.props.embedded || current.props.onClose) void actions.dismiss()
         return
       }
@@ -307,7 +324,7 @@ function frameController(props: Props) {
     document.addEventListener('keydown', keydown)
     return () => {
       stopClose?.()
-      cancelAnimationFrame(frame)
+      window.cancelAnimationFrame(frame)
       document.removeEventListener('fullscreenchange', fullscreen)
       document.removeEventListener('pointerup', released)
       document.removeEventListener('mouseup', released)
@@ -341,8 +358,6 @@ const viewportBinding = (
   current()(element)
   return { update: () => current()(element), dispose: () => {} }
 }
-const buttonClass =
-  'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[#3a3a3a] bg-[#202020] hover:border-[#777]'
 export const ReaderFrame = controllerView(
   { controller: frameController },
   view((model) => {
@@ -364,7 +379,7 @@ export const ReaderFrame = controllerView(
         role={props.embedded ? 'region' : 'dialog'}
         aria-modal={props.embedded ? undefined : 'true'}
         aria-label={`Reader: ${props.title}`}
-        class={cn('inset-0 flex flex-col bg-neutral-900 text-white', {
+        class={cn('inset-0 flex flex-col bg-background text-foreground', {
           'fixed z-[70]': !props.embedded,
           'absolute z-20': props.embedded,
         })}
@@ -372,13 +387,15 @@ export const ReaderFrame = controllerView(
         onPointerDown={actions.activate}
         onFocusIn={actions.activate}
       >
-        <header class='relative z-30 grid h-[39px] shrink-0 grid-cols-[32px_minmax(0,1fr)_32px] items-center gap-1.5 border-b border-[#303030] bg-[#121212] px-1.5 py-[3px]'>
+        <header class='relative z-30 grid h-[39px] shrink-0 grid-cols-[32px_minmax(0,1fr)_32px] items-center gap-1.5 border-b border-border bg-background px-1.5 py-[3px]'>
           {props.outline ? (
-            <button
+            <Button
+              variant='outline'
               type='button'
               aria-label='Toggle document outline'
               data-testid='reader-outline-button'
-              class={`${buttonClass} col-start-1 row-start-1`}
+              size='icon'
+              class='col-start-1 row-start-1'
               onClick={() => {
                 const open =
                   preferences.outlineOpen && (props.hasContents || model.navigationTab === 'notes')
@@ -386,36 +403,44 @@ export const ReaderFrame = controllerView(
                 readerPreferences.patch({ outlineOpen: !open })
               }}
             >
-              <PanelLeft size={18} />
-            </button>
+              <PanelLeft class='size-[18px]' size={18} />
+            </Button>
           ) : null}
           <div class='col-start-2 row-start-1 flex min-w-0 items-center justify-center gap-1'>
-            <button
+            <Button
+              variant='outline'
               type='button'
               aria-label={model.fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
               title={model.fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
-              class={buttonClass}
+              size='icon'
               onClick={actions.fullscreen}
             >
-              {model.fullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
-            </button>
+              {model.fullscreen ? (
+                <Minimize2 class='size-[18px]' size={18} />
+              ) : (
+                <Maximize2 class='size-[18px]' size={18} />
+              )}
+            </Button>
             {props.toolbar}
-            <div class='relative shrink-0'>
-              <button
-                type='button'
-                aria-label='Reader settings'
-                data-testid='reader-settings-button'
-                class={buttonClass}
-                onClick={() => actions.settings(!model.settingsOpen)}
-              >
-                <Settings size={18} />
-              </button>
-              {model.settingsOpen ? (
-                <div
-                  class={`absolute top-[38px] right-0 z-50 grid gap-2 rounded-lg border border-[#3a3a3a] bg-[#181818] p-[5px] shadow-[0_14px_34px_rgb(0_0_0/42%)] ${props.settingsWide ? 'w-[min(384px,calc(100vw-16px))]' : 'min-w-[216px]'}`}
-                  data-testid='reader-settings'
+            <Popover
+              open={model.settingsOpen}
+              onOpenChange={actions.settings}
+              align='end'
+              class='w-80 space-y-4'
+              trigger={
+                <Button
+                  variant='outline'
+                  size='icon'
+                  aria-label='Reader settings'
+                  data-testid='reader-settings-button'
                 >
-                  {props.settings?.(() => actions.settings(false))}
+                  <Settings />
+                </Button>
+              }
+            >
+              <div data-testid='reader-settings' class='space-y-4'>
+                {props.settings?.(() => actions.settings(false))}
+                {props.selectionModes.length > 1 ? (
                   <ReaderSetting label='Select'>
                     <Segmented
                       values={props.selectionModes}
@@ -427,40 +452,46 @@ export const ReaderFrame = controllerView(
                       }}
                     />
                   </ReaderSetting>
-                  <ReaderSetting label='Default action'>
-                    <Segmented
-                      values={['define', 'translate', 'none']}
-                      value={preferences.defaultAction}
-                      onChange={(value) => {
-                        readerPreferences.patch({ defaultAction: value as ReaderDefaultAction })
-                        actions.settings(false)
-                      }}
-                    />
-                  </ReaderSetting>
-                  <ReaderSetting label='AI results'>
-                    <Segmented
-                      values={['compact', 'detailed']}
-                      value={preferences.aiDetail}
-                      onChange={(value) => {
-                        readerPreferences.patch({ aiDetail: value as 'compact' | 'detailed' })
-                        actions.settings(false)
-                      }}
-                    />
-                  </ReaderSetting>
-                </div>
-              ) : null}
-            </div>
+                ) : null}
+                <Disclosure trigger='Text actions'>
+                  <div class='space-y-3 pt-3'>
+                    <ReaderSetting label='Default action'>
+                      <Segmented
+                        values={['define', 'translate', 'none']}
+                        value={preferences.defaultAction}
+                        onChange={(value) => {
+                          readerPreferences.patch({ defaultAction: value as ReaderDefaultAction })
+                          actions.settings(false)
+                        }}
+                      />
+                    </ReaderSetting>
+                    <ReaderSetting label='AI results'>
+                      <Segmented
+                        values={['compact', 'detailed']}
+                        value={preferences.aiDetail}
+                        onChange={(value) => {
+                          readerPreferences.patch({ aiDetail: value as 'compact' | 'detailed' })
+                          actions.settings(false)
+                        }}
+                      />
+                    </ReaderSetting>
+                  </div>
+                </Disclosure>
+              </div>
+            </Popover>
           </div>
           {props.showClose ? (
-            <button
+            <Button
+              size='icon'
+              variant='outline'
               type='button'
               title='Close'
               aria-label='Close reader'
-              class={`${buttonClass} col-start-3 row-start-1`}
+              class='col-start-3 row-start-1'
               onClick={actions.dismiss}
             >
-              <X size={20} />
-            </button>
+              <X class='size-[20px]' size={20} />
+            </Button>
           ) : null}
         </header>
         {props.search}
@@ -469,7 +500,7 @@ export const ReaderFrame = controllerView(
             ? props.outline?.({
                 tabs: props.hasContents ? (
                   <div
-                    class='flex shrink-0 gap-1 border-b border-[#303030] p-1'
+                    class='flex min-w-0 flex-1 gap-1'
                     role='tablist'
                     aria-label='Document navigation'
                     onKeyDown={(event) => {
@@ -490,24 +521,26 @@ export const ReaderFrame = controllerView(
                         [next === 'contents' ? 0 : 1]?.focus()
                     }}
                   >
-                    <button
+                    <Button
+                      variant='ghost'
                       role='tab'
                       tabIndex={model.navigationTab === 'contents' ? 0 : -1}
                       aria-selected={model.navigationTab === 'contents'}
-                      class='min-h-8 flex-1 rounded text-xs hover:bg-white/10 aria-selected:bg-white/15'
+                      class='min-h-8 flex-1 rounded text-xs hover:bg-muted aria-selected:bg-accent'
                       onClick={() => actions.navigationTab('contents')}
                     >
                       Contents
-                    </button>
-                    <button
+                    </Button>
+                    <Button
+                      variant='ghost'
                       role='tab'
                       tabIndex={model.navigationTab === 'notes' ? 0 : -1}
                       aria-selected={model.navigationTab === 'notes'}
-                      class='min-h-8 flex-1 rounded text-xs hover:bg-white/10 aria-selected:bg-white/15'
+                      class='min-h-8 flex-1 rounded text-xs hover:bg-muted aria-selected:bg-accent'
                       onClick={() => actions.navigationTab('notes')}
                     >
                       Notes
-                    </button>
+                    </Button>
                   </div>
                 ) : undefined,
                 notes:

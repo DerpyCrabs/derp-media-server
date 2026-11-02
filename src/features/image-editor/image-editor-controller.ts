@@ -1,3 +1,5 @@
+import { viewWindow } from '@/lib/browser/view-window'
+import type { ControllerHost } from 'effectweb'
 import { nativeDownload } from '@/lib/browser/native-download'
 import {
   createDocumentDraftWriter,
@@ -12,9 +14,10 @@ import { modelOwner } from 'effectweb'
 import { apiEffect } from '@/lib/api/client'
 import { groups, queryCache } from '@/lib/api/cache'
 import { fileNameFromPath, parentPath } from '@/lib/files/path-utils'
-import { showAppConfirmEffect } from '@/lib/ui/app-dialog'
+import { dialogsForWindow } from '@/lib/ui/app-dialog'
 import {
   originalTransform,
+  fitCrop,
   rotateImage,
   flipImage,
   cropImage,
@@ -39,7 +42,14 @@ const attempt = <A>(run: (signal: AbortSignal) => Promise<A>) =>
     try: run,
     catch: (error) => (error instanceof Error ? error : new Error(message(error))),
   })
-export function imageEditorController(props: ImageEditorProps) {
+export function imageEditorController(
+  props: ImageEditorProps,
+  host: ControllerHost = { document: globalThis.document },
+) {
+  const window = viewWindow(host)
+  const document = host.document
+  const showAppConfirmEffect = dialogsForWindow(window).confirm
+
   let bitmap: ImageBitmap | undefined
   let sourceBlob: Blob | undefined
   let sourceVersion = randomId()
@@ -60,6 +70,7 @@ export function imageEditorController(props: ImageEditorProps) {
     cursor: 0,
     exportedEdit: undefined as ImageTransform | undefined,
     selection: null as CropRect | null,
+    cropRatio: null as number | null,
     tool: 'none' as 'none' | 'crop' | 'resize',
     resizeWidth: 0,
     resizeHeight: 0,
@@ -307,19 +318,19 @@ export function imageEditorController(props: ImageEditorProps) {
       if (edit)
         owner.patch({
           tool: owner.read().tool === tool ? 'none' : tool,
-          selection: null,
+          selection:
+            tool === 'crop' && owner.read().tool !== 'crop'
+              ? fitCrop(edit, owner.read().cropRatio)
+              : null,
           resizeWidth: edit.width,
           resizeHeight: edit.height,
         })
     },
     selection: (selection: CropRect | null) => owner.patch({ selection }),
-    selectAll: () => {
+    cancelTool: () => owner.patch({ tool: 'none', selection: null }),
+    cropRatio: (cropRatio: number | null) => {
       const edit = currentEdit()
-      if (edit) owner.patch({ selection: { x: 0, y: 0, width: edit.width, height: edit.height } })
-    },
-    cropField: (field: keyof CropRect, value: number) => {
-      const selection = owner.read().selection
-      if (selection) owner.patch({ selection: { ...selection, [field]: value } })
+      if (edit) owner.patch({ cropRatio, selection: fitCrop(edit, cropRatio) })
     },
     crop: () => {
       const edit = currentEdit(),
@@ -450,8 +461,9 @@ export function imageEditorController(props: ImageEditorProps) {
   }
   window.addEventListener('pagehide', flush)
   window.addEventListener('beforeunload', flush)
-  const stopClose = registerDesktopCloseHandler(() =>
-    Effect.suspend(() => (dirty() ? attempt(persistDraft) : Effect.sync(flush))),
+  const stopClose = registerDesktopCloseHandler(
+    () => Effect.suspend(() => (dirty() ? attempt(persistDraft) : Effect.sync(flush))),
+    window,
   )
   owner.own({
     dispose: () => {

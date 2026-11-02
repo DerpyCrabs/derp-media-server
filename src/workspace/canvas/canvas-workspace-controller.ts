@@ -1696,7 +1696,7 @@ export function createCanvasController(props: { session: WorkspaceSession }) {
   }
   startups.push(() => {
     const keydown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) return
+      if (event.defaultPrevented || document.querySelector('dialog[open]')) return
       if (overlays.note.value()) return
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'p') {
         event.preventDefault()
@@ -1824,6 +1824,7 @@ export function createCanvasController(props: { session: WorkspaceSession }) {
   }
   const closeWindowAction = (id: string) => local.run(actionSlot, closeWindow(id), 'parallel')
   const windowCommands = {
+    reopenClosedTab,
     selectWindow,
     selectCanvasTab,
     activateWindow,

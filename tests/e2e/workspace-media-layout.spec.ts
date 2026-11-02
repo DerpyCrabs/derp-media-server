@@ -46,16 +46,16 @@ test.describe('Workspace audio and video playback', () => {
       .toMatch(/\/api\/media/)
 
     await page.getByRole('button', { name: 'Open audio controls' }).click()
-    await page.getByRole('button', { name: 'Audio playback speed', exact: true }).click()
+    await page.getByRole('button', { name: 'Playback options', exact: true }).click()
+    await page.getByRole('menuitem', { name: /^Speed ·/ }).click()
     await page.getByRole('menuitemradio', { name: '1.5×', exact: true }).click()
     await expect.poll(() => audio.evaluate((el: HTMLAudioElement) => el.playbackRate)).toBe(1.5)
-    await expect(
-      page.getByRole('button', { name: 'Audio playback speed', exact: true }),
-    ).toBeVisible()
-    await page.getByRole('button', { name: 'Audio playback speed', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Playback options', exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Playback options', exact: true }).click()
+    await page.getByRole('menuitem', { name: /^Speed ·/ }).click()
     await page.getByRole('menuitemradio', { name: '1×', exact: true }).click()
     const playToggle = page
-      .locator('[data-workspace-taskbar-audio-root] .bg-popover')
+      .locator('[data-workspace-taskbar-audio-root] > .bg-popover')
       .locator('button')
       .filter({ has: page.locator('.lucide-play') })
       .first()
@@ -119,7 +119,7 @@ test.describe('Workspace audio and video playback', () => {
       .toMatch(/\/api\/media/)
 
     await page.getByRole('button', { name: 'Open audio controls' }).click()
-    const popover = page.locator('[data-workspace-taskbar-audio-root] .bg-popover')
+    const popover = page.locator('[data-workspace-taskbar-audio-root] > .bg-popover')
     const playToggle = popover
       .locator('button')
       .filter({ has: page.locator('.lucide-play') })
@@ -181,7 +181,7 @@ test.describe('Workspace audio and video playback', () => {
 
     await page.getByRole('button', { name: 'Open audio controls' }).click()
     const playToggle = page
-      .locator('[data-workspace-taskbar-audio-root] .bg-popover')
+      .locator('[data-workspace-taskbar-audio-root] > .bg-popover')
       .locator('button')
       .filter({ has: page.locator('.lucide-play') })
       .first()
@@ -266,11 +266,11 @@ test.describe('Workspace audio and video playback', () => {
     expect(settingsBox!.x).toBeGreaterThanOrEqual(0)
     expect(settingsBox!.x + settingsBox!.width).toBeLessThanOrEqual(page.viewportSize()!.width)
     await settings.getByRole('button', { name: 'Playback speed', exact: true }).click()
-    await page.getByRole('menuitemradio', { name: '1.5×', exact: true }).click()
+    await page.getByRole('option', { name: '1.5×', exact: true }).click()
     await expect
       .poll(() => playerGroup.locator('video').evaluate((v: HTMLVideoElement) => v.playbackRate))
       .toBe(1.5)
-    await settings.getByRole('button', { name: 'Close', exact: true }).click()
+    await page.keyboard.press('Escape')
   })
 })
 
@@ -312,7 +312,7 @@ test('taskbar audio previews a drag and keeps the controls open after seeking', 
   await content.getByText('Music', { exact: true }).click()
   await content.locator('table').getByText('track.mp3', { exact: true }).click()
   await page.getByRole('button', { name: 'Open audio controls' }).click()
-  const popover = page.locator('[data-workspace-taskbar-audio-root] .bg-popover')
+  const popover = page.locator('[data-workspace-taskbar-audio-root] > .bg-popover')
   await dragPlaybackPosition(
     page,
     page.locator('[data-workspace-taskbar-media-audio]'),

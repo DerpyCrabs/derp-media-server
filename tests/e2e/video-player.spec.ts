@@ -201,7 +201,7 @@ test.describe('Video Player', () => {
   test('video thumbnails appear in grid view', async ({ page }) => {
     await page.goto(`/?dir=${VIDEO_DIR}`)
     await page.getByRole('button', { name: 'Display options' }).click()
-    await page.getByRole('menuitem', { name: 'Grid view' }).click()
+    await page.getByRole('menuitemradio', { name: 'Grid view' }).click()
     const card = page
       .locator('[data-testid=file-browser] .file-browser-grid [role=button]')
       .filter({ hasText: 'sample.mp4' })
@@ -216,7 +216,7 @@ test.describe('Video Player', () => {
   test('playing video does not remount grid thumbnails', async ({ page }) => {
     await page.goto(`/?dir=${VIDEO_DIR}&playing=${encodeURIComponent(VIDEO_FILE)}`)
     await page.getByRole('button', { name: 'Display options' }).click()
-    await page.getByRole('menuitem', { name: 'Grid view' }).click()
+    await page.getByRole('menuitemradio', { name: 'Grid view' }).click()
 
     const browser = page.locator('[data-testid=file-browser]')
     const thumbnail = browser.locator('[data-testid=file-browser-video-thumbnail]').first()

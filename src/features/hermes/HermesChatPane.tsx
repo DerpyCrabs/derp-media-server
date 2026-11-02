@@ -1,3 +1,10 @@
+import { Disclosure } from '@/lib/ui/disclosure'
+import { Popover } from '@/lib/ui/popover'
+import { Dialog } from '@/lib/ui/dialog'
+import { ImageLightbox } from '@/lib/ui/image-lightbox'
+import { Input, Textarea } from '@/lib/ui/input'
+import { Button } from '@/lib/ui/button'
+import { Select } from '@/lib/ui/select'
 import { Effect } from 'effect'
 import { modelOwner, domMount, view, list, controllerView } from 'effectweb'
 import type { HermesSessionTarget } from './hermes-session-store'
@@ -492,7 +499,7 @@ export const HermesChatPane = controllerView(
             class='absolute top-1 right-9 z-40 flex items-center gap-1 rounded-md border border-border bg-popover p-1 shadow-md'
             data-modal-escape-scope
           >
-            <input
+            <Input
               use={actions.elements.findInputEl.mount}
               autofocus
               class='h-7 w-44 rounded border border-input bg-background px-2 text-xs'
@@ -515,9 +522,15 @@ export const HermesChatPane = controllerView(
             <span class='min-w-10 text-center text-[10px] text-muted-foreground'>
               {findMatches().length ? `${ui.search.index() + 1}/${findMatches().length}` : '0/0'}
             </span>
-            <button class='rounded p-1 hover:bg-muted' aria-label='Close find' onClick={closeFind}>
-              <X class='h-3.5 w-3.5' />
-            </button>
+            <Button
+              size='icon'
+              variant='ghost'
+              class='rounded p-1 hover:bg-muted'
+              aria-label='Close find'
+              onClick={closeFind}
+            >
+              <X class='size-3.5' />
+            </Button>
           </div>
         ) : null}
         {state?.status !== 'idle' || state?.archived || state?.unavailable ? (
@@ -526,9 +539,13 @@ export const HermesChatPane = controllerView(
             {state?.archived ? <span>Archived</span> : null}
             {state?.unavailable ? <span>Session unavailable</span> : null}
             {state?.archived ? (
-              <button class='ml-auto hover:text-foreground' onClick={() => actions.restore()}>
+              <Button
+                variant='ghost'
+                class='ml-auto hover:text-foreground'
+                onClick={() => actions.restore()}
+              >
                 Restore
-              </button>
+              </Button>
             ) : null}
           </div>
         ) : null}
@@ -547,13 +564,14 @@ export const HermesChatPane = controllerView(
             {state?.status === 'loading' ? <div>Loading transcript…</div> : null}
             {state?.hasOlderMessages ? (
               <div class='text-center'>
-                <button
+                <Button
+                  variant='outline'
                   class='rounded-md border border-border px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground'
                   disabled={state?.historyLoading}
                   onClick={actions.loadOlder}
                 >
                   {state?.historyLoading ? 'Loading…' : 'Load older messages'}
-                </button>
+                </Button>
               </div>
             ) : null}
             {list(
@@ -617,13 +635,15 @@ export const HermesChatPane = controllerView(
           </div>
         </div>
         {!ui.transcript.atBottom() ? (
-          <button
+          <Button
+            size='icon'
+            variant='outline'
             class='absolute bottom-12 left-1/2 z-20 -translate-x-1/2 rounded-full border border-border bg-popover p-1.5 text-muted-foreground shadow-md hover:text-foreground'
             aria-label='Jump to latest message'
             onClick={actions.jumpLatest}
           >
-            <ArrowDown class='h-3.5 w-3.5' />
-          </button>
+            <ArrowDown class='size-3.5' />
+          </Button>
         ) : null}
         {state?.error ? (
           <div class='border-t border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive'>
@@ -649,17 +669,18 @@ export const HermesChatPane = controllerView(
                   decision.choices,
                   (choice) => choice,
                   (choice) => (
-                    <button
+                    <Button
+                      variant='outline'
                       class='rounded-md border border-amber-500/40 px-3 py-1.5 text-xs'
                       onClick={() => actions.answer(choice)}
                     >
                       {choice}
-                    </button>
+                    </Button>
                   ),
                 )}
                 {decision.choices.length === 0 ? (
                   <>
-                    <input
+                    <Input
                       type={
                         decision.kind === 'secret' || decision.kind === 'sudo' ? 'password' : 'text'
                       }
@@ -668,7 +689,8 @@ export const HermesChatPane = controllerView(
                       value={decisionAnswer()}
                       onInput={(event) => setDecisionAnswer(event.currentTarget.value)}
                     />
-                    <button
+                    <Button
+                      variant='outline'
                       class='rounded-md border border-amber-500/40 px-3 py-1.5 text-xs disabled:opacity-50'
                       disabled={!decisionAnswer()}
                       onClick={() => {
@@ -679,7 +701,7 @@ export const HermesChatPane = controllerView(
                       }}
                     >
                       Answer
-                    </button>
+                    </Button>
                   </>
                 ) : null}
               </div>
@@ -737,25 +759,33 @@ export const HermesChatPane = controllerView(
                       <span class='text-muted-foreground'>
                         {attachment.status === 'uploading' ? 'Uploading…' : attachment.status}
                       </span>
-                      <button
+                      <Button
+                        size='icon'
+                        variant='ghost'
                         aria-label={`Remove ${attachment.name}`}
                         disabled={attachment.status === 'uploading'}
                         onClick={() => session.attachments.remove(attachment.id)}
                       >
-                        <X class='h-3.5 w-3.5' />
-                      </button>
+                        <X class='size-3.5' />
+                      </Button>
                     </div>
                   ),
                 )}
               </div>
             ) : null}
             {state?.queuedPrompts.length ? (
-              <details class='mb-1 rounded-md border border-border bg-muted/30 text-xs text-muted-foreground'>
-                <summary class='cursor-pointer px-2 py-1'>
-                  {state?.queuedPrompts.length} queued prompt
-                  {state?.queuedPrompts.length === 1 ? '' : 's'}
-                  {state?.queueParked ? ' · parked' : ''}
-                </summary>
+              <Disclosure
+                class='mb-1 rounded-md border border-border bg-muted/30 text-xs text-muted-foreground'
+                triggerClass='cursor-pointer px-2 py-1'
+                trigger={
+                  <>
+                    {' '}
+                    {state?.queuedPrompts.length} queued prompt
+                    {state?.queuedPrompts.length === 1 ? '' : 's'}
+                    {state?.queueParked ? ' · parked' : ''}{' '}
+                  </>
+                }
+              >
                 <div class='space-y-1 border-t border-border p-1'>
                   {list(
                     (state?.queuedPrompts ?? []).map((prompt, index) => ({ prompt, index })),
@@ -763,45 +793,54 @@ export const HermesChatPane = controllerView(
                     ({ prompt, index }) => (
                       <div class='flex items-center gap-1 rounded px-1 py-0.5 hover:bg-muted'>
                         <span class='min-w-0 flex-1 truncate'>{prompt.text}</span>
-                        <button
+                        <Button
+                          size='icon'
+                          variant='ghost'
                           title='Move up'
                           disabled={index === 0}
                           onClick={() => session.prompt.moveQueued(index, -1)}
                         >
-                          <ArrowUp class='h-3 w-3' />
-                        </button>
-                        <button
+                          <ArrowUp class='size-3' />
+                        </Button>
+                        <Button
+                          size='icon'
+                          variant='ghost'
                           title='Move down'
                           disabled={index === (state?.queuedPrompts.length ?? 0) - 1}
                           onClick={() => session.prompt.moveQueued(index, 1)}
                         >
-                          <ArrowDown class='h-3 w-3' />
-                        </button>
-                        <button
+                          <ArrowDown class='size-3' />
+                        </Button>
+                        <Button
+                          size='icon'
+                          variant='ghost'
                           title='Edit queued prompt'
                           onClick={() => session.prompt.editQueued(index)}
                         >
-                          <Pencil class='h-3 w-3' />
-                        </button>
-                        <button
+                          <Pencil class='size-3' />
+                        </Button>
+                        <Button
+                          size='icon'
+                          variant='ghost'
                           title='Remove queued prompt'
                           onClick={() => session.prompt.removeQueued(index)}
                         >
-                          <X class='h-3 w-3' />
-                        </button>
+                          <X class='size-3' />
+                        </Button>
                       </div>
                     ),
                   )}
                   {state?.queueParked ? (
-                    <button
+                    <Button
+                      variant='outline'
                       class='rounded border border-input px-2 py-1 text-foreground'
                       onClick={() => session.prompt.resumeQueue()}
                     >
                       Resume queue
-                    </button>
+                    </Button>
                   ) : null}
                 </div>
-              </details>
+              </Disclosure>
             ) : null}
             {state?.completions.length ? (
               <div class='absolute right-2 bottom-full left-2 z-30 mb-1 overflow-hidden rounded-md border border-border bg-popover shadow-md'>
@@ -809,8 +848,9 @@ export const HermesChatPane = controllerView(
                   state?.completions ?? [],
                   (completion) => completion.text,
                   (completion) => (
-                    <button
-                      class='flex w-full items-center gap-3 px-3 py-2 text-left text-xs hover:bg-muted'
+                    <Button
+                      variant='ghost'
+                      class='flex w-full items-center gap-3 px-3 py-2 justify-start text-left text-xs hover:bg-muted'
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={() => session.composer.applyCompletion(completion)}
                     >
@@ -818,22 +858,24 @@ export const HermesChatPane = controllerView(
                         {completion.display || completion.text}
                       </span>
                       <span class='truncate text-muted-foreground'>{completion.meta}</span>
-                    </button>
+                    </Button>
                   ),
                 )}
               </div>
             ) : null}
             <div class='flex items-center gap-1'>
-              <button
+              <Button
+                size='icon'
+                variant='ghost'
                 class='shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground'
                 aria-label='Attach files (16 MiB maximum each)'
                 title='Attach files (16 MiB maximum each)'
                 disabled={state?.connection !== 'connected'}
                 onClick={actions.attach}
               >
-                <Paperclip class='h-4 w-4' />
-              </button>
-              <textarea
+                <Paperclip class='size-4' />
+              </Button>
+              <Textarea
                 class='scrollbar-none max-h-24 min-h-8 min-w-0 flex-1 resize-none overflow-y-auto rounded-lg border border-input bg-background px-2.5 py-1.5 text-[13px] leading-5 outline-none focus:ring-1 focus:ring-ring'
                 rows={1}
                 value={state?.composer ?? ''}
@@ -876,115 +918,107 @@ export const HermesChatPane = controllerView(
                 }}
               />
               {(state?.sessionId && !state?.archived) || state?.modelOptions.length ? (
-                <details class='relative shrink-0' name='hermes-composer-menu'>
-                  <summary
-                    class='flex cursor-pointer list-none rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground'
-                    aria-label='Chat options'
-                  >
-                    <MoreHorizontal class='h-4 w-4' />
-                  </summary>
-                  <div class='absolute right-0 bottom-full z-30 mb-1 flex min-w-52 max-w-[min(18rem,calc(100vw-2rem))] flex-col gap-1 rounded-md border border-border bg-popover p-1 text-xs text-foreground shadow-lg'>
-                    {state?.status === 'sending' || state?.status === 'streaming' ? (
-                      <button
-                        class='rounded px-2 py-1 text-left text-destructive hover:bg-muted'
-                        onClick={() => actions.stop()}
+                <Popover
+                  aria-label='Chat options'
+                  side='top'
+                  align='end'
+                  class='w-64 flex flex-col gap-1'
+                  trigger={
+                    <Button variant='ghost' size='icon' aria-label='Chat options'>
+                      <MoreHorizontal size={16} />
+                    </Button>
+                  }
+                >
+                  {state?.status === 'sending' || state?.status === 'streaming' ? (
+                    <Button
+                      variant='ghost'
+                      class='justify-start rounded px-2 py-1 text-left text-destructive hover:bg-muted'
+                      onClick={() => actions.stop()}
+                    >
+                      Stop response
+                    </Button>
+                  ) : null}
+                  {state?.sessionId && !state?.archived ? (
+                    <>
+                      <Button
+                        variant='ghost'
+                        class='justify-start rounded px-2 py-1 text-left hover:bg-muted'
+                        onClick={() => {
+                          ui.dialogs.openRename(state?.title ?? '')
+                        }}
                       >
-                        Stop response
-                      </button>
-                    ) : null}
-                    {state?.sessionId && !state?.archived ? (
-                      <>
-                        <button
-                          class='rounded px-2 py-1 text-left hover:bg-muted'
-                          onClick={() => {
-                            ui.dialogs.openRename(state?.title ?? '')
-                          }}
-                        >
-                          Rename
-                        </button>
-                        <button
-                          class='rounded px-2 py-1 text-left hover:bg-muted'
-                          onClick={() => actions.branch()}
-                        >
-                          Branch
-                        </button>
-                        <button
-                          class='rounded px-2 py-1 text-left hover:bg-muted'
-                          onClick={() => actions.exportSession()}
-                        >
-                          Export
-                        </button>
-                        <button
-                          class='rounded px-2 py-1 text-left hover:bg-muted disabled:opacity-50'
-                          disabled={state?.status !== 'idle' || !!state?.queuedPrompts.length}
-                          onClick={() => actions.archive()}
-                        >
-                          Archive
-                        </button>
-                      </>
-                    ) : null}
-                    {state?.modelOptions.length ? (
-                      <>
-                        <div class='my-0.5 border-t border-border' />
-                        <select
-                          class='min-w-0 rounded-md border border-input bg-background px-2 py-1.5 text-xs'
-                          aria-label='Hermes model'
-                          value={
-                            state?.provider && state?.model
-                              ? `${state?.provider}/${state?.model}`
-                              : ''
-                          }
+                        Rename
+                      </Button>
+                      <Button
+                        variant='ghost'
+                        class='justify-start rounded px-2 py-1 text-left hover:bg-muted'
+                        onClick={() => actions.branch()}
+                      >
+                        Branch
+                      </Button>
+                      <Button
+                        variant='ghost'
+                        class='justify-start rounded px-2 py-1 text-left hover:bg-muted'
+                        onClick={() => actions.exportSession()}
+                      >
+                        Export
+                      </Button>
+                      <Button
+                        variant='ghost'
+                        class='justify-start rounded px-2 py-1 text-left hover:bg-muted disabled:opacity-50'
+                        disabled={state?.status !== 'idle' || !!state?.queuedPrompts.length}
+                        onClick={() => actions.archive()}
+                      >
+                        Archive
+                      </Button>
+                    </>
+                  ) : null}
+                  {state?.modelOptions.length ? (
+                    <>
+                      <div class='my-0.5 border-t border-border' />
+                      <Select
+                        class='min-w-0 w-full'
+                        aria-label='Hermes model'
+                        value={
+                          state?.provider && state?.model
+                            ? `${state?.provider}/${state?.model}`
+                            : ''
+                        }
+                        disabled={state?.status !== 'idle'}
+                        onValueChange={(value) => actions.control(`/model ${value}`)}
+                        options={state.modelOptions}
+                      />
+                      {activeModelOption()?.reasoning ? (
+                        <Select
+                          class='min-w-0 w-full'
+                          aria-label='Reasoning effort'
+                          placeholder='Reasoning effort'
                           disabled={state?.status !== 'idle'}
-                          onChange={(event) =>
-                            actions.control(`/model ${event.currentTarget.value}`)
-                          }
+                          onValueChange={(value) => actions.control(`/reasoning ${value}`)}
+                          options={['none', 'low', 'medium', 'high', 'xhigh'].map((value) => ({
+                            value,
+                            label: value,
+                          }))}
+                        />
+                      ) : null}
+                      {activeModelOption()?.fast ? (
+                        <Button
+                          variant='outline'
+                          class='rounded-md border border-border px-2 py-1.5 justify-start text-left text-xs'
+                          disabled={state?.status !== 'idle'}
+                          onClick={() => actions.control('/fast')}
                         >
-                          <option value='' disabled>
-                            Model
-                          </option>
-                          {list(
-                            state?.modelOptions,
-                            (option) => option.value,
-                            (option) => (
-                              <option value={option.value}>{option.label}</option>
-                            ),
-                          )}
-                        </select>
-                        {activeModelOption()?.reasoning ? (
-                          <select
-                            class='min-w-0 rounded-md border border-input bg-background px-2 py-1.5 text-xs'
-                            aria-label='Reasoning effort'
-                            disabled={state?.status !== 'idle'}
-                            onChange={(event) =>
-                              actions.control(`/reasoning ${event.currentTarget.value}`)
-                            }
-                          >
-                            <option value=''>Reasoning</option>
-                            {list(
-                              ['none', 'low', 'medium', 'high', 'xhigh'],
-                              (level) => level,
-                              (effort) => (
-                                <option value={effort}>{effort}</option>
-                              ),
-                            )}
-                          </select>
-                        ) : null}
-                        {activeModelOption()?.fast ? (
-                          <button
-                            class='rounded-md border border-border px-2 py-1.5 text-left text-xs'
-                            disabled={state?.status !== 'idle'}
-                            onClick={() => actions.control('/fast')}
-                          >
-                            Toggle Fast mode
-                          </button>
-                        ) : null}
-                      </>
-                    ) : null}
-                  </div>
-                </details>
+                          Toggle Fast mode
+                        </Button>
+                      ) : null}
+                    </>
+                  ) : null}
+                </Popover>
               ) : null}
               {voiceGates().record ? (
-                <button
+                <Button
+                  size='icon'
+                  variant='ghost'
                   class={`shrink-0 rounded-md p-1.5 ${recording ? 'text-red-500' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}
                   aria-label={
                     model.denied
@@ -1003,18 +1037,21 @@ export const HermesChatPane = controllerView(
                   disabled={voiceGates().recordDisabled}
                   onClick={() => voiceRecorder.toggle()}
                 >
-                  {!recording ? <Mic class='h-4 w-4' /> : <Square class='h-4 w-4' />}
-                </button>
+                  {!recording ? <Mic class='size-4' /> : <Square class='size-4' />}
+                </Button>
               ) : null}
               {!ownsEditor() ? (
-                <button
+                <Button
+                  variant='outline'
                   class='rounded-md border border-border px-3 py-1.5 text-xs'
                   onClick={() => claimCurrentEditor()}
                 >
                   Take editing control
-                </button>
+                </Button>
               ) : null}
-              <button
+              <Button
+                size='icon'
+                variant='default'
                 class='flex shrink-0 items-center gap-1 rounded-md bg-primary p-1.5 text-xs text-primary-foreground disabled:opacity-50'
                 aria-label={
                   state?.status === 'sending' || state?.status === 'streaming'
@@ -1024,8 +1061,8 @@ export const HermesChatPane = controllerView(
                 disabled={!state?.composer.trim() || state?.connection !== 'connected'}
                 onClick={() => submit()}
               >
-                <SendHorizontal class='h-4 w-4' />
-              </button>
+                <SendHorizontal class='size-4' />
+              </Button>
             </div>
           </div>
         ) : (
@@ -1036,34 +1073,28 @@ export const HermesChatPane = controllerView(
                 : 'Archived session — read only'}
             </span>
             {state?.externallyActive ? (
-              <button
+              <Button
+                variant='outline'
                 class='ml-auto rounded-md border border-input px-2 py-1 text-foreground hover:bg-muted'
                 onClick={() => session.lifecycle.takeOver()}
               >
                 Take over
-              </button>
+              </Button>
             ) : null}
           </div>
         )}
         {((target) =>
           target ? (
-            <div
-              class='absolute inset-0 z-50 flex items-center justify-center bg-black/45 p-3'
-              role='presentation'
-              onClick={() => ui.dialogs.close('edit')}
+            <Dialog
+              open
+              onOpenChange={(open) => {
+                if (!open) ui.dialogs.close('edit')
+              }}
+              title='Edit prompt and rewind'
+              class='sm:max-w-md'
             >
               <form
-                class='w-full max-w-md rounded-lg border border-border bg-card p-3 shadow-xl'
-                role='dialog'
-                aria-modal='true'
-                aria-labelledby='hermes-edit-title'
-                onClick={(event) => event.stopPropagation()}
-                onKeyDown={(event) => {
-                  if (event.key !== 'Escape') return
-                  event.preventDefault()
-                  event.stopPropagation()
-                  ui.dialogs.close('edit')
-                }}
+                class='space-y-4'
                 onSubmit={(event) => {
                   event.preventDefault()
                   const text = ui.dialogs.editValue().trim()
@@ -1071,55 +1102,47 @@ export const HermesChatPane = controllerView(
                   void actions.rewind(target.id, text)
                 }}
               >
-                <h2 id='hermes-edit-title' class='text-sm font-semibold'>
-                  Edit prompt and rewind
-                </h2>
                 <p class='mt-1 text-xs text-muted-foreground'>
                   Messages after this prompt will be replaced.
                 </p>
-                <textarea
+                <Textarea
                   autofocus
                   class='mt-3 max-h-52 min-h-24 w-full resize-y rounded-md border border-input bg-background p-2 text-sm'
                   value={ui.dialogs.editValue()}
                   onInput={(event) => ui.dialogs.updateEdit(event.currentTarget.value)}
                 />
                 <div class='mt-3 flex justify-end gap-2'>
-                  <button
+                  <Button
+                    variant='outline'
                     type='button'
                     class='h-8 rounded-md border border-input px-3 text-xs'
                     onClick={() => ui.dialogs.close('edit')}
                   >
                     Cancel
-                  </button>
-                  <button
+                  </Button>
+                  <Button
+                    variant='default'
                     type='submit'
                     class='h-8 rounded-md bg-primary px-3 text-xs text-primary-foreground disabled:opacity-50'
                     disabled={!ui.dialogs.editValue().trim()}
                   >
                     Rewind
-                  </button>
+                  </Button>
                 </div>
               </form>
-            </div>
+            </Dialog>
           ) : null)(ui.dialogs.editTarget())}
         {ui.dialogs.renameOpen() ? (
-          <div
-            class='absolute inset-0 z-50 flex items-center justify-center bg-black/45 p-3'
-            role='presentation'
-            onClick={() => ui.dialogs.close('rename')}
+          <Dialog
+            open
+            onOpenChange={(open) => {
+              if (!open) ui.dialogs.close('rename')
+            }}
+            title='Rename session'
+            class='sm:max-w-md'
           >
             <form
-              class='w-full max-w-sm rounded-lg border border-border bg-card p-3 shadow-xl'
-              role='dialog'
-              aria-modal='true'
-              aria-labelledby='hermes-rename-title'
-              onClick={(event) => event.stopPropagation()}
-              onKeyDown={(event) => {
-                if (event.key !== 'Escape') return
-                event.preventDefault()
-                event.stopPropagation()
-                ui.dialogs.close('rename')
-              }}
+              class='space-y-4'
               onSubmit={(event) => {
                 event.preventDefault()
                 const title = ui.dialogs.renameValue().trim()
@@ -1127,108 +1150,73 @@ export const HermesChatPane = controllerView(
                 void actions.rename(title)
               }}
             >
-              <h2 id='hermes-rename-title' class='text-sm font-semibold'>
-                Rename session
-              </h2>
-              <input
+              <Input
                 autofocus
                 class='mt-3 h-9 w-full rounded-md border border-input bg-background px-2.5 text-sm'
                 value={ui.dialogs.renameValue()}
                 onInput={(event) => ui.dialogs.updateRename(event.currentTarget.value)}
               />
               <div class='mt-3 flex justify-end gap-2'>
-                <button
+                <Button
+                  variant='outline'
                   type='button'
                   class='h-8 rounded-md border border-input px-3 text-xs'
                   onClick={() => ui.dialogs.close('rename')}
                 >
                   Cancel
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant='default'
                   type='submit'
                   class='h-8 rounded-md bg-primary px-3 text-xs text-primary-foreground disabled:opacity-50'
                   disabled={!ui.dialogs.renameValue().trim()}
                 >
                   Rename
-                </button>
+                </Button>
               </div>
             </form>
-          </div>
+          </Dialog>
         ) : null}
         {ui.dialogs.takeoverOpen() ? (
-          <div
-            class='absolute inset-0 z-50 flex items-center justify-center bg-black/45 p-3'
-            role='presentation'
-            onClick={() => ui.dialogs.close('takeover')}
+          <Dialog
+            open
+            role='alertdialog'
+            onOpenChange={(open) => {
+              if (!open) ui.dialogs.close('takeover')
+            }}
+            title='Take over session?'
           >
-            <div
-              class='w-full max-w-xs rounded-lg border border-border bg-card p-3 shadow-xl'
-              role='alertdialog'
-              aria-modal='true'
-              aria-labelledby='hermes-takeover-title'
-              onClick={(event) => event.stopPropagation()}
-              onKeyDown={(event) => {
-                if (event.key !== 'Escape') return
-                event.preventDefault()
-                event.stopPropagation()
-                ui.dialogs.close('takeover')
-              }}
-            >
-              <h2 id='hermes-takeover-title' class='text-sm font-semibold'>
-                Take over session?
-              </h2>
-              <p class='mt-1 text-xs text-muted-foreground'>
-                Session is active in another Hermes client. Taking over transfers editing here.
-              </p>
-              <div class='mt-3 flex justify-end gap-2'>
-                <button
-                  class='h-8 rounded-md border border-input px-3 text-xs'
-                  onClick={() => ui.dialogs.close('takeover')}
-                >
-                  Cancel
-                </button>
-                <button
-                  class='h-8 rounded-md bg-primary px-3 text-xs text-primary-foreground'
-                  onClick={() => {
-                    ui.dialogs.close('takeover')
-                    submit(true)
-                  }}
-                >
-                  Take over
-                </button>
-              </div>
+            <p class='mt-1 text-xs text-muted-foreground'>
+              Session is active in another Hermes client. Taking over transfers editing here.
+            </p>
+            <div class='mt-3 flex justify-end gap-2'>
+              <Button
+                variant='outline'
+                class='h-8 rounded-md border border-input px-3 text-xs'
+                onClick={() => ui.dialogs.close('takeover')}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant='default'
+                class='h-8 rounded-md bg-primary px-3 text-xs text-primary-foreground'
+                onClick={() => {
+                  ui.dialogs.close('takeover')
+                  submit(true)
+                }}
+              >
+                Take over
+              </Button>
             </div>
-          </div>
+          </Dialog>
         ) : null}
         {((src) =>
           src ? (
-            <div
-              class='absolute inset-0 z-50 flex items-center justify-center bg-black/90 p-3'
-              role='dialog'
-              aria-modal='true'
-              aria-label='Hermes image preview'
-              tabindex={0}
-              onClick={(event) => event.target === event.currentTarget && ui.dialogs.close('image')}
-              onKeyDown={(event) => {
-                if (event.key !== 'Escape') return
-                event.preventDefault()
-                event.stopPropagation()
-                ui.dialogs.close('image')
-              }}
-            >
-              <button
-                class='absolute top-2 right-2 rounded-md bg-black/50 p-1.5 text-white/80 hover:bg-black/70 hover:text-white'
-                aria-label='Close image preview'
-                onClick={() => ui.dialogs.close('image')}
-              >
-                <X class='h-4 w-4' />
-              </button>
-              <img
-                src={src}
-                alt='Hermes image preview'
-                class='max-h-full max-w-full object-contain'
-              />
-            </div>
+            <ImageLightbox
+              src={src}
+              alt='Hermes image preview'
+              onClose={() => ui.dialogs.close('image')}
+            />
           ) : null)(ui.dialogs.previewImage())}
       </div>
     )

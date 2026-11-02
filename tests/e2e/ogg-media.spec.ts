@@ -56,21 +56,15 @@ test('Ogg tracks open in the native audio view, use the audio MIME type and ente
     .getByRole('button', { name: 'Pause', exact: true })
     .or(page.getByRole('button', { name: 'Play', exact: true }))
     .waitFor()
-  const result = await request.post('/api/music/playlists/resolve', {
-    data: { baseDirectory: 'Music', entries: names.map((value) => ({ value })) },
-  })
-  expect(result.ok()).toBe(true)
-  const resolved = await result.json()
-  expect(resolved.paths).toEqual(['Music/ogg-profile.ogg', 'Music/ogg-profile.oga'])
-  expect(resolved.issues).toHaveLength(1)
+  const paths = ['Music/ogg-profile.ogg', 'Music/ogg-profile.oga']
   const created = await request.post('/api/music/playlists', {
-    data: { name: 'Ogg profile check', paths: resolved.paths },
+    data: { name: 'Ogg profile check', paths: paths },
   })
   expect(created.ok()).toBe(true)
   const { id } = await created.json()
   try {
     const playlist = await (await request.get(`/api/music/playlists/${id}`)).json()
-    expect(playlist.items.map((item: { path: string }) => item.path)).toEqual(resolved.paths)
+    expect(playlist.items.map((item: { path: string }) => item.path)).toEqual(paths)
   } finally {
     await request.delete(`/api/music/playlists/${id}`)
   }

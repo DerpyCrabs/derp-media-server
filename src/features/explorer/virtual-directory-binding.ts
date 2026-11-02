@@ -1,3 +1,4 @@
+import { viewWindow } from '@/lib/browser/view-window'
 import type { DomLifetime } from 'effectweb'
 import { scrollAffectsElement } from '@/lib/ui/scroll-affects-element'
 import type { FileItem } from '@/lib/files/types'
@@ -6,6 +7,7 @@ import { mountThumbnailWarmup } from './thumbnail-warmup'
 export type DirectoryRange = { start: number; end: number; columns: number; rowHeight: number }
 export type DirectoryViewport = {
   files: readonly FileItem[]
+  warmThumbnails?: boolean
   includeParent: boolean
   target: { kind: 'window' } | { kind: 'element'; getScrollElement: () => HTMLElement | undefined }
   scope?: string
@@ -23,6 +25,8 @@ export const directoryViewport = (
   current: () => DirectoryViewport,
   lifetime: DomLifetime,
 ) => {
+  const document = element.ownerDocument
+  const window = viewWindow({ document })
   let unregister: (() => void) | undefined
   let registeredScope: string | undefined
   const read = () => {
@@ -74,7 +78,7 @@ export const directoryViewport = (
                 value.target.kind === 'element' ? value.target.getScrollElement() : window
               const rect = element.getBoundingClientRect()
               const base =
-                target instanceof HTMLElement
+                target instanceof window.HTMLElement
                   ? rect.top - target.getBoundingClientRect().top + target.scrollTop
                   : rect.top + window.scrollY
               target?.scrollTo({
@@ -82,7 +86,10 @@ export const directoryViewport = (
                   0,
                   base +
                     offset -
-                    (target instanceof HTMLElement ? target.clientHeight : window.innerHeight) / 2,
+                    (target instanceof window.HTMLElement
+                      ? target.clientHeight
+                      : window.innerHeight) /
+                      2,
                 ),
                 behavior: 'smooth',
               })
@@ -107,7 +114,7 @@ export const directoryViewport = (
     )
       return
     if (
-      !(event.target instanceof HTMLElement) ||
+      !(event.target instanceof window.HTMLElement) ||
       event.target.closest('input, textarea, button, a, [contenteditable=true]')
     )
       return
@@ -146,12 +153,12 @@ export const directoryViewport = (
       target.scrollIntoView({ block: 'nearest', inline: 'nearest' })
       return true
     }
-    cancelAnimationFrame(focusFrame)
+    window.cancelAnimationFrame(focusFrame)
     if (focus()) return
     const target = state.target.kind === 'element' ? state.target.getScrollElement() : window
     const rect = element.getBoundingClientRect()
     const base =
-      target instanceof HTMLElement
+      target instanceof window.HTMLElement
         ? rect.top - target.getBoundingClientRect().top + target.scrollTop
         : rect.top + window.scrollY
     target?.scrollTo({
@@ -166,16 +173,19 @@ export const directoryViewport = (
     schedule()
     let attempts = 0
     const retry = () => {
-      if (!focus() && ++attempts < 20) focusFrame = requestAnimationFrame(retry)
+      if (!focus() && ++attempts < 20) focusFrame = window.requestAnimationFrame(retry)
     }
-    focusFrame = requestAnimationFrame(retry)
+    focusFrame = window.requestAnimationFrame(retry)
   }
   let focusHandled = false
   const focusOnLoad = () => {
     if (focusHandled || !current().focusOnLoad) return
     focusHandled = true
-    focusFrame = requestAnimationFrame(() => {
-      if (document.activeElement === document.body) {
+    focusFrame = window.requestAnimationFrame(() => {
+      if (
+        document.activeElement === document.body ||
+        document.activeElement === element.closest('[data-folder-navigation]')
+      ) {
         const row = element.querySelector<HTMLElement>('[data-file-path]')
         if (row) row.focus({ preventScroll: true })
         else {
@@ -187,11 +197,13 @@ export const directoryViewport = (
     })
   }
   element.addEventListener('keydown', onKeyDown)
-  const observer = new ResizeObserver(schedule)
+  const observer = new window.ResizeObserver(schedule)
   observer.observe(element)
   document.addEventListener('scroll', onScroll, { capture: true, passive: true })
   window.addEventListener('resize', schedule)
-  const warmup = mountThumbnailWarmup(element, () => current().files)
+  const warmup = mountThumbnailWarmup(element, () =>
+    current().warmThumbnails === false ? [] : current().files,
+  )
   schedule()
   focusOnLoad()
   return {
@@ -200,7 +212,7 @@ export const directoryViewport = (
       focusOnLoad()
     },
     dispose: () => {
-      cancelAnimationFrame(focusFrame)
+      window.cancelAnimationFrame(focusFrame)
       element.removeEventListener('keydown', onKeyDown)
       observer.disconnect()
       unregister?.()

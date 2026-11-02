@@ -7,8 +7,9 @@ export type ModalFocusOptions = {
   ignoreEscape?: (event: KeyboardEvent) => boolean
   fallbackFocus?: () => HTMLElement | null
 }
-function acquireModalFocus(element: HTMLElement, options: () => ModalFocusOptions) {
-  const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
+export function acquireModalFocus(element: HTMLElement, options: () => ModalFocusOptions) {
+  const document = element.ownerDocument
+  const previous = document.activeElement
   let disposed = false
   queueMicrotask(() => {
     if (disposed) return
@@ -47,7 +48,8 @@ function acquireModalFocus(element: HTMLElement, options: () => ModalFocusOption
     disposed = true
     element.removeEventListener('keydown', keydown)
     queueMicrotask(() => {
-      if (previous?.isConnected) previous.focus()
+      if (previous?.isConnected && 'focus' in previous && typeof previous.focus === 'function')
+        previous.focus()
       else options().fallbackFocus?.()?.focus()
     })
   }

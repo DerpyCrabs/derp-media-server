@@ -1,3 +1,4 @@
+import { Button } from '@/lib/ui/button'
 import { domBinding, component, view, type DomLifetime } from 'effectweb'
 import ArrowUp from '@effectweb/lucide/icons/arrow-up'
 import LocateFixed from '@effectweb/lucide/icons/locate-fixed'
@@ -76,18 +77,22 @@ export const FloatingScrollActions = component(
         class='fixed right-3 top-1/2 z-30 flex -translate-y-1/2 flex-col gap-2 sm:right-5'
       >
         {model.video ? (
-          <button
+          <Button
+            size='icon'
+            variant='outline'
             type='button'
             class='inline-flex size-10 items-center justify-center rounded-full border border-border bg-background/95 text-foreground shadow-lg backdrop-blur transition-colors hover:bg-muted'
             title='Scroll to video player'
             aria-label='Scroll to video player'
             onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
           >
-            <ArrowUp class='h-4 w-4' aria-hidden='true' />
-          </button>
+            <ArrowUp class='size-4' aria-hidden='true' />
+          </Button>
         ) : null}
         {model.playing ? (
-          <button
+          <Button
+            size='icon'
+            variant='outline'
             type='button'
             class='inline-flex size-10 items-center justify-center rounded-full border border-border bg-background/95 text-foreground shadow-lg backdrop-blur transition-colors hover:bg-muted'
             title='Scroll to playing file'
@@ -99,8 +104,8 @@ export const FloatingScrollActions = component(
               else getVirtualFileScroller(scope)?.scrollToPath(path)
             }}
           >
-            <LocateFixed class='h-4 w-4' aria-hidden='true' />
-          </button>
+            <LocateFixed class='size-4' aria-hidden='true' />
+          </Button>
         ) : null}
       </div>
     )

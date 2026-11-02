@@ -109,7 +109,7 @@ export const KbDashboard = controllerView(
                 tabindex={0}
                 {...(compact() ? { 'data-no-window-drag': '' } : {})}
                 class={cn(
-                  'flex shrink-0 cursor-pointer items-center rounded border border-border bg-background text-left transition-colors hover:bg-muted/50',
+                  'flex shrink-0 cursor-pointer items-center rounded border border-border bg-background justify-start text-left transition-colors hover:bg-muted/50',
                   compact()
                     ? 'gap-1 px-1.5 py-0.5'
                     : 'gap-1 px-1.5 py-1 md:gap-1.5 md:px-2 md:py-1.5',

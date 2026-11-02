@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Derp Text
+GenericName=Text editor
+Exec=derp-media-client --viewer=text -- %U
+Icon=derp-text
+Terminal=false
+Categories=Utility;TextEditor;
+MimeType=text/plain;text/markdown;application/json;application/xml;text/csv;text/tab-separated-values;text/yaml;
+StartupNotify=true
+StartupWMClass=derp-media-client

@@ -54,6 +54,7 @@
     places: () => call('places'),
     resolvePath: (path) => call('resolve-path', path),
     applications: (path) => call('applications', path),
+    openDefault: (path) => call('open-default', path),
     openWith: (path, app) => call('open-with', path, app),
     terminal: (path) => call('terminal', path),
     cut: (paths) => call('cut', paths),

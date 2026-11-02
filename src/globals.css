@@ -1,4 +1,6 @@
 @import 'tailwindcss';
+@import '@effectweb/shadcn/theme.css';
+@source '../node_modules/@effectweb/shadcn/dist';
 
 .book-document {
   background: #fffdf8;
@@ -491,9 +493,12 @@
   --font-mono: 'Geist Mono Variable', ui-monospace, monospace;
 }
 
-html,
-body {
+html {
   overflow: auto;
+}
+
+body {
+  overflow: visible;
 }
 
 /* Themed scrollbars — use CSS variables so they adapt to all themes */
@@ -973,4 +978,83 @@ body {
 .text-merge-surface .cm-collapsedLines {
   color: var(--muted-foreground);
   background: var(--muted);
+}
+
+[data-slot='input']::-webkit-search-cancel-button,
+[data-slot='input']::-webkit-search-decoration {
+  -webkit-appearance: none;
+}
+
+:is([data-slot='dropdown-menu-content'], [data-slot='dropdown-menu-sub-content'])
+  :is([role='menuitem'], [role='menuitemcheckbox'], [role='menuitemradio']) {
+  width: 100%;
+  min-height: 2rem;
+  text-align: left;
+}
+
+@media (pointer: coarse) {
+  :is([data-slot='dropdown-menu-content'], [data-slot='dropdown-menu-sub-content'])
+    :is([role='menuitem'], [role='menuitemcheckbox'], [role='menuitemradio']),
+  [data-slot='context-menu-item'],
+  [data-slot='select-item'] {
+    min-height: 2.75rem;
+  }
+}
+
+input[data-slot='playback-seek'] {
+  appearance: none;
+  height: 20px;
+  min-width: 0;
+  cursor: pointer;
+  background: transparent;
+  outline: none;
+}
+input[data-slot='playback-seek']::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--primary) var(--seek-progress),
+    var(--muted) var(--seek-progress)
+  );
+}
+input[data-slot='playback-seek']::-webkit-slider-thumb {
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -4px;
+  border: 1px solid var(--primary);
+  border-radius: 50%;
+  background: var(--background);
+}
+input[data-slot='playback-seek']::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--muted);
+}
+input[data-slot='playback-seek']::-moz-range-progress {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--primary);
+}
+input[data-slot='playback-seek']::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--primary);
+  border-radius: 50%;
+  background: var(--background);
+}
+input[data-slot='playback-seek']:focus-visible {
+  border-radius: 4px;
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+[data-slot='input'][type='number'] {
+  appearance: textfield;
+}
+[data-slot='input']::-webkit-inner-spin-button,
+[data-slot='input']::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }

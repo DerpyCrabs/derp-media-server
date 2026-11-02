@@ -19,6 +19,7 @@ fn defaults() -> Value {
             "workspace": {"createdDate": false, "size": true, "favorite": false, "views": false}
         },
         "favorites": [],
+        "sidebarFolders": [],
         "knowledgeBases": [],
         "customIcons": {},
         "autoSave": {},
@@ -96,6 +97,9 @@ pub(crate) enum SettingsCommand {
         favorite: bool,
         views: bool,
     },
+    ToggleSidebarFolder {
+        path: String,
+    },
     ToggleFavorite {
         path: String,
     },
@@ -152,6 +156,7 @@ impl SettingsRepository {
             "sortOrders",
             "fileColumns",
             "favorites",
+            "sidebarFolders",
             "knowledgeBases",
             "customIcons",
             "autoSave",
@@ -286,6 +291,11 @@ fn apply_command(settings: &mut Value, command: SettingsCommand) -> AppResult<Va
                 "views":views
             });
             Ok(json!({"success":true}))
+        }
+        SettingsCommand::ToggleSidebarFolder { path } => {
+            let (added, items) =
+                toggle_string(&mut settings["sidebarFolders"], &path, "sidebarFolders")?;
+            Ok(json!({"success":true,"pinned":added,"sidebarFolders":items}))
         }
         SettingsCommand::ToggleFavorite { path } => {
             let (added, items) = toggle_string(&mut settings["favorites"], &path, "favorites")?;
@@ -496,7 +506,7 @@ fn move_settings_paths(settings: &mut Value, old_path: &str, new_path: &str) {
     for key in ["viewModes", "sortOrders", "customIcons", "autoSave"] {
         move_map(&mut settings[key], old_path, new_path);
     }
-    for key in ["favorites", "knowledgeBases"] {
+    for key in ["favorites", "knowledgeBases", "sidebarFolders"] {
         move_list(&mut settings[key], old_path, new_path);
     }
     move_taskbar_pins(&mut settings["workspaceTaskbarPins"], old_path, new_path);
@@ -506,7 +516,7 @@ fn remove_settings_paths(settings: &mut Value, path: &str) {
     for key in ["viewModes", "sortOrders", "customIcons", "autoSave"] {
         remove_map(&mut settings[key], path);
     }
-    for key in ["favorites", "knowledgeBases"] {
+    for key in ["favorites", "knowledgeBases", "sidebarFolders"] {
         remove_list(&mut settings[key], path);
     }
     remove_taskbar_paths(&mut settings["workspaceTaskbarPins"], path);
@@ -637,6 +647,7 @@ mod tests {
     fn path_commands_rewrite_all_settings_paths_with_shared_semantics() {
         let mut settings = defaults();
         settings["favorites"] = json!(["Books/Old/note.md"]);
+        settings["sidebarFolders"] = json!(["Books/Old"]);
         settings["knowledgeBases"] = json!(["Books/Old"]);
         settings["sortOrders"]["Books/Old"] = json!({"field":"name"});
         settings["workspaceTaskbarPins"] = json!([{
@@ -651,6 +662,7 @@ mod tests {
 
         assert_eq!(settings["favorites"], json!(["Books/New/note.md"]));
         assert_eq!(settings["knowledgeBases"], json!(["Books/New"]));
+        assert_eq!(settings["sidebarFolders"], json!(["Books/New"]));
         assert!(settings["sortOrders"].get("Books/New").is_some());
         assert_eq!(
             settings["workspaceTaskbarPins"][0]["path"],
@@ -663,6 +675,7 @@ mod tests {
 
         remove_settings_paths(&mut settings, "Books/New");
         assert!(settings["favorites"].as_array().unwrap().is_empty());
+        assert!(settings["sidebarFolders"].as_array().unwrap().is_empty());
         assert!(
             settings["workspaceTaskbarPins"]
                 .as_array()

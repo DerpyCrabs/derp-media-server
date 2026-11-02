@@ -14,8 +14,11 @@ export type ClampFixedMenuArgs = {
 }
 
 /** Clamp top-left for a `position: fixed` menu so it stays inside the layout viewport. */
-export function clampFixedMenuPosition(args: ClampFixedMenuArgs): { left: number; top: number } {
-  const { w: vw, h: vh } = layoutViewportClientSize()
+export function clampFixedMenuPosition(
+  args: ClampFixedMenuArgs,
+  document: Document = globalThis.document,
+): { left: number; top: number } {
+  const { w: vw, h: vh } = layoutViewportClientSize(document)
   const pw = Math.max(1, args.width)
   const ph = Math.max(1, args.height)
   const { anchorTop, anchorBottom, gap } = args.flip

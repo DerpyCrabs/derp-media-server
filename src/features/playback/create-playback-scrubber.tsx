@@ -17,12 +17,16 @@ export const PlaybackScrubber = component<Props, { drag: number | null }>(
   view((model, patch) => (
     <input
       type='range'
+      data-slot='playback-seek'
       min={0}
       max={model.props.duration || 0}
-      step='0.1'
+      step={0.1}
       value={model.drag ?? model.props.position}
       class={model.props.class}
-      style={model.props.style}
+      style={{
+        ...model.props.style,
+        '--seek-progress': `${model.props.duration > 0 ? Math.min(100, Math.max(0, ((model.drag ?? model.props.position) / model.props.duration) * 100)) : 0}%`,
+      }}
       disabled={model.props.disabled}
       aria-label={model.props.ariaLabel ?? 'Seek'}
       aria-valuetext={model.props.ariaValueText?.(model.drag ?? model.props.position)}

@@ -1,3 +1,4 @@
+import type { BrowserWindow } from '@/lib/browser/view-window'
 import { beginNativeOperation, finishNativeOperation } from '@/desktop/native-trace'
 import { Schema } from 'effect'
 import { Effect } from 'effect'
@@ -54,7 +55,7 @@ const configQuery = query({
 const loadSlot = 'responsive-image-load'
 const spinnerSlot = 'responsive-image-spinner'
 const prefetchSlot = 'responsive-image-prefetch'
-export function createResponsiveImage(initial: Options) {
+export function createResponsiveImage(initial: Options, window: BrowserWindow) {
   let options = initial
   let demandPath = '',
     requested = '',
@@ -154,7 +155,7 @@ export function createResponsiveImage(initial: Options) {
       return
     }
     const path = options.path
-    const trace = beginNativeOperation(2, path)
+    const trace = beginNativeOperation(2, path, window.derpDesktop?.trace ?? null)
     dispatch({ kind: 'start' })
     owner.run(
       spinnerSlot,
@@ -166,7 +167,7 @@ export function createResponsiveImage(initial: Options) {
     owner.run(
       loadSlot,
       Effect.callback<HTMLImageElement, Error>((resume) => {
-        const image = new Image()
+        const image = new window.Image()
         image.decoding = 'async'
         let loaded = false
         image.onload = () => {
@@ -224,7 +225,7 @@ export function createResponsiveImage(initial: Options) {
       unobserve?.()
       const measure = () => {
         const bounds = element.getBoundingClientRect(),
-          style = getComputedStyle(element)
+          style = window.getComputedStyle(element)
         owner.patch({
           dimensions: {
             width: Math.max(
@@ -239,7 +240,7 @@ export function createResponsiveImage(initial: Options) {
         })
         update()
       }
-      const resize = new ResizeObserver(measure)
+      const resize = new window.ResizeObserver(measure)
       resize.observe(element)
       const stopVisible = observeMediaVisibility(element, (next) => {
         visible = next

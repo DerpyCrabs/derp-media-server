@@ -1,3 +1,7 @@
+import { NativeOpenButton } from '@/desktop/NativeOpen'
+import { Disclosure } from '@/lib/ui/disclosure'
+import { BrowserDownload } from '@/lib/ui/browser-download'
+import { Button } from '@/lib/ui/button'
 import { list } from 'effectweb'
 import { readResponseBytes } from '@/lib/files/response-bytes'
 import Search from '@effectweb/lucide/icons/search'
@@ -451,43 +455,49 @@ const BookReader = controllerView(
         settingsWide
         toolbar={
           <div class='flex items-center gap-1'>
-            <button
+            <Button
+              size='icon'
+              variant='outline'
               type='button'
               aria-label='Previous chapter'
-              class='grid h-8 w-8 place-items-center rounded-lg border border-[#3a3a3a] bg-[#202020] hover:border-[#777]'
+              class='grid h-8 w-8 place-items-center rounded-lg border border-border bg-background hover:border-border'
               onClick={() => actions.adjacent(-1)}
             >
-              <ChevronLeft size={17} />
-            </button>
-            <button
+              <ChevronLeft class='size-[17px]' size={17} />
+            </Button>
+            <Button
+              variant='outline'
               type='button'
               data-testid='reader-book-progress'
-              class='flex h-8 w-[clamp(72px,28vw,260px)] min-w-0 items-center justify-center truncate rounded-lg border border-[#3a3a3a] bg-[#181818] px-2 text-sm hover:border-[#777]'
+              class='flex h-8 w-[clamp(72px,28vw,260px)] min-w-0 items-center justify-center truncate rounded-lg border border-border bg-background px-2 text-sm hover:border-border'
               onClick={() => readerPreferences.patch({ outlineOpen: true })}
             >
               <span class='truncate'>
                 {loaded?.document.chapters.find((chapter) => chapter.id === state.chapterId)
                   ?.title ?? (officeDocument ? 'Document' : 'Book')}
               </span>
-            </button>
-            <button
+            </Button>
+            <Button
+              size='icon'
+              variant='outline'
               type='button'
               aria-label='Next chapter'
-              class='grid h-8 w-8 place-items-center rounded-lg border border-[#3a3a3a] bg-[#202020] hover:border-[#777]'
+              class='grid h-8 w-8 place-items-center rounded-lg border border-border bg-background hover:border-border'
               onClick={() => actions.adjacent(1)}
             >
-              <ChevronRight size={17} />
-            </button>
+              <ChevronRight class='size-[17px]' size={17} />
+            </Button>
             {loaded ? (
-              <button
+              <Button
+                variant='outline'
+                size='icon'
                 type='button'
                 aria-label='Find in document'
                 title='Find in document (Ctrl/Cmd+F)'
-                class='inline-flex size-8 shrink-0 items-center justify-center rounded hover:bg-white/10'
                 onClick={actions.openSearch}
               >
-                <Search size={17} />
-              </button>
+                <Search class='size-[17px]' size={17} />
+              </Button>
             ) : null}
           </div>
         }
@@ -515,37 +525,43 @@ const BookReader = controllerView(
                 onClose={actions.closeSearch}
               />
             ) : null}
+          </>
+        }
+        settings={(close) => (
+          <>
+            <NativeOpenButton path={props.sourcePath} onDone={close} />
+            <BookAppearanceSettings
+              value={model.preferences.bookAppearance}
+              onChange={(bookAppearance) => readerPreferences.patch({ bookAppearance })}
+            />
             {officeDocument ? (
-              <div class='flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-white/10 bg-neutral-900 px-3 py-1.5 text-xs text-white/70'>
-                <details>
-                  <summary class='cursor-pointer'>Reading preview · Layout may differ</summary>
+              <div class='space-y-2 border-t border-border pt-3 text-xs text-muted-foreground'>
+                <Disclosure
+                  triggerClass='cursor-pointer'
+                  trigger={<> Reading preview · Layout may differ </>}
+                >
                   <div class='max-w-xl py-2'>
                     <p>
-                      Text, tables and embedded images are shown in a reading layout. Page breaks,
-                      headers, footers, comments and some formatting are omitted. Open the original
-                      for exact layout or editing.
+                      Reading layout omits page breaks, headers, footers and comments. Use the
+                      original for exact layout or editing.
                     </p>
                     {list(loaded?.document.notices ?? [], (notice) => (
                       <p>{notice}</p>
                     ))}
                   </div>
-                </details>
-                <a
-                  class='shrink-0 underline hover:text-white'
-                  href={`/api/files/download?path=${encodeURIComponent(props.sourcePath)}`}
-                  download
-                >
-                  Download original
-                </a>
+                </Disclosure>
+                <BrowserDownload>
+                  <a
+                    class='shrink-0 underline hover:text-foreground'
+                    href={`/api/files/download?path=${encodeURIComponent(props.sourcePath)}`}
+                    download
+                  >
+                    Download original
+                  </a>
+                </BrowserDownload>
               </div>
             ) : null}
           </>
-        }
-        settings={() => (
-          <BookAppearanceSettings
-            value={model.preferences.bookAppearance}
-            onChange={(bookAppearance) => readerPreferences.patch({ bookAppearance })}
-          />
         )}
         outline={(navigation) => (
           <ReaderOutline
@@ -599,23 +615,25 @@ const BookReader = controllerView(
         content={() => (
           <>
             {model.loading ? (
-              <div class='flex h-full items-center justify-center text-sm text-white/60'>
+              <div class='flex h-full items-center justify-center text-sm text-muted-foreground'>
                 Opening...
               </div>
             ) : null}
             {model.error ? (
               <div
                 role='alert'
-                class='flex h-full flex-col items-center justify-center gap-3 p-8 text-center text-red-300'
+                class='flex h-full flex-col items-center justify-center gap-3 p-8 text-center text-destructive'
               >
                 <p>{model.error}</p>
-                <a
-                  class='rounded border border-white/25 px-3 py-1.5 text-sm text-white hover:border-white/60'
-                  href={buildMediaUrl(props.sourcePath.replace(/\\/g, '/'))}
-                  download
-                >
-                  Download original
-                </a>
+                <BrowserDownload>
+                  <a
+                    class='rounded border border-input px-3 py-1.5 text-sm text-foreground hover:border-ring'
+                    href={buildMediaUrl(props.sourcePath.replace(/\\/g, '/'))}
+                    download
+                  >
+                    Download original
+                  </a>
+                </BrowserDownload>
               </div>
             ) : null}
             {loaded && model.viewport ? (

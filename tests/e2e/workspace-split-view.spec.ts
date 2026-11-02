@@ -51,7 +51,8 @@ async function mergeSecondBrowserIntoFirst(p: Page) {
 
 async function chooseWorkspaceOpenTarget(p: Page, label: 'New tab' | 'New window') {
   const dialog = p.getByRole('dialog').filter({ has: p.getByRole('heading', { name: 'Settings' }) })
-  await dialog.getByRole('button', { name: label }).click()
+  await dialog.getByRole('button', { name: 'Open files in', exact: true }).click()
+  await p.getByRole('option', { name: label, exact: true }).click()
   await p.keyboard.press('Escape')
 }
 

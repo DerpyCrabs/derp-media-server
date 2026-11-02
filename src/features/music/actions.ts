@@ -11,11 +11,7 @@ import type { MusicTrack } from './types'
 
 export type MusicDialog = { kind: 'collection'; title: string; items: MusicTrack[] }
 
-export type PlaylistRequest = {
-  paths: readonly string[]
-  name: string
-  importSource?: { path: string; content: string }
-}
+export type PlaylistRequest = { paths: readonly string[]; name: string }
 const owner = modelOwner({
   dialog: null as MusicDialog | null,
   notice: '',
@@ -26,8 +22,6 @@ export const musicUiSource = owner.source
 export const musicUiLifetime = { dispose: owner.dispose, close: owner.close }
 export const openPlaylists = (paths: readonly string[] = [], name = '') =>
   owner.patch({ dialog: null, playlists: { paths: [...new Set(paths)], name } })
-export const openPlaylistImport = (path: string, content: string) =>
-  owner.patch({ dialog: null, playlists: { paths: [], name: '', importSource: { path, content } } })
 export const closePlaylists = () => owner.patch({ playlists: null })
 export const setMusicDialog = (dialog: MusicDialog | null) => owner.patch({ dialog })
 export function notifyMusic(notice: string) {

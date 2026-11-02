@@ -1,6 +1,8 @@
-import { openSleepTimer, sleepTimerLabel } from '@/features/playback/sleep-timer'
+import { Slider } from '@/lib/ui/slider'
+import { AudioPlaybackMenu } from '@/features/playback/AudioPlaybackMenu'
+import { BrowserDownload } from '@/lib/ui/browser-download'
+import { Button } from '@/lib/ui/button'
 import { QueuePanel } from '@/features/music/QueuePanel'
-import { PlaybackSetting } from '@/features/playback/PlaybackSetting'
 import {
   available,
   collection,
@@ -257,14 +259,16 @@ const Info = view<{ model: Model; compact?: boolean; duration: number }>((props)
       >
         {model.metadata?.title || fileName}
       </h2>
-      <p class='mt-0.5 truncate text-xs text-muted-foreground'>
-        {model.metadata?.artist || 'Unknown artist'}
-      </p>
+      {model.metadata?.artist ? (
+        <p class='mt-0.5 truncate text-xs text-muted-foreground'>{model.metadata.artist}</p>
+      ) : null}
       {!props.compact ? (
         <>
-          <p class='truncate text-[11px] text-muted-foreground/75'>
-            {model.metadata?.album || model.props.directory || 'Unknown album'}
-          </p>
+          {model.metadata?.album || model.props.directory ? (
+            <p class='truncate text-[11px] text-muted-foreground/75'>
+              {model.metadata?.album || model.props.directory}
+            </p>
+          ) : null}
           <div class='mt-1.5 flex gap-1.5 text-[10px] text-muted-foreground'>
             <span class='rounded bg-muted px-1.5 py-0.5 font-medium'>
               {model.props.viewingPath.split('.').pop()?.toUpperCase()}
@@ -286,7 +290,9 @@ const Transport = view<{ model: Model; active: boolean }>((props) => {
   return (
     <div class='flex min-w-0 flex-wrap items-center gap-2'>
       {files.length > 1 ? (
-        <button
+        <Button
+          size='icon'
+          variant='ghost'
           type='button'
           aria-label='Previous track'
           class='inline-flex size-7 shrink-0 items-center justify-center rounded hover:bg-muted disabled:opacity-30'
@@ -294,18 +300,22 @@ const Transport = view<{ model: Model; active: boolean }>((props) => {
           onClick={() => model.actions.step(-1)}
         >
           <SkipBack size={16} />
-        </button>
+        </Button>
       ) : null}
-      <button
+      <Button
+        size='icon'
+        variant='default'
         type='button'
         aria-label={playing ? 'Pause' : 'Play'}
         class='bg-primary text-primary-foreground hover:bg-primary/90 inline-flex size-9 shrink-0 items-center justify-center rounded-full shadow-sm'
         onClick={model.actions.toggle}
       >
         {playing ? <Pause class='size-4 fill-current' /> : <Play class='size-4 fill-current' />}
-      </button>
+      </Button>
       {files.length > 1 ? (
-        <button
+        <Button
+          size='icon'
+          variant='ghost'
           type='button'
           aria-label='Next track'
           class='inline-flex size-7 shrink-0 items-center justify-center rounded hover:bg-muted disabled:opacity-30'
@@ -313,55 +323,48 @@ const Transport = view<{ model: Model; active: boolean }>((props) => {
           onClick={() => model.actions.step(1)}
         >
           <SkipForward size={16} />
-        </button>
+        </Button>
       ) : null}
-      <button
+      <Button
+        size='icon'
+        variant='ghost'
         type='button'
         aria-label={model.playback.muted ? 'Unmute' : 'Mute'}
         class='hover:bg-muted inline-flex size-8 shrink-0 items-center justify-center rounded-md'
         onClick={model.actions.mute}
       >
         {model.playback.muted ? <VolumeX class='size-4' /> : <Volume2 class='size-4' />}
-      </button>
-      <input
-        type='range'
+      </Button>
+      <Slider
         aria-label='Volume'
         min={0}
         max={1}
         step={0.01}
         value={model.playback.muted ? 0 : model.playback.volume}
-        onInput={(event) => model.actions.volume(Number.parseFloat(event.currentTarget.value))}
-        class='[&::-webkit-slider-thumb]:bg-foreground h-1.5 min-w-10 flex-1 cursor-pointer appearance-none rounded-full bg-secondary [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full'
+        onValueChange={(value) => model.actions.volume(value)}
+        class='min-w-10 flex-1'
       />
-      <div class='w-[72px] shrink-0'>
-        <PlaybackSetting
-          label='Audio playback speed'
-          status={
-            model.playback.sleepTimer ? sleepTimerLabel(model.playback.sleepTimer) : undefined
-          }
-          action={{
-            label: sleepTimerLabel(model.playback.sleepTimer),
-            onClick: () => openSleepTimer(),
-          }}
-          value={String(props.active ? model.playback.playbackRate : 1)}
+      <div class='shrink-0'>
+        <AudioPlaybackMenu
+          path={model.props.viewingPath}
+          rate={props.active ? model.playback.playbackRate : 1}
+          timer={model.playback.sleepTimer}
           disabled={!props.active}
-          options={[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3].map((rate) => ({
-            value: String(rate),
-            label: `${rate}×`,
-          }))}
-          onChange={(value) => model.actions.speed(Number(value))}
+          onRate={model.actions.speed}
         />
       </div>
       {props.active ? <QueuePanel compact /> : null}
-      <a
-        href={fileDownloadHref(model.props.viewingPath)}
-        download={model.props.viewingPath.split(/[/\\]/).pop()}
-        aria-label='Download'
-        title='Download'
-        class='hover:bg-muted inline-flex size-8 shrink-0 items-center justify-center rounded-md'
-      >
-        <Download class='size-4' />
-      </a>
+      <BrowserDownload>
+        <a
+          href={fileDownloadHref(model.props.viewingPath)}
+          download={model.props.viewingPath.split(/[/\\]/).pop()}
+          aria-label='Download'
+          title='Download'
+          class='hover:bg-muted inline-flex size-8 shrink-0 items-center justify-center rounded-md'
+        >
+          <Download class='size-4' />
+        </a>
+      </BrowserDownload>
     </div>
   )
 })
@@ -386,17 +389,18 @@ const PlaylistRow = controllerView(
     const title = model.metadata?.title?.trim() || model.props.file.name
     const label = model.metadata?.artist?.trim() ? `${model.metadata.artist} — ${title}` : title
     return (
-      <button
+      <Button
+        variant={model.props.selected ? 'secondary' : 'ghost'}
         type='button'
         data-audio-playlist-path={model.props.file.path}
-        class={`flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted ${model.props.selected ? 'bg-primary/10 text-primary' : ''}`}
+        class={`flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 justify-start text-left hover:bg-muted ${model.props.selected ? 'bg-primary/10 text-primary' : ''}`}
         onClick={() => model.props.onSelect(model.props.file.path)}
       >
         <Music2 class='size-3.5 shrink-0' />
         <span class='min-w-0 flex-1 truncate text-xs' title={label}>
           {label}
         </span>
-      </button>
+      </Button>
     )
   }),
 )
@@ -488,27 +492,30 @@ export const AudioViewerPane = controllerView(
           <div class='absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-background/90 p-6 text-center'>
             <p class='text-destructive text-sm'>{error}</p>
             <div class='flex gap-2'>
-              <button
+              <Button
+                variant='default'
                 type='button'
                 class='rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground'
                 onClick={model.actions.retry}
               >
                 Retry
-              </button>
-              <a
-                href={fileDownloadHref(props.viewingPath)}
-                download={props.viewingPath.split(/[/\\]/).pop()}
-                class='rounded-md border border-input px-3 py-1.5 text-sm'
-              >
-                Download
-              </a>
+              </Button>
+              <BrowserDownload>
+                <a
+                  href={fileDownloadHref(props.viewingPath)}
+                  download={props.viewingPath.split(/[/\\]/).pop()}
+                  class='rounded-md border border-input px-3 py-1.5 text-sm'
+                >
+                  Download
+                </a>
+              </BrowserDownload>
             </div>
           </div>
         ) : null}
         {layout === 'compact' ? (
           <div class='flex h-full min-h-0 flex-col justify-center gap-2.5 p-3'>
             <div class='flex min-w-0 items-center gap-3'>
-              <Artwork url={artwork} class='size-12' />
+              {artwork ? <Artwork url={artwork} class='size-12' /> : null}
               <div class='min-w-0 flex-1'>
                 <Info model={model} compact duration={duration} />
               </div>

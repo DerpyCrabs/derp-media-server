@@ -67,6 +67,7 @@ export const DesktopWindowGroup = view<DesktopWindowGroupModel>((props) => {
         beginPointerGesture: props.windows.beginPointerGesture,
       }}
       tabs={{
+        reopen: props.tabs.reopen,
         activate: props.tabs.activate,
         close: props.tabs.close,
         togglePinned: props.tabs.togglePinned,

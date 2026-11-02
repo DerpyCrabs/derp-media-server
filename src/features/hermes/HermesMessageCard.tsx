@@ -1,7 +1,11 @@
+import { BrowserDownload } from '@/lib/ui/browser-download'
+import { Disclosure } from '@/lib/ui/disclosure'
+import { DropdownMenu } from '@/lib/ui/menu'
+import { Button } from '@/lib/ui/button'
 import { sequence } from 'effectweb'
 import { Effect } from 'effect'
 import { showAppAlertEffect } from '@/lib/ui/app-dialog'
-import { component, view, domMount, errorBoundary, list } from 'effectweb'
+import { component, view, errorBoundary, list } from 'effectweb'
 import type { HermesMessage, HermesToolCall } from '@/features/hermes/hermes-session-store'
 import Bot from '@effectweb/lucide/icons/bot'
 import Braces from '@effectweb/lucide/icons/braces'
@@ -175,32 +179,35 @@ const ToolCard = component<
       !!structuredText()
     const downloadableText = () => structuredText() || content()
     return (
-      <details
+      <Disclosure
         data-testid='hermes-tool-card'
         class='rounded-md border border-border/70 bg-muted/20 text-[11px]'
+        triggerClass='flex min-h-7 cursor-pointer list-none items-center gap-1.5 px-2 py-1'
+        title={presentation().label}
+        trigger={
+          <>
+            {' '}
+            {(() => {
+              const Icon = presentation().Icon
+              return <Icon class='h-3.5 w-3.5 text-violet-500' />
+            })()}
+            <span class='truncate font-medium text-muted-foreground'>{name()}</span>
+            {summary() ? <span class='min-w-0 truncate opacity-60'>· {summary()}</span> : null}
+            {(props.call?.status ?? props.message?.toolStatus) === 'running' ? (
+              <LoaderCircle class='ml-auto h-3 w-3 animate-spin text-violet-500' />
+            ) : null}
+            {(props.call?.status ?? props.message?.toolStatus) === 'complete' ? (
+              <CircleCheck class='ml-auto h-3 w-3 text-emerald-500' />
+            ) : null}{' '}
+          </>
+        }
       >
-        <summary
-          class='flex min-h-7 cursor-pointer list-none items-center gap-1.5 px-2 py-1'
-          title={presentation().label}
-        >
-          {(() => {
-            const Icon = presentation().Icon
-            return <Icon class='h-3.5 w-3.5 text-violet-500' />
-          })()}
-          <span class='truncate font-medium text-muted-foreground'>{name()}</span>
-          {summary() ? <span class='min-w-0 truncate opacity-60'>· {summary()}</span> : null}
-          {(props.call?.status ?? props.message?.toolStatus) === 'running' ? (
-            <LoaderCircle class='ml-auto h-3 w-3 animate-spin text-violet-500' />
-          ) : null}
-          {(props.call?.status ?? props.message?.toolStatus) === 'complete' ? (
-            <CircleCheck class='ml-auto h-3 w-3 text-emerald-500' />
-          ) : null}
-        </summary>
         <div class='border-t border-border/70 p-2'>
           {((src) =>
             src ? (
-              <button
-                class='mb-2 block max-w-full overflow-hidden rounded-md border border-border bg-black/5'
+              <Button
+                variant='outline'
+                class='mb-2 block h-auto max-w-full p-0 overflow-hidden rounded-md border border-border bg-black/5'
                 onClick={() => props.onOpenImage?.(src)}
               >
                 <img
@@ -209,7 +216,7 @@ const ToolCard = component<
                   class='max-h-64 max-w-full object-contain'
                   loading='lazy'
                 />
-              </button>
+              </Button>
             ) : null)(imageSource())}
           {props.message?.toolInput && props.message?.toolInput !== content() ? (
             <>
@@ -285,22 +292,26 @@ const ToolCard = component<
           ) : null}
           {downloadableText().length > LARGE_OUTPUT_CHARS ? (
             <div class='mt-2 flex gap-2'>
-              <button
+              <Button
+                variant='outline'
                 class='rounded border border-border px-2 py-1 text-muted-foreground hover:text-foreground'
                 onClick={() => setExpanded((value) => !value)}
               >
                 {expanded() ? 'Collapse output' : 'Expand full output'}
-              </button>
-              <button
-                class='rounded border border-border px-2 py-1 text-muted-foreground hover:text-foreground'
-                onClick={() => downloadText(name(), downloadableText())}
-              >
-                Download
-              </button>
+              </Button>
+              <BrowserDownload>
+                <Button
+                  variant='outline'
+                  class='rounded border border-border px-2 py-1 text-muted-foreground hover:text-foreground'
+                  onClick={() => downloadText(name(), downloadableText())}
+                >
+                  Download
+                </Button>
+              </BrowserDownload>
             </div>
           ) : null}
         </div>
-      </details>
+      </Disclosure>
     )
   }),
 )
@@ -338,8 +349,9 @@ const MessageImages = view<{ images?: readonly string[]; onOpenImage?: (src: str
           (image) => {
             const src = hermesImageUrl(image)
             return src ? (
-              <button
-                class='h-20 w-36 max-w-full overflow-hidden rounded-md border border-border bg-black/5'
+              <Button
+                variant='outline'
+                class='h-20 w-36 max-w-full p-0 overflow-hidden rounded-md border border-border bg-black/5'
                 onClick={() => props.onOpenImage?.(src)}
               >
                 <img
@@ -348,7 +360,7 @@ const MessageImages = view<{ images?: readonly string[]; onOpenImage?: (src: str
                   class='h-full w-full object-contain'
                   loading='lazy'
                 />
-              </button>
+              </Button>
             ) : null
           },
         )}
@@ -388,16 +400,22 @@ const MessageCardContent = view<{
         class={`min-w-0 max-w-[82%] ${props.message.role === 'user' ? 'rounded-xl rounded-br-sm bg-muted/70 px-2.5 py-1.5' : 'flex-1'}`}
       >
         {hasActivity() ? (
-          <details class='mb-1 rounded-md border border-border/60 bg-muted/15 text-[11px] text-muted-foreground'>
-            <summary class='flex min-h-6 cursor-pointer list-none items-center gap-1.5 px-2 py-0.5'>
-              <span>Reasoning</span>
-              {pendingToolCalls().length ? (
-                <span class='truncate opacity-70'>
-                  · {pendingToolCalls().length} tool
-                  {pendingToolCalls().length === 1 ? '' : 's'}
-                </span>
-              ) : null}
-            </summary>
+          <Disclosure
+            class='mb-1 rounded-md border border-border/60 bg-muted/15 text-[11px] text-muted-foreground'
+            triggerClass='flex min-h-6 cursor-pointer list-none items-center gap-1.5 px-2 py-0.5'
+            trigger={
+              <>
+                {' '}
+                <span>Reasoning</span>
+                {pendingToolCalls().length ? (
+                  <span class='truncate opacity-70'>
+                    · {pendingToolCalls().length} tool
+                    {pendingToolCalls().length === 1 ? '' : 's'}
+                  </span>
+                ) : null}{' '}
+              </>
+            }
+          >
             <div class='space-y-1 border-t border-border/60 px-2 py-1.5'>
               {props.message.reasoning ? (
                 <MessageMarkdown
@@ -414,7 +432,7 @@ const MessageCardContent = view<{
                 ),
               )}
             </div>
-          </details>
+          </Disclosure>
         ) : null}
         {props.message.text ? (
           <MessageMarkdown
@@ -440,70 +458,80 @@ const MessageCardContent = view<{
         (props.message.role === 'user' && (props.onEdit || props.onBranch)) ||
         props.onRetry ||
         props.onSpeak ? (
-          <details
-            use={actionsDismiss}
-            data-testid='hermes-message-actions'
-            class='relative ml-auto h-5 w-fit text-[11px] text-muted-foreground'
-          >
-            <summary class='flex h-5 cursor-pointer list-none items-center rounded px-1 opacity-0 hover:bg-muted hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100'>
-              <MoreHorizontal class='h-3.5 w-3.5' />
-              <span class='sr-only'>Message actions</span>
-            </summary>
-            <div class='absolute right-0 bottom-full z-30 mb-0.5 flex min-w-28 flex-col rounded-md border border-border bg-popover p-0.5 shadow-sm'>
-              {props.message.text ? (
-                <button
-                  class='rounded px-2 py-1 text-left hover:bg-muted hover:text-foreground'
-                  onClick={() =>
-                    Effect.tryPromise({
-                      try: () => navigator.clipboard.writeText(props.message.text),
-                      catch: (error) => error,
-                    }).pipe(
-                      Effect.catch((error) =>
-                        showAppAlertEffect(
-                          error instanceof Error ? error.message : String(error),
-                          'Copy failed',
-                        ),
-                      ),
-                    )
-                  }
+          <div data-testid='hermes-message-actions' class='ml-auto w-fit'>
+            <DropdownMenu
+              side='top'
+              align='end'
+              trigger={
+                <Button
+                  variant='ghost'
+                  size='icon-sm'
+                  aria-label='Message actions'
+                  class='size-6 text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100'
                 >
-                  Copy
-                </button>
-              ) : null}
-              {props.onEdit ? (
-                <button
-                  class='rounded px-2 py-1 text-left hover:bg-muted hover:text-foreground'
-                  onClick={() => props.onEdit?.(structuredClone(props.message) as HermesMessage)}
-                >
-                  Edit &amp; rewind
-                </button>
-              ) : null}
-              {props.onBranch ? (
-                <button
-                  class='rounded px-2 py-1 text-left hover:bg-muted hover:text-foreground'
-                  onClick={() => props.onBranch?.(structuredClone(props.message) as HermesMessage)}
-                >
-                  Branch here
-                </button>
-              ) : null}
-              {props.onRetry ? (
-                <button
-                  class='rounded px-2 py-1 text-left hover:bg-muted hover:text-foreground'
-                  onClick={() => props.onRetry?.()}
-                >
-                  Retry
-                </button>
-              ) : null}
-              {props.message.role === 'assistant' && props.message.text && props.onSpeak ? (
-                <button
-                  class='rounded px-2 py-1 text-left hover:bg-muted hover:text-foreground'
-                  onClick={() => props.onSpeak?.(structuredClone(props.message) as HermesMessage)}
-                >
-                  Play reply
-                </button>
-              ) : null}
-            </div>
-          </details>
+                  <MoreHorizontal class='size-3.5' />
+                </Button>
+              }
+              items={[
+                ...(props.message.text
+                  ? [
+                      {
+                        kind: 'item' as const,
+                        label: 'Copy',
+                        onSelect: () => {
+                          Effect.runFork(
+                            Effect.tryPromise({
+                              try: () => navigator.clipboard.writeText(props.message.text),
+                              catch: (error) => error,
+                            }).pipe(
+                              Effect.catch((error) =>
+                                showAppAlertEffect(
+                                  error instanceof Error ? error.message : String(error),
+                                  'Copy failed',
+                                ),
+                              ),
+                            ),
+                          )
+                        },
+                      },
+                    ]
+                  : []),
+                ...(props.onEdit
+                  ? [
+                      {
+                        kind: 'item' as const,
+                        label: 'Edit & rewind',
+                        onSelect: () =>
+                          props.onEdit?.(structuredClone(props.message) as HermesMessage),
+                      },
+                    ]
+                  : []),
+                ...(props.onBranch
+                  ? [
+                      {
+                        kind: 'item' as const,
+                        label: 'Branch here',
+                        onSelect: () =>
+                          props.onBranch?.(structuredClone(props.message) as HermesMessage),
+                      },
+                    ]
+                  : []),
+                ...(props.onRetry
+                  ? [{ kind: 'item' as const, label: 'Retry', onSelect: () => props.onRetry?.() }]
+                  : []),
+                ...(props.message.role === 'assistant' && props.message.text && props.onSpeak
+                  ? [
+                      {
+                        kind: 'item' as const,
+                        label: 'Play reply',
+                        onSelect: () =>
+                          props.onSpeak?.(structuredClone(props.message) as HermesMessage),
+                      },
+                    ]
+                  : []),
+              ]}
+            />
+          </div>
         ) : null}
       </div>
     </div>
@@ -512,21 +540,6 @@ const MessageCardContent = view<{
   )
 })
 
-const actionsDismiss = domMount((element: HTMLDetailsElement) => {
-  const pointer = (event: PointerEvent) => {
-    if (element.open && event.target instanceof Node && !element.contains(event.target))
-      element.open = false
-  }
-  const key = (event: KeyboardEvent) => {
-    if (event.key === 'Escape') element.open = false
-  }
-  document.addEventListener('pointerdown', pointer, true)
-  document.addEventListener('keydown', key, true)
-  return () => {
-    document.removeEventListener('pointerdown', pointer, true)
-    document.removeEventListener('keydown', key, true)
-  }
-})
 export const HermesMessageCard = errorBoundary(MessageCardContent, {
   fallback: view(() => (
     <div class='rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs'>

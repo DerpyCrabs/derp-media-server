@@ -1,3 +1,4 @@
+import { Button } from '@/lib/ui/button'
 import { view, list, collection } from 'effectweb'
 import type { AssistGridShape, AssistGridSpan } from '@/workspace/model/workspace-assist-grid'
 import { assistShapeToDims, assistSpanToGridLines } from '@/workspace/model/workspace-assist-grid'
@@ -170,7 +171,8 @@ export const WorkspaceSnapAssistMasterGrid = view<WorkspaceSnapAssistMasterGridP
                 ? 'rounded-sm bg-background'
                 : 'bg-background'
           return (
-            <button
+            <Button
+              variant='default'
               type='button'
               tabindex={props.pickMode && !disabled() ? 0 : -1}
               disabled={disabled()}
@@ -193,7 +195,7 @@ export const WorkspaceSnapAssistMasterGrid = view<WorkspaceSnapAssistMasterGridP
               }
               data-snap-assist-hover-active={active() ? '' : undefined}
               class={cn(
-                'border-0 p-0 transition-all duration-100 focus-visible:z-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+                'h-full w-full min-h-0 min-w-0 rounded-none border-0 p-0 transition-all duration-100 focus-visible:z-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
                 tileClass(),
                 props.pickMode && p.kind === 'cell' && !disabled()
                   ? 'hover:border-primary/70 hover:bg-primary/15'

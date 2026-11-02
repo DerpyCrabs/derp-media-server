@@ -48,7 +48,6 @@ export function plainTextController(props: PlainTextDocumentProps) {
     ending: lineEndingLabel(props.content),
     languageError: '',
     optionsOpen: false,
-    anchor: null as HTMLButtonElement | null,
   })
   return {
     source: owner.source,
@@ -68,8 +67,7 @@ export function plainTextController(props: PlainTextDocumentProps) {
     indent: (indent: string) => {
       if (['auto', 'tabs', '2', '4', '8'].includes(indent)) owner.patch({ indent })
     },
-    options: (anchor: HTMLButtonElement) =>
-      owner.patch({ optionsOpen: !owner.read().optionsOpen, anchor }),
+    options: (optionsOpen: boolean) => owner.patch({ optionsOpen }),
     closeOptions: () => owner.patch({ optionsOpen: false }),
     stats: (line: number, column: number, selected: number) => {
       const state = owner.read()

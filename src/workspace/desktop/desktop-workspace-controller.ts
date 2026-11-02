@@ -1350,6 +1350,7 @@ export function createDesktopController(props: { session: WorkspaceSession }) {
     beginPointerGesture,
   }
   const groupTabs = {
+    reopen: reopenClosedTab,
     activate: editableActivateTab,
     close: editableCloseTab,
     togglePinned: editableToggleTabPinned,

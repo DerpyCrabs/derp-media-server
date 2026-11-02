@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test'
 test.describe('File browser directory UX', () => {
   test('shows deferred loading state for slow client navigation fetch', async ({ page }) => {
     await page.goto('/')
-    await page.route('**/api/files**', async (route) => {
+    await page.route('**/api/files?*', async (route) => {
       const url = route.request().url()
       if (!url.includes(encodeURIComponent('Notes')) && !url.includes('dir=Notes')) {
         await route.continue()
@@ -21,7 +21,7 @@ test.describe('File browser directory UX', () => {
     let notesFetches = 0
     let failing = true
     await page.goto('/')
-    await page.route('**/api/files**', async (route) => {
+    await page.route('**/api/files?*', async (route) => {
       const url = route.request().url()
       if (!url.includes('dir=Notes')) {
         await route.continue()
@@ -49,7 +49,7 @@ test.describe('File browser directory UX', () => {
   test('automatically recovers a transient listing failure', async ({ page }) => {
     let notesFetches = 0
     await page.goto('/')
-    await page.route('**/api/files**', async (route) => {
+    await page.route('**/api/files?*', async (route) => {
       if (route.request().url().includes('dir=Notes') && ++notesFetches === 1) {
         await route.fulfill({
           status: 503,

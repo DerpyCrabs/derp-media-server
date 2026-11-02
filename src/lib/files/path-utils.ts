@@ -1,4 +1,5 @@
 export interface ClientMediaRoot {
+  namespaced?: boolean
   id?: string
   name: string
   editableFolders: readonly string[]
@@ -16,9 +17,10 @@ export function isPathEditable(
   mediaRoots?: readonly ClientMediaRoot[],
 ): boolean {
   if (editableFolders.length === 0) return false
+  if (relativePath === '' && mediaRoots?.[0]?.namespaced) return false
 
   const normalizedPath = relativePath.replace(/\\/g, '/')
-  if (mediaRoots && mediaRoots.length > 1) {
+  if (mediaRoots && (mediaRoots.length > 1 || mediaRoots[0]?.namespaced)) {
     const [rootName = '', ...rest] = normalizedPath.split('/').filter(Boolean)
     const matchedRoot = mediaRoots.find(
       (entry) => entry.name.toLowerCase() === rootName.toLowerCase(),

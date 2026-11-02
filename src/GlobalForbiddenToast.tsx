@@ -1,3 +1,4 @@
+import { Button } from '@/lib/ui/button'
 import CircleX from '@effectweb/lucide/icons/circle-x'
 import { observe, view } from 'effectweb'
 import { dismissForbiddenNotice, forbiddenNoticeSource } from '@/lib/state/forbidden-notify'
@@ -13,14 +14,16 @@ export const GlobalForbiddenToast = view(() =>
             <p class='text-sm font-medium text-destructive'>Not allowed</p>
             <p class='text-xs text-muted-foreground mt-0.5 wrap-break-word'>{message}</p>
           </div>
-          <button
+          <Button
+            size='icon'
+            variant='ghost'
             type='button'
             class='h-6 w-6 shrink-0 inline-flex items-center justify-center rounded-md hover:bg-accent'
             onClick={() => dismissForbiddenNotice()}
             aria-label='Dismiss'
           >
             <span class='text-lg leading-none'>×</span>
-          </button>
+          </Button>
         </div>
       </div>
     ) : null,

@@ -152,7 +152,7 @@ pub(crate) async fn run() {
             config.data_path.join("image-variants"),
             config.image_optimization.clone(),
         ),
-        file_search: FileSearch::new(config.file_search.clone(), search_roots),
+        file_search: FileSearch::new(config.file_search.clone(), search_roots, config.named_roots()),
         hermes,
         hermes_project_operations: Mutex::new(()),
         file_mutations: Mutex::new(()),

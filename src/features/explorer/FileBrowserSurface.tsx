@@ -1,5 +1,15 @@
+import { viewWindow } from '@/lib/browser/view-window'
+import { Input } from '@/lib/ui/input'
+import { Button } from '@/lib/ui/button'
 import { FolderNavigation, type FolderNavigationActions } from './FolderNavigation'
-import { component, view, domBinding, type JSX } from 'effectweb'
+import {
+  controllerView,
+  modelOwner,
+  view,
+  domBinding,
+  type JSX,
+  type ControllerHost,
+} from 'effectweb'
 import { operationError } from './file-browser-mutations'
 import { AsyncResult } from 'effect/reactivity'
 import { runDesktopOperation } from '@/desktop/operations'
@@ -54,11 +64,14 @@ type VirtualCreateToolbar = Readonly<{
   onCreateFile: () => void
 }>
 type FileBrowserSurfaceToolbar = Readonly<{
+  sidebarToggle?: JSX.Element
   navigation?: FolderNavigationActions
   onCreateFolder: () => void
   onCreateFile: () => void
   virtualCreate?: VirtualCreateToolbar
   extras?: () => JSX.Element
+  location?: () => JSX.Element
+  editLocation?: () => void
   filter?: () => JSX.Element
 }>
 type FileBrowserViewListing = Readonly<{
@@ -78,6 +91,7 @@ type FileBrowserViewListing = Readonly<{
   loadMore?: () => void
 }>
 type FileBrowserViewHost = Readonly<{
+  picking?: boolean
   focusListing?: boolean
   onListingFocused?: () => void
   openParent: () => void
@@ -105,7 +119,9 @@ type FileBrowserViewProps = Readonly<{
   rows: FileBrowserViewRows
   children?: JSX.Element
 }>
-const listingScrollBinding = (_element: HTMLDivElement, current: () => FileBrowserViewListing) => {
+const listingScrollBinding = (element: HTMLDivElement, current: () => FileBrowserViewListing) => {
+  const document = element.ownerDocument
+  const window = viewWindow({ document })
   const listener = () => {
     const props = current()
     if (
@@ -131,17 +147,28 @@ const searchInputBinding = (
   current()(element)
   return () => current()(undefined)
 }
-export const FileBrowserView = component(
+export const FileBrowserView = controllerView(
   {
-    init: (_props: FileBrowserViewProps) => ({
-      directoryBackgroundMenu: null as { x: number; y: number } | null,
-    }),
+    controller: (props: FileBrowserViewProps, host: ControllerHost) => {
+      const owner = modelOwner({
+        props,
+        browserWindow: viewWindow(host),
+        directoryBackgroundMenu: null as { x: number; y: number } | null,
+      })
+      return {
+        source: owner.source,
+        receive: (props: FileBrowserViewProps) => owner.patch({ props }),
+        setDirectoryBackgroundMenu: (value: { x: number; y: number } | null) =>
+          owner.patch({ directoryBackgroundMenu: value }),
+        lifetime: owner,
+      }
+    },
   },
-  view((local, patch) => {
+  view((local) => {
+    const window = local.browserWindow
     const props = local.props
     const directoryBackgroundMenu = () => local.directoryBackgroundMenu,
-      setDirectoryBackgroundMenu = (value: { x: number; y: number } | null) =>
-        patch({ directoryBackgroundMenu: value })
+      setDirectoryBackgroundMenu = local.actions.setDirectoryBackgroundMenu
     const isWorkspace = () => props.layout === 'workspace'
     const parentPath = (path: string) => {
       const parts = path.split(/[/\\]/).filter(Boolean)
@@ -152,9 +179,13 @@ export const FileBrowserView = component(
     const canCreateVirtualFolder = () => props.toolbar.virtualCreate?.canCreateFolder ?? false
     const canCreateVirtualFile = () => props.toolbar.virtualCreate?.canCreateFile ?? false
     const favoriteButton = (file: FileItem) => (
-      <button
+      <Button
+        variant='ghost'
+        size='icon-sm'
         type='button'
-        class='inline-flex shrink-0 opacity-50 transition-opacity hover:opacity-100 group-hover:opacity-100'
+        class={cn(
+          'size-7 p-0 sm:size-5 shrink-0 opacity-50 transition-opacity hover:opacity-100 group-hover:opacity-100',
+        )}
         title={props.rows.isFavorite(file) ? 'Remove from favorites' : 'Add to favorites'}
         onClick={(event) => {
           event.stopPropagation()
@@ -163,14 +194,14 @@ export const FileBrowserView = component(
       >
         <Star
           class={cn(
-            'h-4 w-4',
+            'size-4',
             props.rows.isFavorite(file)
               ? 'fill-yellow-400 text-yellow-400 opacity-100'
               : 'text-muted-foreground',
           )}
           stroke-width={2}
         />
-      </button>
+      </Button>
     )
     const virtualSubtitle = (file: FileItem) =>
       virtualEntrySubtitle(props.rows.virtualEntry(file)) ||
@@ -186,14 +217,16 @@ export const FileBrowserView = component(
     )
     const renderGridOverlay = (file: FileItem) => (
       <>
-        <button
+        <Button
+          size='icon'
+          variant='ghost'
           type='button'
           aria-label={`More actions for ${file.name}`}
           class='absolute right-1.5 bottom-1.5 z-20 inline-flex h-11 w-11 items-center justify-center rounded-full bg-background/90 text-foreground shadow-sm sm:hidden'
           onClick={(event) => props.fileRowMenu.openRowMenuFromButton(event, file)}
         >
-          <Ellipsis class='h-5 w-5' aria-hidden='true' />
-        </button>
+          <Ellipsis class='size-5' aria-hidden='true' />
+        </Button>
         {!file.isDirectory && props.controller.displaySettings.fileColumns.favorite ? (
           <div class='absolute top-1.5 left-1.5 z-10'>{favoriteButton(file)}</div>
         ) : null}
@@ -259,7 +292,7 @@ export const FileBrowserView = component(
       props.controller.displaySettings.fileColumns.views &&
       props.rows.viewCount(file.path) > 0 ? (
         <span
-          class='flex shrink-0 items-center gap-1 text-xs text-muted-foreground'
+          class='hidden @min-[560px]/explorer:flex shrink-0 items-center gap-1 text-xs text-muted-foreground'
           title={`${props.rows.viewCount(file.path)} views`}
           data-testid='file-view-count'
         >
@@ -268,7 +301,7 @@ export const FileBrowserView = component(
         </span>
       ) : null
     const renderListSize = (file: FileItem) => (
-      <span class='inline-block w-20 shrink-0 tabular-nums'>
+      <span class='inline-block shrink-0 whitespace-nowrap tabular-nums text-xs @min-[560px]/explorer:text-sm'>
         {virtualFileSizeVisible(file, props.rows.virtualEntry(file))
           ? formatFileSize(file.size)
           : ''}
@@ -276,14 +309,16 @@ export const FileBrowserView = component(
     )
     const renderListActions = (file: FileItem) => (
       <td class='p-1 align-middle sm:hidden'>
-        <button
+        <Button
+          size='icon'
+          variant='ghost'
           type='button'
           aria-label={`More actions for ${file.name}`}
           class='inline-flex h-11 w-11 items-center justify-center rounded-md hover:bg-muted'
           onClick={(event) => props.fileRowMenu.openRowMenuFromButton(event, file)}
         >
-          <Ellipsis class='h-5 w-5' aria-hidden='true' />
-        </button>
+          <Ellipsis class='size-5' aria-hidden='true' />
+        </Button>
       </td>
     )
     // Controller handlers are stable functions. Surface invokes them from row event handlers.
@@ -345,7 +380,7 @@ export const FileBrowserView = component(
             !file.isVirtual
           ) {
             event.preventDefault()
-            runDesktopOperation(() => window.derpDesktop!.copy([file.path]))
+            runDesktopOperation(() => window.derpDesktop!.copy([file.path]), window)
           }
         },
         onPointerEnter: () => props.rows.onFilePointerEnter?.(file),
@@ -396,7 +431,7 @@ export const FileBrowserView = component(
         />
       ) : (
         <>
-          {props.controller.inKb && !!props.controller.currentPath ? (
+          {!props.host.picking && props.controller.inKb && !!props.controller.currentPath ? (
             <KbDashboard
               compact={isWorkspace()}
               mode={isWorkspace() ? 'Workspace' : undefined}
@@ -424,7 +459,7 @@ export const FileBrowserView = component(
                 listClass: isWorkspace()
                   ? 'relative w-full'
                   : 'relative w-full overflow-x-auto overflow-y-hidden',
-                listSizeColumnClass: 'w-28',
+                listSizeColumnClass: 'w-20 @min-[560px]/explorer:w-28',
               }}
               rows={{
                 focusOnLoad: props.host.focusListing,
@@ -479,8 +514,8 @@ export const FileBrowserView = component(
         data-testid={props.layout === 'media' ? 'file-browser' : undefined}
         class={
           isWorkspace()
-            ? 'relative flex h-full min-h-0 flex-1 flex-col overflow-hidden'
-            : 'flex min-h-0 flex-1 flex-col outline-none'
+            ? '@container/explorer relative flex h-full min-h-0 flex-1 flex-col overflow-hidden'
+            : '@container/explorer flex min-h-0 flex-1 flex-col outline-none'
         }
         tabindex={isWorkspace() ? undefined : 0}
         title={
@@ -523,11 +558,16 @@ export const FileBrowserView = component(
                     : 'flex flex-wrap items-center justify-between w-full gap-1.5 lg:gap-2'
                 }
               >
-                {props.toolbar.navigation ? (
+                {props.toolbar.sidebarToggle}
+                {props.toolbar.navigation && !props.toolbar.location ? (
                   <FolderNavigation {...props.toolbar.navigation} />
                 ) : null}
                 <div
                   data-breadcrumb-slot
+                  onDblClick={(event) => {
+                    if (!(event.target as HTMLElement).closest('button'))
+                      props.toolbar.editLocation?.()
+                  }}
                   data-testid={isWorkspace() ? undefined : 'breadcrumb-slot'}
                   class={
                     isWorkspace()
@@ -535,22 +575,28 @@ export const FileBrowserView = component(
                       : 'relative flex min-h-0 min-w-0 flex-1 overflow-hidden'
                   }
                 >
-                  <Breadcrumbs
-                    currentPath={props.controller.currentPath}
-                    onNavigate={props.host.navigateBreadcrumb}
-                    mode={isWorkspace() ? 'Workspace' : undefined}
-                    onCrumbContextMenu={props.host.openBreadcrumbMenu}
-                  />
+                  {props.toolbar.location ? (
+                    props.toolbar.location()
+                  ) : (
+                    <Breadcrumbs
+                      currentPath={props.controller.currentPath}
+                      onNavigate={props.host.navigateBreadcrumb}
+                      mode={isWorkspace() ? 'Workspace' : undefined}
+                      onCrumbContextMenu={props.host.openBreadcrumbMenu}
+                    />
+                  )}
                 </div>
-                {props.controller.inKb ? (
+                {props.controller.inKb && !props.toolbar.location ? (
                   <div
                     class={
                       isWorkspace()
                         ? 'flex shrink-0 flex-wrap items-center justify-end gap-1 md:justify-start'
-                        : 'order-last flex basis-full items-center justify-end md:order-0 md:basis-auto md:justify-start'
+                        : 'flex shrink-0 items-center'
                     }
                   >
-                    <button
+                    <Button
+                      size='icon'
+                      variant='outline'
                       type='button'
                       aria-label='Search note contents'
                       title='Search note contents (Ctrl+K)'
@@ -571,63 +617,74 @@ export const FileBrowserView = component(
                       onClick={() => props.controller.search.setOpen(!props.controller.search.open)}
                     >
                       <BookOpenText
-                        class={isWorkspace() ? 'h-3.5 w-3.5' : 'h-4 w-4'}
+                        class={isWorkspace() ? 'size-3.5' : 'size-4'}
                         aria-hidden='true'
                         stroke-width={2}
                       />
-                    </button>
+                    </Button>
                   </div>
                 ) : null}
                 <div
                   class={
-                    isWorkspace()
+                    (props.toolbar.location ? '@max-[560px]/explorer:hidden ' : '') +
+                    (isWorkspace()
                       ? 'flex shrink-0 flex-wrap items-center justify-end gap-1 md:justify-start'
-                      : 'flex items-center gap-1'
+                      : 'flex items-center gap-1')
                   }
                 >
                   {props.controller.editable ? (
                     <>
-                      <button
+                      <Button
+                        size='icon'
+                        variant='ghost'
                         type='button'
                         title='Create new folder'
                         aria-label='New folder toolbar'
                         class={
-                          isWorkspace()
-                            ? 'inline-flex h-7 w-7 shrink-0 items-center justify-center text-sm font-medium transition-colors hover:bg-muted hover:text-foreground dark:hover:bg-input/50'
-                            : 'inline-flex size-8 shrink-0 items-center justify-center rounded-md text-sm font-medium transition-colors hover:bg-muted hover:text-foreground dark:hover:bg-input/50'
+                          props.host.picking
+                            ? 'inline-flex size-8 shrink-0'
+                            : isWorkspace()
+                              ? 'hidden @min-[560px]/explorer:inline-flex h-7 w-7 shrink-0 items-center justify-center text-sm font-medium transition-colors hover:bg-muted hover:text-foreground dark:hover:bg-input/50'
+                              : 'hidden @min-[560px]/explorer:inline-flex size-8 shrink-0 items-center justify-center rounded-md text-sm font-medium transition-colors hover:bg-muted hover:text-foreground dark:hover:bg-input/50'
                         }
                         onClick={() => props.toolbar.onCreateFolder()}
                       >
                         <FolderPlus
-                          class={isWorkspace() ? 'h-3.5 w-3.5' : 'h-4 w-4'}
+                          class={isWorkspace() ? 'size-3.5' : 'size-4'}
                           aria-hidden='true'
                           stroke-width={2}
                         />
-                      </button>
-                      <button
-                        type='button'
-                        title='Create new file'
-                        aria-label='New file toolbar'
-                        class={
-                          isWorkspace()
-                            ? 'inline-flex h-7 w-7 shrink-0 items-center justify-center text-sm font-medium transition-colors hover:bg-muted hover:text-foreground dark:hover:bg-input/50'
-                            : 'inline-flex size-8 shrink-0 items-center justify-center rounded-md text-sm font-medium transition-colors hover:bg-muted hover:text-foreground dark:hover:bg-input/50'
-                        }
-                        onClick={() => props.toolbar.onCreateFile()}
-                      >
-                        <FilePlus
-                          class={isWorkspace() ? 'h-3.5 w-3.5' : 'h-4 w-4'}
-                          aria-hidden='true'
-                          stroke-width={2}
-                        />
-                      </button>
-                      <UploadMenu
-                        compact={isWorkspace()}
-                        disabled={props.controller.upload.uploading}
-                        onUpload={(files) =>
-                          props.controller.upload.upload(files, props.controller.currentPath)
-                        }
-                      />
+                      </Button>
+                      {!props.host.picking ? (
+                        <>
+                          <Button
+                            size='icon'
+                            variant='ghost'
+                            type='button'
+                            title='Create new file'
+                            aria-label='New file toolbar'
+                            class={
+                              isWorkspace()
+                                ? 'hidden @min-[560px]/explorer:inline-flex h-7 w-7 shrink-0 items-center justify-center text-sm font-medium transition-colors hover:bg-muted hover:text-foreground dark:hover:bg-input/50'
+                                : 'hidden @min-[560px]/explorer:inline-flex size-8 shrink-0 items-center justify-center rounded-md text-sm font-medium transition-colors hover:bg-muted hover:text-foreground dark:hover:bg-input/50'
+                            }
+                            onClick={() => props.toolbar.onCreateFile()}
+                          >
+                            <FilePlus
+                              class={isWorkspace() ? 'size-3.5' : 'size-4'}
+                              aria-hidden='true'
+                              stroke-width={2}
+                            />
+                          </Button>
+                          <UploadMenu
+                            compact={isWorkspace()}
+                            disabled={props.controller.upload.uploading}
+                            onUpload={(files) =>
+                              props.controller.upload.upload(files, props.controller.currentPath)
+                            }
+                          />
+                        </>
+                      ) : null}
                       {props.toolbar.virtualCreate ? (
                         canCreateVirtualFolder() || canCreateVirtualFile() ? (
                           <div class='bg-border mx-1 h-5 w-px shrink-0' />
@@ -641,26 +698,30 @@ export const FileBrowserView = component(
                     ) : null
                   ) : null}
                   {canCreateVirtualFolder() ? (
-                    <button
+                    <Button
+                      size='icon'
+                      variant='ghost'
                       type='button'
                       title='Create new project'
                       aria-label='Create new project'
                       class='inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-muted hover:text-foreground'
                       onClick={() => props.toolbar.virtualCreate?.onCreateFolder()}
                     >
-                      <FolderPlus class='h-3.5 w-3.5' stroke-width={2} />
-                    </button>
+                      <FolderPlus class='size-3.5' stroke-width={2} />
+                    </Button>
                   ) : null}
                   {canCreateVirtualFile() ? (
-                    <button
+                    <Button
+                      size='icon'
+                      variant='ghost'
                       type='button'
                       title='Create new session'
                       aria-label='Create new session'
                       class='inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-muted hover:text-foreground'
                       onClick={() => props.toolbar.virtualCreate?.onCreateFile()}
                     >
-                      <FilePlus class='h-3.5 w-3.5' stroke-width={2} />
-                    </button>
+                      <FilePlus class='size-3.5' stroke-width={2} />
+                    </Button>
                   ) : null}
                   {toolbarExtras()}
                   <ExplorerDisplayOptions
@@ -682,7 +743,7 @@ export const FileBrowserView = component(
                   }
                   data-testid='kb-search-bar'
                 >
-                  <input
+                  <Input
                     use={{
                       ...domBinding(props.controller.search.setInputElement, searchInputBinding),
                       identity: props.controller.search.setInputElement,

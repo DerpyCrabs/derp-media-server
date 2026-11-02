@@ -1,8 +1,11 @@
+import { viewWindow } from '@/lib/browser/view-window'
 import { scrollAffectsElement } from '@/lib/ui/scroll-affects-element'
 import { MediaType, type FileItem } from '@/lib/files/types'
 import { buildThumbnailUrl } from '@/lib/media/build-media-url'
 import { observeMediaVisibility, createMediaWarmup } from '@/lib/media/media-warmup'
 export function mountThumbnailWarmup(target: HTMLElement, files: () => readonly FileItem[]) {
+  const document = target.ownerDocument
+  const window = viewWindow({ document })
   const warmup = createMediaWarmup()
   let visible = false
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -53,7 +56,7 @@ export function mountThumbnailWarmup(target: HTMLElement, files: () => readonly 
     visible = next
     schedule()
   })
-  const observer = new MutationObserver(schedule)
+  const observer = new window.MutationObserver(schedule)
   observer.observe(target, { childList: true, subtree: true })
   document.addEventListener('scroll', onScroll, { capture: true, passive: true })
   return () => {

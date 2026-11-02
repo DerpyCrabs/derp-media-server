@@ -54,6 +54,10 @@ test('configured home plays music and library navigation still works', async ({ 
   await enable(page)
   await page.goto('/')
   await expect(page.getByTestId('for-you')).toBeVisible()
+  const preview = await page
+    .getByRole('button', { name: 'Play First track', exact: true })
+    .boundingBox()
+  expect(preview!.width / preview!.height).toBeCloseTo(16 / 9, 1)
   await page.getByRole('button', { name: 'Play First track', exact: true }).click()
   await expect(page).toHaveURL(/playing=Music%2Ftrack.mp3/)
   await expect(page.locator('audio')).toBeAttached()
@@ -310,6 +314,10 @@ test('mobile touch targets, menu dismissal and playback fit the viewport', async
   const like = page.getByRole('button', { name: 'Like First track', exact: true })
   const options = page.getByRole('button', { name: 'Options for First track', exact: true })
   await expect(options).toBeVisible()
+  const preview = await page
+    .getByRole('button', { name: 'Play First track', exact: true })
+    .boundingBox()
+  expect(preview!.width / preview!.height).toBeCloseTo(16 / 9, 1)
   await expect(like).toBeHidden()
   await page.getByRole('button', { name: 'Search library', exact: true }).tap()
   for (const control of [

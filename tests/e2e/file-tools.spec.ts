@@ -22,24 +22,27 @@ test('bulk selection, ZIP creation and browsing work in the allowlist web client
     .locator('table tr')
     .filter({ hasText: 'b.txt' })
     .click({ modifiers: ['Shift'] })
-  await page.getByRole('button', { name: 'Files (2)', exact: true }).click()
-  await page.getByRole('button', { name: 'Create archive…', exact: true }).click()
+  await page.getByRole('button', { name: 'File actions', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'Create archive…', exact: true }).click()
   await page.getByRole('button', { name: 'Create archive', exact: true }).click()
-  await expect(page.getByRole('dialog')).toContainText('completed')
-  await page.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect
+    .poll(async () =>
+      (
+        await request.get(`/api/files/archive?path=${encodeURIComponent(dir + '/Archive.zip')}`)
+      ).ok(),
+    )
+    .toBeTruthy()
+  await expect(page.getByRole('dialog', { name: 'File operations', exact: true })).not.toBeVisible()
   await expect(page.locator('table').getByText('Archive.zip')).toBeVisible()
-  await page.getByRole('button', { name: /^Files/ }).click()
-  await page.getByRole('button', { name: 'Clear selection', exact: true }).click()
-  await page.getByRole('button', { name: 'Close', exact: true }).click()
-  await page
-    .locator('table tr')
-    .filter({ hasText: 'Archive.zip' })
-    .click({ modifiers: ['Control'] })
-  await page.getByRole('button', { name: 'Files (1)', exact: true }).click()
-  await page.getByRole('button', { name: 'Browse archive', exact: true }).click()
-  await expect(page.getByRole('dialog')).toContainText('2 entries')
-  await expect(page.getByRole('dialog').getByText('a.txt', { exact: true })).toBeVisible()
-  await expect(page.getByRole('dialog').getByText('b.txt', { exact: true })).toBeVisible()
+  await page.locator('[data-testid=file-browser]').click({ position: { x: 5, y: 5 } })
+  await page.keyboard.press('Escape')
+  await page.locator('table').getByText('Archive.zip', { exact: true }).click()
+  await expect(
+    page.getByLabel('Archive contents').getByText('a.txt', { exact: true }),
+  ).toBeVisible()
+  await expect(
+    page.getByLabel('Archive contents').getByText('b.txt', { exact: true }),
+  ).toBeVisible()
 })
 
 test('batch conflicts support keep both and cancellation without removing sources', async ({
@@ -57,10 +60,13 @@ test('batch conflicts support keep both and cancellation without removing source
   expect(response.ok()).toBeTruthy()
   const { id } = (await response.json()) as { id: string }
   await page.goto(`/?dir=${encodeURIComponent(dir)}`)
-  await page.getByRole('button', { name: 'Files', exact: true }).click()
-  await page.getByRole('button', { name: 'Operations', exact: true }).click()
-  const job = page.getByRole('article').filter({ hasText: `${dir}/out/a.txt` })
-  await job.getByRole('button', { name: 'Keep both', exact: true }).click()
+  const conflict = page.getByRole('dialog', { name: '“a.txt” already exists', exact: true })
+  await expect(conflict).toBeVisible()
+  await expect(conflict.getByText(`${dir}/a.txt`, { exact: true })).toBeVisible()
+  await expect(conflict.getByText(`${dir}/out/a.txt`, { exact: true })).toBeVisible()
+  await expect(conflict.getByText('Apply to remaining conflicts')).toHaveCount(0)
+  await conflict.getByRole('button', { name: 'Keep both', exact: true }).click()
+  await expect(conflict).toHaveCount(0)
   await expect
     .poll(
       async () =>
@@ -73,6 +79,10 @@ test('batch conflicts support keep both and cancellation without removing source
     await request.get(`/api/files?dir=${encodeURIComponent(dir + '/out')}`)
   ).json()) as { files: { name: string }[] }
   expect(files.files.map((file) => file.name)).toContain('a (2).txt')
+  await page.getByRole('button', { name: 'File actions', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'File operations', exact: true }).click()
+  await expect(page.getByRole('article')).toHaveCount(0)
+  await page.keyboard.press('Escape')
   const moving = await request.post('/api/file-jobs', {
     data: { operation: 'move', paths: [`${dir}/a.txt`], destination: `${dir}/out` },
   })
@@ -107,20 +117,20 @@ test('location and properties do not expose native controls in a browser', async
   await create(request, dir, 'folder')
   await create(request, `${dir}/note.txt`)
   await page.goto('/?dir=Notes')
-  await page.getByRole('button', { name: 'Files', exact: true }).click()
+  await page.getByRole('button', { name: 'File actions', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Open terminal here' })).toHaveCount(0)
-  await page.getByRole('button', { name: 'Go to location', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'Edit location', exact: true }).click()
   await page.getByRole('textbox', { name: 'Location', exact: true }).fill(dir)
-  await page.getByRole('button', { name: 'Go', exact: true }).click()
+  await page.getByRole('textbox', { name: 'Location', exact: true }).press('Enter')
   await expect(page.locator('table').getByText('note.txt')).toBeVisible()
   await page
     .locator('table tr')
     .filter({ hasText: 'note.txt' })
     .click({ modifiers: ['Control'] })
-  await page.getByRole('button', { name: 'Files (1)', exact: true }).click()
-  await page.getByRole('button', { name: 'Properties', exact: true }).click()
+  await page.getByRole('button', { name: 'File actions', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'Properties', exact: true }).click()
   await expect(page.getByRole('dialog')).toContainText(`${dir}/note.txt`)
-  await expect(page.getByRole('dialog')).toContainText('Editable')
+  await expect(page.getByRole('dialog')).toContainText('Read and write')
 })
 
 test('hidden files stay visible across navigation and reload, and Ctrl+H hides them again', async ({
@@ -133,9 +143,6 @@ test('hidden files stay visible across navigation and reload, and Ctrl+H hides t
   await create(request, `${dir}/.secret.txt`)
   await create(request, `${dir}/child/.nested.txt`)
   await page.goto(`/?dir=${encodeURIComponent(dir)}`)
-  await expect(page.locator('table').getByText('.secret.txt', { exact: true })).toHaveCount(0)
-  await page.getByTestId('file-browser').focus()
-  await page.keyboard.press('Control+h')
   await expect(page.locator('table').getByText('.secret.txt', { exact: true })).toBeVisible()
   await page.locator('table').getByText('child', { exact: true }).click()
   await expect(page.locator('table').getByText('.nested.txt', { exact: true })).toBeVisible()
@@ -144,33 +151,6 @@ test('hidden files stay visible across navigation and reload, and Ctrl+H hides t
   await page.getByTestId('file-browser').focus()
   await page.keyboard.press('Control+h')
   await expect(page.locator('table').getByText('.nested.txt', { exact: true })).toHaveCount(0)
-})
-
-test('Space previews text without opening a viewer route and restores keyboard focus', async ({
-  page,
-  request,
-}) => {
-  const dir = `Notes/preview-${Date.now()}`
-  await create(request, dir, 'folder')
-  await create(request, `${dir}/preview.txt`)
-  await page.goto(`/?dir=${encodeURIComponent(dir)}`)
-  const row = page.locator('tr[data-file-path]').filter({ hasText: 'preview.txt' })
-  await row.focus()
-  const before = page.url()
-  await page.keyboard.press('Space')
-  const preview = page.getByRole('dialog', { name: 'Quick preview', exact: true })
-  await expect(preview).toBeVisible()
-  await expect(preview).toContainText(`${dir}/preview.txt`)
-  await expect(preview.locator('[contenteditable=true], textarea')).toHaveCount(0)
-  expect(page.url()).toBe(before)
-  await page.keyboard.press('Escape')
-  await expect(preview).toHaveCount(0)
-  await expect(row).toBeFocused()
-  await page.keyboard.press('Space')
-  await expect(preview).toBeVisible()
-  await page.getByRole('button', { name: 'Close preview', exact: true }).focus()
-  await page.keyboard.press('Space')
-  await expect(preview).toHaveCount(0)
 })
 
 test('folder filtering and F2 rename work without opening the file', async ({ page, request }) => {
@@ -187,7 +167,8 @@ test('folder filtering and F2 rename work without opening the file', async ({ pa
   await expect(page.locator('table').getByText('beta.txt', { exact: true })).toHaveCount(0)
   await expect(page.locator('table').getByText('alpha.txt', { exact: true })).toBeVisible()
   await filter.fill('missing')
-  await expect(page.getByRole('status')).toHaveText('No matches')
+  await expect(page.locator('table').getByText('alpha.txt', { exact: true })).toHaveCount(0)
+  await expect(page.locator('table').getByText('beta.txt', { exact: true })).toHaveCount(0)
   await filter.fill('alpha')
   await page.keyboard.press('ArrowDown')
   await page.keyboard.press('F2')
@@ -229,7 +210,7 @@ test('unrecognized text files can be opened as text, with binary content rejecte
   expect((await response.json()).error).toContain('binary')
 })
 
-test('file context menus expose preview and properties without entering selection mode', async ({
+test('file context menus expose properties without entering selection mode', async ({
   page,
   request,
 }) => {
@@ -238,10 +219,6 @@ test('file context menus expose preview and properties without entering selectio
   await create(request, `${dir}/note.txt`)
   await page.goto(`/?dir=${encodeURIComponent(dir)}`)
   const row = page.locator('tr[data-file-path]').filter({ hasText: 'note.txt' })
-  await row.click({ button: 'right' })
-  await page.getByRole('menuitem', { name: /Quick preview/ }).click()
-  await expect(page.getByRole('dialog', { name: 'Quick preview', exact: true })).toBeVisible()
-  await page.keyboard.press('Escape')
   await row.click({ button: 'right' })
   await page.getByRole('menuitem', { name: 'Properties', exact: true }).click()
   await expect(page.getByRole('dialog')).toContainText(`${dir}/note.txt`)

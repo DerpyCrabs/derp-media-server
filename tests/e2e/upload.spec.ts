@@ -9,17 +9,17 @@ const UPLOAD_DIR = 'MediaContent'
 test.describe('File Upload', () => {
   test('upload button is visible in editable folders', async ({ page }) => {
     await page.goto(`/?dir=${UPLOAD_DIR}`)
-    await expect(page.locator('button[title="Upload"]')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Upload', exact: true })).toBeVisible()
   })
 
   test('upload button is hidden in non-editable folders', async ({ page }) => {
     await page.goto('/?dir=Documents')
-    await expect(page.locator('button[title="Upload"]')).not.toBeVisible()
+    await expect(page.getByRole('button', { name: 'Upload', exact: true })).not.toBeVisible()
   })
 
   test('upload menu shows file and folder options', async ({ page }) => {
     await page.goto(`/?dir=${UPLOAD_DIR}`)
-    await page.locator('button[title="Upload"]').click()
+    await page.getByRole('button', { name: 'Upload', exact: true }).click()
     await expect(page.getByText('Upload files')).toBeVisible()
     await expect(page.getByText('Upload folder')).toBeVisible()
   })
@@ -31,7 +31,7 @@ test.describe('File Upload', () => {
     try {
       await page.goto(`/?dir=${UPLOAD_DIR}`)
       const chosen = page.waitForEvent('filechooser')
-      await page.locator('button[title="Upload"]').click()
+      await page.getByRole('button', { name: 'Upload', exact: true }).click()
       await page.getByText('Upload files', { exact: true }).click()
       await (await chosen).setFiles({ name, mimeType: 'application/octet-stream', buffer: bytes })
       await expect(page.getByText('Upload complete')).toBeVisible()
@@ -57,7 +57,7 @@ test.describe('File Upload', () => {
 
     try {
       const fileChooserPromise = page.waitForEvent('filechooser')
-      await page.locator('button[title="Upload"]').click()
+      await page.getByRole('button', { name: 'Upload', exact: true }).click()
       await page.getByText('Upload files').click()
       const fileChooser = await fileChooserPromise
       await fileChooser.setFiles(tmpFile)

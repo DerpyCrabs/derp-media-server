@@ -9,6 +9,7 @@
 #include <QDrag>
 #include <QDropEvent>
 #include <QFile>
+#include <QFileInfo>
 #include <QFutureWatcher>
 #include <QJsonDocument>
 #include <QLabel>
@@ -148,7 +149,7 @@ ClientWindow::ClientWindow(Client *client, QJsonObject target, QJsonObject picke
     }
     resize(1100, 800);
     setMinimumSize(360, 280);
-    setWindowTitle(title.isEmpty() ? "Derp Media Server" : title);
+    setWindowTitle(title.isEmpty() ? "Derp Files" : title);
     setWindowIcon(QIcon(":/desktop/icon.svg"));
     auto *webpage = new Page(client->profile, client->server.origin, this);
     setPage(webpage);
@@ -224,6 +225,7 @@ ClientWindow::ClientWindow(Client *client, QJsonObject target, QJsonObject picke
                         {"isDirectory", !viewer || query.queryItemValue("kind") == "folder"},
                         {"mediaType", query.queryItemValue("kind")},
                         {"reader", query.queryItemValue("kind") == "folder"}};
+        updateWindowIcon();
         client->saveSession();
     });
     auto *health = new QTimer(this);
@@ -233,7 +235,7 @@ ClientWindow::ClientWindow(Client *client, QJsonObject target, QJsonObject picke
     connect(reopen, &QShortcut::activated, client, &Client::reopenClosed);
     auto *shortcut = new QShortcut(QKeySequence("Ctrl+N"), this);
     connect(shortcut, &QShortcut::activated, client,
-            [client] { client->openTarget({{"path", ""}, {"isDirectory", true}, {"mediaType", "folder"}}); });
+            [client] { client->openHome(); });
     auto *closeShortcut = new QShortcut(QKeySequence("Ctrl+W"), this);
     connect(closeShortcut, &QShortcut::activated, this, &QWidget::close);
     qApp->installEventFilter(this);
@@ -288,11 +290,16 @@ void ClientWindow::checkConnection() {
                     [this](QJsonObject result) {
                         setProperty("resolving-path", false);
                         if (result.contains("error")) {
-                            setRecovery(result.value("error").toString());
-                            return;
+                            if (!target.value("homeFallback").toBool()) {
+                                setRecovery(result.value("error").toString());
+                                return;
+                            }
+                            result["value"] = QJsonObject{{"path", ""}, {"isDirectory", true},
+                                                         {"mediaType", "folder"}};
                         }
                         target = result.value("value").toObject();
                         targetPending = false;
+                        updateWindowIcon();
                         if (ready) {
                             emit bridge->event("open", target);
                             recovery->hide();
@@ -305,7 +312,23 @@ void ClientWindow::checkConnection() {
     });
 }
 
+void ClientWindow::updateWindowIcon() {
+    QString icon = property("applicationIcon").toString();
+    if (picker.isEmpty()) {
+        const auto kind = target.value("mediaType").toString();
+        if (kind == "pdf" || kind == "book" || kind == "document")
+            icon = "reader";
+        else if (kind == "image" || kind == "video" || kind == "audio" || kind == "text")
+            icon = kind;
+        else
+            icon = "files";
+    }
+    if (icon.isEmpty())
+        icon = "files";
+    setWindowIcon(QIcon(":/desktop/icons/derp-" + icon + ".svg"));
+}
 void ClientWindow::showTarget() {
+    updateWindowIcon();
     if (parentHandle.startsWith("wayland:")) {
         winId();
         KWindowSystem::setMainWindow(windowHandle(), parentHandle.mid(8));
@@ -480,10 +503,24 @@ void Bridge::call(const QString &id, const QString &method, const QJsonArray &ar
                     throw std::runtime_error("Choose a folder");
                 return {{"result", target.value("path")}};
             }
-            if (method == "applications" || method == "open-with" || method == "terminal") {
+            if (method == "applications" || method == "open-with" || method == "open-default" || method == "terminal") {
                 const auto path = server.resolve(args[0].toString()).value("absolutePath").toString();
                 if (method == "applications")
                     return {{"result", applicationsFor(path)}};
+                if (method == "open-default") {
+                    QProcess process;
+                    process.start("gio", {"open", QUrl::fromLocalFile(path).toString(QUrl::FullyEncoded)});
+                    if (!process.waitForFinished(10000)) {
+                        process.kill();
+                        process.waitForFinished();
+                        throw std::runtime_error("Could not open the default application");
+                    }
+                    if (process.exitStatus() != QProcess::NormalExit || process.exitCode() != 0) {
+                        const auto error = process.readAllStandardError().trimmed();
+                        throw std::runtime_error(error.isEmpty() ? "No application could open this file" : error.constData());
+                    }
+                    return {};
+                }
                 bool started =
                     method == "terminal"
                         ? QProcess::startDetached("xdg-terminal-exec", {"--dir=" + path})
@@ -629,57 +666,150 @@ void Client::openTarget(const QJsonObject &target) {
     }
     QTimer::singleShot(300, this, &Client::prepareSpare);
 }
+void Client::openHome() {
+    openTarget({{"path", ""}, {"isDirectory", true},
+                {"pendingAbsolute", QDir::homePath()}, {"homeFallback", true}});
+}
 void Client::openPaths(const QStringList &paths) {
     for (const auto &path : paths)
         openTarget({{"path", ""}, {"isDirectory", true}, {"pendingAbsolute", path}});
 }
+void Client::openViewerPicker(const QJsonObject &application) {
+  QJsonArray rules;
+  rules.append(QJsonObject{{"type", 0},
+                           {"value", "*"},
+                           {"patterns", application.value("patterns")}});
+  const QJsonObject picker{
+      {"mode", "OpenFile"},
+      {"directory", false},
+      {"multiple", false},
+      {"name", ""},
+      {"acceptLabel", "Open"},
+      {"filter", 0},
+      {"choices", QJsonArray{}},
+      {"modal", false},
+      {"filters", QJsonArray{QJsonObject{{"name", application.value("name")},
+                                         {"rules", rules}}}}};
+  auto *window =
+      new ClientWindow(this, {{"path", ""}, {"isDirectory", true}}, picker, {},
+                       "Derp " + application.value("name").toString());
+  window->setProperty("applicationIcon", application.value("id").toString());
+  windows.insert(window);
+  connect(window, &QObject::destroyed, this,
+          [this, window] { windows.remove(window); });
+  QPointer<ClientWindow> guarded(window);
+  window->pickerFinished = [this, guarded, application](uint code,
+                                                        QJsonObject selection) {
+    if (code || !guarded || guarded->property("validating").toBool())
+      return;
+    guarded->setProperty("validating", true);
+    const auto server = this->server;
+    background(
+        guarded,
+        [server, selection, application] {
+          const auto paths = jsonStrings(selection.value("paths").toArray());
+          if (paths.size() != 1)
+            throw std::runtime_error("Choose a file");
+          const auto target = server.resolve(paths.first());
+          const auto patterns =
+              jsonStrings(application.value("patterns").toArray());
+          if (target.value("isDirectory").toBool() ||
+              !QDir::match(patterns,
+                           QFileInfo(target.value("absolutePath").toString())
+                               .fileName()))
+            throw std::runtime_error(
+                "Choose a file supported by this application");
+          return target;
+        },
+        [this, guarded](QJsonObject result) {
+          if (!guarded)
+            return;
+          guarded->setProperty("validating", false);
+          emit guarded->bridge->reply(
+              guarded->bridge->pickId,
+              result.contains("error") ? result
+                                       : QJsonObject{{"value", QJsonObject{}}});
+          if (result.contains("error"))
+            return;
+          guarded->pickerFinished = {};
+          guarded->picker = {};
+          guarded->target = result.value("value").toObject();
+          emit guarded->bridge->event("open", guarded->target);
+          guarded->showTarget();
+          saveSession();
+        });
+  };
+  window->show();
+}
 void Client::handleArguments(const QStringList &args, const QString &cwd) {
-    QStringList paths;
-    bool tray = false, literal = false;
-    for (const auto &arg : args) {
-        if (!literal && arg == "--") {
-            literal = true;
-            continue;
-        }
-        if (!literal && arg == "--tray") {
-            tray = true;
-            continue;
-        }
-        if (!literal && arg.startsWith('-')) {
-            error("Unknown option: " + arg);
-            return;
-        }
-        if (arg.startsWith("file:") && (!QUrl(arg).isLocalFile() || !QUrl(arg).host().isEmpty())) {
-            error("Only local file URIs are supported");
-            return;
-        }
-        paths << (arg.startsWith("file:") ? QUrl(arg).toLocalFile() : QDir(cwd).absoluteFilePath(arg));
+  QStringList paths;
+  bool tray = false, literal = false;
+  QJsonObject application;
+  for (const auto &arg : args) {
+    if (!literal && arg == "--") {
+      literal = true;
+      continue;
     }
-    if (!paths.isEmpty())
-        openPaths(paths);
-    else if (!tray)
-        openTarget({{"path", ""}, {"isDirectory", true}, {"mediaType", "folder"}});
+    if (!literal && arg == "--tray") {
+      tray = true;
+      continue;
+    }
+    if (!literal && arg.startsWith("--viewer=")) {
+      application = {};
+      QFile catalog(":/desktop/applications.json");
+      if (!catalog.open(QIODevice::ReadOnly)) {
+        error("Cannot read application catalog");
+        return;
+      }
+      for (const auto &entry :
+           QJsonDocument::fromJson(catalog.readAll()).array())
+        if (entry.toObject().value("id").toString() == arg.mid(9))
+          application = entry.toObject();
+      if (application.isEmpty()) {
+        error("Unknown viewer: " + arg.mid(9));
+        return;
+      }
+      continue;
+    }
+    if (!literal && arg.startsWith('-')) {
+      error("Unknown option: " + arg);
+      return;
+    }
+    if (arg.startsWith("file:") &&
+        (!QUrl(arg).isLocalFile() || !QUrl(arg).host().isEmpty())) {
+      error("Only local file URIs are supported");
+      return;
+    }
+    paths << (arg.startsWith("file:") ? QUrl(arg).toLocalFile()
+                                      : QDir(cwd).absoluteFilePath(arg));
+  }
+  if (!paths.isEmpty())
+    openPaths(paths);
+  else if (!tray && !application.isEmpty())
+    openViewerPicker(application);
+  else if (!tray)
+    openHome();
 }
 void Client::quit() {
-    saveSession();
-    quitting = true;
-    nativeJobs->cancelAll();
-    const auto current = windows;
-    for (auto *window : current)
-        window->close();
-    auto *timer = new QTimer(this);
-    connect(timer, &QTimer::timeout, this, [this, timer] {
-        if (!quitting) {
-            timer->stop();
-            timer->deleteLater();
-            return;
-        }
-        if (windows.isEmpty() && !nativeJobs->active()) {
-            timer->stop();
-            qApp->quit();
-        }
-    });
-    timer->start(100);
+  saveSession();
+  quitting = true;
+  nativeJobs->cancelAll();
+  const auto current = windows;
+  for (auto *window : current)
+    window->close();
+  auto *timer = new QTimer(this);
+  connect(timer, &QTimer::timeout, this, [this, timer] {
+    if (!quitting) {
+      timer->stop();
+      timer->deleteLater();
+      return;
+    }
+    if (windows.isEmpty() && !nativeJobs->active()) {
+      timer->stop();
+      qApp->quit();
+    }
+  });
+  timer->start(100);
 }
 
 void Client::saveSession() {

@@ -1,3 +1,4 @@
+import { Button } from '@/lib/ui/button'
 type Getter<T> = () => T
 import { view, domBinding } from 'effectweb'
 import type { FileIconContext } from '@/features/explorer/file-icon'
@@ -30,6 +31,7 @@ export type WorkspaceWindowTitlebarProps = {
   onActivateTab?: (groupId: string, tabId: string) => void
   onFocusWindow: (windowId: string) => void
   onCloseTab?: (windowId: string) => void
+  onReopenClosedTab?: () => void
   onToggleTabPinned?: (windowId: string) => void
   onTabPullStart?: (groupId: string, tabId: string, event: PointerEvent) => void
   onDropFile?: Parameters<typeof WorkspaceTabStrip>[0]['onDropFile']
@@ -69,6 +71,7 @@ export const WorkspaceWindowTitlebar = view<WorkspaceWindowTitlebarProps>((props
             onActivateTab={(groupId, tabId) => props.onActivateTab?.(groupId, tabId)}
             onFocusWindow={props.onFocusWindow}
             onCloseTab={(windowId) => props.onCloseTab?.(windowId)}
+            onReopenClosedTab={props.onReopenClosedTab}
             onToggleTabPinned={props.onToggleTabPinned}
             onTabPullStart={props.onTabPullStart}
             onDropFile={props.onDropFile}
@@ -92,24 +95,28 @@ export const WorkspaceWindowTitlebar = view<WorkspaceWindowTitlebarProps>((props
         onMouseDown={(event) => event.stopPropagation()}
       >
         {props.onMinimize ? (
-          <button
+          <Button
+            size='icon'
+            variant='ghost'
             type='button'
-            class={action}
+            class={`${action} rounded-none p-0`}
             style={actionStyle()}
             onClick={() => props.onMinimize?.()}
             aria-label='Minimize'
           >
             <span style={iconStyle()}>
-              <Minus class='h-3.5 w-3.5' stroke-width={2} />
+              <Minus class='size-3.5' stroke-width={2} />
             </span>
-          </button>
+          </Button>
         ) : null}
         {props.onOpenLayoutPicker ? (
           <div class='flex h-full w-8'>
-            <button
+            <Button
+              size='icon'
+              variant='ghost'
               type='button'
               data-layout-picker-trigger
-              class='inline-flex h-full w-5 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
+              class='inline-flex h-full w-5 rounded-none p-0 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
               onClick={() => props.onToggleMaximize()}
               onContextMenu={(event) => {
                 event.preventDefault()
@@ -119,28 +126,32 @@ export const WorkspaceWindowTitlebar = view<WorkspaceWindowTitlebarProps>((props
               title={props.maximized() ? 'Restore window' : 'Maximize window'}
             >
               {props.maximized() ? (
-                <Minimize2 class='h-3.5 w-3.5' stroke-width={2} />
+                <Minimize2 class='size-3.5' stroke-width={2} />
               ) : (
-                <Maximize2 class='h-3.5 w-3.5' stroke-width={2} />
+                <Maximize2 class='size-3.5' stroke-width={2} />
               )}
-            </button>
-            <button
+            </Button>
+            <Button
+              size='icon'
+              variant='ghost'
               type='button'
               data-layout-picker-trigger
-              class='inline-flex h-full w-3 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
+              class='inline-flex h-full w-3 rounded-none p-0 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
               onClick={(event) =>
                 props.onOpenLayoutPicker?.(event.currentTarget.getBoundingClientRect())
               }
               aria-label='Choose window layout'
               title='Choose window layout'
             >
-              <ChevronDown class='h-2.5 w-2.5' stroke-width={2} />
-            </button>
+              <ChevronDown class='size-2.5' stroke-width={2} />
+            </Button>
           </div>
         ) : (
-          <button
+          <Button
+            size='icon'
+            variant='ghost'
             type='button'
-            class={action}
+            class={`${action} rounded-none p-0`}
             style={actionStyle()}
             onClick={() => props.onToggleMaximize()}
             aria-label={props.maximized() ? 'Restore' : 'Maximize'}
@@ -148,27 +159,29 @@ export const WorkspaceWindowTitlebar = view<WorkspaceWindowTitlebarProps>((props
           >
             {props.maximized() ? (
               <span style={iconStyle()}>
-                <Minimize2 class='h-3.5 w-3.5' stroke-width={2} />
+                <Minimize2 class='size-3.5' stroke-width={2} />
               </span>
             ) : (
               <span style={iconStyle()}>
-                <Maximize2 class='h-3.5 w-3.5' stroke-width={2} />
+                <Maximize2 class='size-3.5' stroke-width={2} />
               </span>
             )}
-          </button>
+          </Button>
         )}
         {props.onClose ? (
-          <button
+          <Button
+            size='icon'
+            variant='ghost'
             type='button'
-            class={action}
+            class={`${action} rounded-none p-0`}
             style={actionStyle()}
             onClick={() => props.onClose?.()}
             aria-label={`Close ${props.tabs().find((window) => window.id === props.visibleTabId())?.title ?? ''}`}
           >
             <span style={iconStyle()}>
-              <X class='h-3.5 w-3.5' stroke-width={2} />
+              <X class='size-3.5' stroke-width={2} />
             </span>
-          </button>
+          </Button>
         ) : null}
       </div>
     </div>

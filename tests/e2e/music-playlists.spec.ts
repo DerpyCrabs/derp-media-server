@@ -36,14 +36,15 @@ test('saved folder songs remain visible without a music index and can be reorder
     .nth(1)
     .getByRole('button', { name: /^Music options for / })
     .click()
-  await page.getByRole('button', { name: 'Move up', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'Move up', exact: true }).click()
   await expect
     .poll(
       async () =>
         (await request.get(`/api/music/playlists/${id}`).then((r) => r.json())).items[0].path,
     )
     .toBe(paths[1])
-  await dialog.getByRole('button', { name: 'Edit playlist', exact: true }).click()
+  await dialog.getByRole('button', { name: 'Playlist options', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'Edit playlist', exact: true }).click()
   await dialog.getByRole('textbox', { name: 'Name', exact: true }).fill('Evening music')
   await dialog.getByRole('button', { name: 'Save playlist', exact: true }).click()
   await expect(dialog.getByRole('heading', { name: 'Evening music' })).toBeVisible()
@@ -52,7 +53,7 @@ test('saved folder songs remain visible without a music index and can be reorder
     .nth(2)
     .getByRole('button', { name: /^Music options for / })
     .click()
-  await page.getByRole('button', { name: 'Remove from playlist', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'Remove from playlist', exact: true }).click()
   await expect(dialog.getByRole('listitem')).toHaveCount(2)
   const saved = await request.get(`/api/music/playlists/${id}`).then((r) => r.json())
   expect(saved.name).toBe('Evening music')
@@ -62,10 +63,12 @@ test('saved folder songs remain visible without a music index and can be reorder
   await page.getByRole('button', { name: 'Playlists', exact: true }).click()
   await dialog.getByRole('button', { name: /Evening music/ }).click()
   await expect(dialog.getByRole('listitem')).toHaveCount(2)
-  await dialog.getByRole('button', { name: 'Delete', exact: true }).click()
+  await dialog.getByRole('button', { name: 'Playlist options', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'Delete playlist', exact: true }).click()
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
   expect((await request.get(`/api/music/playlists/${id}`)).ok()).toBe(true)
-  await dialog.getByRole('button', { name: 'Delete', exact: true }).click()
+  await dialog.getByRole('button', { name: 'Playlist options', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'Delete playlist', exact: true }).click()
   await dialog.getByRole('button', { name: 'Delete playlist', exact: true }).click()
   await expect(dialog.getByRole('heading', { name: 'Playlists', exact: true })).toBeVisible()
   expect((await request.get(`/api/music/playlists/${id}`)).status()).toBe(404)
@@ -78,7 +81,8 @@ test('an edit from another tab cannot overwrite newer playlist contents', async 
   const id = await create(request, 'Two windows', [paths[0]!])
   const dialog = await open(page)
   await dialog.getByRole('button', { name: /Two windows/ }).click()
-  await dialog.getByRole('button', { name: 'Edit playlist', exact: true }).click()
+  await dialog.getByRole('button', { name: 'Playlist options', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'Edit playlist', exact: true }).click()
   await dialog.getByRole('textbox', { name: 'Name', exact: true }).fill('Stale rename')
   expect(
     (await request.post(`/api/music/playlists/${id}/tracks`, { data: { paths: [paths[1]] } })).ok(),
@@ -94,31 +98,11 @@ test('an edit from another tab cannot overwrite newer playlist contents', async 
   await dialog.getByRole('button', { name: 'Reload', exact: true }).click()
   await expect(dialog.getByRole('listitem')).toHaveCount(2)
 })
-test('new manual and automatic playlists can be created with a keyboard', async ({
-  page,
-  request,
-}) => {
+test('new saved playlists can be created with a keyboard', async ({ page, request }) => {
   const dialog = await open(page)
   await dialog.getByRole('button', { name: 'New playlist', exact: true }).click()
   const name = `Quiet ${Date.now()}`
   await dialog.getByRole('textbox', { name: 'Name', exact: true }).fill(name)
-  await dialog.getByRole('checkbox', { name: 'Choose songs automatically' }).check()
-  await dialog.getByRole('textbox', { name: 'Genre', exact: true }).fill('jazz')
-  await dialog.getByRole('checkbox', { name: 'Liked songs', exact: true }).check()
-  await dialog.getByRole('button', { name: 'Save playlist', exact: true }).click()
-  await expect(dialog.getByRole('heading', { name, exact: true })).toBeVisible()
-  const saved = (await request.get('/api/music/playlists').then((r) => r.json())).items.find(
-    (item: { name: string }) => item.name === name,
-  )
-  ids.push(saved.id)
-  expect(saved.rules.genre).toBe('jazz')
-  expect(saved.rules.liked).toBe(true)
-  await dialog.getByRole('button', { name: 'Edit playlist', exact: true }).click()
-  await expect(dialog.getByRole('textbox', { name: 'Genre', exact: true })).toHaveValue('jazz')
-  await page.keyboard.press('Escape')
-  await expect(dialog.getByRole('heading', { name, exact: true })).toBeVisible()
-  await dialog.getByRole('button', { name: 'Back to playlists' }).click()
-  await dialog.getByRole('button', { name: 'New playlist', exact: true }).click()
   await dialog.getByRole('textbox', { name: 'Name', exact: true }).fill(`${name} manual`)
   await dialog.getByRole('textbox', { name: 'Name', exact: true }).press('Enter')
   await expect(dialog.getByRole('heading', { name: `${name} manual`, exact: true })).toBeVisible()
@@ -141,7 +125,6 @@ test('the complete folder queue can be saved and appended without duplicates', a
   await page.getByRole('button', { name: 'Up next', exact: true }).click()
   await page.getByRole('button', { name: 'Save queue…', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Playlists', exact: true })
-  await expect(dialog).toContainText('2 songs selected')
   await dialog.getByRole('button', { name: 'New playlist', exact: true }).click()
   const name = `Saved queue ${Date.now()}`
   await dialog.getByRole('textbox', { name: 'Name', exact: true }).fill(name)
@@ -166,7 +149,7 @@ test('the complete folder queue can be saved and appended without duplicates', a
   await dialog.getByRole('button', { name: new RegExp(name) }).click()
   await dialog.getByRole('button', { name: 'Play all', exact: true }).click()
   await expect(page).toHaveURL(/playing=Music%2Ftrack.flac/)
-  await dialog.getByRole('button', { name: 'Close playlists' }).click()
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click()
   await page.getByRole('button', { name: 'Up next', exact: true }).click()
   const queue = page.getByRole('dialog', { name: 'Up next', exact: true })
   await expect(queue).toContainText(name)
@@ -185,7 +168,7 @@ test('song options append to another playlist and search selections persist acro
     .getByRole('button', { name: /^Music options for / })
     .first()
     .click()
-  await page.getByRole('button', { name: 'Add to playlist…', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'Add to playlist…', exact: true }).click()
   await expect(dialog.getByRole('heading', { name: 'Add to playlist' })).toBeVisible()
   await dialog.getByRole('button', { name: /Destination songs/ }).click()
   await expect(dialog).toBeHidden()
@@ -237,13 +220,14 @@ test('missing unindexed songs stay visible and do not prevent renaming or removi
     await expect(dialog.getByRole('button', { name: /^Play music / })).toBeDisabled()
     await expect(dialog.getByRole('button', { name: 'Play all', exact: true })).toBeDisabled()
     await expect(dialog).toContainText('Unavailable')
-    await dialog.getByRole('button', { name: 'Edit playlist', exact: true }).click()
+    await dialog.getByRole('button', { name: 'Playlist options', exact: true }).click()
+    await page.getByRole('menuitem', { name: 'Edit playlist', exact: true }).click()
     await dialog.getByRole('textbox', { name: 'Name', exact: true }).fill('Waiting for drive')
     await dialog.getByRole('button', { name: 'Save playlist', exact: true }).click()
     await expect(dialog.getByRole('heading', { name: 'Waiting for drive' })).toBeVisible()
     await dialog.getByRole('button', { name: /^Music options for / }).click()
-    await expect(page.getByRole('button', { name: 'Play next', exact: true })).toBeDisabled()
-    await page.getByRole('button', { name: 'Remove from playlist', exact: true }).click()
+    await expect(page.getByRole('menuitem', { name: 'Play next', exact: true })).toBeDisabled()
+    await page.getByRole('menuitem', { name: 'Remove from playlist', exact: true }).click()
     await expect(dialog).toContainText('This playlist is empty')
     expect(
       (await request.get(`/api/music/playlists/${id}`).then((r) => r.json())).items,

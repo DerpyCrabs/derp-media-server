@@ -752,7 +752,7 @@ test.describe('File Browsing and Viewers', () => {
       await content.getByText('Videos', { exact: true }).click()
       await expect(content.getByText('sample.mp4')).toBeVisible({ timeout: 10000 })
       await content.getByRole('button', { name: 'Display options' }).click()
-      await page.getByRole('menuitem', { name: 'List view', exact: true }).click()
+      await page.getByRole('menuitemradio', { name: 'List view', exact: true }).click()
       const fileRow = content.locator('tr').filter({ hasText: 'sample.mp4' })
       await expect(fileRow).toBeVisible()
       await expect(
@@ -764,9 +764,10 @@ test.describe('File Browsing and Viewers', () => {
       expect(rowBox?.height).toBeLessThanOrEqual(40)
 
       await content.getByRole('button', { name: 'Display options' }).click()
-      const displayMenu = page.getByTestId('explorer-display-options')
-      const favoriteColumn = displayMenu.getByRole('checkbox', { name: 'Favorites' })
-      const viewsColumn = displayMenu.getByRole('checkbox', { name: 'Views' })
+      const displayMenu = page.getByRole('menu', { name: 'Display options', exact: true })
+      await displayMenu.getByRole('menuitem', { name: 'Columns' }).hover()
+      const favoriteColumn = page.getByRole('menuitemcheckbox', { name: 'Favorites' })
+      const viewsColumn = page.getByRole('menuitemcheckbox', { name: 'Views' })
       await expect(favoriteColumn).not.toBeChecked()
       await expect(viewsColumn).not.toBeChecked()
       await Promise.all([

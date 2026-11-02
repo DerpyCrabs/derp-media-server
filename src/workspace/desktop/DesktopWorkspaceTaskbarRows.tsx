@@ -1,3 +1,5 @@
+import { MenuItem } from '@/lib/ui/menu-item'
+import { TaskbarButton } from '../shared/TaskbarButton'
 import { component, view, observe } from 'effectweb'
 import { memoView } from 'effectweb/advanced'
 import { workspaceValueEquals } from '../model/workspace-equality'
@@ -89,7 +91,7 @@ export const TaskbarGroupRow = memoView(
         }
         return props.group.leaderId && displayWindow() ? (
           <>
-            <button
+            <TaskbarButton
               type='button'
               data-taskbar-window-row
               data-taskbar-active={isActive() ? '' : undefined}
@@ -114,7 +116,7 @@ export const TaskbarGroupRow = memoView(
                 e.stopPropagation()
                 setMenu({ x: e.clientX, y: e.clientY })
               }}
-              class={`flex h-8 min-w-[120px] flex-[0_1_220px] items-center gap-1.5 overflow-hidden px-2 text-left text-xs touch-manipulation ${
+              class={`flex h-8 min-w-[120px] flex-[0_1_220px] items-center gap-1.5 overflow-hidden px-2 justify-start text-left text-xs touch-manipulation ${
                 isActive()
                   ? 'border-b-2 border-b-primary bg-muted text-foreground'
                   : 'border-b-2 border-b-transparent bg-muted/50 text-muted-foreground'
@@ -140,7 +142,7 @@ export const TaskbarGroupRow = memoView(
               {hermesState()?.unread ? (
                 <span class='size-2 shrink-0 rounded-full bg-emerald-500' title='Unread response' />
               ) : null}
-            </button>
+            </TaskbarButton>
             <FloatingContextMenu
               state={menu()}
               anchor={(m) => ({ x: m.x, y: m.y })}
@@ -153,7 +155,8 @@ export const TaskbarGroupRow = memoView(
               {() => (
                 <>
                   {isMinimized() ? (
-                    <button
+                    <MenuItem
+                      variant='ghost'
                       type='button'
                       data-slot='context-menu-item'
                       data-testid='workspace-taskbar-menu-restore'
@@ -165,10 +168,11 @@ export const TaskbarGroupRow = memoView(
                       }}
                     >
                       Restore
-                    </button>
+                    </MenuItem>
                   ) : null}
                   {!isMinimized() ? (
-                    <button
+                    <MenuItem
+                      variant='ghost'
                       type='button'
                       data-slot='context-menu-item'
                       data-testid='workspace-taskbar-menu-minimize'
@@ -180,9 +184,10 @@ export const TaskbarGroupRow = memoView(
                       }}
                     >
                       Minimize
-                    </button>
+                    </MenuItem>
                   ) : null}
-                  <button
+                  <MenuItem
+                    variant='ghost'
                     type='button'
                     data-slot='context-menu-item'
                     data-testid='workspace-taskbar-menu-close'
@@ -194,7 +199,7 @@ export const TaskbarGroupRow = memoView(
                     }}
                   >
                     Close
-                  </button>
+                  </MenuItem>
                 </>
               )}
             </FloatingContextMenu>

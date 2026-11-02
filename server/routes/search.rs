@@ -129,7 +129,7 @@ fn logical_path(
         .unwrap_or(path)
         .to_string_lossy()
         .replace('\\', "/");
-    if state.config.roots.len() > 1 {
+    if state.config.named_roots() {
         format!("{}/{}", resolved.root.name, relative)
     } else {
         relative

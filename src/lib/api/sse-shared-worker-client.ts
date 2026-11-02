@@ -4,9 +4,9 @@ import { Schema } from 'effect'
 import { workerEventSchema, type SseEventPayload } from './sse-protocol'
 export type { SseEventPayload } from './sse-protocol'
 
-const sharedWorkerAvailable = typeof SharedWorker !== 'undefined'
+let sharedWorkerAvailable = typeof SharedWorker !== 'undefined'
 let sharedWorker: SharedWorker | null = null
-let sharedAdminRef = 0
+let adminRef = 0
 const adminListeners = new Set<(data: SseEventPayload) => void>()
 
 function dispatchAdmin(data: SseEventPayload) {
@@ -19,31 +19,46 @@ function dispatchAdmin(data: SseEventPayload) {
   }
 }
 
-function ensureSharedWorkerPort(): MessagePort {
-  if (!sharedWorker) {
-    sharedWorker = new SharedWorker(new URL('./sse-shared-worker.ts', import.meta.url), {
-      type: 'module',
-      name: 'derp-sse',
-    })
-    sharedWorker.port.start()
-    sharedWorker.port.addEventListener('message', (event: MessageEvent) => {
-      const decoded = Schema.decodeUnknownExit(workerEventSchema)(event.data)
-      if (decoded._tag === 'Success') dispatchAdmin(decoded.value.data)
-    })
+function ensureSharedWorkerPort(): MessagePort | null {
+  if (!sharedWorkerAvailable) return null
+  try {
+    if (!sharedWorker) {
+      sharedWorker = new SharedWorker(new URL('./sse-shared-worker.ts', import.meta.url), {
+        type: 'module',
+        name: 'derp-sse',
+      })
+      sharedWorker.port.start()
+      sharedWorker.port.addEventListener('message', (event: MessageEvent) => {
+        const decoded = Schema.decodeUnknownExit(workerEventSchema)(event.data)
+        if (decoded._tag === 'Success') dispatchAdmin(decoded.value.data)
+      })
+    }
+    attachSharedWorkerNetworkHandlers()
+    return sharedWorker.port
+  } catch {
+    sharedWorkerAvailable = false
+    try {
+      sharedWorker?.port.close()
+    } catch {
+      // A partially initialized port may already be unusable.
+    }
+    sharedWorker = null
+    detachSharedWorkerNetworkHandlers()
+    return null
   }
-  attachSharedWorkerNetworkHandlers()
-  return sharedWorker.port
 }
 
-let fallbackAdminRef = 0
 const fallbackStream = createAdminStream(dispatchAdmin)
 
 function isTabVisible(): boolean {
-  return typeof document !== 'undefined' && !document.hidden
+  return (
+    typeof document !== 'undefined' &&
+    ((typeof window !== 'undefined' && !!window.derpRuntime) || !document.hidden)
+  )
 }
 
 function connectFallbackAdmin() {
-  if (isTabVisible() && fallbackAdminRef > 0) fallbackStream.start()
+  if (isTabVisible() && adminRef > 0) fallbackStream.start()
 }
 
 let fallbackVisibilityAttached = false
@@ -56,6 +71,15 @@ function attachSharedWorkerNetworkHandlers() {
   window.addEventListener('online', notifyOnline)
   window.addEventListener('pagehide', disconnectSharedWorker)
   window.addEventListener('pageshow', restoreSharedWorker)
+}
+
+function detachSharedWorkerNetworkHandlers() {
+  if (!sharedWorkerNetworkEventsAttached) return
+  window.removeEventListener('offline', notifyOffline)
+  window.removeEventListener('online', notifyOnline)
+  window.removeEventListener('pagehide', disconnectSharedWorker)
+  window.removeEventListener('pageshow', restoreSharedWorker)
+  sharedWorkerNetworkEventsAttached = false
 }
 
 function attachFallbackVisibilityHandlers() {
@@ -72,9 +96,14 @@ function disconnectSharedWorker() {
 }
 
 function restoreSharedWorker() {
-  if (sharedWorker || sharedAdminRef === 0) return
+  if (sharedWorker || adminRef === 0) return
   const port = ensureSharedWorkerPort()
-  for (let index = 0; index < sharedAdminRef; index++) port.postMessage({ type: 'subscribe-admin' })
+  if (port) {
+    for (let index = 0; index < adminRef; index++) port.postMessage({ type: 'subscribe-admin' })
+  } else {
+    attachFallbackVisibilityHandlers()
+    connectFallbackAdmin()
+  }
 }
 
 function notifyOffline() {
@@ -88,7 +117,7 @@ function notifyOnline() {
 function updateFallbackVisibility() {
   if (!isTabVisible()) {
     fallbackStream.stop()
-  } else if (fallbackAdminRef > 0) {
+  } else if (adminRef > 0) {
     connectFallbackAdmin()
   }
 }
@@ -97,37 +126,27 @@ export function subscribeSseAdmin(onData: (data: SseEventPayload) => void): () =
   adminListeners.add(onData)
   let active = true
 
-  if (sharedWorkerAvailable) {
-    sharedAdminRef++
-    ensureSharedWorkerPort().postMessage({ type: 'subscribe-admin' })
-    return () => {
-      if (!active) return
-      active = false
-      adminListeners.delete(onData)
-      sharedWorker?.port.postMessage({ type: 'unsubscribe-admin' })
-      if (--sharedAdminRef === 0) {
-        window.removeEventListener('offline', notifyOffline)
-        window.removeEventListener('online', notifyOnline)
-        window.removeEventListener('pagehide', disconnectSharedWorker)
-        window.removeEventListener('pageshow', restoreSharedWorker)
-        disconnectSharedWorker()
-        sharedWorkerNetworkEventsAttached = false
-      }
-    }
+  adminRef++
+  const port = ensureSharedWorkerPort()
+  if (port) {
+    port.postMessage({ type: 'subscribe-admin' })
+  } else {
+    attachFallbackVisibilityHandlers()
+    connectFallbackAdmin()
   }
-
-  fallbackAdminRef++
-  attachFallbackVisibilityHandlers()
-  connectFallbackAdmin()
   return () => {
     if (!active) return
     active = false
     adminListeners.delete(onData)
-    fallbackAdminRef = Math.max(0, fallbackAdminRef - 1)
-    if (fallbackAdminRef === 0) {
+    sharedWorker?.port.postMessage({ type: 'unsubscribe-admin' })
+    if (--adminRef === 0) {
+      detachSharedWorkerNetworkHandlers()
+      disconnectSharedWorker()
       fallbackStream.stop()
-      document.removeEventListener('visibilitychange', updateFallbackVisibility)
-      fallbackVisibilityAttached = false
+      if (fallbackVisibilityAttached) {
+        document.removeEventListener('visibilitychange', updateFallbackVisibility)
+        fallbackVisibilityAttached = false
+      }
     }
   }
 }

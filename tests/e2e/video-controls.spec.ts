@@ -265,7 +265,7 @@ async function settings(page: Page) {
 
 async function chooseSetting(page: Page, label: string, choice: string | RegExp) {
   await page.getByRole('button', { name: label, exact: true }).click()
-  await page.getByRole('menuitemradio', { name: choice, exact: typeof choice === 'string' }).click()
+  await page.getByRole('option', { name: choice, exact: typeof choice === 'string' }).click()
 }
 
 test('playback choices use app menus with keyboard selection and dismissal', async ({
@@ -280,7 +280,7 @@ test('playback choices use app menus with keyboard selection and dismissal', asy
   await expect(speed).toHaveText('1× · Normal')
   await speed.focus()
   await page.keyboard.press('ArrowDown')
-  await expect(page.getByRole('menuitemradio', { name: '1× · Normal', exact: true })).toBeFocused()
+  await expect(page.getByRole('option', { name: '1× · Normal', exact: true })).toBeFocused()
   await page.keyboard.press('ArrowDown')
   await page.keyboard.press('Enter')
   await expect(speed).toHaveText('1.25×')
@@ -293,11 +293,11 @@ test('playback choices use app menus with keyboard selection and dismissal', asy
   await expect(dialog).toBeVisible()
   await expect(speed).toBeFocused()
   await speed.click()
-  await dialog.getByText('Playback settings', { exact: true }).click()
+  await dialog.click({ position: { x: 4, y: 4 } })
   await expect(speed).toHaveAttribute('aria-expanded', 'false')
   await speed.click()
   await page.screenshot({ path: testInfo.outputPath('desktop-speed-menu.png') })
-  await page.getByRole('menuitemradio', { name: '1× · Normal', exact: true }).click()
+  await page.getByRole('option', { name: '1× · Normal', exact: true }).click()
 })
 
 test('playback choice menus remain usable inside fullscreen', async ({ page }, testInfo) => {
@@ -306,9 +306,7 @@ test('playback choice menus remain usable inside fullscreen', async ({ page }, t
   await page.getByRole('button', { name: 'Enter fullscreen' }).click()
   await settings(page)
   await page.getByRole('button', { name: 'Playback speed', exact: true }).click()
-  const choice = page
-    .locator(':fullscreen')
-    .getByRole('menuitemradio', { name: '1.5×', exact: true })
+  const choice = page.locator(':fullscreen').getByRole('option', { name: '1.5×', exact: true })
   await expect(choice).toBeVisible()
   await expect(choice).toBeInViewport()
   await page.screenshot({ path: testInfo.outputPath('fullscreen-speed-menu.png') })
@@ -411,34 +409,6 @@ test('renders two subtitles, extracts ASS text and synchronizes speed across bro
   } finally {
     await other.close()
   }
-})
-
-test('subtitle timing can be corrected without moving playback and survives reload', async ({
-  page,
-  request,
-}) => {
-  const video = await openVideo(page)
-  await video.evaluate((el: HTMLVideoElement) => {
-    el.pause()
-    el.currentTime = 1
-  })
-  await settings(page)
-  await chooseSetting(page, 'Subtitles', /^ENG.*SUBRIP/)
-  await expect(page.getByTestId('video-subtitle-primary')).toHaveText('Hello & welcome')
-  const delay = page.getByRole('spinbutton', { name: 'Subtitle delay (seconds)' })
-  await delay.fill('10')
-  await delay.press('Tab')
-  await expect(page.getByTestId('video-subtitle-primary')).toHaveCount(0)
-  expect(await video.evaluate((el: HTMLVideoElement) => el.currentTime)).toBeCloseTo(1, 0)
-  await page.reload()
-  await settings(page)
-  await expect(delay).toHaveValue('10')
-  await delay.fill('0')
-  await delay.press('Tab')
-  const invalid = await request.post(`${baseUrl}/api/playback/preferences`, {
-    data: { path: 'Videos/sample.mkv', video: { subtitleDelay: 601 } },
-  })
-  expect(invalid.status()).toBe(400)
 })
 
 test('audio-track changes preserve timestamps, subtitles and listen-only language', async ({
@@ -724,13 +694,13 @@ test('phone layout keeps settings usable and touch reveals controls', async ({
     expect(box!.x).toBeGreaterThanOrEqual(0)
     expect(box!.x + box!.width).toBeLessThanOrEqual(393)
     await page.getByRole('button', { name: 'Audio track', exact: true }).tap()
-    const menu = page.getByRole('menu')
+    const menu = page.getByRole('listbox')
     const menuBox = await menu.boundingBox()
     expect(menuBox!.x).toBeGreaterThanOrEqual(0)
     expect(menuBox!.x + menuBox!.width).toBeLessThanOrEqual(393)
-    await expect(page.getByRole('menuitemradio', { name: /^RUS.*AAC/ })).toBeInViewport()
+    await expect(page.getByRole('option', { name: /^RUS.*AAC/ })).toBeInViewport()
     await page.screenshot({ path: testInfo.outputPath('phone-audio-menu.png') })
-    await page.getByRole('menuitemradio', { name: /^RUS.*AAC/ }).tap()
+    await page.getByRole('option', { name: /^RUS.*AAC/ }).tap()
     await expect(page.locator('video')).toHaveAttribute('data-playback-source', /audio=2/)
   } finally {
     await context.close()
@@ -818,9 +788,11 @@ test('local subtitle files use existing track menus, support two languages and d
   await video.evaluate((element: HTMLVideoElement) => element.pause())
   await settings(page)
   const load = async (label: string, name: string, text: string) => {
-    await page.getByRole('button', { name: label, exact: true }).click()
     const selecting = page.waitForEvent('filechooser')
-    await page.getByRole('menuitem', { name: 'Open subtitle file…', exact: true }).click()
+    await page
+      .getByRole('button', { name: 'Open subtitle file…', exact: true })
+      .nth(label === 'Subtitles' ? 0 : 1)
+      .click()
     await (
       await selecting
     ).setFiles({
@@ -843,9 +815,7 @@ test('local subtitle files use existing track menus, support two languages and d
   await expect(page.getByTestId('video-subtitle-secondary')).toHaveText('Локальные субтитры')
   await chooseSetting(page, 'Subtitles', /unrelated-name.srt/)
   await expect(page.getByTestId('video-subtitle-primary')).toHaveText('Local English')
-  await page.getByRole('spinbutton', { name: 'Subtitle delay (seconds)' }).fill('5')
-  await page.getByRole('spinbutton', { name: 'Subtitle delay (seconds)' }).press('Enter')
-  await expect(page.getByTestId('video-subtitle-primary')).toHaveCount(0)
+  await expect(page.getByTestId('video-subtitle-primary')).toHaveText('Local English')
   await expect.poll(() => video.evaluate((element: HTMLVideoElement) => element.paused)).toBe(true)
 })
 

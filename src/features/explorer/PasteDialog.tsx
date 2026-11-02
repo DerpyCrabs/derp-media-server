@@ -1,3 +1,5 @@
+import { Input } from '@/lib/ui/input'
+import { Button } from '@/lib/ui/button'
 import { available, component, observe, view } from 'effectweb'
 import { cn } from '@/lib/ui/cn'
 import { query, querySource } from '@effectweb/query'
@@ -7,7 +9,7 @@ import type { PasteData } from '@/lib/files/paste-data'
 import type { FileItem } from '@/lib/files/types'
 import { buildAdminMediaUrl } from '@/lib/media/build-media-url'
 import type { ModalOverlayScope } from './modal-overlay-scope'
-import { modalDialogBackdropClass } from './modal-overlay-scope'
+import { Dialog } from '@/lib/ui/dialog'
 import { formatFileSize } from '@/lib/media/media-utils'
 import { LazyMarkdownDocument } from '@/lib/markdown/LazyMarkdownDocument'
 import AlertCircle from '@effectweb/lucide/icons/alert-circle'
@@ -97,178 +99,160 @@ export const PasteDialog = component(
       }
     }
     return props.isOpen ? (
-      <div
-        class={modalDialogBackdropClass(props.overlayScope)}
-        role='presentation'
-        onClick={() => handleClose()}
+      <Dialog
+        open={props.isOpen}
+        onOpenChange={(open) => {
+          if (!open) handleClose()
+        }}
+        dismissible={!props.isPending}
+        title={`Paste ${contentLabel()}`}
+        class='sm:max-w-2xl max-h-[85dvh] overflow-y-auto'
       >
-        <div
-          role='dialog'
-          aria-modal='true'
-          class='border-border bg-card text-card-foreground max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-lg border p-6 shadow-lg'
-          onClick={(e) => e.stopPropagation()}
-        >
-          <h2 class='text-lg font-semibold'>Paste {contentLabel()}</h2>
-
-          <div class='mt-4 space-y-4'>
-            {((pd) =>
-              pd ? (
-                <>
-                  {pd.type === 'image' ? (
-                    <div class='space-y-2'>
-                      <div class='bg-muted/30 flex max-h-64 items-center justify-center overflow-hidden rounded-lg border p-4'>
-                        <img
-                          src={`data:${pd.fileType || 'image/png'};base64,${pd.content}`}
-                          alt='Preview'
-                          class='max-h-56 max-w-full object-contain'
-                        />
+        <div class='mt-4 space-y-4'>
+          {((pd) =>
+            pd ? (
+              <>
+                {pd.type === 'image' ? (
+                  <div class='space-y-2'>
+                    <div class='bg-muted/30 flex max-h-64 items-center justify-center overflow-hidden rounded-lg border p-4'>
+                      <img
+                        src={`data:${pd.fileType || 'image/png'};base64,${pd.content}`}
+                        alt='Preview'
+                        class='max-h-56 max-w-full object-contain'
+                      />
+                    </div>
+                    {pd.fileSize ? (
+                      <div class='text-muted-foreground flex items-center gap-2 px-2 text-xs'>
+                        <HardDrive class='h-3 w-3' stroke-width={2} />
+                        <span>{formatFileSize(pd.fileSize!)}</span>
                       </div>
-                      {pd.fileSize ? (
-                        <div class='text-muted-foreground flex items-center gap-2 px-2 text-xs'>
-                          <HardDrive class='h-3 w-3' stroke-width={2} />
-                          <span>{formatFileSize(pd.fileSize!)}</span>
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : null}
+                    ) : null}
+                  </div>
+                ) : null}
 
-                  {(pd.type === 'text' || pd.type === 'file') && pd.isTextContent === true ? (
-                    <div class='space-y-2'>
-                      {fileExists() && canReplace() ? (
-                        <ExistingPastePreview path={existingItem()!.path} content={pd.content} />
-                      ) : (
-                        <PasteTextPreview
-                          content={pd.content}
-                          renderAsMarkdown={previewAsMarkdown()}
-                        />
-                      )}
-                      {pd.fileSize ? (
-                        <div class='text-muted-foreground flex items-center gap-2 px-2 text-xs'>
-                          <HardDrive class='h-3 w-3' stroke-width={2} />
-                          <span>{formatFileSize(pd.fileSize!)}</span>
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : null}
+                {(pd.type === 'text' || pd.type === 'file') && pd.isTextContent === true ? (
+                  <div class='space-y-2'>
+                    {fileExists() && canReplace() ? (
+                      <ExistingPastePreview path={existingItem()!.path} content={pd.content} />
+                    ) : (
+                      <PasteTextPreview
+                        content={pd.content}
+                        renderAsMarkdown={previewAsMarkdown()}
+                      />
+                    )}
+                    {pd.fileSize ? (
+                      <div class='text-muted-foreground flex items-center gap-2 px-2 text-xs'>
+                        <HardDrive class='h-3 w-3' stroke-width={2} />
+                        <span>{formatFileSize(pd.fileSize!)}</span>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
 
-                  {pd.type === 'file' && !pd.isTextContent ? (
-                    <div class='bg-muted/30 rounded-lg border p-6'>
-                      <div class='flex flex-col items-center gap-4 text-center'>
-                        <div class='bg-primary/10 rounded-full p-4'>
-                          <FileIcon class='text-primary h-8 w-8' stroke-width={2} />
-                        </div>
-                        <div class='space-y-2'>
-                          <p class='text-sm font-medium'>{pd.suggestedName}</p>
-                          <div class='text-muted-foreground flex items-center justify-center gap-4 text-xs'>
-                            {pd.fileType ? <span class='font-mono'>{pd.fileType}</span> : null}
-                            {pd.fileSize ? (
-                              <div class='flex items-center gap-1'>
-                                <HardDrive class='h-3 w-3' stroke-width={2} />
-                                <span>{formatFileSize(pd.fileSize!)}</span>
-                              </div>
-                            ) : null}
-                          </div>
+                {pd.type === 'file' && !pd.isTextContent ? (
+                  <div class='bg-muted/30 rounded-lg border p-6'>
+                    <div class='flex flex-col items-center gap-4 text-center'>
+                      <div class='bg-primary/10 rounded-full p-4'>
+                        <FileIcon class='text-primary h-8 w-8' stroke-width={2} />
+                      </div>
+                      <div class='space-y-2'>
+                        <p class='text-sm font-medium'>{pd.suggestedName}</p>
+                        <div class='text-muted-foreground flex items-center justify-center gap-4 text-xs'>
+                          {pd.fileType ? <span class='font-mono'>{pd.fileType}</span> : null}
+                          {pd.fileSize ? (
+                            <div class='flex items-center gap-1'>
+                              <HardDrive class='h-3 w-3' stroke-width={2} />
+                              <span>{formatFileSize(pd.fileSize!)}</span>
+                            </div>
+                          ) : null}
                         </div>
                       </div>
                     </div>
-                  ) : null}
+                  </div>
+                ) : null}
 
-                  {fileExists() && canReplace() && !pd.isTextContent ? (
-                    <div
-                      class='grid grid-cols-2 gap-3 text-sm'
-                      data-testid='binary-replacement-info'
-                    >
-                      <div class='bg-muted/30 rounded-lg border p-3'>
-                        <p class='font-medium'>Existing</p>
-                        <p class='text-muted-foreground mt-1 text-xs'>
-                          {existingItem()!.extension || existingItem()!.type} ·{' '}
-                          {formatFileSize(existingItem()!.size)}
-                        </p>
-                      </div>
-                      <div class='bg-muted/30 rounded-lg border p-3'>
-                        <p class='font-medium'>Clipboard</p>
-                        <p class='text-muted-foreground mt-1 text-xs'>
-                          {pd.fileType || 'binary file'} · {formatFileSize(pd.fileSize ?? 0)}
-                        </p>
-                      </div>
+                {fileExists() && canReplace() && !pd.isTextContent ? (
+                  <div class='grid grid-cols-2 gap-3 text-sm' data-testid='binary-replacement-info'>
+                    <div class='bg-muted/30 rounded-lg border p-3'>
+                      <p class='font-medium'>Existing</p>
+                      <p class='text-muted-foreground mt-1 text-xs'>
+                        {existingItem()!.extension || existingItem()!.type} ·{' '}
+                        {formatFileSize(existingItem()!.size)}
+                      </p>
                     </div>
-                  ) : null}
-                </>
-              ) : null)(props.pasteData?.showPreview && props.pasteData)}
+                    <div class='bg-muted/30 rounded-lg border p-3'>
+                      <p class='font-medium'>Clipboard</p>
+                      <p class='text-muted-foreground mt-1 text-xs'>
+                        {pd.fileType || 'binary file'} · {formatFileSize(pd.fileSize ?? 0)}
+                      </p>
+                    </div>
+                  </div>
+                ) : null}
+              </>
+            ) : null)(props.pasteData?.showPreview && props.pasteData)}
 
-            <div class='space-y-2'>
-              <label class='text-sm font-medium'>Filename</label>
-              <input
-                type='text'
-                aria-label='Filename'
-                class={cn([
-                  'border-input bg-background focus-visible:ring-ring h-9 w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:outline-none',
-                  { 'border-yellow-500': fileExists() },
-                ])}
-                value={displayName()}
-                onInput={(e) => setFileName(e.currentTarget.value)}
-                placeholder={`e.g., ${props.pasteData?.suggestedName ?? 'file.txt'}`}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && displayName().trim()) handlePaste()
-                }}
-                disabled={props.isPending}
-                autofocus
-              />
-            </div>
-
-            {fileExists() ? (
-              <div class='flex items-start gap-2 rounded-lg border border-yellow-500/50 bg-yellow-500/10 p-3'>
-                <AlertCircle class='mt-0.5 h-4 w-4 shrink-0 text-yellow-600 dark:text-yellow-500' />
-                <div class='text-sm text-yellow-800 dark:text-yellow-200'>
-                  <p class='font-medium'>File already exists</p>
-                  <p class='mt-1 text-xs opacity-90'>
-                    {existingItem()?.isDirectory
-                      ? 'A folder has this name and cannot be replaced with a file.'
-                      : 'Choose Replace, save with another name, or cancel.'}
-                  </p>
-                </div>
-              </div>
-            ) : null}
-
-            {props.error ? (
-              <div class='bg-destructive/10 text-destructive rounded-lg p-3 text-sm'>
-                {props.error?.message}
-              </div>
-            ) : null}
-          </div>
-
-          <div class='mt-6 flex justify-end gap-2'>
-            {fileExists() ? (
-              <button
-                type='button'
-                class='border-input bg-background hover:bg-accent h-9 rounded-md border px-4 text-sm font-medium'
-                disabled={props.isPending}
-                onClick={() =>
-                  document.querySelector<HTMLInputElement>('input[autofocus]')?.focus()
-                }
-              >
-                Save with another name
-              </button>
-            ) : null}
-            <button
-              type='button'
-              class='border-input bg-background hover:bg-accent h-9 rounded-md border px-4 text-sm font-medium'
+          <div class='space-y-2'>
+            <label class='text-sm font-medium'>Filename</label>
+            <Input
+              type='text'
+              aria-label='Filename'
+              class={cn([
+                'border-input bg-background focus-visible:ring-ring h-9 w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:outline-none',
+                { 'border-yellow-500': fileExists() },
+              ])}
+              value={displayName()}
+              onInput={(e) => setFileName(e.currentTarget.value)}
+              placeholder={`e.g., ${props.pasteData?.suggestedName ?? 'file.txt'}`}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && displayName().trim() && !fileExists()) handlePaste()
+              }}
               disabled={props.isPending}
-              onClick={() => handleClose()}
-            >
-              Cancel
-            </button>
-            <button
-              type='button'
-              class='bg-primary text-primary-foreground hover:bg-primary/90 h-9 rounded-md px-4 text-sm font-medium disabled:opacity-50'
-              disabled={props.isPending || !displayName().trim() || (fileExists() && !canReplace())}
-              onClick={() => handlePaste(fileExists() ? 'replace' : 'create')}
-            >
-              {props.isPending ? 'Pasting...' : fileExists() ? 'Replace' : 'Paste'}
-            </button>
+              autofocus
+            />
           </div>
+
+          {fileExists() ? (
+            <div class='flex items-start gap-2 rounded-lg border border-yellow-500/50 bg-yellow-500/10 p-3'>
+              <AlertCircle class='mt-0.5 h-4 w-4 shrink-0 text-yellow-600 dark:text-yellow-500' />
+              <div class='text-sm text-yellow-800 dark:text-yellow-200'>
+                <p class='font-medium'>File already exists</p>
+                <p class='mt-1 text-xs opacity-90'>
+                  {existingItem()?.isDirectory
+                    ? 'A folder has this name and cannot be replaced with a file.'
+                    : 'Choose Replace, save with another name, or cancel.'}
+                </p>
+              </div>
+            </div>
+          ) : null}
+
+          {props.error ? (
+            <div class='bg-destructive/10 text-destructive rounded-lg p-3 text-sm'>
+              {props.error?.message}
+            </div>
+          ) : null}
         </div>
-      </div>
+
+        <div class='mt-6 flex justify-end gap-2'>
+          <Button
+            variant='outline'
+            type='button'
+            class='border-input bg-background hover:bg-accent h-9 rounded-md border px-4 text-sm font-medium'
+            disabled={props.isPending}
+            onClick={() => handleClose()}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant='default'
+            type='button'
+            class='bg-primary text-primary-foreground hover:bg-primary/90 h-9 rounded-md px-4 text-sm font-medium disabled:opacity-50'
+            disabled={props.isPending || !displayName().trim() || (fileExists() && !canReplace())}
+            onClick={() => handlePaste(fileExists() ? 'replace' : 'create')}
+          >
+            {props.isPending ? 'Pasting...' : fileExists() ? 'Replace' : 'Paste'}
+          </Button>
+        </div>
+      </Dialog>
     ) : null
   }),
 )

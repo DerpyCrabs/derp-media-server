@@ -1,6 +1,20 @@
+import { waitForDocumentDraft } from './document-draft-helpers'
 import { gotoWorkspace, getWindowGroups } from './workspace-layout-helpers'
 import { test, expect, type Page } from '@playwright/test'
 
+async function expectDimensions(page: Page, width: number, height: number) {
+  await expect
+    .poll(() =>
+      page
+        .getByRole('img', { name: 'Edited image preview' })
+        .evaluate((image: HTMLImageElement) => [image.naturalWidth, image.naturalHeight]),
+    )
+    .toEqual([width, height])
+}
+async function imageAction(page: Page, name: string) {
+  await page.getByRole('button', { name: 'Image edit actions', exact: true }).click()
+  await page.getByRole('menuitem', { name, exact: true }).click()
+}
 async function createImage(page: Page) {
   await page.goto('/')
   const png = await page.evaluate(() => {
@@ -25,9 +39,7 @@ async function createImage(page: Page) {
   const path = `Notes/${name}`
   await page.goto(`/?dir=Notes&viewing=${encodeURIComponent(path)}`)
   await page.getByRole('button', { name: 'Edit image', exact: true }).click()
-  await expect(page.getByRole('region', { name: 'Image editor' }).getByRole('status')).toHaveText(
-    '800 × 600 px',
-  )
+  await expectDimensions(page, 800, 600)
   return { path, original: png }
 }
 
@@ -39,23 +51,32 @@ test('crops, rotates, resizes and saves a pixel-correct copy without changing th
   await editor.getByRole('button', { name: 'Crop image', exact: true }).click()
   const stage = await page.getByTestId('image-edit-stage').boundingBox()
   expect(stage).toBeTruthy()
-  await page.mouse.move(stage!.x + stage!.width * 0.125, stage!.y + stage!.height / 6)
-  await page.mouse.down()
-  await page.mouse.move(stage!.x + stage!.width * 0.5, stage!.y + stage!.height * 0.5, { steps: 5 })
-  await page.mouse.up()
-  await page.getByRole('spinbutton', { name: 'Crop left' }).fill('100')
-  await page.getByRole('spinbutton', { name: 'Crop top' }).fill('100')
-  await page.getByRole('spinbutton', { name: 'Crop width' }).fill('300')
-  await page.getByRole('spinbutton', { name: 'Crop height' }).fill('200')
+  for (const [label, dx, dy] of [
+    ['bottom right', -400, -300],
+    ['top left', 100, 100],
+  ] as const) {
+    const handle = await editor
+      .getByRole('button', { name: `Resize crop ${label}`, exact: true })
+      .boundingBox()
+    const x = handle!.x + handle!.width / 2,
+      y = handle!.y + handle!.height / 2
+    await page.mouse.move(x, y)
+    await page.mouse.down()
+    await page.mouse.move(x + (dx * stage!.width) / 800, y + (dy * stage!.height) / 600, {
+      steps: 5,
+    })
+    await page.mouse.up()
+  }
+  await expect(editor.getByRole('spinbutton')).toHaveCount(0)
   await editor.getByRole('button', { name: 'Apply crop' }).click()
-  await expect(editor.getByRole('status')).toHaveText('300 × 200 px')
-  await editor.getByRole('button', { name: 'Rotate image clockwise' }).click()
-  await expect(editor.getByRole('status')).toHaveText('200 × 300 px')
+  await expectDimensions(page, 300, 200)
+  await imageAction(page, 'Rotate clockwise')
+  await expectDimensions(page, 200, 300)
   await editor.getByRole('button', { name: 'Resize image', exact: true }).click()
   await page.getByRole('spinbutton', { name: 'Image width' }).fill('100')
   await expect(page.getByRole('spinbutton', { name: 'Image height' })).toHaveValue('150')
   await editor.getByRole('button', { name: 'Apply size' }).click()
-  await expect(editor.getByRole('status')).toHaveText('100 × 150 px')
+  await expectDimensions(page, 100, 150)
   await editor.getByRole('button', { name: 'Save copy', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Save image copy' })
   const name = `edited-result-${Date.now()}.png`
@@ -91,18 +112,16 @@ test('crops, rotates, resizes and saves a pixel-correct copy without changing th
 test('undo, redo and discard protect the source; save refuses existing names', async ({ page }) => {
   const { path } = await createImage(page)
   const editor = page.getByRole('region', { name: 'Image editor' })
-  await editor.getByRole('button', { name: 'Rotate image clockwise' }).click()
+  await imageAction(page, 'Rotate clockwise')
   await page.keyboard.press('Control+z')
-  await expect(editor.getByRole('status')).toHaveText('800 × 600 px')
+  await expectDimensions(page, 800, 600)
   await page.keyboard.press('Control+Shift+z')
-  await expect(editor.getByRole('status')).toHaveText('600 × 800 px')
+  await expectDimensions(page, 600, 800)
   await editor.getByRole('button', { name: 'Save copy', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Save image copy' })
   await dialog.getByRole('textbox', { name: 'File name' }).fill(path.split('/').at(-1)!)
   await expect(dialog.getByRole('button', { name: 'Save copy', exact: true })).toBeDisabled()
-  await expect(
-    dialog.getByText('A file with this name already exists. Choose another name.'),
-  ).toBeVisible()
+  await expect(dialog.getByText('A file with this name already exists.')).toBeVisible()
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
   await editor.getByRole('button', { name: 'Close image editor' }).click()
   await page.getByRole('button', { name: 'Discard edits', exact: true }).click()
@@ -118,13 +137,16 @@ test('keyboard crop and JPEG download work with no writable folders', async ({ p
   await page.getByRole('button', { name: 'Edit image', exact: true }).click()
   const editor = page.getByRole('region', { name: 'Image editor' })
   await editor.getByRole('button', { name: 'Crop image', exact: true }).click()
-  await editor.getByRole('button', { name: 'Select all', exact: true }).click()
-  await expect(editor.getByRole('spinbutton', { name: 'Crop width' })).toBeVisible()
-  await editor.getByRole('button', { name: 'Apply crop' }).click()
+  const corner = editor.getByRole('button', { name: 'Resize crop bottom right', exact: true })
+  await corner.focus()
+  await corner.press('Shift+ArrowLeft')
+  await corner.press('Shift+ArrowUp')
+  await page.keyboard.press('Enter')
   await page.keyboard.press('Control+s')
   const dialog = page.getByRole('dialog', { name: 'Save image copy' })
   await expect(dialog.getByRole('button', { name: 'Save copy', exact: true })).toHaveCount(0)
-  await dialog.getByRole('combobox', { name: 'Export format' }).selectOption('image/jpeg')
+  await dialog.getByRole('button', { name: 'Export format' }).click()
+  await page.getByRole('option', { name: 'JPEG', exact: true }).click()
   await expect(dialog.getByRole('textbox', { name: 'File name' })).toHaveValue('photo-edited.jpg')
   const downloadPromise = page.waitForEvent('download')
   await dialog.getByRole('button', { name: 'Download copy', exact: true }).click()
@@ -134,7 +156,11 @@ test('keyboard crop and JPEG download work with no writable folders', async ({ p
   await editor.getByRole('button', { name: 'Close image editor' }).click()
   await expect(editor).not.toBeVisible()
   await page.getByRole('button', { name: 'Edit image', exact: true }).click()
-  await expect(page.getByRole('button', { name: 'Restore image draft', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Image edit actions' }).click()
+  await expect(
+    page.getByRole('menuitem', { name: 'Restore unsaved edits', exact: true }),
+  ).toBeVisible()
+  await page.keyboard.press('Escape')
   await expect(page.getByRole('button', { name: 'Discard edits', exact: true })).toHaveCount(0)
 })
 
@@ -163,7 +189,7 @@ test('a save collision that happens after opening the dialog preserves both imag
   page,
 }) => {
   await createImage(page)
-  await page.getByRole('button', { name: 'Rotate image clockwise' }).click()
+  await imageAction(page, 'Rotate clockwise')
   await page.getByRole('button', { name: 'Save copy', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Save image copy' })
   const name = `collision-${Date.now()}.png`
@@ -184,9 +210,7 @@ test('a save collision that happens after opening the dialog preserves both imag
       await page.request.get(`/api/files/download?path=${encodeURIComponent(`Notes/${name}`)}`)
     ).text(),
   ).toBe('existing file')
-  await expect(
-    page.getByRole('toolbar', { name: 'Image editing tools' }).getByRole('status'),
-  ).toHaveText('600 × 800 px')
+  await expectDimensions(page, 600, 800)
 })
 
 test('image drafts survive reload and restore the saved source after the file is replaced', async ({
@@ -194,8 +218,8 @@ test('image drafts survive reload and restore the saved source after the file is
 }) => {
   const { path } = await createImage(page)
   const editor = page.getByRole('region', { name: 'Image editor' })
-  await editor.getByRole('button', { name: 'Rotate image clockwise' }).click()
-  await expect(editor.getByText('Edits backed up in this browser', { exact: true })).toBeVisible()
+  await imageAction(page, 'Rotate clockwise')
+  await waitForDocumentDraft(page, path)
   const replacement = await page.evaluate(() => {
     const canvas = document.createElement('canvas')
     canvas.width = 32
@@ -219,14 +243,18 @@ test('image drafts survive reload and restore the saved source after the file is
   page.once('dialog', (dialog) => dialog.accept())
   await page.reload()
   await page.getByRole('button', { name: 'Edit image', exact: true }).click()
-  await expect(editor.getByRole('status')).toHaveText('32 × 24 px')
-  await editor.getByRole('button', { name: 'Restore image draft', exact: true }).click()
-  await expect(editor.getByRole('status')).toHaveText('600 × 800 px')
+  await expectDimensions(page, 32, 24)
+  await imageAction(page, 'Restore unsaved edits')
+  await expectDimensions(page, 600, 800)
   const pixel = await editor
     .getByRole('img', { name: 'Edited image preview' })
-    .evaluate((canvas) => [
-      ...(canvas as HTMLCanvasElement).getContext('2d')!.getImageData(10, 10, 1, 1).data,
-    ])
+    .evaluate((image) => {
+      const canvas = document.createElement('canvas')
+      canvas.width = canvas.height = 32
+      const context = canvas.getContext('2d')!
+      context.drawImage(image as HTMLImageElement, 0, 0)
+      return [...context.getImageData(10, 10, 1, 1).data]
+    })
   expect(pixel).toEqual([40, 91, 144, 255])
   await editor.getByRole('button', { name: 'Save copy', exact: true }).click()
   const save = page.getByRole('dialog', { name: 'Save image copy' })
@@ -237,19 +265,19 @@ test('image drafts survive reload and restore the saved source after the file is
   expect((await original.body()).toString('base64')).toBe(replacement)
   await page.goto(`/?dir=Notes&viewing=${encodeURIComponent(path)}`)
   await page.getByRole('button', { name: 'Edit image', exact: true }).click()
-  await expect(editor.getByRole('button', { name: 'Restore image draft' })).toHaveCount(0)
+  await expect(editor.getByRole('menuitem', { name: 'Restore unsaved edits' })).toHaveCount(0)
 })
 
 test('explicitly discarded image edits do not return as a recovered draft', async ({ page }) => {
-  await createImage(page)
+  const { path } = await createImage(page)
   const editor = page.getByRole('region', { name: 'Image editor' })
-  await editor.getByRole('button', { name: 'Rotate image clockwise' }).click()
-  await expect(editor.getByText('Edits backed up in this browser', { exact: true })).toBeVisible()
+  await imageAction(page, 'Rotate clockwise')
+  await waitForDocumentDraft(page, path)
   await editor.getByRole('button', { name: 'Close image editor' }).click()
   await page.getByRole('button', { name: 'Discard edits', exact: true }).click()
   await page.getByRole('button', { name: 'Edit image', exact: true }).click()
-  await expect(editor.getByRole('status')).toHaveText('800 × 600 px')
-  await expect(editor.getByRole('button', { name: 'Restore image draft' })).toHaveCount(0)
+  await expectDimensions(page, 800, 600)
+  await expect(editor.getByRole('menuitem', { name: 'Restore unsaved edits' })).toHaveCount(0)
 })
 
 test('closing a workspace image window immediately flushes its pending edit for recovery', async ({
@@ -264,8 +292,7 @@ test('closing a workspace image window immediately flushes its pending edit for 
   await browser.locator('table').getByText(name, { exact: true }).click()
   await expect(getWindowGroups(page)).toHaveCount(2)
   await page.getByRole('button', { name: 'Edit image', exact: true }).click()
-  const editor = page.getByRole('region', { name: 'Image editor' })
-  await editor.getByRole('button', { name: 'Rotate image clockwise' }).click()
+  await imageAction(page, 'Rotate clockwise')
   await getWindowGroups(page)
     .nth(1)
     .locator('.workspace-window-buttons button:has(.lucide-x)')
@@ -273,8 +300,8 @@ test('closing a workspace image window immediately flushes its pending edit for 
   await expect(getWindowGroups(page)).toHaveCount(1)
   await browser.locator('table').getByText(name, { exact: true }).click()
   await page.getByRole('button', { name: 'Edit image', exact: true }).click()
-  await editor.getByRole('button', { name: 'Restore image draft' }).click()
-  await expect(editor.getByRole('status')).toHaveText('600 × 800 px')
+  await imageAction(page, 'Restore unsaved edits')
+  await expectDimensions(page, 600, 800)
 })
 
 test('unavailable browser storage is visible and does not prevent saving an image copy', async ({
@@ -289,7 +316,7 @@ test('unavailable browser storage is visible and does not prevent saving an imag
   })
   await createImage(page)
   const editor = page.getByRole('region', { name: 'Image editor' })
-  await editor.getByRole('button', { name: 'Rotate image clockwise' }).click()
+  await imageAction(page, 'Rotate clockwise')
   await expect(editor.getByRole('alert')).toContainText('Save a copy before closing')
   await editor.getByRole('button', { name: 'Save copy', exact: true }).click()
   const save = page.getByRole('dialog', { name: 'Save image copy' })
@@ -310,38 +337,107 @@ test('failed image editor loading leaves a way back to the image', async ({ page
   await expect(page.getByRole('button', { name: 'Edit image', exact: true })).toBeVisible()
 })
 
-test('cancelled native image exports retain the editor and recovery until a confirmed save', async ({
-  page,
-}) => {
+test('desktop image copies save to a folder without offering downloads', async ({ page }) => {
   await createImage(page)
   const editor = page.getByRole('region', { name: 'Image editor' })
-  await editor.getByRole('button', { name: 'Rotate image clockwise' }).click()
-  await page.evaluate(() => {
-    let count = 0
+  await imageAction(page, 'Rotate clockwise')
+  await page.evaluate(() =>
     Object.assign(window, {
       derpDesktop: {
-        downloadBlob: async (url: string) => {
-          const response = await fetch(url)
-          if (!response.ok || (await response.blob()).size < 100)
-            throw new Error('Missing export bytes')
-          return ++count > 1
+        downloadBlob: async () => {
+          throw new Error('Unexpected download')
         },
-        cancelDownload: async () => {},
       },
-    })
-  })
+    }),
+  )
   await editor.getByRole('button', { name: 'Save copy', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Save image copy', exact: true })
-  await dialog.getByRole('button', { name: 'Download copy', exact: true }).click()
-  await expect(dialog.getByRole('button', { name: 'Download copy', exact: true })).toBeEnabled()
-  await expect(dialog).toBeVisible()
-  await expect(editor.getByRole('status')).toHaveText('600 × 800 px')
-  await dialog.getByRole('button', { name: 'Download copy', exact: true }).click()
+  await expect(dialog.getByRole('button', { name: 'Download copy', exact: true })).toHaveCount(0)
+  const name = `desktop-image-${Date.now()}.png`
+  await dialog.getByRole('textbox', { name: 'File name', exact: true }).fill(name)
+  await dialog.getByRole('button', { name: 'Save copy', exact: true }).click()
   await expect(dialog).not.toBeVisible()
-  await editor.getByRole('button', { name: 'Close image editor', exact: true }).click()
   await expect(editor).not.toBeVisible()
-  await page.getByRole('button', { name: 'Edit image', exact: true }).click()
-  await expect(page.getByRole('button', { name: 'Restore image draft', exact: true })).toHaveCount(
-    0,
+  await expect(page).toHaveURL(new RegExp(encodeURIComponent(`Notes/${name}`)))
+  const saved = await page.request.get(
+    `/api/files/download?path=${encodeURIComponent(`Notes/${name}`)}`,
   )
+  expect(saved.ok()).toBe(true)
+  expect((await saved.body()).length).toBeGreaterThan(100)
 })
+
+test('phone crop starts with handles, keeps square proportions while dragging and cancels without edits', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await createImage(page)
+  const editor = page.getByRole('region', { name: 'Image editor' })
+  await editor.getByRole('button', { name: 'Crop image', exact: true }).click()
+  await expect(editor.getByRole('spinbutton')).toHaveCount(0)
+  await expect(editor.getByRole('button', { name: 'Save copy', exact: true })).toHaveCount(0)
+  await editor.getByRole('button', { name: 'Crop proportions', exact: true }).click()
+  await page.getByRole('menuitemradio', { name: 'Square', exact: true }).click()
+  const handle = editor.getByRole('button', { name: 'Resize crop bottom right', exact: true })
+  const box = (await handle.boundingBox())!
+  expect(box.width).toBeGreaterThanOrEqual(44)
+  expect(box.height).toBeGreaterThanOrEqual(44)
+  const selection = editor.getByRole('group', { name: 'Move crop selection' })
+  const before = (await selection.boundingBox())!
+  const touch = await page.context().newCDPSession(page)
+  const x = box.x + box.width / 2,
+    y = box.y + box.height / 2
+  await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] })
+  for (let step = 1; step <= 5; step++) {
+    await touch.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [{ x: x - step * 10, y: y - step * 4 }],
+    })
+  }
+  await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+  await touch.detach()
+  const after = (await selection.boundingBox())!
+  expect(after.width).toBeLessThan(before.width)
+  expect(Math.abs(after.width - after.height)).toBeLessThan(1)
+  await selection.click()
+  await expect(selection).toBeFocused()
+  const movedFrom = (await selection.boundingBox())!
+  await page.keyboard.press('Shift+ArrowRight')
+  expect((await selection.boundingBox())!.x).toBeGreaterThan(movedFrom.x)
+  await page.keyboard.press('Escape')
+  await expectDimensions(page, 800, 600)
+  await expect(editor.getByRole('button', { name: 'Crop image', exact: true })).toBeVisible()
+  await editor.getByRole('button', { name: 'Crop image', exact: true }).click()
+  await editor.getByRole('button', { name: 'Apply crop', exact: true }).click()
+  await expectDimensions(page, 600, 600)
+  await imageAction(page, 'Undo')
+  await expectDimensions(page, 800, 600)
+})
+
+for (const width of [1280, 390]) {
+  test(`resize uses one toolbar and cancels without changing pixels at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 844 })
+    await createImage(page)
+    const editor = page.getByRole('region', { name: 'Image editor' })
+    const toolbar = editor.getByRole('toolbar', { name: 'Image editing tools' })
+    const before = await toolbar.boundingBox()
+    await editor.getByRole('button', { name: 'Resize image', exact: true }).click()
+    await toolbar.getByRole('spinbutton', { name: 'Image width' }).fill('400')
+    await expect(toolbar.getByRole('spinbutton', { name: 'Image height' })).toHaveValue('300')
+    const after = await toolbar.boundingBox()
+    expect(after!.height).toBe(before!.height)
+    for (const button of await toolbar.getByRole('button').all()) {
+      const box = await button.boundingBox()
+      expect(box!.x).toBeGreaterThanOrEqual(0)
+      expect(box!.x + box!.width).toBeLessThanOrEqual(width)
+    }
+    await page.keyboard.press('Escape')
+    await expectDimensions(page, 800, 600)
+    await expect(editor.getByRole('button', { name: 'Resize image', exact: true })).toBeVisible()
+    await editor.getByRole('button', { name: 'Resize image', exact: true }).click()
+    await toolbar.getByRole('spinbutton', { name: 'Image width' }).fill('400')
+    await page.keyboard.press('Enter')
+    await expectDimensions(page, 400, 300)
+  })
+}

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Derp Video
+GenericName=Video player
+Exec=derp-media-client --viewer=video -- %U
+Icon=derp-video
+Terminal=false
+Categories=AudioVideo;Player;
+MimeType=video/mp4;video/webm;video/ogg;video/quicktime;video/x-msvideo;video/x-matroska;video/x-m4v;
+StartupNotify=true
+StartupWMClass=derp-media-client

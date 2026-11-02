@@ -1,20 +1,25 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { thumbnailBinding } from '@/features/explorer/thumbnail-binding'
 
-const originalObserver = globalThis.IntersectionObserver
+const restoreObservers: (() => void)[] = []
 const callbacks: IntersectionObserverCallback[] = []
 const resources: ReturnType<typeof thumbnailBinding>[] = []
 
 function mountThumbnail(initial = { url: 'thumbnail.jpg' }) {
   let state = initial
-  globalThis.IntersectionObserver = class {
+  const target = document.createElement('div')
+  const browser = target.ownerDocument.defaultView!
+  const originalObserver = browser.IntersectionObserver
+  restoreObservers.push(() => {
+    browser.IntersectionObserver = originalObserver
+  })
+  browser.IntersectionObserver = class {
     constructor(callback: IntersectionObserverCallback) {
       callbacks.push(callback)
     }
     observe() {}
     disconnect() {}
   } as unknown as typeof IntersectionObserver
-  const target = document.createElement('div')
   const loaded: string[] = []
   const resource = thumbnailBinding(target, () => ({
     ...state,
@@ -41,7 +46,7 @@ function mountThumbnail(initial = { url: 'thumbnail.jpg' }) {
 afterEach(() => {
   for (const resource of resources.splice(0)) resource.dispose()
   callbacks.length = 0
-  globalThis.IntersectionObserver = originalObserver
+  for (const restore of restoreObservers.splice(0).reverse()) restore()
 })
 
 describe('thumbnail binding lifetime', () => {

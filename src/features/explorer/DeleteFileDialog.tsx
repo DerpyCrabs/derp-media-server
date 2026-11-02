@@ -1,7 +1,8 @@
+import { Button } from '@/lib/ui/button'
 import { view } from 'effectweb'
 import type { FileItem } from '@/lib/files/types'
 import type { ModalOverlayScope } from './modal-overlay-scope'
-import { modalDialogBackdropClass } from './modal-overlay-scope'
+import { Dialog } from '@/lib/ui/dialog'
 type DeleteFileDialogProps = {
   overlayScope?: ModalOverlayScope
   item: FileItem | null
@@ -14,51 +15,38 @@ type DeleteFileDialogProps = {
 }
 export const DeleteFileDialog = view<DeleteFileDialogProps>((props) => {
   return props.item ? (
-    <div
-      data-no-window-drag
-      class={modalDialogBackdropClass(props.overlayScope)}
-      role='presentation'
-      onClick={() => props.onDismiss()}
-    >
-      <div
-        role='alertdialog'
-        aria-modal='true'
-        class='w-full max-w-md rounded-lg border border-border bg-card text-card-foreground shadow-lg p-6'
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 class='text-lg font-semibold'>
-          {props.title ?? `Delete ${props.item.isDirectory ? 'Folder' : 'File'}?`}
-        </h2>
-        <p class='text-sm text-muted-foreground mt-2'>
-          {props.description ? (
-            props.description
-          ) : (
-            <>
-              Are you sure you want to delete &quot;{props.item.name}&quot;?
-              <span class='block mt-2 text-sm font-medium text-foreground'>
-                This action cannot be undone.
-              </span>
-            </>
-          )}
-        </p>
-        <div class='flex justify-end gap-2 mt-6'>
-          <button
-            type='button'
-            class='h-9 px-4 rounded-md border border-input bg-background text-sm font-medium hover:bg-accent'
-            onClick={() => props.onDismiss()}
-          >
+    <Dialog
+      open
+      role='alertdialog'
+      showCloseButton={false}
+      onOpenChange={(open) => {
+        if (!open) props.onDismiss()
+      }}
+      title={props.title ?? `Delete ${props.item.isDirectory ? 'Folder' : 'File'}?`}
+      class='sm:max-w-md'
+      footer={
+        <>
+          <Button variant='outline' onClick={props.onDismiss}>
             Cancel
-          </button>
-          <button
-            type='button'
-            class='h-9 px-4 rounded-md bg-destructive text-destructive-foreground text-sm font-medium hover:bg-destructive/90 disabled:opacity-50'
-            disabled={props.isPending}
-            onClick={() => props.onConfirm()}
-          >
-            {props.isPending ? 'Deleting...' : (props.confirmLabel ?? 'Delete')}
-          </button>
-        </div>
-      </div>
-    </div>
+          </Button>
+          <Button variant='destructive' disabled={props.isPending} onClick={props.onConfirm}>
+            {props.isPending ? 'Deleting…' : (props.confirmLabel ?? 'Delete')}
+          </Button>
+        </>
+      }
+    >
+      <p class='text-sm text-muted-foreground mt-2'>
+        {props.description ? (
+          props.description
+        ) : (
+          <>
+            Are you sure you want to delete &quot;{props.item.name}&quot;?
+            <span class='block mt-2 text-sm font-medium text-foreground'>
+              This action cannot be undone.
+            </span>
+          </>
+        )}
+      </p>
+    </Dialog>
   ) : null
 })

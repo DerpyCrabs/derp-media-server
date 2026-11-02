@@ -161,6 +161,7 @@ export const CanvasWindowGroup = view<GroupProps>((model) => {
       }}
     >
       <WorkspaceWindowTitlebar
+        onReopenClosedTab={model.commands.reopenClosedTab}
         groupId={groupId}
         tabs={() => model.definitions}
         visibleTabId={() => item()!.id}

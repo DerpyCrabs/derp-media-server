@@ -715,6 +715,7 @@ mod tests {
                 file_search: crate::file_search::FileSearch::new(
                     config.file_search.clone(),
                     config.roots.clone(),
+                    config.named_roots(),
                 ),
                 hermes: None,
                 hermes_project_operations: tokio::sync::Mutex::new(()),

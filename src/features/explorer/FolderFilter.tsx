@@ -1,3 +1,5 @@
+import { Input } from '@/lib/ui/input'
+import { Button } from '@/lib/ui/button'
 import { domBinding, view } from 'effectweb'
 import X from '@effectweb/lucide/icons/x'
 const focusFilter = (element: HTMLInputElement) => {
@@ -5,7 +7,6 @@ const focusFilter = (element: HTMLInputElement) => {
 }
 export const FolderFilter = view<{
   value: string
-  count: number
   onChange: (value: string) => void
   onClose: () => void
 }>((props) => (
@@ -13,12 +14,12 @@ export const FolderFilter = view<{
     class='flex shrink-0 items-center gap-2 border-b border-border bg-muted/20 px-2 py-1.5'
     data-no-window-drag
   >
-    <input
+    <Input
       use={domBinding(true, focusFilter)}
       type='search'
       aria-label='Filter this folder'
       placeholder='Filter this folder…'
-      class='h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-sm outline-none focus:ring-1 focus:ring-ring'
+      class='min-w-0 flex-1'
       value={props.value}
       onInput={(event) => props.onChange(event.currentTarget.value)}
       onKeyDown={(event) => {
@@ -40,18 +41,15 @@ export const FolderFilter = view<{
         }
       }}
     />
-    <span class='shrink-0 text-xs tabular-nums text-muted-foreground' role='status'>
-      {props.count === 0 && props.value
-        ? 'No matches'
-        : `${props.count} ${props.count === 1 ? 'item' : 'items'}`}
-    </span>
-    <button
+    <Button
+      size='icon'
+      variant='ghost'
       type='button'
       aria-label='Close folder filter'
       class='inline-flex size-8 shrink-0 items-center justify-center rounded-md hover:bg-muted'
       onClick={props.onClose}
     >
       <X class='size-4' />
-    </button>
+    </Button>
   </div>
 ))

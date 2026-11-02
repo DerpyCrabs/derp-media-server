@@ -1,3 +1,4 @@
+import { Button } from '@/lib/ui/button'
 import { Effect } from 'effect'
 import * as AsyncResult from 'effect/reactivity/AsyncResult'
 import { available, domBinding, modelOwner, observe, view, controllerView } from 'effectweb'
@@ -99,7 +100,8 @@ export const MediaCenterPage = controllerView(
         return (
           <nav class='flex shrink-0 items-center gap-4 max-[600px]:gap-1' aria-label='Media center'>
             {available(model.ai)?.enabled ? (
-              <button
+              <Button
+                variant='ghost'
                 class={`flex items-center justify-center gap-2 h-8 text-sm font-medium transition-colors min-w-8 pointer-coarse:h-11 pointer-coarse:min-w-11 ${home() ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
                 aria-current={home() ? 'page' : undefined}
                 onClick={() => {
@@ -107,11 +109,12 @@ export const MediaCenterPage = controllerView(
                   navigateSearchParams({ view: 'for-you' }, 'push')
                 }}
               >
-                <House size={18} />
+                <House class='size-[18px]' size={18} />
                 <span class='max-[600px]:sr-only'>For you</span>
-              </button>
+              </Button>
             ) : null}
-            <button
+            <Button
+              variant='ghost'
               class={`flex items-center justify-center gap-2 h-8 text-sm font-medium transition-colors min-w-8 pointer-coarse:h-11 pointer-coarse:min-w-11 ${!home() ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
               aria-current={!home() ? 'page' : undefined}
               onClick={() => {
@@ -119,9 +122,9 @@ export const MediaCenterPage = controllerView(
                 navigateSearchParams({ view: 'library' }, 'push')
               }}
             >
-              <FolderClosed size={18} />
+              <FolderClosed class='size-[18px]' size={18} />
               <span class='max-[600px]:sr-only'>Library</span>
-            </button>
+            </Button>
           </nav>
         )
       }
@@ -133,7 +136,9 @@ export const MediaCenterPage = controllerView(
                 {navigation()}
                 {available(model.ai)?.enabled ? (
                   <div class='absolute left-full ml-4 flex items-center gap-1'>
-                    <button
+                    <Button
+                      size='icon'
+                      variant='ghost'
                       class='flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground pointer-coarse:h-11 pointer-coarse:w-11'
                       aria-label='Search library'
                       aria-expanded={searchOpen ? 'true' : 'false'}
@@ -141,8 +146,8 @@ export const MediaCenterPage = controllerView(
                         setSearchOpen(!model.searchOpen)
                       }}
                     >
-                      <Search size={18} />
-                    </button>
+                      <Search class='size-[18px]' size={18} />
+                    </Button>
                     <div
                       use={{
                         ...domBinding({ set: model.actions.setFeedActions }, feedTarget),
@@ -170,7 +175,8 @@ export const MediaCenterPage = controllerView(
           <MainMediaPlayers editableFolders={editableFolders()} knowledgeBases={knowledgeBases()} />
           <div
             class={cn(
-              'media-center-content lg:pt-1',
+              'media-center-content',
+              available(model.ai)?.enabled ? 'lg:pt-1' : 'lg:pt-4',
               audioPlayerVisible &&
                 'max-[649px]:pb-[calc(3.125rem+env(safe-area-inset-bottom,0px))] min-[650px]:pb-[calc(4.5625rem+env(safe-area-inset-bottom,0px))]',
             )}

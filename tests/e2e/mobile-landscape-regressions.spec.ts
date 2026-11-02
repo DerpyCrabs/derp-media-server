@@ -18,7 +18,7 @@ const pixel10ProLandscape = {
 
 async function switchToListView(page: Page) {
   await page.getByRole('button', { name: 'Display options' }).click()
-  await page.getByRole('menuitem', { name: 'List view' }).click()
+  await page.getByRole('menuitemradio', { name: 'List view' }).click()
 }
 
 test.describe('Pixel 10 Pro landscape media browser regressions', () => {

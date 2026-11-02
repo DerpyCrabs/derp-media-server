@@ -1,3 +1,7 @@
+import { createCodeSearchPanel } from './CodeSearchPanel'
+import { Checkbox } from '@/lib/ui/checkbox'
+import { Button } from '@/lib/ui/button'
+import { Select } from '@/lib/ui/select'
 import { plainTextController, selectedLanguage } from './plain-text-controller'
 import { codeLanguages, loadCodeLanguage } from './code-languages'
 import {
@@ -10,10 +14,16 @@ import {
   foldKeymap,
 } from '@codemirror/language'
 import { tags } from '@lezer/highlight'
-import { FloatingContextMenu } from '@/features/explorer/FloatingContextMenu'
-import { modalFocus } from '@/lib/ui/modal-focus'
+import { Popover } from '@/lib/ui/popover'
 import { Effect } from 'effect'
-import { domBinding, modelOwner, view, controllerView, list, type ControllerModel } from 'effectweb'
+import {
+  domBinding,
+  modelOwner,
+  view,
+  controllerView,
+  type JSX,
+  type ControllerModel,
+} from 'effectweb'
 import { Annotation, Compartment, EditorState, Transaction, countColumn } from '@codemirror/state'
 import { EditorView, keymap, lineNumbers, highlightActiveLine } from '@codemirror/view'
 import { history, historyKeymap, defaultKeymap, indentWithTab } from '@codemirror/commands'
@@ -29,6 +39,8 @@ import {
 } from './source'
 
 export type PlainTextDocumentProps = {
+  toolbar?: JSX.Element
+  toolbarEnd?: JSX.Element
   path: string
   content: string
   readOnly: boolean
@@ -138,7 +150,7 @@ const bindEditor = (parent: HTMLDivElement, model: () => EditorModel) => {
         bracketMatching(),
         indentOnInput(),
         sourceTrackingExtensions(current().content),
-        search({ top: true }),
+        search({ top: true, createPanel: createCodeSearchPanel }),
         EditorState.transactionFilter.of((tr) =>
           tr.docChanged && tr.startState.readOnly && !tr.annotation(externalUpdate) ? [] : tr,
         ),
@@ -328,119 +340,96 @@ export default controllerView(
 
     return (
       <div class='relative flex h-full min-h-0 flex-col' data-testid='plain-text-document'>
-        <div class='flex shrink-0 items-center gap-1 border-b border-border px-2 py-1 text-xs text-muted-foreground'>
-          <button
-            type='button'
-            class='rounded px-2 py-1 hover:bg-muted'
-            data-text-action='find'
-            title='Find and replace (Ctrl/Cmd+F)'
+        <header class='flex h-10 shrink-0 items-center gap-1 border-b border-border px-2'>
+          {model.props.toolbar ?? (
+            <span class='min-w-0 flex-1 truncate text-sm'>{model.props.path.split('/').pop()}</span>
+          )}
+          <Popover
+            aria-label='Editor options'
+            open={model.optionsOpen}
+            onOpenChange={model.actions.options}
+            align='end'
+            class='w-64 space-y-3'
+            trigger={
+              <Button
+                variant='ghost'
+                size='sm'
+                aria-label='Editor options'
+                title={`Ln ${model.line}, Col ${model.column} · ${model.ending}`}
+              >
+                {label}
+              </Button>
+            }
           >
-            Find
-          </button>
-          <button
-            type='button'
-            class='rounded px-2 py-1 hover:bg-muted'
-            data-text-action='line'
-            title='Go to line (Ctrl/Cmd+G)'
-          >
-            Go to line
-          </button>
-          <button
-            type='button'
-            class='ml-auto rounded px-2 py-1 hover:bg-muted'
-            aria-pressed={model.wrap ? 'true' : 'false'}
-            onClick={model.actions.wrap}
-          >
-            Wrap lines
-          </button>
-        </div>
+            <label class='flex flex-col gap-1'>
+              Language
+              <Select
+                aria-label='Syntax language'
+                value={model.language}
+                class='min-w-0 w-full'
+                onValueChange={(value) => model.actions.language(value)}
+                options={[
+                  { value: 'auto', label: 'Automatic' },
+                  ...codeLanguages.map(([value, label]) => ({ value, label })),
+                ]}
+              />
+            </label>
+            <label class='flex flex-col gap-1'>
+              Indentation
+              <Select
+                aria-label='Indentation'
+                value={model.indent}
+                class='min-w-0 w-full'
+                onValueChange={(value) => model.actions.indent(value)}
+                options={[
+                  {
+                    value: 'auto',
+                    label: `Automatic (${model.initialIndent === 'tabs' ? 'tabs' : `${model.initialIndent} spaces`})`,
+                  },
+                  { value: 'tabs', label: 'Tabs (width 4)' },
+                  ...['2', '4', '8'].map((value) => ({ value, label: `${value} spaces` })),
+                ]}
+              />
+            </label>
+            <label class='flex items-center gap-2'>
+              <Checkbox
+                checked={model.numbers}
+                onCheckedChange={(checked) => model.actions.numbers(checked)}
+              />
+              Line numbers
+            </label>
+            <label class='flex items-center gap-2'>
+              <Checkbox checked={model.wrap} onCheckedChange={model.actions.wrap} />
+              Wrap lines
+            </label>
+            <div class='flex gap-2 border-t border-border pt-3'>
+              <Button
+                variant='outline'
+                data-text-action='find'
+                onClick={model.actions.closeOptions}
+              >
+                Find
+              </Button>
+              <Button
+                variant='outline'
+                data-text-action='line'
+                onClick={model.actions.closeOptions}
+              >
+                Go to line
+              </Button>
+            </div>
+            <span class='text-xs text-muted-foreground' data-testid='text-cursor-position'>
+              Ln {model.line}, Col {model.column} · {model.ending}
+            </span>
+          </Popover>
+          {model.props.toolbarEnd}
+        </header>
         <div class='min-h-0 flex-1 overflow-hidden' use={domBinding(model, bindEditor)} />
         {model.languageError ? (
           <p role='status' class='border-t border-border px-2 py-1 text-xs text-muted-foreground'>
             {model.languageError}
           </p>
         ) : null}
-        <div class='flex shrink-0 flex-wrap items-center gap-x-3 border-t border-border px-2 text-xs text-muted-foreground'>
-          <span class='tabular-nums' data-testid='text-cursor-position'>
-            Ln {model.line}, Col {model.column}
-            {model.selected ? ` · ${model.selected} selected` : ''}
-          </span>
-          <button
-            type='button'
-            aria-label='Editor options'
-            aria-expanded={model.optionsOpen ? 'true' : 'false'}
-            class='ml-auto min-h-7 rounded px-2 hover:bg-muted'
-            onClick={(event) => model.actions.options(event.currentTarget)}
-          >
-            {label} · UTF-8 · {model.ending}
-          </button>
-        </div>
-        <FloatingContextMenu
-          role='presentation'
-          open={model.optionsOpen}
-          anchorRef={model.anchor}
-          onDismiss={model.actions.closeOptions}
-          class='w-64 max-w-[calc(100vw-1rem)]'
-        >
-          <div
-            role='dialog'
-            aria-label='Editor options'
-            use={modalFocus({ onEscape: model.actions.closeOptions })}
-            class='flex flex-col gap-3 p-2 text-sm'
-          >
-            <label class='flex flex-col gap-1'>
-              Language
-              <select
-                aria-label='Syntax language'
-                value={model.language}
-                class='rounded border border-input bg-background p-1.5'
-                onChange={(event) => model.actions.language(event.currentTarget.value)}
-              >
-                <option value='auto'>Automatic</option>
-                {list(
-                  codeLanguages,
-                  ([id]) => id,
-                  ([id, label]) => (
-                    <option value={id}>{label}</option>
-                  ),
-                )}
-              </select>
-            </label>
-            <label class='flex flex-col gap-1'>
-              Indentation
-              <select
-                aria-label='Indentation'
-                value={model.indent}
-                class='rounded border border-input bg-background p-1.5'
-                onChange={(event) => model.actions.indent(event.currentTarget.value)}
-              >
-                <option value='auto'>
-                  Automatic (
-                  {model.initialIndent === 'tabs' ? 'tabs' : `${model.initialIndent} spaces`})
-                </option>
-                <option value='tabs'>Tabs (width 4)</option>
-                <option value='2'>2 spaces</option>
-                <option value='4'>4 spaces</option>
-                <option value='8'>8 spaces</option>
-              </select>
-            </label>
-            <label class='flex items-center gap-2'>
-              <input
-                type='checkbox'
-                checked={model.numbers}
-                onChange={(event) => model.actions.numbers(event.currentTarget.checked)}
-              />
-              Line numbers
-            </label>
-            <button
-              type='button'
-              class='rounded border border-input px-2 py-1 hover:bg-muted'
-              onClick={model.actions.closeOptions}
-            >
-              Done
-            </button>
-          </div>
-        </FloatingContextMenu>
       </div>
     )
   }),

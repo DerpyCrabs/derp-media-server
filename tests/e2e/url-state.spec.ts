@@ -24,8 +24,8 @@ test.describe('URL State – Main Page', () => {
     await page.goto(
       `/?dir=Documents&viewing=${encodeURIComponent(TEXT_FILE)}&playing=${encodeURIComponent(AUDIO_FILE)}`,
     )
-    await expect(page.locator('[role="dialog"]')).toBeVisible()
-    await page.locator('[role="dialog"] button[title="Close"]').click()
+    await expect(page.getByRole('dialog')).toBeVisible()
+    await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click()
     await expect(page).not.toHaveURL(/viewing=/)
     await expect(page).toHaveURL(/playing=/)
   })

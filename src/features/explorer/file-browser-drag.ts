@@ -24,12 +24,15 @@ export type FileBrowserDragControllerProps = Readonly<{
 function foldersFor(folders: Accessor<readonly string[]> | readonly string[]): readonly string[] {
   return typeof folders === 'function' ? folders() : folders
 }
-export function createFileBrowserDragController(props: FileBrowserDragControllerProps) {
+export function createFileBrowserDragController(
+  props: FileBrowserDragControllerProps,
+  window: Window = globalThis.window,
+) {
   const owner = modelOwner({
     draggedPath: null as string | null,
     dragOverPath: null as string | null,
     dragAllowsMove: false,
-    enableDrag: finePointerDragEnabled(),
+    enableDrag: finePointerDragEnabled(window),
   })
   const draggedPath = () => owner.read().draggedPath
   const dragOverPath = () => owner.read().dragOverPath
@@ -38,7 +41,7 @@ export function createFileBrowserDragController(props: FileBrowserDragController
   const setDraggedPath = (draggedPath: string | null) => owner.patch({ draggedPath })
   const setDragOverPath = (dragOverPath: string | null) => owner.patch({ dragOverPath })
   const setDragAllowsMove = (dragAllowsMove: boolean) => owner.patch({ dragAllowsMove })
-  owner.own(subscribeFinePointerDragEnabled((enableDrag) => owner.patch({ enableDrag })))
+  owner.own(subscribeFinePointerDragEnabled((enableDrag) => owner.patch({ enableDrag }), window))
   const parentDirForDrop = () => parentPath(props.currentPath())
   const canDropOnParent = () =>
     !!props.allowMoveFile() &&
@@ -65,7 +68,7 @@ export function createFileBrowserDragController(props: FileBrowserDragController
     event.stopPropagation()
     const files = Array.from(event.dataTransfer.files)
     if (isPathEditable(target, [...foldersFor(props.editableFolders)]))
-      runDesktopOperation(() => desktop.importDrop(files, target))
+      runDesktopOperation(() => desktop.importDrop(files, target), window)
     return true
   }
   function parentRowDragOver(event: globalThis.DragEvent) {
@@ -115,7 +118,7 @@ export function createFileBrowserDragController(props: FileBrowserDragController
   function onFileDragStart(file: FileItem, event: globalThis.DragEvent) {
     if (window.derpDesktop && !file.isVirtual) {
       event.preventDefault()
-      runDesktopOperation(() => window.derpDesktop!.drag([file.path]))
+      runDesktopOperation(() => window.derpDesktop!.drag([file.path]), window)
       return
     }
     const dataTransfer = event.dataTransfer

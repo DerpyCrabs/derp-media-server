@@ -1,3 +1,4 @@
+import { Button } from '@/lib/ui/button'
 import StepBack from '@effectweb/lucide/icons/step-back'
 import StepForward from '@effectweb/lucide/icons/step-forward'
 import {
@@ -160,7 +161,9 @@ export const VideoPlayer = controllerView(
               <div class='flex items-center gap-1'>
                 {snapshot.queue.length > 1 ? (
                   <>
-                    <button
+                    <Button
+                      size='icon'
+                      variant='ghost'
                       type='button'
                       class='inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-muted disabled:opacity-40'
                       aria-label='Previous video'
@@ -168,8 +171,10 @@ export const VideoPlayer = controllerView(
                       onClick={() => session.dispatch({ type: 'previous' })}
                     >
                       <StepBack size={16} />
-                    </button>
-                    <button
+                    </Button>
+                    <Button
+                      size='icon'
+                      variant='ghost'
                       type='button'
                       class='inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-muted disabled:opacity-40'
                       aria-label='Next video'
@@ -177,37 +182,43 @@ export const VideoPlayer = controllerView(
                       onClick={() => session.dispatch({ type: 'next' })}
                     >
                       <StepForward size={16} />
-                    </button>
+                    </Button>
                   </>
                 ) : null}
-                <button
+                <Button
+                  size='icon'
+                  variant='ghost'
                   type='button'
                   class='inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-muted'
                   onClick={handleAudioOnly}
                   aria-label='Audio only mode'
                 >
-                  <Headphones class='h-4 w-4' size={16} stroke-width={2} />
-                </button>
-                <button
+                  <Headphones class='size-4' size={16} stroke-width={2} />
+                </Button>
+                <Button
+                  size='icon'
+                  variant='ghost'
                   type='button'
                   class='inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-muted'
                   onClick={toggleMinimize}
                   aria-label={model.minimized ? 'Maximize player' : 'Minimize player'}
                 >
                   {model.minimized ? (
-                    <Maximize2 class='h-4 w-4' size={16} stroke-width={2} />
+                    <Maximize2 class='size-4' size={16} stroke-width={2} />
                   ) : (
-                    <Minimize2 class='h-4 w-4' size={16} stroke-width={2} />
+                    <Minimize2 class='size-4' size={16} stroke-width={2} />
                   )}
-                </button>
-                <button
+                </Button>
+                <Button
+                  size='icon'
+                  variant='ghost'
                   type='button'
                   class='inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-muted'
                   onClick={handleClose}
                   aria-label='Close player'
                 >
-                  <X class='h-4 w-4' size={16} stroke-width={2} />
-                </button>
+                  <X class='size-4' size={16} stroke-width={2} />
+                </Button>
               </div>
             </div>
             <div class='video-surface relative w-full bg-black' style={videoAreaStyle()}>

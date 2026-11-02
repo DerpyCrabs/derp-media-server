@@ -1,7 +1,13 @@
+import type { ControllerHost } from 'effectweb'
+import { viewWindow } from '@/lib/browser/view-window'
+import { NativeOpenButton } from '@/desktop/NativeOpen'
+import { MenuItem } from '@/lib/ui/menu-item'
+import { BrowserDownload } from '@/lib/ui/browser-download'
+import { Button } from '@/lib/ui/button'
 import { LazyImageEditor } from '@/features/image-editor/LazyImageEditor'
 import Pencil from '@effectweb/lucide/icons/pencil'
 import { cn } from '@/lib/ui/cn'
-import { list, domBinding, modelOwner, view, controllerView, type ControllerModel } from 'effectweb'
+import { domBinding, modelOwner, view, controllerView, type ControllerModel } from 'effectweb'
 import { randomId } from '@/lib/random-id'
 import { createActivityId, sendActivity, type ActivityEvent } from '@/features/media-ai/activity'
 import { MediaType, type FileItem } from '@/lib/files/types'
@@ -9,7 +15,6 @@ import Ellipsis from '@effectweb/lucide/icons/ellipsis'
 import { Effect } from 'effect'
 import { FloatingContextMenu } from '@/features/explorer/FloatingContextMenu'
 import { imageOutput } from './image-output'
-import Maximize2 from '@effectweb/lucide/icons/maximize-2'
 import RotateCw from '@effectweb/lucide/icons/rotate-cw'
 import LoaderCircle from '@effectweb/lucide/icons/loader-circle'
 import Shuffle from '@effectweb/lucide/icons/shuffle'
@@ -37,64 +42,32 @@ const orderedImages = (props: ImageViewerPaneProps) => {
   const files = props.allFiles.filter((file) => file.type === MediaType.IMAGE)
   return props.imageSeed ? shuffleImages([...files], props.imageSeed) : files
 }
-function imageController(props: ImageViewerPaneProps) {
-  const responsive = createResponsiveImage({
-    path: props.viewingPath,
-    zoom: 'fit',
-    prefetchPaths: [],
-  })
+function imageController(props: ImageViewerPaneProps, host: ControllerHost) {
+  const window = viewWindow(host)
+  const document = host.document
+  const navigator = window.navigator
+  const responsive = createResponsiveImage(
+    { path: props.viewingPath, zoom: 'fit', prefetchPaths: [] },
+    window,
+  )
   const owner = modelOwner({
     props,
     zoom: 'fit' as number | 'fit',
     rotation: 0,
     editing: false,
     copying: false,
-    slideshow: 'off' as 'off' | 'playing' | 'paused' | 'ended',
-    slideSeconds: 5,
-    slideLoop: false,
     outputMessage: '',
     menu: null as HTMLElement | null,
     image: responsive.source.model(),
   })
   const actions = {
-    toggleSlideshow: () => {
-      const current = owner.read()
-      if (orderedImages(current.props).length < 2) return
-      if (current.slideshow === 'playing') owner.patch({ slideshow: 'paused', menu: null })
-      else {
-        owner.patch({ slideshow: 'playing', zoom: 'fit', menu: null, outputMessage: '' })
-        select()
-        if (current.slideshow === 'ended') {
-          const index = orderedImages(current.props).findIndex(
-            (file) => file.path === current.props.viewingPath,
-          )
-          if (index > 0) actions.move(-index)
-        }
-      }
-    },
-    stopSlideshow: () => owner.patch({ slideshow: 'off' }),
-    slideSeconds: (slideSeconds: number) => {
-      if ([2, 5, 10, 15, 30].includes(slideSeconds)) owner.patch({ slideSeconds })
-    },
-    slideLoop: (slideLoop: boolean) => owner.patch({ slideLoop }),
-    advanceSlide: () => {
-      const current = owner.read()
-      if (current.slideshow !== 'playing') return
-      const files = orderedImages(current.props)
-      const index = files.findIndex((file) => file.path === current.props.viewingPath)
-      if (index < 0 || files.length < 2 || (index === files.length - 1 && !current.slideLoop)) {
-        owner.patch({ slideshow: 'ended' })
-        return
-      }
-      actions.move(index === files.length - 1 ? -index : 1)
-    },
     menu: (menu: HTMLElement | null) => owner.patch({ menu }),
     clearMessage: () => owner.patch({ outputMessage: '' }),
     copy: () => {
       const current = owner.read()
       if (current.copying) return
       owner.patch({ menu: null, outputMessage: '' })
-      if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') {
+      if (!navigator.clipboard?.write || typeof window.ClipboardItem === 'undefined') {
         owner.patch({
           outputMessage:
             'Copying images requires HTTPS or the desktop client. You can download the image instead.',
@@ -109,7 +82,7 @@ function imageController(props: ImageViewerPaneProps) {
       // Start clipboard access during the user gesture, including on Safari.
       let copied: Promise<void>
       try {
-        copied = navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
+        copied = navigator.clipboard.write([new window.ClipboardItem({ 'image/png': blob })])
       } catch (error) {
         copied = Promise.reject(error)
       }
@@ -136,7 +109,7 @@ function imageController(props: ImageViewerPaneProps) {
         'drop',
       )
     },
-    edit: () => owner.patch({ editing: true, slideshow: 'off' }),
+    edit: () => owner.patch({ editing: true }),
     closeEdit: () => owner.patch({ editing: false }),
     savedCopy: (path: string) => {
       owner.patch({ editing: false })
@@ -171,16 +144,12 @@ function imageController(props: ImageViewerPaneProps) {
     zoom: (delta: number) => {
       const current = owner.read().zoom
       owner.patch({
-        ...(owner.read().slideshow === 'playing' ? { slideshow: 'paused' as const } : {}),
         zoom: Math.max(25, Math.min(400, (current === 'fit' ? 100 : current) + delta)),
       })
       select()
     },
     actualSize: () => {
-      owner.patch({
-        zoom: 100,
-        ...(owner.read().slideshow === 'playing' ? { slideshow: 'paused' as const } : {}),
-      })
+      owner.patch({ zoom: 100 })
       select()
     },
     rotate: () => owner.patch({ rotation: (owner.read().rotation + 90) % 360 }),
@@ -215,19 +184,7 @@ function imageController(props: ImageViewerPaneProps) {
     })
   }
   owner.own(responsive)
-  owner.own(
-    responsive.source.subscribe((image) =>
-      owner.patch({
-        image,
-        ...(image.load.request.kind === 'error' && owner.read().slideshow === 'playing'
-          ? {
-              slideshow: 'paused' as const,
-              outputMessage: 'Slideshow paused: this image could not be loaded.',
-            }
-          : {}),
-      }),
-    ),
-  )
+  owner.own(responsive.source.subscribe((image) => owner.patch({ image })))
   select()
   return {
     source: owner.source,
@@ -250,6 +207,8 @@ type ImageModel = ControllerModel<typeof imageController>
 const imageSurface = (element: HTMLDivElement, current: () => (element: HTMLDivElement) => void) =>
   current()(element)
 const viewerBehavior = (element: HTMLDivElement, current: () => ImageModel) => {
+  const document = element.ownerDocument
+  const window = viewWindow({ document })
   let wheelDelta = 0,
     pendingSteps = 0,
     lastTouchAt = 0,
@@ -297,40 +256,7 @@ const viewerBehavior = (element: HTMLDivElement, current: () => ImageModel) => {
     last = end
     active = visible
   }
-  let slideTimer: ReturnType<typeof setTimeout> | undefined,
-    slideKey = ''
-  const slideReady = () => {
-    const model = current()
-    const modal = document.activeElement?.closest('[role="dialog"][aria-modal="true"]')
-    return (
-      model.slideshow === 'playing' &&
-      model.props.active !== false &&
-      document.visibilityState === 'visible' &&
-      !model.menu &&
-      !model.editing &&
-      (!modal || modal === element || element.contains(modal)) &&
-      model.image.load.request.kind === 'idle' &&
-      model.image.load.displayed?.path === model.props.viewingPath
-    )
-  }
-  const updateSlideshow = () => {
-    const model = current()
-    const key = slideReady()
-      ? `${model.props.viewingPath}:${model.slideSeconds}:${model.slideLoop}`
-      : ''
-    if (key === slideKey) return
-    clearTimeout(slideTimer)
-    slideTimer = undefined
-    slideKey = key
-    if (key)
-      slideTimer = setTimeout(() => {
-        slideTimer = undefined
-        slideKey = ''
-        if (slideReady()) current().actions.advanceSlide()
-      }, model.slideSeconds * 1000)
-  }
   const update = () => {
-    updateSlideshow()
     const path = current().props.viewingPath
     if (path !== activityPath) {
       report()
@@ -361,16 +287,6 @@ const viewerBehavior = (element: HTMLDivElement, current: () => ImageModel) => {
       return
     }
     if (event.ctrlKey || event.metaKey || event.altKey) return
-    if (
-      event.key.toLowerCase() === 's' ||
-      (event.key === 'Escape' && current().slideshow !== 'off')
-    ) {
-      event.preventDefault()
-      event.stopImmediatePropagation()
-      if (event.key === 'Escape') current().actions.stopSlideshow()
-      else current().actions.toggleSlideshow()
-      return
-    }
     if (event.key === 'PageUp' || event.key === 'PageDown') {
       event.preventDefault()
       event.stopImmediatePropagation()
@@ -510,8 +426,6 @@ const viewerBehavior = (element: HTMLDivElement, current: () => ImageModel) => {
   element.addEventListener('pointercancel', pointerCancel)
   element.addEventListener('click', zoneClick)
   document.addEventListener('visibilitychange', report)
-  document.addEventListener('visibilitychange', updateSlideshow)
-  document.addEventListener('focusin', updateSlideshow)
   window.addEventListener('pagehide', report)
   const timer = setInterval(report, 5000)
   update()
@@ -520,7 +434,6 @@ const viewerBehavior = (element: HTMLDivElement, current: () => ImageModel) => {
     dispose: () => {
       report()
       clearInterval(timer)
-      clearTimeout(slideTimer)
       clearTimeout(resetTimer)
       clearTimeout(flushTimer)
       window.removeEventListener('keydown', keydown, true)
@@ -531,8 +444,6 @@ const viewerBehavior = (element: HTMLDivElement, current: () => ImageModel) => {
       element.removeEventListener('pointercancel', pointerCancel)
       element.removeEventListener('click', zoneClick)
       document.removeEventListener('visibilitychange', report)
-      document.removeEventListener('visibilitychange', updateSlideshow)
-      document.removeEventListener('focusin', updateSlideshow)
       window.removeEventListener('pagehide', report)
     },
   }
@@ -557,7 +468,6 @@ export const ImageViewerPane = controllerView(
     const fileName = () => props.viewingPath.split(/[/\\]/).pop() || ''
     const totalImages = () => images.length
     const currentImageNumber = () => (index < 0 ? 1 : index + 1)
-    const imageSeed = () => props.imageSeed
     const zoom = model.zoom
     const handleClose = actions.dismiss,
       reshuffleImages = actions.shuffle,
@@ -607,173 +517,73 @@ export const ImageViewerPane = controllerView(
         <span class='sr-only'>
           <h2 id='image-viewer-title'>{fileName()}</h2>
         </span>
-        <div
-          class={
-            props.embedded
-              ? 'flex h-8 shrink-0 items-center justify-between border-b border-white/10 bg-black/50 px-2'
-              : 'flex items-center bg-black/50 p-2 pt-[calc(0.5rem+env(safe-area-inset-top,0px))] backdrop-blur-sm sm:p-4 sm:pt-[calc(1rem+env(safe-area-inset-top,0px))]'
-          }
-        >
-          <div class={props.embedded ? 'hidden' : 'min-w-0 flex-1'}>
-            <h2 class='truncate text-sm font-medium text-white sm:text-lg'>{fileName()}</h2>
-          </div>
+        <header class='flex h-10 shrink-0 items-center gap-1 border-b border-border bg-background px-2 text-foreground'>
+          <span class='min-w-0 flex-1 truncate text-sm font-medium'>{fileName()}</span>
           {totalImages() > 0 ? (
-            <div class={props.embedded ? 'shrink-0' : 'hidden shrink-0 px-3 sm:block'}>
-              <span class='text-sm font-medium text-white'>
-                {currentImageNumber()} of {totalImages()}
-              </span>
-            </div>
-          ) : null}
-          <div class='flex shrink-0 items-center justify-end gap-0.5 sm:gap-2'>
-            {props.allowEditing !== false ? (
-              <button
-                type='button'
-                aria-label='Edit image'
-                title='Edit image'
-                class={
-                  props.embedded
-                    ? 'inline-flex size-7 items-center justify-center rounded-md text-white hover:bg-white/10'
-                    : 'inline-flex size-8 sm:size-11 items-center justify-center rounded-md text-white hover:bg-white/10'
-                }
-                onClick={actions.edit}
-              >
-                <Pencil size={props.embedded ? 14 : 18} />
-              </button>
-            ) : null}
-            {props.onImageSeedChange ? (
-              <button
-                type='button'
-                title='Shuffle images'
-                aria-label='Shuffle images'
-                class={cn(
-                  props.embedded
-                    ? 'inline-flex h-7 w-7 items-center justify-center rounded-md text-white hover:bg-white/10'
-                    : 'inline-flex h-8 w-8 sm:h-11 sm:w-11 items-center justify-center rounded-md text-white hover:bg-white/10',
-                  { 'bg-white/20': Boolean(imageSeed()) },
-                )}
-                disabled={totalImages() === 0}
-                onClick={reshuffleImages}
-              >
-                <Shuffle class={props.embedded ? 'h-3.5 w-3.5' : 'h-5 w-5'} />
-              </button>
-            ) : null}
-            <button
-              type='button'
-              class={
-                props.embedded
-                  ? 'inline-flex h-7 w-7 items-center justify-center rounded-md text-white hover:bg-white/10'
-                  : 'inline-flex h-8 w-8 sm:h-11 sm:w-11 items-center justify-center rounded-md text-white hover:bg-white/10'
-              }
-              aria-label='Zoom out'
-              title='Zoom out'
-              onClick={handleZoomOut}
-            >
-              <ZoomOut
-                class={props.embedded ? 'h-3.5 w-3.5' : 'h-5 w-5'}
-                size={20}
-                stroke-width={2}
-              />
-            </button>
-            <span
-              class={
-                props.embedded
-                  ? 'min-w-10 text-center text-xs text-white'
-                  : 'hidden min-w-16 text-center text-sm text-white min-[480px]:inline'
-              }
-            >
-              {zoom === 'fit' ? 'Fit' : `${zoom}%`}
+            <span class='hidden shrink-0 px-2 text-xs text-muted-foreground sm:inline'>
+              {currentImageNumber()} of {totalImages()}
             </span>
-            <button
-              type='button'
-              class={
-                props.embedded
-                  ? 'inline-flex h-7 w-7 items-center justify-center rounded-md text-white hover:bg-white/10'
-                  : 'inline-flex h-8 w-8 sm:h-11 sm:w-11 items-center justify-center rounded-md text-white hover:bg-white/10'
-              }
-              aria-label='Zoom in'
-              title='Zoom in'
-              onClick={handleZoomIn}
+          ) : null}
+          {props.onImageSeedChange ? (
+            <Button
+              variant='ghost'
+              size='icon'
+              aria-label='Shuffle images'
+              title='Shuffle images'
+              aria-pressed={Boolean(props.imageSeed)}
+              class={props.imageSeed ? 'bg-accent' : ''}
+              disabled={totalImages() === 0}
+              onClick={reshuffleImages}
             >
-              <ZoomIn
-                class={props.embedded ? 'h-3.5 w-3.5' : 'h-5 w-5'}
-                size={20}
-                stroke-width={2}
-              />
-            </button>
-            <button
-              type='button'
-              title='Fit to screen'
-              class={
-                props.embedded
-                  ? 'inline-flex h-7 w-7 items-center justify-center rounded-md text-white hover:bg-white/10'
-                  : 'inline-flex h-8 w-8 sm:h-11 sm:w-11 items-center justify-center rounded-md text-white hover:bg-white/10'
-              }
-              onClick={handleFitToScreen}
-            >
-              <Maximize2
-                class={props.embedded ? 'h-3.5 w-3.5' : 'h-5 w-5'}
-                size={20}
-                stroke-width={2}
-              />
-            </button>
-            <button
-              type='button'
-              class={
-                props.embedded
-                  ? 'inline-flex h-7 w-7 items-center justify-center rounded-md text-white hover:bg-white/10'
-                  : 'inline-flex h-8 w-8 sm:h-11 sm:w-11 items-center justify-center rounded-md text-white hover:bg-white/10'
-              }
-              aria-label='Rotate clockwise'
-              title='Rotate clockwise'
-              onClick={handleRotate}
-            >
-              <RotateCw
-                class={props.embedded ? 'h-3.5 w-3.5' : 'h-5 w-5'}
-                size={20}
-                stroke-width={2}
-              />
-            </button>
-            <div
-              class={
-                props.embedded ? 'mx-0.5 h-5 w-px bg-white/20' : 'mx-1 h-6 w-px bg-white/20 sm:mx-2'
-              }
-            />
-            <button
-              type='button'
-              class={
-                props.embedded
-                  ? 'inline-flex h-7 w-7 items-center justify-center rounded-md text-white hover:bg-white/10'
-                  : 'inline-flex h-8 w-8 sm:h-11 sm:w-11 items-center justify-center rounded-md text-white hover:bg-white/10'
-              }
-              aria-label='Image actions'
-              title='Image actions'
-              aria-haspopup='menu'
-              aria-expanded={Boolean(model.menu)}
-              onClick={(event) => actions.menu(event.currentTarget)}
-            >
-              <Ellipsis
-                class={props.embedded ? 'h-3.5 w-3.5' : 'h-5 w-5'}
-                size={20}
-                stroke-width={2}
-              />
-            </button>
-            {props.showClose !== false ? (
-              <button
-                type='button'
-                title='Close'
-                aria-label='Close'
-                class={
-                  props.embedded
-                    ? 'inline-flex h-7 w-7 items-center justify-center rounded-md text-white hover:bg-white/10'
-                    : 'inline-flex h-8 w-8 sm:h-11 sm:w-11 items-center justify-center rounded-md text-white hover:bg-white/10'
-                }
-                onClick={handleClose}
-              >
-                <X class={props.embedded ? 'h-3.5 w-3.5' : 'h-5 w-5'} size={20} stroke-width={2} />
-              </button>
-            ) : null}
-          </div>
-        </div>
+              <Shuffle size={16} />
+            </Button>
+          ) : null}
+          <Button variant='ghost' size='icon' aria-label='Zoom out' onClick={handleZoomOut}>
+            <ZoomOut size={16} />
+          </Button>
+          <Button
+            variant='ghost'
+            size='sm'
+            aria-label='Fit to screen'
+            title='Fit to screen'
+            class='min-w-10 tabular-nums'
+            onClick={handleFitToScreen}
+          >
+            {zoom === 'fit' ? 'Fit' : `${zoom}%`}
+          </Button>
+          <Button variant='ghost' size='icon' aria-label='Zoom in' onClick={handleZoomIn}>
+            <ZoomIn size={16} />
+          </Button>
+          <Button
+            variant='ghost'
+            size='icon'
+            aria-label='Rotate clockwise'
+            title='Rotate clockwise'
+            onClick={handleRotate}
+          >
+            <RotateCw size={16} />
+          </Button>
+          {props.allowEditing !== false ? (
+            <Button variant='ghost' size='icon' aria-label='Edit image' onClick={actions.edit}>
+              <Pencil size={16} />
+            </Button>
+          ) : null}
+          <Button
+            variant='ghost'
+            size='icon'
+            aria-label='Image actions'
+            aria-haspopup='menu'
+            aria-expanded={Boolean(model.menu)}
+            onClick={(event) => actions.menu(event.currentTarget)}
+          >
+            <Ellipsis size={16} />
+          </Button>
+          {props.showClose !== false ? (
+            <Button variant='ghost' size='icon' aria-label='Close' onClick={handleClose}>
+              <X size={16} />
+            </Button>
+          ) : null}
+        </header>
 
         <FloatingContextMenu
           open={Boolean(model.menu)}
@@ -782,21 +592,8 @@ export const ImageViewerPane = controllerView(
           role='menu'
           class='w-56'
         >
-          {images.length > 1 ? (
-            <button
-              role='menuitem'
-              class='flex min-h-10 w-full items-center justify-between rounded px-3 text-sm hover:bg-muted'
-              onClick={actions.toggleSlideshow}
-            >
-              {model.slideshow === 'playing'
-                ? 'Pause slideshow'
-                : model.slideshow === 'paused'
-                  ? 'Resume slideshow'
-                  : 'Start slideshow'}
-              <span class='text-xs text-muted-foreground'>S</span>
-            </button>
-          ) : null}
-          <button
+          <MenuItem
+            variant='ghost'
             role='menuitem'
             disabled={model.copying}
             class='flex min-h-10 w-full items-center justify-between rounded px-3 text-sm hover:bg-muted disabled:opacity-50'
@@ -804,64 +601,23 @@ export const ImageViewerPane = controllerView(
           >
             {model.copying ? 'Copying…' : 'Copy image'}
             <span class='text-xs text-muted-foreground'>Ctrl+C</span>
-          </button>
-          <button
+          </MenuItem>
+          <NativeOpenButton
+            path={props.viewingPath}
             role='menuitem'
-            class='min-h-10 w-full rounded px-3 text-left text-sm hover:bg-muted'
-            onClick={actions.download}
-          >
-            Download image
-          </button>
+            onDone={() => actions.menu(null)}
+          />
+          <BrowserDownload>
+            <MenuItem
+              variant='ghost'
+              role='menuitem'
+              class='min-h-10 w-full rounded px-3 justify-start text-left text-sm hover:bg-muted'
+              onClick={actions.download}
+            >
+              Download image
+            </MenuItem>
+          </BrowserDownload>
         </FloatingContextMenu>
-        {model.slideshow !== 'off' ? (
-          <div
-            role='group'
-            aria-label='Slideshow controls'
-            class='flex shrink-0 flex-wrap items-center justify-center gap-x-3 gap-y-1 border-b border-white/10 bg-black/90 px-2 py-1.5 text-xs text-white'
-          >
-            <button
-              type='button'
-              class='rounded px-2 py-1 hover:bg-white/15'
-              onClick={actions.toggleSlideshow}
-            >
-              {model.slideshow === 'playing'
-                ? 'Pause slideshow'
-                : model.slideshow === 'ended'
-                  ? 'Replay slideshow'
-                  : 'Resume slideshow'}
-            </button>
-            <label class='flex items-center gap-1'>
-              Interval{' '}
-              <select
-                aria-label='Slideshow interval'
-                class='rounded bg-neutral-800 px-1 py-1 text-white'
-                value={String(model.slideSeconds)}
-                onChange={(event) => actions.slideSeconds(Number(event.currentTarget.value))}
-              >
-                {list([2, 5, 10, 15, 30], (seconds) => (
-                  <option value={String(seconds)}>{seconds}s</option>
-                ))}
-              </select>
-            </label>
-            <label class='flex items-center gap-1'>
-              <input
-                type='checkbox'
-                checked={model.slideLoop}
-                onChange={(event) => actions.slideLoop(event.currentTarget.checked)}
-              />
-              Loop
-            </label>
-            <button
-              type='button'
-              aria-label='Stop slideshow'
-              title='Stop slideshow (Esc)'
-              class='rounded p-1 hover:bg-white/15'
-              onClick={actions.stopSlideshow}
-            >
-              <X size={16} />
-            </button>
-          </div>
-        ) : null}
         {model.copying || model.outputMessage ? (
           <div
             role='status'
@@ -869,9 +625,15 @@ export const ImageViewerPane = controllerView(
           >
             <span>{model.copying ? 'Copying image…' : model.outputMessage}</span>
             {!model.copying ? (
-              <button type='button' aria-label='Dismiss message' onClick={actions.clearMessage}>
+              <Button
+                size='icon'
+                variant='ghost'
+                type='button'
+                aria-label='Dismiss message'
+                onClick={actions.clearMessage}
+              >
                 <X size={16} />
-              </button>
+              </Button>
             ) : null}
           </div>
         ) : null}
@@ -888,17 +650,19 @@ export const ImageViewerPane = controllerView(
         >
           {zoom !== 'fit' ? null : props.embedded ? (
             <>
-              <button
+              <Button
+                variant='ghost'
                 type='button'
                 data-testid='image-previous-zone'
-                class='absolute top-0 bottom-0 left-0 z-10 w-[30%] cursor-pointer'
+                class='absolute inset-y-0 left-0 z-10 h-full w-[30%] cursor-pointer rounded-none border-0 bg-transparent p-0 hover:bg-transparent dark:hover:bg-transparent active:translate-y-0'
                 onClick={goPrevious}
                 aria-label='Previous image'
               />
-              <button
+              <Button
+                variant='ghost'
                 type='button'
                 data-testid='image-next-zone'
-                class='absolute top-0 right-0 bottom-0 z-10 w-[30%] cursor-pointer'
+                class='absolute inset-y-0 right-0 z-10 h-full w-[30%] cursor-pointer rounded-none border-0 bg-transparent p-0 hover:bg-transparent dark:hover:bg-transparent active:translate-y-0'
                 onClick={goNext}
                 aria-label='Next image'
               />
@@ -930,13 +694,14 @@ export const ImageViewerPane = controllerView(
               class={`z-20 flex flex-col items-center text-white ${props.embedded ? 'gap-2 text-sm' : 'gap-3'}`}
             >
               <p>Could not load image</p>
-              <button
+              <Button
+                variant='outline'
                 type='button'
                 class={`rounded-md border border-white/30 hover:bg-white/10 ${props.embedded ? 'px-2.5 py-1' : 'px-3 py-1.5'}`}
                 onClick={responsiveImage.retry}
               >
                 Retry
-              </button>
+              </Button>
             </div>
           ) : null}
           {responsiveImage.src() && !responsiveImage.error() ? (

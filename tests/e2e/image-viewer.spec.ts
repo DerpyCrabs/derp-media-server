@@ -2,7 +2,7 @@ import { test, expect, type Page } from '@playwright/test'
 
 async function switchToListView(page: Page) {
   await page.getByRole('button', { name: 'Display options' }).click()
-  await page.getByRole('menuitem', { name: 'List view' }).click()
+  await page.getByRole('menuitemradio', { name: 'List view' }).click()
   await expect(page.locator('table')).toBeVisible()
 }
 
@@ -91,14 +91,14 @@ test.describe('Image Viewer', () => {
     expect(new URL(page.url()).searchParams.has('imageSeed')).toBe(false)
     await switchToListView(page)
     await page.locator('table').getByText('photo.jpg').click()
-    await expect(shuffle).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Image actions' })).toBeVisible()
     expect(new URL(page.url()).searchParams.has('imageSeed')).toBe(false)
   })
 
   test('image thumbnails appear in grid view', async ({ page }) => {
     await page.goto('/?dir=Images')
     await page.getByRole('button', { name: 'Display options' }).click()
-    await page.getByRole('menuitem', { name: 'Grid view' }).click()
+    await page.getByRole('menuitemradio', { name: 'Grid view' }).click()
     const card = page
       .locator('[data-testid=file-browser] .file-browser-grid [role=button]')
       .filter({ hasText: 'photo.jpg' })
@@ -110,7 +110,7 @@ test.describe('Image Viewer', () => {
     expect(response.headers()['content-type']).toContain('image/jpeg')
 
     await page.getByRole('button', { name: 'Display options' }).click()
-    await page.getByRole('menuitem', { name: 'List view' }).click()
+    await page.getByRole('menuitemradio', { name: 'List view' }).click()
   })
 
   test('opens image viewer when clicking an image file', async ({ page }) => {
@@ -143,7 +143,7 @@ test.describe('Image Viewer', () => {
     const dialog = page.getByRole('dialog')
     const buttons = dialog.locator('button')
     await expect(buttons).toHaveCount(8)
-    for (let index = 0; index < 8; index += 1) {
+    for (let index = 0; index < (await buttons.count()); index += 1) {
       const box = await buttons.nth(index).boundingBox()
       expect(box).not.toBeNull()
       expect(box!.x).toBeGreaterThanOrEqual(0)
@@ -181,7 +181,7 @@ test.describe('Image Viewer', () => {
       await page.goto('/?dir=Images&viewing=Images%2Fphoto.jpg', { waitUntil: 'domcontentloaded' })
       await expect(page.getByText('Fit', { exact: true })).toBeVisible({ timeout: 2000 })
       await page.locator('button:has(.lucide-zoom-in)').click()
-      await page.locator('button:has(.lucide-rotate-cw)').click()
+      await page.getByRole('button', { name: 'Rotate clockwise' }).click()
       await expect(page.getByText('125%', { exact: true })).toBeVisible()
       release()
       const image = page.locator('img[alt="photo.jpg"]')
@@ -207,7 +207,7 @@ test.describe('Image Viewer', () => {
     const img = page.locator('img[alt="photo.jpg"]')
     await expect(img).toBeVisible()
 
-    const rotateButton = page.locator('button:has(.lucide-rotate-cw)')
+    const rotateButton = page.getByRole('button', { name: 'Rotate clockwise' })
     await rotateButton.click()
     expect(await img.evaluate((el) => el.style.transform)).toContain('rotate(90deg)')
     const surfaceBox = (await page.getByTestId('image-gesture-surface').boundingBox())!
@@ -217,7 +217,9 @@ test.describe('Image Viewer', () => {
     expect(imageBox.x + imageBox.width).toBeLessThanOrEqual(surfaceBox.x + surfaceBox.width)
     expect(imageBox.y + imageBox.height).toBeLessThanOrEqual(surfaceBox.y + surfaceBox.height)
 
-    await rotateButton.click({ clickCount: 3 })
+    for (let step = 0; step < 3; step++) {
+      await rotateButton.click()
+    }
     expect(await img.evaluate((el) => el.style.transform)).toContain('rotate(0deg)')
 
     await rotateButton.click()
@@ -235,7 +237,7 @@ test.describe('Image Viewer', () => {
     await page.goto('/?dir=Images&viewing=Images%2Fphoto.jpg')
 
     await page.locator('button:has(.lucide-zoom-in)').click()
-    await page.locator('button:has(.lucide-rotate-cw)').click()
+    await page.getByRole('button', { name: 'Rotate clockwise' }).click()
 
     await page.locator('button[title="Fit to screen"]').click()
     await expect(page.getByText('Fit')).toBeVisible()
@@ -357,3 +359,43 @@ test.describe('Image Viewer', () => {
     await expect(page).not.toHaveURL(/viewing=/)
   })
 })
+
+for (const width of [1280, 390]) {
+  test(`embedded image navigation stays invisible and fills the image surface at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 800 })
+    await page.addInitScript(() =>
+      Object.assign(window, {
+        derpDesktop: {
+          ready: async () => {},
+          onOpen: () => () => {},
+          onBeforeClose: () => () => {},
+          close: () => {},
+        },
+      }),
+    )
+    await page.goto('/desktop?mode=viewer&dir=Images&viewing=Images%2Fphoto.jpg')
+    await expect(page.getByRole('img', { name: 'photo.jpg', exact: true })).toBeVisible()
+    const surface = page.getByTestId('workspace-image-surface')
+    const bounds = (await surface.boundingBox())!
+    for (const direction of ['previous', 'next']) {
+      const zone = page.getByTestId(`image-${direction}-zone`)
+      const box = (await zone.boundingBox())!
+      expect(box.y).toBeCloseTo(bounds.y, 0)
+      expect(box.height).toBeCloseTo(bounds.height, 0)
+      await zone.hover({ position: { x: box.width / 2, y: box.height - 12 } })
+      await expect(zone).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+      await expect(zone).toHaveCSS('border-top-width', '0px')
+    }
+    await page.getByTestId('image-next-zone').click({ position: { x: 12, y: bounds.height - 12 } })
+    await expect(page.getByRole('img', { name: 'photo.png', exact: true })).toBeVisible()
+    await page
+      .getByTestId('image-previous-zone')
+      .click({ position: { x: 12, y: bounds.height - 12 } })
+    await expect(page.getByRole('img', { name: 'photo.jpg', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Shuffle images', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Rotate clockwise', exact: true })).toBeVisible()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  })
+}

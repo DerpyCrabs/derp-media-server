@@ -1,7 +1,12 @@
-import { createMediaFocus } from '@/features/playback/media-focus'
-import { getPlaybackSession } from '@/features/playback/PlaybackProvider'
+import { BrowserDownload } from '@/lib/ui/browser-download'
+import ArrowLeft from '@effectweb/lucide/icons/arrow-left'
+import ChevronLeft from '@effectweb/lucide/icons/chevron-left'
+import ChevronRight from '@effectweb/lucide/icons/chevron-right'
+import Download from '@effectweb/lucide/icons/download'
+import { Button } from '@/lib/ui/button'
+import { ArchiveMediaPreview } from './ArchiveMediaPreview'
 import { Effect } from 'effect'
-import { controllerView, domBinding, modelOwner, view } from 'effectweb'
+import { controllerView, modelOwner, view } from 'effectweb'
 import { lazyView } from 'effectweb/advanced'
 import { LazyPlainTextDocument } from '@/lib/editor/LazyPlainTextDocument'
 import { modalFocus } from '@/lib/ui/modal-focus'
@@ -23,37 +28,11 @@ const PdfPreview = lazyView(
     pending: view(() => <p class='p-4 text-sm'>Loading PDF preview…</p>),
     failure: view(() => (
       <p role='alert' class='p-4 text-sm text-destructive'>
-        The PDF viewer could not load. Download this file to open it separately.
+        The PDF viewer could not load.
       </p>
     )),
   },
 )
-const previewMedia = (element: HTMLMediaElement) => {
-  const session = getPlaybackSession()
-  const play = () => session.dispatch({ type: 'pause' })
-  element.addEventListener('play', play)
-  const stop = session.subscribe(() => {
-    if (session.getSnapshot().desiredPlaying) element.pause()
-  })
-  const focus = createMediaFocus({
-    isPlaying: () => !element.paused,
-    pause: () => element.pause(),
-    subscribe: (listener) => {
-      for (const event of ['play', 'pause', 'ended']) element.addEventListener(event, listener)
-      return () => {
-        for (const event of ['play', 'pause', 'ended']) element.removeEventListener(event, listener)
-      }
-    },
-  })
-  return () => {
-    stop()
-    focus.dispose()
-    element.removeEventListener('play', play)
-    element.pause()
-    element.removeAttribute('src')
-    element.load()
-  }
-}
 type Props = {
   archive: string
   entry: string
@@ -110,10 +89,7 @@ function controller(props: Props) {
     },
     size: () => owner.patch({ actualSize: !owner.read().actualSize }),
     mediaError: () =>
-      owner.patch({
-        error:
-          'This file cannot be displayed by the browser. Download it or extract it to open in another application.',
-      }),
+      owner.patch({ error: 'Extract this file to open it in another application.' }),
     download: () => {
       const { blob, pending } = owner.read()
       if (!blob || pending) return
@@ -137,8 +113,6 @@ function controller(props: Props) {
     lifetime: owner,
   }
 }
-const button =
-  'min-h-8 rounded-md border border-input px-2.5 py-1 text-sm hover:bg-accent disabled:opacity-40'
 export const ArchiveEntryPreview = controllerView(
   { controller, identity: (props) => `${props.archive}\0${props.entry}` },
   view((model) => {
@@ -164,36 +138,53 @@ export const ArchiveEntryPreview = controllerView(
         }}
       >
         <header class='flex shrink-0 flex-wrap items-center gap-2 border-b border-border p-2'>
-          <button class={button} disabled={model.pending} onClick={actions.close} autofocus>
-            Back to archive
-          </button>
+          <Button
+            variant='ghost'
+            size='icon'
+            aria-label='Back to archive'
+            disabled={model.pending}
+            onClick={actions.close}
+            autofocus
+          >
+            <ArrowLeft size={16} />
+          </Button>
           <span class='min-w-20 flex-1 truncate text-sm font-medium' title={props.entry}>
             {props.entry}
           </span>
           {model.kind === 'image' ? (
-            <button class={button} onClick={actions.size}>
+            <Button variant='outline' onClick={actions.size}>
               {model.actualSize ? 'Fit image' : 'Actual size'}
-            </button>
+            </Button>
           ) : null}
-          <button
-            class={button}
+          <Button
+            variant='ghost'
+            size='icon'
             aria-label='Previous archive file'
             disabled={!props.previous || model.pending}
             onClick={() => actions.navigate(-1)}
           >
-            ←
-          </button>
-          <button
-            class={button}
+            <ChevronLeft size={16} />
+          </Button>
+          <Button
+            variant='ghost'
+            size='icon'
             aria-label='Next archive file'
             disabled={!props.next || model.pending}
             onClick={() => actions.navigate(1)}
           >
-            →
-          </button>
-          <button class={button} disabled={!model.blob || model.pending} onClick={actions.download}>
-            {model.pending ? 'Downloading…' : 'Download file'}
-          </button>
+            <ChevronRight size={16} />
+          </Button>
+          <BrowserDownload>
+            <Button
+              variant='ghost'
+              size='icon'
+              aria-label='Download file'
+              disabled={!model.blob || model.pending}
+              onClick={actions.download}
+            >
+              <Download size={16} />
+            </Button>
+          </BrowserDownload>
         </header>
         {model.loading ? (
           <p role='status' class='p-4 text-sm'>
@@ -237,40 +228,14 @@ export const ArchiveEntryPreview = controllerView(
             <PdfPreview blob={model.blob} name={props.entry} />
           ) : null}
           {model.blob && (model.kind === 'audio' || model.kind === 'video') ? (
-            <div class='flex h-full items-center justify-center p-4'>
-              {model.kind === 'audio' ? (
-                <audio
-                  use={domBinding(null, previewMedia)}
-                  aria-label='Archive audio preview'
-                  class='w-full max-w-xl'
-                  src={model.url}
-                  controls
-                  preload='metadata'
-                  onError={actions.mediaError}
-                />
-              ) : (
-                <video
-                  use={domBinding(null, previewMedia)}
-                  aria-label='Archive video preview'
-                  class='max-h-full max-w-full'
-                  src={model.url}
-                  controls
-                  preload='metadata'
-                  onError={actions.mediaError}
-                />
-              )}
-            </div>
+            <ArchiveMediaPreview src={model.url} kind={model.kind} onError={actions.mediaError} />
           ) : null}
           {model.blob && model.kind === 'binary' ? (
             <p class='p-4 text-sm text-muted-foreground'>
-              No inline preview for this file. Text previews support UTF-8 files up to 2 MiB.
-              Download the file or extract it to open separately.
+              Extract this file to open it in another application.
             </p>
           ) : null}
         </div>
-        <p class='shrink-0 border-t border-border px-3 py-1.5 text-xs text-muted-foreground'>
-          Read-only preview · the archive is unchanged
-        </p>
       </section>
     )
   }),

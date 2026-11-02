@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { nativeSidebar } from '../fixtures/native-sidebar'
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
 import fs from 'node:fs/promises'
@@ -75,22 +76,25 @@ test('desktop trash restores files and links, refuses collisions, and respects c
       data: { operation: 'trash', paths: ['Locked/private.txt'] },
     })
     expect(forbidden.status()).toBe(403)
-    await page.goto(`${origin}/?dir=Writable`)
+    await nativeSidebar(page.context())
+    await page.goto(`${origin}/desktop?mode=browser&dir=Writable`)
     const note = page.locator('table').getByText('note.txt', { exact: true })
     await note.click({ button: 'right' })
     await page.getByRole('menuitem', { name: 'Move to trash', exact: true }).click()
     await expect(
-      page.getByText('Move 1 selected item(s) to the system trash?', { exact: false }),
+      page.getByRole('dialog').getByTitle('Writable/note.txt', { exact: true }),
     ).toBeVisible()
     await page.getByRole('button', { name: 'Move to trash', exact: true }).click()
     await expect
       .poll(async () => (await entries()).some((item) => item.path === 'Writable/note.txt'))
       .toBe(true)
-    await page.getByRole('button', { name: 'Close', exact: true }).click()
+    await expect(page.getByRole('dialog', { name: 'File operations', exact: true })).toHaveCount(0)
     await expect(note).toHaveCount(0)
     await fs.writeFile(path.join(writable, 'note.txt'), 'replacement')
-    await page.getByRole('button', { name: 'Places', exact: true }).click()
-    await page.getByRole('menuitem', { name: 'Trash', exact: true }).click()
+    await page
+      .getByRole('navigation', { name: 'Places' })
+      .getByRole('button', { name: 'Trash', exact: true })
+      .click()
     const restore = page.getByRole('button', { name: 'Restore', exact: true })
     await restore.click()
     await expect(page.getByRole('alert')).toContainText('already exists')

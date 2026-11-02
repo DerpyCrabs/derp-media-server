@@ -1,3 +1,7 @@
+import Search from '@effectweb/lucide/icons/search'
+import { openWorkspaceCommands } from '@/workspace/commands/commands'
+import { Input } from '@/lib/ui/input'
+import { Button } from '@/lib/ui/button'
 import { component, view, domBinding, list } from 'effectweb'
 import { getIconComponent, AVAILABLE_ICONS } from '@/lib/ui/available-icons'
 import { cn } from '@/lib/ui/cn'
@@ -38,7 +42,9 @@ export const WorkspaceSwitcher = view<WorkspaceSwitcherProps>((props) => {
   return (
     <>
       {!props.open && props.draggingWindow ? (
-        <button
+        <Button
+          size='icon'
+          variant='outline'
           type='button'
           title='Drag a window here to move it to another workspace'
           aria-label='Show workspaces'
@@ -46,8 +52,8 @@ export const WorkspaceSwitcher = view<WorkspaceSwitcherProps>((props) => {
           onClick={() => props.onToggle()}
           data-testid='workspace-edge-handle'
         >
-          <ChevronRight class='h-4 w-4' />
-        </button>
+          <ChevronRight class='size-4' />
+        </Button>
       ) : null}
       {props.open ? <WorkspaceSwitcherPanel {...props} /> : null}
     </>
@@ -136,13 +142,24 @@ const WorkspaceSwitcherPanel = component<
           }}
         >
           <div class='min-h-0 w-full overflow-y-auto py-3'>
+            <Button
+              variant='ghost'
+              class='mb-2 w-full justify-start'
+              onClick={() => {
+                props.onDismiss()
+                openWorkspaceCommands()
+              }}
+            >
+              <Search /> Find a window or command
+            </Button>
             {!props.editable ? (
-              <button
+              <Button
+                variant='outline'
                 class='mb-2 w-full rounded-md border px-2 py-1.5 text-xs hover:bg-muted'
                 onClick={() => props.onTakeControl()}
               >
                 Take control
-              </button>
+              </Button>
             ) : null}
             {list(
               props.registry.order,
@@ -195,9 +212,10 @@ const WorkspaceSwitcherPanel = component<
                     }}
                   >
                     <GripVertical class='h-4 w-4 shrink-0 cursor-grab text-muted-foreground opacity-50' />
-                    <button
+                    <Button
+                      variant='ghost'
                       type='button'
-                      class='flex min-w-0 flex-1 items-center gap-2 text-left'
+                      class='flex min-w-0 flex-1 items-center gap-2 justify-start text-left'
                       onClick={() => !active() && props.onSelect(id)}
                     >
                       <Icon class='h-4 w-4 shrink-0' />
@@ -206,7 +224,7 @@ const WorkspaceSwitcherPanel = component<
                       ) : null}
                       <span class='min-w-0 flex-1'>
                         {editing() === id ? (
-                          <input
+                          <Input
                             autofocus
                             class='h-7 w-full rounded border bg-background px-2 text-sm'
                             value={record()?.name ?? ''}
@@ -244,25 +262,23 @@ const WorkspaceSwitcherPanel = component<
                               </span>
                             ))(record())
                         )}
-                        <span class='block text-[11px] text-muted-foreground'>
-                          {hovered()
-                            ? props.transferReady
-                              ? 'Release to move here'
-                              : 'Hold to move here'
-                            : locked()
-                              ? 'Open in another tab'
-                              : record()?.snapshot.workspaceType === 'canvas'
-                                ? `${new Set(record()?.snapshot.windows.map((window) => window.tabGroupId ?? window.id) ?? []).size} cards`
-                                : `${record()?.snapshot.windows.length ?? 0} windows`}
-                        </span>
+                        {hovered() || locked() ? (
+                          <span class='block text-[11px] text-muted-foreground'>
+                            {hovered()
+                              ? props.transferReady
+                                ? 'Release to move here'
+                                : 'Hold to move here'
+                              : 'Open in another tab'}
+                          </span>
+                        ) : null}
                       </span>
                       {locked() ? (
                         <Lock
-                          class='lucide-lock h-4 w-4 shrink-0 text-muted-foreground'
+                          class='lucide-lock size-4 shrink-0 text-muted-foreground'
                           aria-label='Open in another tab'
                         />
                       ) : null}
-                    </button>
+                    </Button>
                     {hovered() ? (
                       <div class='workspace-dwell-progress pointer-events-none absolute inset-x-0 bottom-0 h-0.5 origin-left bg-primary' />
                     ) : null}
@@ -270,11 +286,12 @@ const WorkspaceSwitcherPanel = component<
                 )
               },
             )}
-            <button
+            <Button
+              variant='outline'
               type='button'
               data-workspace-id='__new__'
               class={cn(
-                'relative mt-2 flex w-full items-center gap-2 overflow-hidden rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground',
+                'relative mt-2 w-full gap-2 overflow-hidden border-dashed',
                 props.draggingWindow &&
                   props.hoverTarget === '__new__' &&
                   'border-primary bg-primary/20 text-foreground ring-2 ring-primary/30',
@@ -287,14 +304,14 @@ const WorkspaceSwitcherPanel = component<
                 props.onCreate()
               }}
             >
-              <Plus class='h-4 w-4' />
+              <Plus class='size-4' />
               {props.draggingWindow && props.hoverTarget === '__new__'
                 ? 'Hold to create and move'
                 : 'New workspace'}
               {props.draggingWindow && props.hoverTarget === '__new__' ? (
                 <div class='workspace-dwell-progress pointer-events-none absolute inset-x-0 bottom-0 h-0.5 origin-left bg-primary' />
               ) : null}
-            </button>
+            </Button>
           </div>
         </aside>
 
@@ -309,18 +326,20 @@ const WorkspaceSwitcherPanel = component<
               data-testid='workspace-context-menu'
               onPointerDown={(event) => event.stopPropagation()}
             >
-              <button
+              <Button
+                variant='ghost'
                 class='flex w-full rounded px-2 py-1.5 hover:bg-muted'
                 onClick={() => beginRename(value.id)}
               >
                 Rename
-              </button>
-              <button
+              </Button>
+              <Button
+                variant='ghost'
                 class='flex w-full items-center gap-2 rounded px-2 py-1.5 hover:bg-muted'
                 onClick={() => setAppearanceOpen(!appearanceOpen())}
               >
-                <Palette class='h-4 w-4' /> Appearance
-              </button>
+                <Palette class='size-4' /> Appearance
+              </Button>
               {appearanceOpen() ? (
                 <div class='my-1 max-h-52 overflow-y-auto rounded border border-border p-2'>
                   <div class='grid grid-cols-8 gap-1'>
@@ -328,7 +347,8 @@ const WorkspaceSwitcherPanel = component<
                       AVAILABLE_ICONS,
                       (entry) => entry.name,
                       (entry) => (
-                        <button
+                        <Button
+                          variant='ghost'
                           title={entry.name}
                           class='flex h-7 items-center justify-center rounded hover:bg-muted'
                           onClick={() =>
@@ -336,7 +356,7 @@ const WorkspaceSwitcherPanel = component<
                           }
                         >
                           <entry.Icon class='h-4 w-4' />
-                        </button>
+                        </Button>
                       ),
                     )}
                   </div>
@@ -345,7 +365,8 @@ const WorkspaceSwitcherPanel = component<
                       WORKSPACE_TAB_ICON_SWATCHES,
                       (color) => color.key,
                       (color) => (
-                        <button
+                        <Button
+                          variant='ghost'
                           title={color.key}
                           class={cn('h-6 w-6 rounded border', color.twBg)}
                           onClick={() =>
@@ -358,30 +379,33 @@ const WorkspaceSwitcherPanel = component<
                 </div>
               ) : null}
               {value.id !== props.activeId ? (
-                <button
+                <Button
+                  variant='ghost'
                   class='flex w-full items-center gap-2 rounded px-2 py-1.5 hover:bg-muted'
                   onClick={() => props.onOpenNewTab(value.id)}
                 >
-                  <ExternalLink class='h-4 w-4' /> Open in new tab
-                </button>
+                  <ExternalLink class='size-4' /> Open in new tab
+                </Button>
               ) : null}
-              <button
+              <Button
+                variant='ghost'
                 class='flex w-full items-center gap-2 rounded px-2 py-1.5 hover:bg-muted'
                 onClick={() => props.onConvert(value.id)}
               >
                 {record()?.snapshot.workspaceType === 'canvas' ? (
-                  <MonitorUp class='h-4 w-4' />
+                  <MonitorUp class='size-4' />
                 ) : (
-                  <Scan class='h-4 w-4' />
+                  <Scan class='size-4' />
                 )}
                 Convert to {record()?.snapshot.workspaceType === 'canvas' ? 'desktop' : 'canvas'}
-              </button>
-              <button
+              </Button>
+              <Button
+                variant='ghost'
                 class='flex w-full items-center gap-2 rounded px-2 py-1.5 text-destructive hover:bg-muted'
                 onClick={() => props.onDelete(value.id)}
               >
-                <Trash2 class='h-4 w-4' /> Delete
-              </button>
+                <Trash2 class='size-4' /> Delete
+              </Button>
             </div>
           )
         })(menu())}

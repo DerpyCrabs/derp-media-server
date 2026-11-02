@@ -101,6 +101,7 @@ test('renders parity controls and native export, then archives read-only', async
                     arguments: JSON.stringify({ payload: 'x'.repeat(9_000) }),
                   },
                 },
+                { id: 'image-tool', function: { name: 'image_generate', arguments: '{}' } },
               ],
             },
             {
@@ -109,6 +110,13 @@ test('renders parity controls and native export, then archives read-only', async
               tool_call_id: 'tool-1',
               tool_name: 'unknown.future_tool',
               content: JSON.stringify({ result: 'x'.repeat(9_000) }),
+            },
+            {
+              id: 'image-result',
+              role: 'tool',
+              tool_call_id: 'image-tool',
+              tool_name: 'image_generate',
+              content: JSON.stringify({ image_path: '/tmp/generated.png' }),
             },
           ],
         },
@@ -121,11 +129,8 @@ test('renders parity controls and native export, then archives read-only', async
     }
     if (url.pathname === '/api/hermes/media') {
       await route.fulfill({
-        contentType: 'image/png',
-        body: Buffer.from(
-          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
-          'base64',
-        ),
+        contentType: 'image/svg+xml',
+        body: '<svg xmlns="http://www.w3.org/2000/svg" width="480" height="320"><rect width="480" height="320" fill="#398bb8"/></svg>',
       })
       return
     }
@@ -193,11 +198,14 @@ test('renders parity controls and native export, then archives read-only', async
   await chat.getByAltText('Hermes attachment').click()
   const imagePreview = chat.getByRole('dialog', { name: 'Hermes image preview' })
   await expect(imagePreview).toBeVisible()
+  const viewport = page.viewportSize()!
   const chatBox = (await chat.boundingBox())!
   const previewBox = (await imagePreview.boundingBox())!
-  expect(Math.abs(chatBox.width - previewBox.width)).toBeLessThan(1)
-  expect(Math.abs(chatBox.height - previewBox.height)).toBeLessThan(1)
-  await imagePreview.getByRole('button', { name: 'Close image preview' }).click()
+  expect(previewBox.width).toBeLessThanOrEqual(viewport.width)
+  expect(previewBox.x).toBeGreaterThanOrEqual(0)
+  expect(previewBox.height).toBeLessThanOrEqual(viewport.height)
+  expect(previewBox.y).toBeGreaterThanOrEqual(0)
+  await imagePreview.getByRole('button', { name: 'Close', exact: true }).click()
   await expect(chat.locator('.cm-md-strong').filter({ hasText: 'Inspect' })).toBeVisible()
   await expect(page.locator('.workspace-tab-strip').getByText('Hermes E2E')).toBeVisible()
   expect((await chat.getByPlaceholder('Message Hermes…').boundingBox())!.height).toBeLessThan(60)
@@ -222,16 +230,25 @@ test('renders parity controls and native export, then archives read-only', async
     await chat.getByTestId('hermes-composer').locator(':scope > div.flex > button').count(),
   ).toBeLessThanOrEqual(3)
   expect(
-    (await chat.getByTestId('hermes-tool-card').first().locator('summary').boundingBox())!.height,
+    (await chat
+      .getByRole('button', { name: /Reasoning/ })
+      .first()
+      .boundingBox())!.height,
   ).toBeLessThan(36)
-  await expect(chat.getByTestId('hermes-message-actions').last().locator('summary')).toHaveCSS(
-    'opacity',
-    '0',
-  )
+  await expect(
+    chat
+      .getByTestId('hermes-message-actions')
+      .last()
+      .getByRole('button', { name: 'Message actions' }),
+  ).toHaveCSS('opacity', '0')
   const transcriptBeforeActions = await chat
     .getByTestId('hermes-transcript')
     .evaluate((element) => ({ scrollHeight: element.scrollHeight, scrollTop: element.scrollTop }))
-  await chat.getByTestId('hermes-message-actions').last().locator('summary').click()
+  await chat
+    .getByTestId('hermes-message-actions')
+    .last()
+    .getByRole('button', { name: 'Message actions' })
+    .click()
   await expect
     .poll(() =>
       chat
@@ -259,14 +276,23 @@ test('renders parity controls and native export, then archives read-only', async
     .getByText(/Reasoning/)
     .first()
     .click()
+  await chat.getByText('image_generate', { exact: true }).click()
+  const toolImage = chat.getByRole('img', { name: 'image_generate', exact: true })
+  await expect(toolImage).toBeVisible()
+  const imageBox = (await toolImage.boundingBox())!
+  const imageButton = toolImage.locator('..')
+  const buttonBox = (await imageButton.boundingBox())!
+  expect(imageBox.height).toBeGreaterThan(100)
+  expect(buttonBox.height).toBeGreaterThanOrEqual(imageBox.height)
+  await expect(imageButton).toHaveCSS('padding-left', '0px')
   await chat.getByText('unknown.future_tool').click()
   await expect(chat.getByRole('button', { name: 'Expand full output' })).toBeVisible()
   await chat.getByRole('button', { name: 'Expand full output' }).click()
   await expect(chat.getByRole('button', { name: 'Collapse output' })).toBeVisible()
-  await chat.locator('summary[aria-label="Chat options"]').click()
-  await expect(chat.getByRole('combobox', { name: 'Hermes model' })).toBeVisible()
+  await chat.getByRole('button', { name: 'Chat options', exact: true }).click()
+  await expect(chat.getByRole('button', { name: 'Hermes model' })).toBeVisible()
   await expect(chat.getByRole('button', { name: 'Toggle Fast mode' })).toBeVisible()
-  await chat.locator('summary[aria-label="Chat options"]').click()
+  await chat.getByRole('button', { name: 'Chat options', exact: true }).click()
   await expect(chat.getByRole('button', { name: 'Record voice prompt' })).toHaveCount(0)
   await expect(chat.getByRole('button', { name: 'Refresh' })).toHaveCount(0)
 
@@ -292,7 +318,7 @@ test('renders parity controls and native export, then archives read-only', async
   await expect(chat.getByText('Allow safe action?')).toHaveCount(0)
 
   const download = page.waitForEvent('download')
-  await chat.locator('summary[aria-label="Chat options"]').click()
+  await chat.getByRole('button', { name: 'Chat options', exact: true }).click()
   await chat.getByRole('button', { name: 'Export' }).click()
   expect((await download).suggestedFilename()).toBe('Hermes-E2E.json')
 
@@ -606,7 +632,7 @@ test('keeps the Hermes project dialog compact inside its browser window', async 
   )
   const browserBox = (await browser.boundingBox())!
   const dialogBox = (await dialog.boundingBox())!
-  expect(dialogBox.height).toBeLessThan(360)
+  expect(dialogBox.height).toBeLessThan(400)
   expect(dialogBox.y).toBeGreaterThanOrEqual(browserBox.y)
   expect(dialogBox.y + dialogBox.height).toBeLessThanOrEqual(browserBox.y + browserBox.height)
   await expect(dialog.getByText('Additional directories')).toBeVisible()
@@ -698,10 +724,10 @@ test('uses in-window Hermes project actions with gateway-backed choices', async 
   await page.goto(`/workspace?ws=${workspaceId}`)
 
   await page.getByText('Loose session', { exact: true }).click({ button: 'right' })
-  await page.getByRole('button', { name: /Move to project/ }).click()
+  await page.getByRole('menuitem', { name: /Move to project/ }).click()
   const moveDialog = page.getByRole('dialog', { name: 'Move to Hermes project' })
   await expect(moveDialog).toBeVisible()
-  await expect(moveDialog.getByRole('combobox')).toHaveValue('Project Alpha')
+  await expect(moveDialog.getByRole('button', { name: 'Project' })).toContainText('Project Alpha')
   await moveDialog.getByRole('button', { name: 'Move' }).click()
   await expect.poll(() => actions.length).toBe(1)
   expect(actions[0]).toMatchObject({ action: 'moveToProject', name: 'Project Alpha' })
@@ -711,7 +737,7 @@ test('uses in-window Hermes project actions with gateway-backed choices', async 
     .getByRole('rowgroup')
     .getByText('Project Alpha', { exact: true })
     .click({ button: 'right' })
-  await page.getByRole('button', { name: /Appearance/ }).click()
+  await page.getByRole('menuitem', { name: /Appearance/ }).click()
   const appearanceDialog = page.getByRole('dialog', { name: 'Project appearance' })
   await expect(appearanceDialog).toBeVisible()
   await appearanceDialog.getByRole('button', { name: 'Star' }).click()

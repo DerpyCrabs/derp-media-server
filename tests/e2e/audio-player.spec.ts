@@ -19,11 +19,13 @@ test.describe('Audio Player', () => {
     await page.goto(`/?dir=${MUSIC_DIR}&playing=${encodeURIComponent(AUDIO_FILE)}`)
     const audio = page.locator('audio')
     await expect(audio).toBeAttached()
-    await page.getByRole('button', { name: 'Audio playback speed', exact: true }).click()
+    await page.getByRole('button', { name: 'Playback options', exact: true }).click()
+    await page.getByRole('menuitem', { name: /^Speed ·/ }).click()
     await page.getByRole('menuitemradio', { name: '1.5×', exact: true }).click()
     await expect.poll(() => audio.evaluate((el: HTMLAudioElement) => el.playbackRate)).toBe(1.5)
     expect(new URL(page.url()).searchParams.get('playing')).toBe(AUDIO_FILE)
-    await page.getByRole('button', { name: 'Audio playback speed', exact: true }).click()
+    await page.getByRole('button', { name: 'Playback options', exact: true }).click()
+    await page.getByRole('menuitem', { name: /^Speed ·/ }).click()
     await page.getByRole('menuitemradio', { name: '1×', exact: true }).click()
     await expect.poll(() => audio.evaluate((el: HTMLAudioElement) => el.playbackRate)).toBe(1)
   })
@@ -236,13 +238,16 @@ test.describe('Audio Player', () => {
       .toBeGreaterThan(seekSeconds * 0.85)
   })
 
-  test('repeat button toggles', async ({ page }) => {
+  test('repeat stays directly accessible on narrow screens', async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 700 })
     await page.goto(`/?dir=${MUSIC_DIR}&playing=${encodeURIComponent(AUDIO_FILE)}`)
-    const repeatBtn = page.locator('button:has(.lucide-repeat)')
+    const repeatBtn = page.getByRole('button', { name: 'Enable repeat', exact: true })
     await expect(repeatBtn).toBeVisible()
     await repeatBtn.click()
-    // After click the button should still exist (toggled state)
-    await expect(repeatBtn).toBeVisible()
+    const enabled = page.getByRole('button', { name: 'Disable repeat', exact: true })
+    await expect(enabled).toHaveAttribute('aria-pressed', 'true')
+    await enabled.click()
+    await expect(repeatBtn).toHaveAttribute('aria-pressed', 'false')
   })
 
   test('repeat keeps playing after track ends', async ({ page }) => {

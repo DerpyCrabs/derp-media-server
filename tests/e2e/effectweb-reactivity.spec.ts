@@ -42,10 +42,10 @@ test('common application flows have no development warnings or errors', async ({
 
   await page.goto('/?dir=Documents')
   await page.getByRole('button', { name: 'Display options' }).click()
-  await expect(page.getByTestId('explorer-display-options')).toBeVisible()
-  await page.getByRole('menuitem', { name: 'Grid view' }).click()
+  await expect(page.getByRole('menu', { name: 'Display options', exact: true })).toBeVisible()
+  await page.getByRole('menuitemradio', { name: 'Grid view' }).click()
   await page.getByRole('button', { name: 'Display options' }).click()
-  await page.getByRole('menuitem', { name: 'List view' }).click()
+  await page.getByRole('menuitemradio', { name: 'List view' }).click()
   diagnostics.expectNone()
 
   await page.goto('/?dir=Videos')

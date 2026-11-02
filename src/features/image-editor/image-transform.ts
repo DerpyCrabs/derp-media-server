@@ -149,3 +149,75 @@ export function parseImageTransform(content: string): ImageTransform | null {
     return null
   }
 }
+
+export function fitCrop(image: { width: number; height: number }, ratio: number | null): CropRect {
+  const width = ratio ? Math.min(image.width, image.height * ratio) : image.width
+  const height = ratio ? width / ratio : image.height
+  return {
+    x: Math.round((image.width - width) / 2),
+    y: Math.round((image.height - height) / 2),
+    width: Math.round(width),
+    height: Math.round(height),
+  }
+}
+
+export function resizeCrop(
+  rect: CropRect,
+  handle: string,
+  dx: number,
+  dy: number,
+  image: { width: number; height: number },
+  ratio: number | null,
+): CropRect {
+  if (handle === 'move')
+    return {
+      ...rect,
+      x: Math.round(Math.max(0, Math.min(image.width - rect.width, rect.x + dx))),
+      y: Math.round(Math.max(0, Math.min(image.height - rect.height, rect.y + dy))),
+    }
+  const west = handle.includes('w'),
+    north = handle.includes('n')
+  const horizontal = west || handle.includes('e'),
+    vertical = north || handle.includes('s')
+  const anchorX = west ? rect.x + rect.width : horizontal ? rect.x : rect.x + rect.width / 2
+  const anchorY = north ? rect.y + rect.height : vertical ? rect.y : rect.y + rect.height / 2
+  const maxWidth = horizontal
+    ? west
+      ? anchorX
+      : image.width - anchorX
+    : 2 * Math.min(anchorX, image.width - anchorX)
+  const maxHeight = vertical
+    ? north
+      ? anchorY
+      : image.height - anchorY
+    : 2 * Math.min(anchorY, image.height - anchorY)
+  let width = Math.max(1, Math.min(maxWidth, rect.width + (horizontal ? (west ? -dx : dx) : 0)))
+  let height = Math.max(1, Math.min(maxHeight, rect.height + (vertical ? (north ? -dy : dy) : 0)))
+  if (ratio) {
+    if (!horizontal || (vertical && Math.abs(dy) > Math.abs(dx / ratio))) width = height * ratio
+    else height = width / ratio
+    const scale = Math.min(1, maxWidth / width, maxHeight / height)
+    width *= scale
+    height *= scale
+  }
+  width = Math.max(1, Math.round(width))
+  height = Math.max(1, Math.round(height))
+  return {
+    x: Math.max(
+      0,
+      Math.min(
+        image.width - width,
+        Math.round(horizontal ? (west ? anchorX - width : anchorX) : anchorX - width / 2),
+      ),
+    ),
+    y: Math.max(
+      0,
+      Math.min(
+        image.height - height,
+        Math.round(vertical ? (north ? anchorY - height : anchorY) : anchorY - height / 2),
+      ),
+    ),
+    width,
+    height,
+  }
+}

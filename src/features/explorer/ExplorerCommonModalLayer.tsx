@@ -28,6 +28,8 @@ export type ExplorerIconDialog = {
 }
 export type ExplorerUploadNotice = { state: UploadToastState; dismiss: () => void }
 export type ExplorerBreadcrumbMenu = {
+  sidebarLabel?: string
+  toggleSidebar?: () => void
   target: BreadcrumbMenuTarget | null
   setTarget: (value: BreadcrumbMenuTarget | null) => void
   availableActions: ExplorerBreadcrumbMenuActions
@@ -108,6 +110,8 @@ export const ExplorerCommonModalLayer = view<ExplorerCommonModalLayerProps>((pro
         onDismissError={props.upload.dismiss}
       />
       <BreadcrumbContextMenu
+        sidebarLabel={props.breadcrumbs.sidebarLabel}
+        onToggleSidebar={props.breadcrumbs.toggleSidebar}
         target={props.breadcrumbs.target}
         onDismiss={() => props.breadcrumbs.setTarget(null)}
         showOpenInNewTab={props.breadcrumbs.availableActions.showOpenInNewTab}

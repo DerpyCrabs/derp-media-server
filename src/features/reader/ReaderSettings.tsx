@@ -1,10 +1,11 @@
+import { Button } from '@/lib/ui/button'
 import { cn } from '@/lib/ui/cn'
 import { view, list, type JSX } from 'effectweb'
 import { DEFAULT_BOOK_APPEARANCE, type BookAppearance } from './reader-state-client'
 export const ReaderSetting = view<{ label: string; children: JSX.Element }>((props) => {
   return (
     <section class='grid gap-[5px]'>
-      <h2 class='text-xs font-semibold text-white/60'>{props.label}</h2>
+      <h2 class='text-xs font-semibold text-muted-foreground'>{props.label}</h2>
       {props.children}
     </section>
   )
@@ -15,24 +16,23 @@ export const Segmented = view<{
   onChange: (value: string) => void
 }>((props) => {
   return (
-    <div class='flex min-h-8 gap-[3px] rounded-lg bg-[#2a2a2a] p-0.5'>
+    <div class='flex min-h-8 gap-0.5 rounded-lg bg-muted p-0.5'>
       {list(
         props.values,
         (value) => value,
         (value) => (
-          <button
+          <Button
+            variant='ghost'
+            aria-pressed={props.value === value}
             type='button'
-            class={cn(
-              'min-w-0 flex-1 rounded-md border border-transparent px-2 py-1 text-xs capitalize hover:border-[#777]',
-              {
-                'border-[#7a7a7a] bg-[#303030] text-white': props.value === value,
-                'text-white/60': props.value !== value,
-              },
-            )}
+            class={cn('min-w-0 flex-1 rounded-md px-2 py-1 text-xs capitalize', {
+              'bg-background text-foreground shadow-sm': props.value === value,
+              'text-muted-foreground': props.value !== value,
+            })}
             onClick={() => props.onChange(value)}
           >
             {value}
-          </button>
+          </Button>
         ),
       )}
     </div>
@@ -42,23 +42,27 @@ const StepSetting = view<{ value: string; onDecrease: () => void; onIncrease: ()
   (props) => {
     return (
       <div class='grid grid-cols-[32px_minmax(82px,1fr)_32px] items-center'>
-        <button
+        <Button
+          size='icon'
+          variant='outline'
           type='button'
           aria-label='Decrease'
-          class='h-8 rounded-md border border-[#3a3a3a] bg-[#202020] hover:border-[#777]'
+          class='h-8 rounded-md border border-border bg-background hover:border-border'
           onClick={() => props.onDecrease()}
         >
           −
-        </button>
-        <span class='text-center text-xs text-white/70'>{props.value}</span>
-        <button
+        </Button>
+        <span class='text-center text-xs text-muted-foreground'>{props.value}</span>
+        <Button
+          size='icon'
+          variant='outline'
           type='button'
           aria-label='Increase'
-          class='h-8 rounded-md border border-[#3a3a3a] bg-[#202020] hover:border-[#777]'
+          class='h-8 rounded-md border border-border bg-background hover:border-border'
           onClick={() => props.onIncrease()}
         >
           +
-        </button>
+        </Button>
       </div>
     )
   },
@@ -115,13 +119,14 @@ export const BookAppearanceSettings = view<{
           onChange={(value) => update({ contentWidth: value as BookAppearance['contentWidth'] })}
         />
       </ReaderSetting>
-      <button
+      <Button
+        variant='outline'
         type='button'
-        class='h-8 rounded-md border border-[#3a3a3a] bg-[#202020] text-xs hover:border-[#777]'
+        class='h-8 rounded-md border border-border bg-background text-xs hover:border-border'
         onClick={() => props.onChange({ ...DEFAULT_BOOK_APPEARANCE })}
       >
         Reset appearance
-      </button>
+      </Button>
     </>
   )
 })

@@ -1,8 +1,12 @@
-import { desktopOperations } from './desktop/operations'
+import { createAppSurfaceRuntime } from './desktop/RuntimeSurface'
+import { PlaybackMediaHost } from './features/playback/PlaybackMediaHost'
+import { createDesktopMediaFocus } from './desktop/media-focus'
+import { getPlaybackSession } from './features/playback/PlaybackProvider'
+import { createDesktopOperationsLifetime } from './desktop/operations'
 import '@fontsource-variable/geist'
 import '@fontsource-variable/geist-mono'
 import './globals.css'
-import { Effect } from 'effect'
+import { Effect, Fiber } from 'effect'
 import { makeMount, modelOwner } from 'effectweb'
 import { App } from './App'
 import { createPlaybackPathMutationLifetime } from './features/playback/path-mutation-lifetime'
@@ -30,7 +34,7 @@ const application = Effect.scoped(
         value.close ? value.close().pipe(Effect.orDie) : Effect.sync(() => value.dispose()),
       )
     yield* own(() => appDialogs)
-    yield* own(() => desktopOperations)
+    yield* own(createDesktopOperationsLifetime)
     yield* own(createBrowserHistoryLifetime)
     yield* own(createThemeLifetime)
     yield* own(createClientPreferencesLifetime)
@@ -42,11 +46,23 @@ const application = Effect.scoped(
     yield* own(() => browserDownloadsLifetime)
     yield* own(initializeMusicStatus)
     yield* own(createRadioContinuation)
-    const owner = yield* own(() => modelOwner({}))
     const root = document.getElementById('root')
     if (!root) return undefined
-    yield* makeMount(root, App, owner.source)
+    if (window.derpRuntime) {
+      yield* own(() => createDesktopMediaFocus(getPlaybackSession()))
+      yield* makeMount(root, PlaybackMediaHost, {})
+      const runtime = createAppSurfaceRuntime(document)
+      yield* Effect.addFinalizer(() => Effect.promise(() => runtime.close()))
+      window.derpRuntime.register(runtime.mount, runtime.unmount, shutdownApplication)
+    } else {
+      const owner = yield* own(() => modelOwner({ browserWindow: window }))
+      yield* makeMount(root, App, owner.source)
+    }
     return yield* Effect.never
   }),
 )
-Effect.runFork(application)
+const applicationFiber = Effect.runFork(application)
+
+function shutdownApplication() {
+  return Effect.runPromise(Fiber.interrupt(applicationFiber))
+}

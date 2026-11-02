@@ -78,8 +78,13 @@ async function expectWorkspaceWindowCount(request: APIRequestContext, id: string
 
 async function dragFirstCanvasWindowToWorkspace(page: Page, destinationName: string) {
   const titlebar = page.getByTestId('canvas-window-titlebar').first()
-  const titlebarBox = await titlebar.boundingBox()
-  await page.mouse.move(titlebarBox!.x + 100, titlebarBox!.y + titlebarBox!.height / 2)
+  const titlebarBox = await titlebar
+    .locator(':scope > .workspace-window-drag-handle[aria-hidden=true]')
+    .boundingBox()
+  await page.mouse.move(
+    titlebarBox!.x + titlebarBox!.width / 2,
+    titlebarBox!.y + titlebarBox!.height / 2,
+  )
   await page.mouse.down()
   await page.mouse.move(5, 160, { steps: 12 })
   const panel = page.getByTestId('workspace-switcher')
@@ -531,9 +536,15 @@ test('leaving a workspace row cancels canvas transfer dwell', async ({ page, req
   expect(opened.ok()).toBe(true)
   await page.reload()
 
-  const titlebarBox = await page.getByTestId('canvas-window-titlebar').boundingBox()
+  const titlebarBox = await page
+    .getByTestId('canvas-window-titlebar')
+    .locator(':scope > .workspace-window-drag-handle[aria-hidden=true]')
+    .boundingBox()
   await recordNextPointerId(page)
-  await page.mouse.move(titlebarBox!.x + 100, titlebarBox!.y + titlebarBox!.height / 2)
+  await page.mouse.move(
+    titlebarBox!.x + titlebarBox!.width / 2,
+    titlebarBox!.y + titlebarBox!.height / 2,
+  )
   await page.mouse.down()
   await page.mouse.move(5, 160, { steps: 10 })
   const panel = page.getByTestId('workspace-switcher')
@@ -577,9 +588,15 @@ test('pointer cancellation never commits a ready canvas workspace transfer', asy
   await page.reload()
   const originalBox = await page.getByTestId('canvas-window').boundingBox()
 
-  const titlebarBox = await page.getByTestId('canvas-window-titlebar').boundingBox()
+  const titlebarBox = await page
+    .getByTestId('canvas-window-titlebar')
+    .locator(':scope > .workspace-window-drag-handle[aria-hidden=true]')
+    .boundingBox()
   await recordNextPointerId(page)
-  await page.mouse.move(titlebarBox!.x + 100, titlebarBox!.y + titlebarBox!.height / 2)
+  await page.mouse.move(
+    titlebarBox!.x + titlebarBox!.width / 2,
+    titlebarBox!.y + titlebarBox!.height / 2,
+  )
   await page.mouse.down()
   await page.mouse.move(5, 160, { steps: 10 })
   const target = page
@@ -1092,7 +1109,7 @@ test('canvas audio previews a drag and inactive video controls activate their ow
   await video.hover()
   await videoUI.getByRole('button', { name: 'Playback settings', exact: true }).click()
   await page.getByRole('button', { name: 'Playback speed', exact: true }).click()
-  await page.getByRole('menuitemradio', { name: '1.5×', exact: true }).click()
+  await page.getByRole('option', { name: '1.5×', exact: true }).click()
   await expect
     .poll(() => video.evaluate((element: HTMLVideoElement) => element.playbackRate))
     .toBe(1.5)

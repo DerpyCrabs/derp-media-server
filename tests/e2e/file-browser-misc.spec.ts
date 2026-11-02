@@ -18,6 +18,7 @@ test.describe('File browser misc', () => {
     await expect(menu).toBeVisible()
     const intrinsicWidth = await menu.evaluate((element) => {
       const copy = element.cloneNode(true) as HTMLElement
+      copy.removeAttribute('popover')
       copy.style.left = '0px'
       copy.style.top = '0px'
       copy.style.visibility = 'hidden'
@@ -34,8 +35,12 @@ test.describe('File browser misc', () => {
           return bounds ? Math.abs(bounds.width - intrinsicWidth) : Infinity
         })
         .toBeLessThan(1)
-      const bounds = await menu.boundingBox()
-      expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width - 7)
+      await expect
+        .poll(async () => {
+          const bounds = await menu.boundingBox()
+          return bounds ? bounds.x + bounds.width : Infinity
+        })
+        .toBeLessThanOrEqual(width - 7)
     }
   })
 
@@ -144,7 +149,7 @@ test.describe('File browser misc', () => {
     fs.writeFileSync(path.join(tmpRoot, 'folder-root-file.txt'), 'folder upload content')
     try {
       const fileChooserPromise = page.waitForEvent('filechooser')
-      await page.locator('button[title="Upload"]').click()
+      await page.getByRole('button', { name: 'Upload', exact: true }).click()
       await page.getByText('Upload folder').click()
       const fileChooser = await fileChooserPromise
       await fileChooser.setFiles(tmpRoot)
@@ -174,7 +179,7 @@ test.describe('File browser misc', () => {
   test('persists dark mode after reload', async ({ page }) => {
     await page.goto('/')
     await page.getByRole('button', { name: 'Open theme settings' }).click()
-    await page.getByRole('menuitem', { name: 'Dark' }).click()
+    await page.getByRole('menuitemradio', { name: 'Dark', exact: true }).click()
     await expect(page.locator('html')).toHaveAttribute('data-theme', /dark/)
     await page.reload()
     await expect(page.locator('html')).toHaveAttribute('data-theme', /dark/)
@@ -186,7 +191,7 @@ test.describe('File browser misc', () => {
     await page.setViewportSize({ width: 360, height: 320 })
     await page.goto('/')
     await page.getByRole('button', { name: 'Open theme settings' }).click()
-    const menu = page.getByTestId('theme-settings-menu')
+    const menu = page.getByRole('menu', { name: 'Theme settings', exact: true })
     await expect(menu).toBeVisible()
     const box = await menu.boundingBox()
     expect(box).not.toBeNull()
@@ -195,7 +200,7 @@ test.describe('File browser misc', () => {
     expect(box!.x + box!.width).toBeLessThanOrEqual(360)
     expect(box!.y + box!.height).toBeLessThanOrEqual(320)
 
-    await page.getByRole('menuitem', { name: 'Cosmic Night' }).click()
+    await page.getByRole('menuitemradio', { name: 'Cosmic Night', exact: true }).click()
     await expect(menu).not.toBeVisible()
   })
 })
@@ -276,7 +281,6 @@ test.describe('File browser clipboard paste', () => {
     try {
       await page.goto(`/?dir=${UPLOAD_DIR}`)
       await openTextPaste(page, name, 'copy content')
-      await page.getByRole('button', { name: 'Save with another name' }).click()
       await page.getByLabel('Filename').fill(renamed)
       await page.getByRole('button', { name: 'Paste', exact: true }).click()
       await expect(page.getByRole('heading', { name: /Paste Text/i })).not.toBeVisible()

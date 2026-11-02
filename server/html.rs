@@ -83,7 +83,7 @@ fn kb_recent(state: &AppState, scope: &str) -> Value {
                 .ok()?
                 .to_string_lossy()
                 .replace('\\', "/");
-            let path = if state.config.roots.len() > 1 {
+            let path = if state.config.named_roots() {
                 format!("{}/{}", resolved.root.name, relative)
             } else {
                 relative

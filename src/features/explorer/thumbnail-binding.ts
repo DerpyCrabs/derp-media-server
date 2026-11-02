@@ -1,3 +1,4 @@
+import { viewWindow } from '@/lib/browser/view-window'
 import { Effect } from 'effect'
 import { modelOwner } from 'effectweb'
 import { thumbnailLoadQueue, type ThumbnailPriority } from '@/lib/media/thumbnail-load-queue'
@@ -14,6 +15,8 @@ type ThumbnailBinding = {
 const loadSlot = 'thumbnail-load'
 
 export const thumbnailBinding = (target: HTMLDivElement, current: () => ThumbnailBinding) => {
+  const document = target.ownerDocument
+  const window = viewWindow({ document })
   const owner = modelOwner({})
   let url = ''
   let visible = false
@@ -68,9 +71,10 @@ export const thumbnailBinding = (target: HTMLDivElement, current: () => Thumbnai
     }
   }
   let root: HTMLElement | null = target.parentElement
-  while (root && !/(auto|scroll)/.test(getComputedStyle(root).overflowY)) root = root.parentElement
+  while (root && !/(auto|scroll)/.test(window.getComputedStyle(root).overflowY))
+    root = root.parentElement
   if (root === document.body || root === document.documentElement) root = null
-  const observer = new IntersectionObserver(
+  const observer = new window.IntersectionObserver(
     (entries) => {
       visible = entries.some((entry) => entry.isIntersecting)
       changed()
@@ -81,13 +85,13 @@ export const thumbnailBinding = (target: HTMLDivElement, current: () => Thumbnai
   const card = target.closest<HTMLElement>('[data-file-path]') ?? target
   let preloadObserver: IntersectionObserver | undefined
   let margin = -1
-  const resize = new ResizeObserver(() => {
-    const gap = Number.parseFloat(getComputedStyle(card.parentElement ?? card).rowGap) || 0
+  const resize = new window.ResizeObserver(() => {
+    const gap = Number.parseFloat(window.getComputedStyle(card.parentElement ?? card).rowGap) || 0
     const nextMargin = Math.ceil((card.getBoundingClientRect().height + gap) * 3)
     if (nextMargin === margin) return
     margin = nextMargin
     preloadObserver?.disconnect()
-    preloadObserver = new IntersectionObserver(
+    preloadObserver = new window.IntersectionObserver(
       (entries) => {
         nearby = entries.some((entry) => entry.isIntersecting)
         changed()

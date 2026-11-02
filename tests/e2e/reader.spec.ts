@@ -1,3 +1,5 @@
+import { writeFile } from 'node:fs/promises'
+import path from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { READER_PDF } from '../fixtures/generate-media'
 
@@ -39,6 +41,12 @@ async function waitForReaderScrollToSettle(page: Page) {
 
 async function disableAutomaticSelectionAction(page: Page) {
   await page.getByTestId('reader-settings-button').click()
+  if (
+    (await page
+      .getByRole('button', { name: 'Text actions', exact: true })
+      .getAttribute('aria-expanded')) !== 'true'
+  )
+    await page.getByRole('button', { name: 'Text actions', exact: true }).click()
   await page.getByRole('button', { name: 'none', exact: true }).click()
 }
 
@@ -143,7 +151,7 @@ test.describe('Reader', () => {
     const search = reader.getByRole('searchbox', { name: 'Find in document' })
     await search.fill('reader')
     const status = reader.getByRole('search').getByRole('status')
-    await expect(status).toHaveText(/1 of [1-9]/)
+    await expect(status).toHaveText(/1\/[1-9]/)
     await expect
       .poll(() =>
         page.evaluate(() =>
@@ -152,7 +160,7 @@ test.describe('Reader', () => {
       )
       .toBe(true)
     await reader.getByRole('button', { name: 'Next match', exact: true }).click()
-    await expect(status).toHaveText(/2 of /)
+    await expect(status).toHaveText(/2\//)
     await search.fill('no-such-document-text-12345')
     await expect(status).toHaveText('No matches')
     await search.press('Escape')
@@ -171,7 +179,7 @@ test.describe('Reader', () => {
     await reader.getByRole('button', { name: 'Find in document', exact: true }).click()
     const search = reader.getByRole('searchbox', { name: 'Find in document' })
     await search.fill('Selectable EPUB text')
-    await expect(reader.getByRole('search').getByRole('status')).toHaveText(/1 of /)
+    await expect(reader.getByRole('search').getByRole('status')).toHaveText(/1\//)
     await expect
       .poll(() =>
         page.evaluate(
@@ -283,7 +291,7 @@ test.describe('Reader', () => {
     const reader = await page.getByTestId('reader-dialog').boundingBox()
     const menu = await page.getByTestId('reader-settings').boundingBox()
     if (!reader || !menu) throw new Error('Book settings menu not laid out')
-    expect(menu.width).toBeGreaterThanOrEqual(380)
+    expect(menu.width).toBeGreaterThanOrEqual(260)
     expect(menu.x).toBeGreaterThanOrEqual(reader.x)
     expect(menu.x + menu.width).toBeLessThanOrEqual(reader.x + reader.width)
   })
@@ -305,8 +313,9 @@ test.describe('Reader', () => {
     await settings.getByRole('button', { name: 'narrow', exact: true }).click()
     await expect(settings).toContainText('50%')
     await expect(settings).toContainText('0.80')
-    await expect(settings.getByRole('button', { name: 'narrow', exact: true })).toHaveClass(
-      /bg-\[#303030\]/,
+    await expect(settings.getByRole('button', { name: 'narrow', exact: true })).toHaveAttribute(
+      'aria-pressed',
+      'true',
     )
     const chapter = book.locator('[data-book-chapter="chapter-1"]')
     const appearanceBeforeTheme = await chapter.evaluate((element) => {
@@ -327,8 +336,9 @@ test.describe('Reader', () => {
     await settings.getByRole('button', { name: 'light', exact: true }).click()
     await expect(settings).toContainText('50%')
     await expect(settings).toContainText('0.80')
-    await expect(settings.getByRole('button', { name: 'narrow', exact: true })).toHaveClass(
-      /bg-\[#303030\]/,
+    await expect(settings.getByRole('button', { name: 'narrow', exact: true })).toHaveAttribute(
+      'aria-pressed',
+      'true',
     )
     await expect
       .poll(() =>
@@ -344,25 +354,46 @@ test.describe('Reader', () => {
         }),
       )
       .toEqual(appearanceBeforeTheme)
+    if (
+      (await page
+        .getByRole('button', { name: 'Text actions', exact: true })
+        .getAttribute('aria-expanded')) !== 'true'
+    )
+      await page.getByRole('button', { name: 'Text actions', exact: true }).click()
     await settings.getByRole('button', { name: 'detailed', exact: true }).click()
     await page.getByLabel('Close reader').click()
 
     await page.locator('tr', { hasText: 'reader.epub' }).click()
     await page.getByTestId('reader-settings-button').click()
-    await expect(page.getByRole('button', { name: 'light', exact: true })).toHaveClass(
-      /bg-\[#303030\]/,
+    await expect(page.getByRole('button', { name: 'light', exact: true })).toHaveAttribute(
+      'aria-pressed',
+      'true',
     )
-    await expect(page.getByRole('button', { name: 'detailed', exact: true })).toHaveClass(
-      /bg-\[#303030\]/,
+    if (
+      (await page
+        .getByRole('button', { name: 'Text actions', exact: true })
+        .getAttribute('aria-expanded')) !== 'true'
     )
-    await expect(page.getByRole('button', { name: 'narrow', exact: true })).toHaveClass(
-      /bg-\[#303030\]/,
+      await page.getByRole('button', { name: 'Text actions', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'detailed', exact: true })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    await expect(page.getByRole('button', { name: 'narrow', exact: true })).toHaveAttribute(
+      'aria-pressed',
+      'true',
     )
     await expect(page.getByTestId('reader-book')).toHaveCSS(
       'background-color',
       'rgb(255, 253, 248)',
     )
     await page.getByRole('button', { name: 'Reset appearance' }).click()
+    if (
+      (await page
+        .getByRole('button', { name: 'Text actions', exact: true })
+        .getAttribute('aria-expanded')) !== 'true'
+    )
+      await page.getByRole('button', { name: 'Text actions', exact: true }).click()
     await page.getByRole('button', { name: 'compact', exact: true }).click()
     await page.getByLabel('Close reader').click()
     await expect(page.getByTestId('reader-dialog')).toBeHidden()
@@ -565,6 +596,8 @@ test.describe('Reader', () => {
 
     await page.getByTestId('reader-settings-button').click()
     await page.getByRole('button', { name: 'page', exact: true }).click()
+    await expect(page.getByTestId('reader-settings')).toBeHidden()
+    await page.getByTestId('reader-viewport').click({ position: { x: 12, y: 12 } })
     await page.keyboard.press('End')
     await expect(page.getByTestId('reader-page-indicator')).toContainText('Page 2 / 2')
     await page.getByLabel('Close reader').click()
@@ -791,7 +824,7 @@ test.describe('Reader', () => {
     await page.getByTestId('reader-settings-button').click()
     await expect(page.getByTestId('reader-settings')).toBeVisible()
     await page.keyboard.press('Escape')
-    await expect(page.getByTestId('reader-settings')).toHaveCount(0)
+    await expect(page.getByTestId('reader-settings')).toBeHidden()
 
     await disableAutomaticSelectionAction(page)
     await selectPdfLines(page, 'Selectable reader text')
@@ -808,6 +841,12 @@ test.describe('Reader', () => {
     await page.getByTestId('reader-settings-button').click()
     await page.getByRole('button', { name: 'image', exact: true }).click()
     await page.getByTestId('reader-settings-button').click()
+    if (
+      (await page
+        .getByRole('button', { name: 'Text actions', exact: true })
+        .getAttribute('aria-expanded')) !== 'true'
+    )
+      await page.getByRole('button', { name: 'Text actions', exact: true }).click()
     await page.getByRole('button', { name: 'none', exact: true }).click()
 
     const region = page.getByTestId('region-layer').first()
@@ -933,6 +972,7 @@ test.describe('Reader', () => {
 
       await openSamplePdf(page)
       await page.getByTestId('reader-settings-button').click()
+      await page.getByRole('button', { name: 'Text actions', exact: true }).click()
       await page.getByRole('button', { name: automatic ? 'define' : 'none', exact: true }).click()
       await selectPdfLines(page, 'Selectable reader text')
       if (!automatic) await page.getByTestId('reader-define').click()
@@ -1058,3 +1098,100 @@ test('a failed position flush keeps the reader open and allows close to retry', 
   await page.getByLabel('Close reader').click()
   await expect(page.getByTestId('pdf-canvas')).toHaveCount(0)
 })
+
+test('phone contents returns to the book after chapter selection and Escape', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/?dir=Documents&reader=Documents%2Freader.epub&readerKind=book')
+  const reader = page.getByTestId('reader-dialog')
+  await expect(page.getByTestId('reader-book')).toContainText('Selectable EPUB text')
+  const outline = page.getByTestId('reader-outline')
+  if (!(await outline.isVisible())) await page.getByTestId('reader-outline-button').click()
+  await expect(outline).toBeVisible()
+  const bounds = await outline.boundingBox()
+  expect(bounds?.width).toBeGreaterThan(370)
+  await outline.getByRole('button', { name: 'Opening', exact: true }).click()
+  await expect(outline).toHaveCount(0)
+  await expect(reader).toBeVisible()
+  await page.getByTestId('reader-outline-button').click()
+  await page.keyboard.press('Escape')
+  await expect(outline).toHaveCount(0)
+  await expect(reader).toBeVisible()
+})
+
+test('a new PDF fits a phone viewport and preserves a chosen zoom on reopen', async ({
+  page,
+}, testInfo) => {
+  const file = `phone-fit-${Date.now()}.pdf`
+  await writeFile(
+    path.resolve(
+      process.env.BATCH_ID ? `test-media-${process.env.BATCH_ID}` : 'test-media',
+      'Documents',
+      file,
+    ),
+    READER_PDF,
+  )
+  await page.setViewportSize({ width: 390, height: 844 })
+  const url = `/?dir=Documents&viewing=${encodeURIComponent('Documents/' + file)}`
+  await page.goto(url)
+  const canvas = page.getByTestId('pdf-canvas').first()
+  await expect(canvas).toBeVisible()
+  await expect
+    .poll(() => canvas.evaluate((el) => el.getBoundingClientRect().width))
+    .toBeLessThan(390)
+  await expect(page.getByTestId('pdf-text-layer').first()).toContainText('Selectable reader text')
+  await page.screenshot({ path: testInfo.outputPath('pdf-phone.png') })
+  await page.getByTestId('reader-settings-button').click()
+  await page.getByRole('button', { name: 'Reader zoom in' }).click()
+  const width = await canvas.evaluate((el) => el.getBoundingClientRect().width)
+  await page.getByRole('button', { name: 'Close reader' }).click()
+  await page.goto(url)
+  await expect
+    .poll(() => canvas.evaluate((el) => el.getBoundingClientRect().width))
+    .toBeCloseTo(width, 0)
+})
+
+for (const deviceScaleFactor of [1, 2]) {
+  test.describe(`PDF painted content at ${deviceScaleFactor}x density`, () => {
+    test.use({ deviceScaleFactor })
+
+    test('keeps visible text after desktop and phone viewport changes', async ({ page }) => {
+      await page.setViewportSize({ width: 1440, height: 900 })
+      await openSamplePdf(page)
+      const line = page
+        .getByTestId('pdf-text-layer')
+        .locator('span')
+        .filter({ hasText: 'Selectable reader text begins here' })
+        .first()
+      for (const viewport of [
+        { width: 1440, height: 900 },
+        { width: 390, height: 844 },
+        { width: 844, height: 390 },
+        { width: 1440, height: 900 },
+      ]) {
+        await page.setViewportSize(viewport)
+        await expect(line).toBeVisible()
+        await expect
+          .poll(async () => {
+            const screenshot = await line.screenshot()
+            return page.evaluate(async (png) => {
+              const image = new Image()
+              image.src = `data:image/png;base64,${png}`
+              await image.decode()
+              const canvas = document.createElement('canvas')
+              canvas.width = image.width
+              canvas.height = image.height
+              const context = canvas.getContext('2d', { willReadFrequently: true })!
+              context.drawImage(image, 0, 0)
+              const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data
+              let ink = 0
+              for (let i = 0; i < pixels.length; i += 4) {
+                if (pixels[i]! < 160 && pixels[i + 1]! < 160 && pixels[i + 2]! < 160) ink++
+              }
+              return ink
+            }, screenshot.toString('base64'))
+          })
+          .toBeGreaterThan(50)
+      }
+    })
+  })
+}

@@ -17,23 +17,20 @@ export type FloatingDismissLayer = {
 
 type Entry = FloatingDismissLayer & { id: number }
 
-const entries = new Map<number, Entry>()
-let seq = 1
-let attached = false
-
 function nodeInConnectedRoot(e: PointerEvent, root: HTMLElement | null | undefined): boolean {
   if (!root?.isConnected) return false
   for (const n of e.composedPath()) {
-    if (n instanceof Node && root.contains(n)) return true
+    if (typeof n === 'object' && n !== null && 'nodeType' in n && root.contains(n as Node))
+      return true
   }
   return false
 }
 
 function connectedMatchInComposedPath(e: PointerEvent, selector: string): boolean {
   for (const n of e.composedPath()) {
-    if (!(n instanceof Element)) continue
+    if (typeof n !== 'object' || n === null || !('nodeType' in n) || n.nodeType !== 1) continue
     try {
-      const hit = n.closest(selector)
+      const hit = (n as Element).closest(selector)
       if (hit?.isConnected) return true
     } catch {
       /* bad selector */
@@ -68,55 +65,74 @@ function sortTopFirst(a: Entry, b: Entry): number {
   return z !== 0 ? z : b.id - a.id
 }
 
-function onDocumentPointerDownCapture(e: PointerEvent) {
-  for (let i = 0; i < 64; i++) {
-    const list = [...entries.values()].sort(sortTopFirst)
-    const top = list[0]
-    if (!top || !entries.has(top.id)) return
-    if (top.isInside(e)) return
-    const id = top.id
-    try {
-      top.dismiss()
-    } catch {
-      /* ignore */
+const registries = new WeakMap<Document, ReturnType<typeof createRegistry>>()
+function createRegistry(document: Document) {
+  const entries = new Map<number, Entry>()
+  let seq = 1
+  let attached = false
+  function onDocumentPointerDownCapture(e: PointerEvent) {
+    for (let i = 0; i < 64; i++) {
+      const list = [...entries.values()].sort(sortTopFirst)
+      const top = list[0]
+      if (!top || !entries.has(top.id)) return
+      if (top.isInside(e)) return
+      const id = top.id
+      try {
+        top.dismiss()
+      } catch {
+        /* ignore */
+      }
+      // Drop immediately so the next iteration sees the next layer. Rendering may defer
+      // unmount/cleanup; without this the same entry stays "top" until the loop cap.
+      entries.delete(id)
+      syncDocumentListener()
     }
-    // Drop immediately so the next iteration sees the next layer. Rendering may defer
-    // unmount/cleanup; without this the same entry stays "top" until the loop cap.
-    entries.delete(id)
+  }
+
+  function onDocumentKeyDownCapture(event: KeyboardEvent) {
+    if (event.defaultPrevented || event.key !== 'Escape') return
+    const top = [...entries.values()].sort(sortTopFirst)[0]
+    if (!top) return
+    event.preventDefault()
+    event.stopPropagation()
+    ;(top.dismissOnEscape ?? top.dismiss)()
+    entries.delete(top.id)
     syncDocumentListener()
   }
-}
 
-function onDocumentKeyDownCapture(event: KeyboardEvent) {
-  if (event.defaultPrevented || event.key !== 'Escape') return
-  const top = [...entries.values()].sort(sortTopFirst)[0]
-  if (!top) return
-  event.preventDefault()
-  event.stopPropagation()
-  ;(top.dismissOnEscape ?? top.dismiss)()
-  entries.delete(top.id)
-  syncDocumentListener()
-}
-
-function syncDocumentListener() {
-  if (entries.size > 0 && !attached) {
-    document.addEventListener('pointerdown', onDocumentPointerDownCapture, true)
-    document.addEventListener('keydown', onDocumentKeyDownCapture, true)
-    attached = true
-  } else if (entries.size === 0 && attached) {
-    document.removeEventListener('pointerdown', onDocumentPointerDownCapture, true)
-    document.removeEventListener('keydown', onDocumentKeyDownCapture, true)
-    attached = false
+  function syncDocumentListener() {
+    if (entries.size > 0 && !attached) {
+      document.addEventListener('pointerdown', onDocumentPointerDownCapture, true)
+      document.addEventListener('keydown', onDocumentKeyDownCapture, true)
+      attached = true
+    } else if (entries.size === 0 && attached) {
+      document.removeEventListener('pointerdown', onDocumentPointerDownCapture, true)
+      document.removeEventListener('keydown', onDocumentKeyDownCapture, true)
+      attached = false
+    }
   }
-}
 
-export function registerFloatingDismissLayer(layer: FloatingDismissLayer): () => void {
-  const id = seq++
-  const row: Entry = { id, ...layer }
-  entries.set(id, row)
-  syncDocumentListener()
-  return () => {
-    entries.delete(id)
+  function register(layer: FloatingDismissLayer): () => void {
+    const id = seq++
+    const row: Entry = { id, ...layer }
+    entries.set(id, row)
     syncDocumentListener()
+    return () => {
+      entries.delete(id)
+      syncDocumentListener()
+    }
   }
+
+  return { register }
+}
+export function registerFloatingDismissLayer(
+  layer: FloatingDismissLayer,
+  document: Document = globalThis.document,
+): () => void {
+  let registry = registries.get(document)
+  if (!registry) {
+    registry = createRegistry(document)
+    registries.set(document, registry)
+  }
+  return registry.register(layer)
 }

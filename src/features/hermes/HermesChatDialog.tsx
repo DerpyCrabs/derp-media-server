@@ -1,3 +1,4 @@
+import { Button } from '@/lib/ui/button'
 import { randomId } from '@/lib/random-id'
 import { view, component } from 'effectweb'
 import { Effect } from 'effect'
@@ -63,14 +64,16 @@ export const HermesChatDialog = component(
             <h2 id={model.titleId} class='truncate text-sm font-semibold'>
               {model.title}
             </h2>
-            <button
+            <Button
+              size='icon'
+              variant='ghost'
               type='button'
               aria-label='Close Hermes chat'
               class='inline-flex h-9 w-9 items-center justify-center rounded-md hover:bg-muted'
               onClick={close}
             >
-              <X class='h-5 w-5' aria-hidden='true' />
-            </button>
+              <X class='size-5' aria-hidden='true' />
+            </Button>
           </header>
           <div class='min-h-0 flex-1'>
             <HermesChatPane

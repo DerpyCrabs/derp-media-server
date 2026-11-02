@@ -71,3 +71,34 @@ export const appDialogRequest = appDialogs.read
 export const settleAppDialog = appDialogs.settle
 export const showAppAlertEffect = appDialogs.alert
 export const showAppConfirmEffect = appDialogs.confirm
+
+export type AppDialogs = ReturnType<typeof createAppDialogs>
+const windowDialogs = new WeakMap<Window, { dialogs: AppDialogs; references: number }>()
+export function dialogsForWindow(target: Window): AppDialogs {
+  if (target === globalThis.window) return appDialogs
+  const entry = windowDialogs.get(target)
+  if (!entry) throw new Error('Window dialog lifetime is not mounted')
+  return entry.dialogs
+}
+export function acquireWindowDialogs(target: Window) {
+  let entry = windowDialogs.get(target)
+  if (!entry) {
+    entry = {
+      dialogs: target === globalThis.window ? appDialogs : createAppDialogs(),
+      references: 0,
+    }
+    windowDialogs.set(target, entry)
+  }
+  entry.references++
+  let disposed = false
+  return {
+    dialogs: entry.dialogs,
+    dispose() {
+      if (disposed) return
+      disposed = true
+      if (--entry.references !== 0) return
+      windowDialogs.delete(target)
+      if (entry.dialogs !== appDialogs) entry.dialogs.dispose()
+    },
+  }
+}

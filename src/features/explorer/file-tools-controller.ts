@@ -1,4 +1,3 @@
-import { archiveEntrySchema as entrySchema, archiveQuery } from './archive-contents'
 import { Effect, Schema } from 'effect'
 import { available, modelOwner } from 'effectweb'
 import { query, observeQuery } from '@effectweb/query'
@@ -12,7 +11,8 @@ import { fileJobs, type FileOperation } from './file-jobs'
 import { selectFiles } from './file-selection'
 import { browserPreferences } from './browser-preferences'
 import { configQuery, settingsQuery } from '@/lib/api/queries'
-import { runDesktopOperation } from '@/desktop/operations'
+import { runDesktopOperation as runWindowOperation } from '@/desktop/operations'
+import { dialogsForWindow } from '@/lib/ui/app-dialog'
 
 const favoritePlacesQuery = query({
   name: 'favorite-places',
@@ -72,19 +72,24 @@ const propertiesQuery = query({
     ),
 })
 type Panel =
-  | 'menu'
   | 'location'
   | 'properties'
-  | 'archive'
   | 'createArchive'
   | 'operations'
   | 'delete'
   | 'trash'
   | 'copy'
   | 'move'
-  | 'extractArchive'
   | null
-export function createFileTools(host: () => FileBrowserHost, files: () => readonly FileItem[]) {
+export function createFileTools(
+  host: () => FileBrowserHost,
+  files: () => readonly FileItem[],
+  window: Window = globalThis.window,
+) {
+  const document = window.document
+  const showAppAlertEffect = dialogsForWindow(window).alert
+  const runDesktopOperation = (operation: () => Promise<unknown>) =>
+    runWindowOperation(operation, window)
   const owner = modelOwner({
     desktop: !!window.derpDesktop,
     desktopMode: false,
@@ -95,21 +100,17 @@ export function createFileTools(host: () => FileBrowserHost, files: () => readon
     trashNotice: '',
     selected: [] as string[],
     anchor: null as string | null,
-    previewPath: null as string | null,
     selecting: false,
     hidden: browserPreferences.read().showHidden,
     hiddenFiles: undefined as readonly FileItem[] | undefined,
-    applyAll: false,
-    filter: '',
     folderFilter: '',
     filterOpen: false,
+    archivePath: null as string | null,
     panel: null as Panel,
     path: host().currentPath,
     name: 'Archive.zip',
     error: '',
     pending: false,
-    archive: undefined as readonly (typeof entrySchema.Type)[] | undefined,
-    members: [] as string[],
     properties: undefined as
       | {
           path: string
@@ -121,6 +122,7 @@ export function createFileTools(host: () => FileBrowserHost, files: () => readon
         }
       | undefined,
     jobs: fileJobs.read(),
+    sidebarFolders: [] as readonly string[],
     favoritePlaces: [] as readonly { name: string; path: string; kind: string }[],
     places: [] as readonly { name: string; path: string; kind?: string }[],
     applications: [] as { id: string; name: string }[],
@@ -144,6 +146,7 @@ export function createFileTools(host: () => FileBrowserHost, files: () => readon
     })
   })
   const settings = observeQuery(owner, queryCache, settingsQuery, (result) => {
+    owner.patch({ sidebarFolders: available(result)?.sidebarFolders ?? [] })
     favoritePlaces.select(available(result)?.favorites.length ? true : undefined)
   })
   settings.select(true)
@@ -161,19 +164,24 @@ export function createFileTools(host: () => FileBrowserHost, files: () => readon
     if (result._tag === 'Failure')
       owner.patch({ error: 'Could not load the system trash. Try refreshing.' })
   })
-  const archive = observeQuery(owner, queryCache, archiveQuery, (result) => {
-    owner.patch({ archive: available(result)?.entries, pending: result.waiting })
-    if (result._tag === 'Failure')
-      owner.patch({
-        error:
-          'Could not read this archive. It may be damaged, encrypted, or contain unsafe paths.',
-      })
-  })
   const properties = observeQuery(owner, queryCache, propertiesQuery, (result) => {
     owner.patch({ properties: available(result) })
     if (result._tag === 'Failure') owner.patch({ error: 'Could not load file properties.' })
   })
-  owner.own(fileJobs.source.subscribe((jobs) => owner.patch({ jobs })))
+  owner.own(
+    fileJobs.source.subscribe((jobs) => {
+      const previous = owner.read()
+      const finished =
+        previous.panel === 'operations' &&
+        (previous.jobs.pending || previous.jobs.jobs.some(fileJobs.active)) &&
+        !jobs.pending &&
+        !jobs.error &&
+        !jobs.jobs.some(
+          (job) => fileJobs.active(job) || job.errors.length || job.status === 'failed',
+        )
+      owner.patch({ jobs, ...(finished ? { panel: null } : {}) })
+    }),
+  )
   const selected = () =>
     owner.read().selected.filter((path) => files().some((f) => f.path === path && !f.isVirtual))
   const clear = () => owner.patch({ selected: [], anchor: null, selecting: false })
@@ -189,22 +197,9 @@ export function createFileTools(host: () => FileBrowserHost, files: () => readon
     if (panel === 'trash') trash.refresh()
     if (panel === 'operations') fileJobs.refresh()
     if (panel === 'properties' && selected()[0]) properties.select(selected()[0])
-    if (panel === 'archive' && selected()[0]) {
-      owner.patch({ members: [], archive: undefined })
-      archive.select(selected()[0])
-    }
   }
   const start = (operation: FileOperation, destination = owner.read().path) => {
-    fileJobs.start({
-      operation,
-      paths: selected(),
-      destination,
-      name: owner.read().name,
-      entries:
-        operation === 'extractArchive' && owner.read().members.length
-          ? owner.read().members
-          : undefined,
-    })
+    fileJobs.start({ operation, paths: selected(), destination, name: owner.read().name })
     open('operations')
   }
   const copy = (cut: boolean) => {
@@ -290,7 +285,6 @@ export function createFileTools(host: () => FileBrowserHost, files: () => readon
     dispose: owner.dispose,
     open,
     clear,
-    preview: (path: string | null) => owner.patch({ previewPath: path, panel: null }),
     start,
     refreshTrash: () => {
       owner.patch({ error: '' })
@@ -320,6 +314,17 @@ export function createFileTools(host: () => FileBrowserHost, files: () => readon
     copy,
     paste,
     navigate,
+    toggleSidebar: (path: string) => {
+      if (!owner.read().desktopMode) return
+      owner.run(
+        'sidebar-folder',
+        postSchemaEffect(Schema.Unknown, '/api/desktop/sidebar', { path }).pipe(
+          Effect.tap(() => Effect.sync(() => settings.refresh())),
+          Effect.catch((error) => showAppAlertEffect(error.message, 'Sidebar')),
+        ),
+        'parallel',
+      )
+    },
     refreshPlaces: () => {
       if (owner.read().favoritePlaces.length) favoritePlaces.refresh()
       if (owner.read().desktopMode) places.refresh()
@@ -431,20 +436,7 @@ export function createFileTools(host: () => FileBrowserHost, files: () => readon
         const file = ordered.find((file) => file.path === focusedPath)
         if (file && !file.isVirtual) owner.patch({ selected: [file.path], anchor: file.path })
       }
-      if (
-        key === ' ' &&
-        !control &&
-        !event.altKey &&
-        !event.shiftKey &&
-        !(event.target instanceof Element && event.target.closest('button, a'))
-      ) {
-        const path = focusedPath ?? selected()[0]
-        const file = ordered.find((file) => file.path === path)
-        if (file && !file.isDirectory && !file.isVirtual) {
-          event.preventDefault()
-          owner.patch({ previewPath: file.path })
-        }
-      } else if (control && key === 'f') {
+      if (control && key === 'f') {
         event.preventDefault()
         owner.patch({ filterOpen: true })
       } else if (event.altKey && key === 'arrowup') {
@@ -509,6 +501,10 @@ export function createFileTools(host: () => FileBrowserHost, files: () => readon
         event.preventDefault()
         paste()
       }
+    },
+    openTerminal() {
+      const desktop = window.derpDesktop
+      if (desktop?.terminal) runDesktopOperation(() => desktop.terminal!(host().currentPath))
     },
     showApplications() {
       if (window.derpDesktop?.applications && selected()[0])

@@ -1,3 +1,6 @@
+import { viewWindow } from '@/lib/browser/view-window'
+import { Input } from '@/lib/ui/input'
+import { Button } from '@/lib/ui/button'
 import { view, domBinding } from 'effectweb'
 import AlertCircle from '@effectweb/lucide/icons/alert-circle'
 import FilePlus from '@effectweb/lucide/icons/file-plus'
@@ -24,8 +27,14 @@ export type KbInlineCreateFooterProps = {
   noWindowDrag?: boolean
 }
 const inlineFooterBinding = (element: HTMLDivElement, current: () => KbInlineCreateFooterProps) => {
+  const document = element.ownerDocument
+  const window = viewWindow({ document })
   const handler = (event: PointerEvent) => {
-    if (current().inlineMode && event.target instanceof Node && !element.contains(event.target))
+    if (
+      current().inlineMode &&
+      event.target instanceof window.Node &&
+      !element.contains(event.target)
+    )
       current().resetInlineCreate()
   }
   document.addEventListener('pointerdown', handler, true)
@@ -37,7 +46,8 @@ const inlineInputBinding = (
 ) => {
   let registered = current()
   registered(element)
-  const frame = requestAnimationFrame(() => element.focus())
+  const window = viewWindow({ document: element.ownerDocument })
+  const frame = window.requestAnimationFrame(() => element.focus())
   return {
     update: () => {
       const next = current()
@@ -47,7 +57,7 @@ const inlineInputBinding = (
       registered(element)
     },
     dispose: () => {
-      cancelAnimationFrame(frame)
+      window.cancelAnimationFrame(frame)
       registered(undefined)
     },
   }
@@ -66,7 +76,7 @@ export const KbInlineCreateFooter = view<KbInlineCreateFooterProps>((props) => {
         <div class='flex min-w-0 flex-col gap-1'>
           {props.inlineMode === 'file' ? (
             <>
-              <input
+              <Input
                 type='text'
                 use={domBinding(props.onFileInputRef, inlineInputBinding)}
                 class={`border-input bg-background dark:bg-input/30 box-border m-0 h-7 min-h-7 max-h-7 w-full rounded-md border px-2 py-0 text-xs leading-none shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 ${
@@ -100,7 +110,8 @@ export const KbInlineCreateFooter = view<KbInlineCreateFooterProps>((props) => {
               ) : null}
             </>
           ) : (
-            <button
+            <Button
+              variant='outline'
               type='button'
               class='border-border bg-background text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground box-border flex h-7 min-h-7 max-h-7 w-full items-center justify-center gap-1.5 rounded-md border px-2 py-0 text-xs leading-none transition-colors'
               onMouseDown={(e) => e.preventDefault()}
@@ -110,15 +121,15 @@ export const KbInlineCreateFooter = view<KbInlineCreateFooterProps>((props) => {
                 props.setInlineMode('file')
               }}
             >
-              <FilePlus class='h-3.5 w-3.5' stroke-width={2} />
+              <FilePlus class='size-3.5' stroke-width={2} />
               New file
-            </button>
+            </Button>
           )}
         </div>
         <div class='flex min-w-0 flex-col gap-1'>
           {props.inlineMode === 'folder' ? (
             <>
-              <input
+              <Input
                 type='text'
                 use={domBinding(props.onFolderInputRef, inlineInputBinding)}
                 class={`border-input bg-background dark:bg-input/30 box-border m-0 h-7 min-h-7 max-h-7 w-full rounded-md border px-2 py-0 text-xs leading-none shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 ${
@@ -152,7 +163,8 @@ export const KbInlineCreateFooter = view<KbInlineCreateFooterProps>((props) => {
               ) : null}
             </>
           ) : (
-            <button
+            <Button
+              variant='outline'
               type='button'
               class='border-border bg-background text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground box-border flex h-7 min-h-7 max-h-7 w-full items-center justify-center gap-1.5 rounded-md border px-2 py-0 text-xs leading-none transition-colors'
               onMouseDown={(e) => e.preventDefault()}
@@ -162,9 +174,9 @@ export const KbInlineCreateFooter = view<KbInlineCreateFooterProps>((props) => {
                 props.setInlineMode('folder')
               }}
             >
-              <FolderPlus class='h-3.5 w-3.5' stroke-width={2} />
+              <FolderPlus class='size-3.5' stroke-width={2} />
               New folder
-            </button>
+            </Button>
           )}
         </div>
       </div>

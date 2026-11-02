@@ -1,3 +1,4 @@
+import { Button } from '@/lib/ui/button'
 import { view } from 'effectweb'
 import CircleCheck from '@effectweb/lucide/icons/circle-check'
 import CircleX from '@effectweb/lucide/icons/circle-x'
@@ -32,14 +33,16 @@ export const UploadToastStack = view<{
               <p class='text-sm font-medium text-destructive'>Upload failed</p>
               <p class='text-xs text-muted-foreground mt-0.5 wrap-break-word'>{state.message}</p>
             </div>
-            <button
+            <Button
+              size='icon'
+              variant='ghost'
               type='button'
               class='h-6 w-6 shrink-0 rounded-md hover:bg-accent'
               onClick={props.onDismissError}
               aria-label='Dismiss'
             >
               ×
-            </button>
+            </Button>
           </>
         )}
       </div>

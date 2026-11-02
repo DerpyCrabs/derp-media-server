@@ -254,3 +254,63 @@ test('fallback suspends hidden tabs and reconnects once on visibility restoratio
   expect(sources).toHaveLength(2)
   expect(sources[1]!.closed).toBe(true)
 })
+
+for (const failsOnRestore of [false, true]) {
+  test(`worker constructor failure falls back${failsOnRestore ? ' after page restoration' : ' on startup'}`, async () => {
+    let attempts = 0
+    const listeners = new Map<string, () => void>()
+    const window = {
+      addEventListener(type: string, listener: () => void) {
+        listeners.set(type, listener)
+      },
+      removeEventListener(type: string) {
+        listeners.delete(type)
+      },
+    }
+    const document = { ...window, hidden: false }
+    const sources: FakeSource[] = []
+    class FakeSource {
+      onmessage: ((event: { data: string }) => void) | null = null
+      onerror: (() => void) | null = null
+      closed = false
+      constructor() {
+        sources.push(this)
+      }
+      close() {
+        this.closed = true
+      }
+    }
+    class ThrowingWorker {
+      port = { start() {}, addEventListener() {}, postMessage() {}, close() {} }
+      constructor() {
+        attempts++
+        if (!failsOnRestore || attempts > 1) throw new Error('SharedWorker unavailable')
+      }
+    }
+    replaceGlobals({ window, document, SharedWorker: ThrowingWorker, EventSource: FakeSource })
+    const { subscribeSseAdmin } = await import(
+      `../../src/lib/api/sse-shared-worker-client.ts?throwing=${failsOnRestore}-${Date.now()}`
+    )
+    const received: unknown[] = []
+    const first = subscribeSseAdmin((event: unknown) => received.push(event))
+    if (failsOnRestore) {
+      listeners.get('pagehide')!()
+      listeners.get('pageshow')!()
+    }
+    const second = subscribeSseAdmin((event: unknown) => received.push(event))
+    expect(attempts).toBe(failsOnRestore ? 2 : 1)
+    expect(sources).toHaveLength(1)
+    sources[0]!.onmessage!({ data: JSON.stringify({ type: 'connected' }) })
+    expect(received).toHaveLength(2)
+    first()
+    first()
+    expect(sources[0]!.closed).toBe(false)
+    second()
+    expect(sources[0]!.closed).toBe(true)
+    const third = subscribeSseAdmin(() => {})
+    expect(attempts).toBe(failsOnRestore ? 2 : 1)
+    expect(sources).toHaveLength(2)
+    third()
+    expect(sources[1]!.closed).toBe(true)
+  })
+}

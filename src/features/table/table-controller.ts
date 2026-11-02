@@ -1,4 +1,4 @@
-import { modelOwner } from 'effectweb'
+import { modelOwner, type JSX } from 'effectweb'
 import type { Effect } from 'effect'
 import {
   replaceDelimitedCell,
@@ -9,6 +9,8 @@ import {
 import type { TableWorkerRequest, TableWorkerResponse } from './delimited-worker'
 export type TableDocumentProps = {
   path: string
+  toolbar?: JSX.Element
+  toolbarEnd?: JSX.Element
   content: string
   readOnly: boolean
   onChange: (content: string) => void
@@ -25,6 +27,7 @@ export function tableController(props: TableDocumentProps) {
     error: '',
     filter: '',
     options: false,
+    filterOpen: false,
     header: true,
     choice: 'auto' as DelimiterChoice,
     sort: null as TableSort,
@@ -102,7 +105,8 @@ export function tableController(props: TableDocumentProps) {
   }
   const actions = {
     finish,
-    options: () => owner.patch({ options: !owner.read().options }),
+    options: (options: boolean) => owner.patch({ options }),
+    showFilter: (filterOpen: boolean) => owner.patch({ filterOpen }),
     focus: (row: number, column: number) => owner.patch({ active: { row, column } }),
     select: (row: number, column: number) => {
       finish()

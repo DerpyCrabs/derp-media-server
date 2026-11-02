@@ -1,7 +1,7 @@
 import { modelOwner } from 'effectweb'
 import { isVirtualFolderPath } from '@/lib/files/constants'
 import { MediaType, type FileItem } from '@/lib/files/types'
-import { setBreadcrumbFolderMenu } from './breadcrumb-floating-store'
+import { breadcrumbFloatingForWindow } from './breadcrumb-floating-store'
 import type { BreadcrumbMenuTarget } from './BreadcrumbContextMenu'
 import type {
   ExplorerBreadcrumbMenu,
@@ -11,6 +11,8 @@ import type {
 } from './ExplorerCommonModalLayer'
 import type { FileBrowserController } from './file-browser-controller'
 export type FileBrowserChromeOptions = Readonly<{
+  toggleSidebar?: (path: string) => void
+  isSidebar?: (path: string) => boolean
   controller: FileBrowserController
   otherSurfaceLabel: string
   openBreadcrumbInNewTab?: (folder: FileItem | null) => void
@@ -28,7 +30,8 @@ function breadcrumbFolder(target: BreadcrumbMenuTarget): FileItem {
     isVirtual: isVirtualFolderPath(target.serverPath),
   }
 }
-export function createFileBrowserChrome() {
+export function createFileBrowserChrome(window: Window = globalThis.window) {
+  const { setBreadcrumbFolderMenu } = breadcrumbFloatingForWindow(window)
   const owner = modelOwner({ iconTarget: null as FileItem | null })
   return {
     source: owner.source,
@@ -102,7 +105,17 @@ export function createFileBrowserChrome() {
         state: controller.upload.toast,
         dismiss: controller.upload.hideToast,
       }
+      const folder = selectedBreadcrumbFolder()
       const breadcrumbs: ExplorerBreadcrumbMenu = {
+        sidebarLabel:
+          options.toggleSidebar && folder && !folder.isVirtual
+            ? options.isSidebar?.(folder.path)
+              ? 'Remove from sidebar'
+              : 'Add to sidebar'
+            : undefined,
+        toggleSidebar: () => {
+          if (folder) options.toggleSidebar?.(folder.path)
+        },
         target: breadcrumbTarget(),
         setTarget: setBreadcrumbFolderMenu,
         availableActions: breadcrumbActions(),

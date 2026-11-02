@@ -1,8 +1,15 @@
+import { Popover } from '@/lib/ui/popover'
+import Search from '@effectweb/lucide/icons/search'
+import SlidersHorizontal from '@effectweb/lucide/icons/sliders-horizontal'
+import X from '@effectweb/lucide/icons/x'
+import { Checkbox } from '@/lib/ui/checkbox'
+import { Input, Textarea } from '@/lib/ui/input'
+import { Button } from '@/lib/ui/button'
+import { Select } from '@/lib/ui/select'
 import { controllerView, domBinding, list, view } from 'effectweb'
 import { columnName, type DelimiterChoice } from './delimited-text'
 import { tableController } from './table-controller'
 import { tableViewport } from './table-viewport'
-const field = 'rounded border border-input bg-background px-2 py-1 text-sm'
 export default controllerView(
   { controller: tableController },
   view((model) => {
@@ -28,62 +35,103 @@ export default controllerView(
       ((data?.columns ?? 0) > firstColumn + columns.length ? 1 : 0)
     return (
       <div class='flex h-full min-h-0 flex-col'>
-        <div class='flex shrink-0 flex-wrap items-center gap-2 border-b border-border p-2'>
-          <input
-            type='search'
-            aria-label='Filter table rows'
-            placeholder='Filter rows…'
-            class={`${field} min-w-24 flex-1`}
-            value={model.filter}
-            onInput={(event) => actions.filter(event.currentTarget.value)}
-          />
-          <button
-            class={`${field} shrink-0 hover:bg-accent`}
-            aria-label='Table options'
-            aria-expanded={model.options}
-            onClick={actions.options}
+        <header class='flex h-10 shrink-0 items-center gap-1 border-b px-2'>
+          {model.props.toolbar ?? (
+            <span class='min-w-0 flex-1 truncate text-sm'>{model.props.path.split('/').pop()}</span>
+          )}
+          <Button
+            variant='ghost'
+            size='icon'
+            aria-label='Filter table'
+            onClick={() => actions.showFilter(!model.filterOpen)}
           >
-            {data?.delimiter === '\t'
-              ? 'Tab'
-              : data?.delimiter === ';'
-                ? 'Semicolon'
-                : data?.delimiter === '|'
-                  ? 'Pipe'
-                  : 'Comma'}
-            {model.header ? ' · Headers' : ''} ▾
-          </button>
-        </div>
-        {model.options ? (
-          <div
-            class='flex shrink-0 flex-wrap items-center gap-3 border-b border-border px-2 py-2'
-            role='group'
+            <Search size={16} />
+          </Button>
+          <Popover
             aria-label='Table options'
+            open={model.options}
+            onOpenChange={actions.options}
+            align='end'
+            class='w-64 space-y-3'
+            trigger={
+              <Button variant='ghost' size='icon' aria-label='Table options'>
+                <SlidersHorizontal size={16} />
+              </Button>
+            }
           >
-            <label class='flex items-center gap-1 text-xs'>
+            <label class='grid gap-1 text-sm'>
               Separator
-              <select
+              <Select
                 aria-label='Table separator'
-                class={field}
+                class='w-full'
                 value={model.choice}
-                onChange={(event) =>
-                  actions.delimiter(event.currentTarget.value as DelimiterChoice)
-                }
-              >
-                <option value='auto'>Auto</option>
-                <option value=','>Comma</option>
-                <option value=';'>Semicolon</option>
-                <option value={'\t'}>Tab</option>
-                <option value='|'>Pipe</option>
-              </select>
-            </label>
-            <label class='flex items-center gap-1 text-xs'>
-              <input
-                type='checkbox'
-                checked={model.header}
-                onChange={(event) => actions.header(event.currentTarget.checked)}
+                onValueChange={(value) => actions.delimiter(value as DelimiterChoice)}
+                options={[
+                  { value: 'auto', label: 'Auto' },
+                  { value: ',', label: 'Comma' },
+                  { value: ';', label: 'Semicolon' },
+                  { value: '\t', label: 'Tab' },
+                  { value: '|', label: 'Pipe' },
+                ]}
               />
+            </label>
+            <label class='flex items-center gap-2 text-sm'>
+              <Checkbox checked={model.header} onCheckedChange={actions.header} />
               First row as headers
             </label>
+            {!model.props.readOnly ? (
+              <div class='flex gap-2'>
+                <Button
+                  variant='outline'
+                  disabled={!model.undo.length}
+                  onClick={() => actions.history(false)}
+                >
+                  Undo
+                </Button>
+                <Button
+                  variant='outline'
+                  disabled={!model.redo.length}
+                  onClick={() => actions.history(true)}
+                >
+                  Redo
+                </Button>
+              </div>
+            ) : null}
+            <p class='text-xs text-muted-foreground'>
+              {model.order.length.toLocaleString()} rows · {data?.columns ?? 0} columns
+            </p>
+          </Popover>
+          {model.props.toolbarEnd}
+        </header>
+        {model.filterOpen ? (
+          <div class='flex shrink-0 items-center gap-2 border-b px-2 py-1'>
+            <Input
+              type='search'
+              autofocus
+              aria-label='Filter table rows'
+              placeholder='Filter rows…'
+              class='min-w-0 flex-1'
+              value={model.filter}
+              onInput={(event) => actions.filter(event.currentTarget.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.stopPropagation()
+                  actions.filter('')
+                  actions.showFilter(false)
+                }
+              }}
+            />
+            <Button
+              variant='ghost'
+              size='icon'
+              aria-label='Close table filter'
+              onClick={() => {
+                actions.filter('')
+                actions.showFilter(false)
+              }}
+            >
+              <X size={16} />
+            </Button>
           </div>
         ) : null}
         {model.error ? (
@@ -138,12 +186,13 @@ export default controllerView(
                   (column) => (
                     <th
                       scope='col'
-                      class='h-8 w-[180px] border-b border-r border-border p-0 text-left font-medium'
+                      class='h-8 w-[180px] border-b border-r border-border p-0 justify-start text-left font-medium'
                       aria-colindex={column + 2}
                       aria-sort={model.sort?.column === column ? model.sort.direction : 'none'}
                     >
-                      <button
-                        class='block h-[31px] w-full truncate px-2 text-left hover:bg-accent'
+                      <Button
+                        variant='ghost'
+                        class='block h-[31px] w-full truncate px-2 justify-start text-left hover:bg-accent'
                         title={`Sort by ${model.header ? data?.rows[0]?.cells[column]?.value || columnName(column) : columnName(column)}`}
                         onClick={() => actions.sort(column)}
                       >
@@ -155,7 +204,7 @@ export default controllerView(
                             ? ' ↑'
                             : ' ↓'
                           : ''}
-                      </button>
+                      </Button>
                     </th>
                   ),
                 )}
@@ -197,8 +246,9 @@ export default controllerView(
                           class='h-8 w-[180px] border-b border-r border-border p-0'
                           aria-colindex={column + 2}
                         >
-                          <button
-                            class='block h-[31px] w-full truncate px-2 text-left hover:bg-accent aria-pressed:bg-accent'
+                          <Button
+                            variant='ghost'
+                            class='block h-[31px] w-full truncate px-2 justify-start text-left hover:bg-accent aria-pressed:bg-accent'
                             aria-label={`Cell ${columnName(column)}${row + 1}`}
                             data-table-row={row}
                             data-table-column={column}
@@ -218,7 +268,7 @@ export default controllerView(
                             onClick={() => actions.select(row, column)}
                           >
                             {data?.rows[row]?.cells[column]?.value ?? ''}
-                          </button>
+                          </Button>
                         </td>
                       ),
                     )}
@@ -252,27 +302,25 @@ export default controllerView(
               <label for='table-cell-value'>
                 Cell {columnName(selected.column)}
                 {selected.row + 1}
-                {model.props.readOnly
-                  ? ' · Read only'
-                  : ' · Changes are backed up with this document'}
+                {model.props.readOnly ? ' · Read only' : ''}
               </label>
               <div class='flex gap-2'>
                 {!model.props.readOnly ? (
-                  <button class='hover:underline' onClick={actions.cancel}>
-                    Cancel cell edit
-                  </button>
+                  <Button variant='outline' aria-label='Cancel cell edit' onClick={actions.cancel}>
+                    Cancel
+                  </Button>
                 ) : null}
-                <button class='hover:underline' onClick={actions.finish}>
+                <Button variant='outline' onClick={actions.finish}>
                   Done
-                </button>
+                </Button>
               </div>
             </div>
-            <textarea
+            <Textarea
               id='table-cell-value'
               aria-label='Cell value'
-              rows={3}
+              rows={Math.min(4, Math.max(1, selected.value.split('\n').length))}
               readOnly={model.props.readOnly}
-              class={`${field} block max-h-48 w-full resize-y font-mono`}
+              class='block min-h-8 max-h-48 w-full resize-y font-mono'
               value={selected.value}
               onInput={(event) => actions.edit(event.currentTarget.value)}
               onKeyDown={(event) => {
@@ -293,41 +341,6 @@ export default controllerView(
             />
           </div>
         ) : null}
-        <div
-          role='status'
-          class='flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-border px-2 py-1 text-xs text-muted-foreground'
-        >
-          <span>
-            {model.loading
-              ? 'Preparing table…'
-              : `${model.order.length.toLocaleString()} rows · ${data?.columns ?? 0} columns`}
-            {model.sort ? ' · View sorted' : ''}
-          </span>
-          <span>
-            Click a cell to {model.props.readOnly ? 'inspect or copy' : 'inspect or edit'}
-            {!model.props.readOnly ? (
-              <>
-                {' '}
-                ·{' '}
-                <button
-                  disabled={!model.undo.length}
-                  class='hover:underline disabled:opacity-40'
-                  onClick={() => actions.history(false)}
-                >
-                  Undo
-                </button>{' '}
-                ·{' '}
-                <button
-                  disabled={!model.redo.length}
-                  class='hover:underline disabled:opacity-40'
-                  onClick={() => actions.history(true)}
-                >
-                  Redo
-                </button>
-              </>
-            ) : null}
-          </span>
-        </div>
       </div>
     )
   }),

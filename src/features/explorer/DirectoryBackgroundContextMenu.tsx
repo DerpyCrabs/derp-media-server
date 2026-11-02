@@ -1,3 +1,4 @@
+import { MenuItem } from '@/lib/ui/menu-item'
 import { view } from 'effectweb'
 import FilePlus from '@effectweb/lucide/icons/file-plus'
 import FolderPlus from '@effectweb/lucide/icons/folder-plus'
@@ -20,7 +21,8 @@ export const DirectoryBackgroundContextMenu = view<Props>((props) => {
     >
       {() => (
         <>
-          <button
+          <MenuItem
+            variant='ghost'
             type='button'
             data-slot='context-menu-item'
             data-testid='directory-bg-menu-new-file'
@@ -31,10 +33,11 @@ export const DirectoryBackgroundContextMenu = view<Props>((props) => {
               props.onDismiss()
             }}
           >
-            <FilePlus class='h-4 w-4 shrink-0' stroke-width={2} />
+            <FilePlus class='size-4 shrink-0' stroke-width={2} />
             New file
-          </button>
-          <button
+          </MenuItem>
+          <MenuItem
+            variant='ghost'
             type='button'
             data-slot='context-menu-item'
             data-testid='directory-bg-menu-new-folder'
@@ -45,9 +48,9 @@ export const DirectoryBackgroundContextMenu = view<Props>((props) => {
               props.onDismiss()
             }}
           >
-            <FolderPlus class='h-4 w-4 shrink-0' stroke-width={2} />
+            <FolderPlus class='size-4 shrink-0' stroke-width={2} />
             New folder
-          </button>
+          </MenuItem>
         </>
       )}
     </FloatingContextMenu>

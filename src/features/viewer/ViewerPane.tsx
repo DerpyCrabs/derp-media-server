@@ -1,5 +1,7 @@
+import { BrowserDownload } from '@/lib/ui/browser-download'
+import { Button } from '@/lib/ui/button'
 import { isArchivePath } from '@/features/explorer/archive-contents'
-import { ArchiveViewerPane } from './ArchiveViewerPane'
+import { ArchiveBrowser } from '@/features/explorer/ArchiveBrowser'
 import { modalScroll } from './modal-scroll'
 import { available, domBinding, modelOwner, view, controllerView } from 'effectweb'
 import { queryCache } from '@/lib/api/cache'
@@ -180,7 +182,7 @@ export const ViewerPane = controllerView(
           />
         ) : null}
         {path && !kind && !model.asText && isArchivePath(path) ? (
-          <ArchiveViewerPane
+          <ArchiveBrowser
             path={path}
             embedded={embedded}
             editableFolders={props.editableFolders}
@@ -209,7 +211,9 @@ export const ViewerPane = controllerView(
               }
             >
               {!embedded ? (
-                <button
+                <Button
+                  size='icon'
+                  variant='ghost'
                   type='button'
                   title='Close'
                   aria-label='Close'
@@ -217,7 +221,7 @@ export const ViewerPane = controllerView(
                   onClick={() => props.onClose?.()}
                 >
                   ×
-                </button>
+                </Button>
               ) : null}
               <FileQuestion class='h-8 w-8 shrink-0 text-yellow-500' />
               <h2 id='unsupported-file-title' class='truncate text-lg font-semibold'>
@@ -233,20 +237,23 @@ export const ViewerPane = controllerView(
                 <FileText class='text-muted-foreground h-16 w-16 opacity-50' />
                 <h3 class='text-lg font-medium'>Unsupported File Type</h3>
                 <p class='text-muted-foreground text-sm'>This file type cannot be previewed.</p>
-                <button
+                <Button
+                  variant='outline'
                   type='button'
                   class='rounded-md border border-input px-3 py-2 text-sm hover:bg-muted'
                   onClick={model.openAsText}
                 >
                   Open as text
-                </button>
-                <a
-                  href={fileDownloadHref(path)}
-                  download={unsupported?.name ?? path.split(/[/\\]/).pop()}
-                  class='bg-primary text-primary-foreground hover:bg-primary/90 inline-flex h-9 items-center justify-center rounded-md px-4 text-sm font-medium shadow-sm'
-                >
-                  Download File
-                </a>
+                </Button>
+                <BrowserDownload>
+                  <a
+                    href={fileDownloadHref(path)}
+                    download={unsupported?.name ?? path.split(/[/\\]/).pop()}
+                    class='bg-primary text-primary-foreground hover:bg-primary/90 inline-flex h-9 items-center justify-center rounded-md px-4 text-sm font-medium shadow-sm'
+                  >
+                    Download File
+                  </a>
+                </BrowserDownload>
               </div>
             </div>
           </div>

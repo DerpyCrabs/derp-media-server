@@ -1,3 +1,4 @@
+import { viewWindow } from '@/lib/browser/view-window'
 import { Effect } from 'effect'
 import { modelOwner } from 'effectweb'
 const warmSlot = 'media-warmup'
@@ -42,9 +43,11 @@ export function createMediaWarmup() {
   return { select, dispose: owner.dispose }
 }
 export function observeMediaVisibility(element: HTMLElement, changed: (visible: boolean) => void) {
+  const document = element.ownerDocument
+  const window = viewWindow({ document })
   let visible = false
   const update = () => changed(visible && !document.hidden)
-  const observer = new IntersectionObserver((entries) => {
+  const observer = new window.IntersectionObserver((entries) => {
     visible = entries.some((entry) => entry.isIntersecting)
     update()
   })

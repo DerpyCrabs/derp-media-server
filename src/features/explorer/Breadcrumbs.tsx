@@ -1,10 +1,19 @@
-import { component, view, domBinding, observe, list, type DomLifetime } from 'effectweb'
+import { viewWindow } from '@/lib/browser/view-window'
+import HardDrive from '@effectweb/lucide/icons/hard-drive'
+import { MenuItem } from '@/lib/ui/menu-item'
+import { Button } from '@/lib/ui/button'
 import {
-  breadcrumbFloating,
-  clearCompactPathOpenOnly,
-  setBreadcrumbCompactPathOpen,
-  setBreadcrumbFolderMenu,
-} from '@/features/explorer/breadcrumb-floating-store'
+  component,
+  controllerView,
+  modelOwner,
+  view,
+  domBinding,
+  observe,
+  list,
+  type DomLifetime,
+  type ControllerHost,
+} from 'effectweb'
+import { breadcrumbFloatingForWindow } from '@/features/explorer/breadcrumb-floating-store'
 import { cn } from '@/lib/ui/cn'
 import { FloatingContextMenu } from './FloatingContextMenu'
 import ChevronDown from '@effectweb/lucide/icons/chevron-down'
@@ -15,6 +24,7 @@ type PathMenuEntry = { name: string; path: string; originIndex: number }
 type BreadcrumbsProps = {
   currentPath: string
   homeLabel?: string
+  filesystemRoot?: boolean
   onNavigate: (path: string) => void
   compact?: boolean
   mode?: 'MediaServer' | 'Workspace'
@@ -41,6 +51,8 @@ const breadcrumbLayout = (
   current: () => LayoutBinding,
   lifetime: DomLifetime,
 ) => {
+  const document = element.ownerDocument
+  const window = viewWindow({ document })
   const calculate = () => {
     const value = current()
     const bc = value.crumbs
@@ -110,7 +122,7 @@ const breadcrumbLayout = (
   }
   const measurement = lifetime.measure({ read: calculate, write: (commit) => commit?.() })
   const schedule = () => measurement.schedule()
-  const observer = new ResizeObserver(schedule)
+  const observer = new window.ResizeObserver(schedule)
   observer.observe(element.parentElement ?? element)
   document.fonts.addEventListener('loadingdone', schedule)
   schedule()
@@ -125,7 +137,10 @@ const breadcrumbLayout = (
 const BreadcrumbsContent = component(
   {
     init: (
-      _props: BreadcrumbsProps & { floating: { compactPathOpen: boolean; folderMenu: unknown } },
+      _props: BreadcrumbsProps & {
+        floating: { compactPathOpen: boolean; folderMenu: unknown }
+        floatingController: ReturnType<typeof breadcrumbFloatingForWindow>
+      },
     ) => ({
       visibleIndices: new Set() as Set<number>,
       pathEllipsisVisible: false,
@@ -138,6 +153,8 @@ const BreadcrumbsContent = component(
   },
   view((local, patch) => {
     const props = local.props
+    const { clearCompactPathOpenOnly, setBreadcrumbCompactPathOpen, setBreadcrumbFolderMenu } =
+      props.floatingController
     const visibleIndices = () => local.visibleIndices
     const pathEllipsisVisible = () => local.pathEllipsisVisible
     const ellipsisSkipsParent = () => local.ellipsisSkipsParent
@@ -224,13 +241,14 @@ const BreadcrumbsContent = component(
         menu.entries,
         (entry) => entry.path,
         (entry) => (
-          <button
+          <MenuItem
+            variant='ghost'
             type='button'
             role='menuitem'
             data-breadcrumb-segment={entry.originIndex === 0 ? 'home' : 'crumb'}
             data-breadcrumb-path={entry.path}
             class={cn(
-              'flex w-full min-w-0 items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground',
+              'flex w-full min-w-0 items-center gap-2 rounded-sm px-2 py-1.5 justify-start text-left text-sm hover:bg-accent hover:text-accent-foreground',
               entry.originIndex === crumbs().length - 1 && 'bg-accent/50 font-medium',
             )}
             onClick={() => {
@@ -248,9 +266,11 @@ const BreadcrumbsContent = component(
               })
             }}
           >
-            {entry.originIndex === 0 ? <House class='h-4 w-4 shrink-0' stroke-width={2} /> : null}
-            <span class='min-w-0 flex-1 whitespace-normal break-words text-left'>{entry.name}</span>
-          </button>
+            {entry.originIndex === 0 ? <RootIcon computer={props.filesystemRoot} /> : null}
+            <span class='min-w-0 flex-1 whitespace-normal break-words justify-start text-left'>
+              {entry.name}
+            </span>
+          </MenuItem>
         ),
       )
     const breadcrumbRows = (): BreadcrumbRow[] => {
@@ -317,7 +337,7 @@ const BreadcrumbsContent = component(
       <div class='contents' use={domBinding({ crumbs: crumbs(), commitLayout }, breadcrumbLayout)}>
         <div
           data-breadcrumb-measure
-          class='pointer-events-none absolute left-0 top-0 flex items-center gap-1 lg:gap-2'
+          class='pointer-events-none absolute left-0 top-0 flex h-0 w-0 items-center gap-1 overflow-hidden lg:gap-2'
           style={{ visibility: 'hidden' }}
           aria-hidden='true'
         >
@@ -329,18 +349,23 @@ const BreadcrumbsContent = component(
                 {index > 0 ? (
                   <ChevronRight class='h-4 w-4 shrink-0 text-muted-foreground' stroke-width={2} />
                 ) : null}
-                <button type='button' class={btnClass(index === crumbs().length - 1)} disabled>
-                  {index === 0 ? <House class='h-4 w-4 shrink-0' stroke-width={2} /> : null}
+                <Button
+                  variant='ghost'
+                  type='button'
+                  class={btnClass(index === crumbs().length - 1)}
+                  disabled
+                >
+                  {index === 0 ? <RootIcon computer={props.filesystemRoot} /> : null}
                   {crumb.name}
-                </button>
+                </Button>
               </div>
             ),
           )}
           <div class='flex shrink-0 items-center gap-2'>
             <ChevronRight class='h-4 w-4 shrink-0 text-muted-foreground' stroke-width={2} />
-            <button type='button' class={ellipsisBtnClass()} disabled>
-              <MoreHorizontal class='h-4 w-4 shrink-0' stroke-width={2} />
-            </button>
+            <Button size='icon' variant='ghost' type='button' class={ellipsisBtnClass()} disabled>
+              <MoreHorizontal class='size-4 shrink-0' stroke-width={2} />
+            </Button>
           </div>
         </div>
 
@@ -352,7 +377,8 @@ const BreadcrumbsContent = component(
             aria-label='Breadcrumb'
           >
             <div class='relative min-w-0 flex-1'>
-              <button
+              <Button
+                variant='ghost'
                 type='button'
                 data-breadcrumb-segment='path-picker'
                 data-breadcrumb-path={currentCrumb().path}
@@ -366,9 +392,11 @@ const BreadcrumbsContent = component(
                   else setBreadcrumbCompactPathOpen(true)
                 }}
               >
-                <span class='min-w-0 flex-1 truncate text-left'>{currentCrumb().name}</span>
-                <ChevronDown class='h-4 w-4 shrink-0 opacity-70' stroke-width={2} />
-              </button>
+                <span class='min-w-0 flex-1 truncate justify-start text-left'>
+                  {currentCrumb().name}
+                </span>
+                <ChevronDown class='size-4 shrink-0 opacity-70' stroke-width={2} />
+              </Button>
               <FloatingContextMenu
                 open={props.floating.compactPathOpen}
                 anchorRef={pathPickerButtonEl()}
@@ -401,7 +429,8 @@ const BreadcrumbsContent = component(
                   case 'home':
                     return (
                       <div class='flex shrink-0 items-center gap-2'>
-                        <button
+                        <Button
+                          variant='ghost'
                           type='button'
                           data-breadcrumb-segment='home'
                           data-breadcrumb-path=''
@@ -418,9 +447,9 @@ const BreadcrumbsContent = component(
                             })
                           }}
                         >
-                          <House class='h-4 w-4 shrink-0' stroke-width={2} />
+                          <RootIcon computer={props.filesystemRoot} />
                           {row.name}
-                        </button>
+                        </Button>
                       </div>
                     )
                   case 'crumb':
@@ -430,7 +459,8 @@ const BreadcrumbsContent = component(
                           class='h-4 w-4 shrink-0 text-muted-foreground'
                           stroke-width={2}
                         />
-                        <button
+                        <Button
+                          variant='ghost'
                           type='button'
                           data-breadcrumb-segment='crumb'
                           data-breadcrumb-path={row.path}
@@ -448,7 +478,7 @@ const BreadcrumbsContent = component(
                           }}
                         >
                           {row.name}
-                        </button>
+                        </Button>
                       </div>
                     )
                   case 'ellipsis-inline':
@@ -458,7 +488,9 @@ const BreadcrumbsContent = component(
                           class='h-4 w-4 shrink-0 text-muted-foreground'
                           stroke-width={2}
                         />
-                        <button
+                        <Button
+                          size='icon'
+                          variant='ghost'
                           type='button'
                           data-testid='breadcrumb-ellipsis'
                           class={ellipsisBtnClass()}
@@ -471,8 +503,8 @@ const BreadcrumbsContent = component(
                             else setInlinePathMenuOpen(true)
                           }}
                         >
-                          <MoreHorizontal class='h-4 w-4 shrink-0' stroke-width={2} />
-                        </button>
+                          <MoreHorizontal class='size-4 shrink-0' stroke-width={2} />
+                        </Button>
                       </div>
                     )
                   default:
@@ -500,8 +532,31 @@ const BreadcrumbsContent = component(
     )
   }),
 )
-export const Breadcrumbs = view<BreadcrumbsProps>((props) =>
-  observe(breadcrumbFloating.source, (floating) => (
-    <BreadcrumbsContent {...props} floating={floating} />
-  )),
+const RootIcon = view<{ computer?: boolean }>((props) =>
+  props.computer ? <HardDrive class='h-4 w-4 shrink-0' /> : <House class='h-4 w-4 shrink-0' />,
+)
+export const Breadcrumbs = controllerView(
+  {
+    controller: (props: BreadcrumbsProps, host: ControllerHost) => {
+      const owner = modelOwner({
+        props,
+        floatingController: breadcrumbFloatingForWindow(viewWindow(host)),
+      })
+      return {
+        source: owner.source,
+        receive: (props: BreadcrumbsProps) => owner.patch({ props }),
+        lifetime: owner,
+      }
+    },
+  },
+  view((model) =>
+    observe(model.floatingController.breadcrumbFloating.source, (floating) => (
+      <BreadcrumbsContent
+        {...model.props}
+        floating={floating}
+        floatingController={model.floatingController}
+        homeLabel={model.props.homeLabel ?? 'Home'}
+      />
+    )),
+  ),
 )

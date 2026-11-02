@@ -1,3 +1,4 @@
+import { Button } from '@/lib/ui/button'
 import { sequence, list, component, view } from 'effectweb'
 import { cn } from '@/lib/ui/cn'
 import Search from '@effectweb/lucide/icons/search'
@@ -85,11 +86,12 @@ export const KbSearchResults = component(
                 return d && d !== '.' && d !== '..'
               }
               return (
-                <button
+                <Button
+                  variant='ghost'
                   data-kb-search-result=''
                   type='button'
                   class={cn([
-                    'w-full px-3 py-3 text-left transition-colors hover:bg-muted/50 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-inset',
+                    'block h-auto w-full whitespace-normal rounded-none px-3 py-3 justify-start text-left transition-colors hover:bg-muted/50 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-inset',
                     { 'bg-muted/50': index === selectedIndex() },
                   ])}
                   tabindex={index === selectedIndex() ? 0 : -1}
@@ -112,7 +114,7 @@ export const KbSearchResults = component(
                       )}
                     </div>
                   ) : null}
-                </button>
+                </Button>
               )
             },
           )}

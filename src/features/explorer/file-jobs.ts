@@ -59,6 +59,7 @@ const owner = modelOwner({
   jobs: [] as readonly FileJob[],
   error: '',
   pending: false,
+  resolving: null as string | null,
   clipboard: null as { paths: string[]; cut: boolean } | null,
 })
 const active = (job: FileJob) => ['queued', 'running', 'conflict'].includes(job.status)
@@ -78,7 +79,9 @@ const resource = observeQuery(owner, queryCache, definition, (result) => {
   const previous = owner.read().jobs
   const changedFiles = jobs.some((job) => {
     const before = previous.find((item) => item.id === job.id)
-    return before && (before.completed !== job.completed || (active(before) && !active(job)))
+    return before
+      ? before.completed !== job.completed || (active(before) && !active(job))
+      : !active(job)
   })
   owner.patch({ jobs, error: '' })
   if (changedFiles) {
@@ -98,18 +101,25 @@ function refresh() {
     subscribed = true
   } else resource.refresh()
 }
-function command(effect: Effect.Effect<unknown, Error>) {
+function command(
+  effect: Effect.Effect<unknown, Error>,
+  callbacks?: { success: () => void; failure: (error: Error) => void },
+) {
   owner.run(
     'command',
     effect.pipe(
       Effect.tap(() =>
         Effect.sync(() => {
-          owner.patch({ error: '', pending: false })
+          owner.patch({ error: '', pending: false, resolving: null })
+          callbacks?.success()
           refresh()
         }),
       ),
       Effect.catch((error) =>
-        Effect.sync(() => owner.patch({ error: error.message, pending: false })),
+        Effect.sync(() => {
+          owner.patch({ error: error.message, pending: false, resolving: null })
+          callbacks?.failure(error)
+        }),
       ),
     ),
     'queue',
@@ -122,26 +132,36 @@ export const fileJobs = {
   active,
   copy: (paths: string[], cut = false) => owner.patch({ clipboard: { paths, cut } }),
   clearClipboard: () => owner.patch({ clipboard: null }),
-  start(request: {
-    operation: FileOperation
-    paths: string[]
-    destination?: string
-    name?: string
-    entries?: string[]
-  }) {
+  start(
+    request: {
+      operation: FileOperation
+      paths: string[]
+      destination?: string
+      name?: string
+      entries?: string[]
+    },
+    callbacks?: { success: () => void; failure: (error: Error) => void },
+  ) {
     owner.patch({ pending: true, error: '' })
-    command(postSchemaEffect(Schema.Struct({ id: Schema.String }), '/api/file-jobs', request))
+    command(
+      postSchemaEffect(Schema.Struct({ id: Schema.String }), '/api/file-jobs', request),
+      callbacks,
+    )
   },
-  cancel: (id: string) =>
+  cancel: (id: string) => {
+    owner.patch({ resolving: id, error: '' })
     command(
       id.startsWith('native-') && window.derpDesktop?.cancelNativeJob
         ? nativeEffect(() => window.derpDesktop!.cancelNativeJob!(id))
         : postEffect(`/api/file-jobs/${id}/cancel`, {}),
-    ),
-  decide: (id: string, choice: 'skip' | 'replace' | 'keepBoth', all: boolean) =>
+    )
+  },
+  decide: (id: string, choice: 'skip' | 'replace' | 'keepBoth', all: boolean) => {
+    owner.patch({ resolving: id, error: '' })
     command(
       id.startsWith('native-') && window.derpDesktop?.decideNativeJob
         ? nativeEffect(() => window.derpDesktop!.decideNativeJob!(id, choice, all))
         : postEffect(`/api/file-jobs/${id}/conflict`, { choice, all }),
-    ),
+    )
+  },
 }

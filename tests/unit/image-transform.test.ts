@@ -1,6 +1,8 @@
 import { expect, test } from 'bun:test'
 import {
   cropImage,
+  fitCrop,
+  resizeCrop,
   flipImage,
   originalTransform,
   parseImageTransform,
@@ -59,4 +61,39 @@ test('restored image transforms reject invalid sizes, singular matrices and nonf
     JSON.stringify({ ...edit, matrix: [1, 0, 0, 1, null, 0] }),
   ])
     expect(parseImageTransform(content)).toBeNull()
+})
+
+test('crop presets fit inside portrait and landscape images', () => {
+  expect(fitCrop({ width: 800, height: 600 }, 1)).toEqual({ x: 100, y: 0, width: 600, height: 600 })
+  expect(fitCrop({ width: 600, height: 800 }, 16 / 9)).toEqual({
+    x: 0,
+    y: 231,
+    width: 600,
+    height: 338,
+  })
+})
+test('crop handles preserve the opposite corner and clamp movement to the image', () => {
+  const image = { width: 800, height: 600 },
+    rect = { x: 100, y: 100, width: 300, height: 200 }
+  expect(resizeCrop(rect, 'nw', -900, -900, image, null)).toEqual({
+    x: 0,
+    y: 0,
+    width: 400,
+    height: 300,
+  })
+  expect(resizeCrop(rect, 'move', 900, -900, image, null)).toEqual({
+    x: 500,
+    y: 0,
+    width: 300,
+    height: 200,
+  })
+})
+test('fixed crop proportions survive every edge and corner at image boundaries', () => {
+  const image = { width: 800, height: 600 }
+  for (const ratio of [1, 4 / 3, 9 / 16])
+    for (const handle of ['nw', 'ne', 'sw', 'se', 'n', 's', 'w', 'e']) {
+      const rect = resizeCrop(fitCrop(image, ratio), handle, 900, -900, image, ratio)
+      expect(cropImage(originalTransform(image.width, image.height), rect)).not.toBeNull()
+      expect(Math.abs(rect.width - rect.height * ratio)).toBeLessThanOrEqual(1)
+    }
 })

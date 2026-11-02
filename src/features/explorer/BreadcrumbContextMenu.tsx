@@ -1,3 +1,4 @@
+import { MenuItem } from '@/lib/ui/menu-item'
 import { view } from 'effectweb'
 import type { BreadcrumbFolderMenuTarget } from '@/features/explorer/breadcrumb-floating-store'
 import { FloatingContextMenu } from './FloatingContextMenu'
@@ -6,6 +7,8 @@ import ExternalLink from '@effectweb/lucide/icons/external-link'
 import Pencil from '@effectweb/lucide/icons/pencil'
 export type BreadcrumbMenuTarget = BreadcrumbFolderMenuTarget
 type Props = {
+  sidebarLabel?: string
+  onToggleSidebar?: () => void
   target: BreadcrumbMenuTarget | null
   onDismiss: () => void
   showOpenInNewTab?: boolean
@@ -29,8 +32,19 @@ export const BreadcrumbContextMenu = view<Props>((props) => {
     >
       {(ctx) => (
         <>
+          {props.sidebarLabel ? (
+            <MenuItem
+              onClick={() => {
+                props.onToggleSidebar?.()
+                props.onDismiss()
+              }}
+            >
+              {props.sidebarLabel}
+            </MenuItem>
+          ) : null}
           {props.showSetIcon && !ctx.isHome ? (
-            <button
+            <MenuItem
+              variant='ghost'
               type='button'
               data-slot='context-menu-item'
               data-testid='breadcrumb-menu-set-icon'
@@ -41,12 +55,13 @@ export const BreadcrumbContextMenu = view<Props>((props) => {
                 props.onDismiss()
               }}
             >
-              <Pencil class='h-4 w-4 shrink-0' stroke-width={2} />
+              <Pencil class='size-4 shrink-0' stroke-width={2} />
               Set icon
-            </button>
+            </MenuItem>
           ) : null}
           {props.showOpenInNewTab && !ctx.isHome ? (
-            <button
+            <MenuItem
+              variant='ghost'
               type='button'
               data-slot='context-menu-item'
               data-testid='breadcrumb-menu-open-new-tab'
@@ -57,12 +72,13 @@ export const BreadcrumbContextMenu = view<Props>((props) => {
                 props.onDismiss()
               }}
             >
-              <ExternalLink class='h-4 w-4 shrink-0' stroke-width={2} />
+              <ExternalLink class='size-4 shrink-0' stroke-width={2} />
               Open in new tab
-            </button>
+            </MenuItem>
           ) : null}
           {props.showOpenInOtherSurface ? (
-            <button
+            <MenuItem
+              variant='ghost'
               type='button'
               data-slot='context-menu-item'
               data-testid='breadcrumb-menu-open-workspace'
@@ -73,12 +89,13 @@ export const BreadcrumbContextMenu = view<Props>((props) => {
                 props.onDismiss()
               }}
             >
-              <AppWindow class='h-4 w-4 shrink-0' stroke-width={2} />
+              <AppWindow class='size-4 shrink-0' stroke-width={2} />
               {props.openInOtherSurfaceLabel ?? 'Open in other view'}
-            </button>
+            </MenuItem>
           ) : null}
           {props.showDownloadAsZip ? (
-            <button
+            <MenuItem
+              variant='ghost'
               type='button'
               data-slot='context-menu-item'
               data-testid='breadcrumb-menu-download-zip'
@@ -90,7 +107,7 @@ export const BreadcrumbContextMenu = view<Props>((props) => {
               }}
             >
               Download as ZIP
-            </button>
+            </MenuItem>
           ) : null}
         </>
       )}

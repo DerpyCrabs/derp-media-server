@@ -1,8 +1,10 @@
+import { BrowserDownload } from '@/lib/ui/browser-download'
+import { DropdownMenu } from '@/lib/ui/menu'
+import Ellipsis from '@effectweb/lucide/icons/ellipsis'
+import { Input, Textarea } from '@/lib/ui/input'
+import { Button } from '@/lib/ui/button'
 import { domBinding, list, observe, view } from 'effectweb'
 import type { ReaderNotesController } from './reader-notes-controller'
-const button = 'min-h-9 rounded-md px-2 text-xs hover:bg-white/10 disabled:opacity-40'
-const input =
-  'w-full rounded-md border border-[#444] bg-[#202020] px-2 py-2 text-sm text-[#eee] outline-none focus:border-[#888]'
 const focusForm = (element: HTMLFormElement) => {
   let disposed = false
   queueMicrotask(() => {
@@ -20,66 +22,59 @@ export const ReaderNotesPanel = view<{ controller: ReaderNotesController }>(({ c
         .includes(model.filter.toLocaleLowerCase()),
     )
     return (
-      <section aria-label='Reading notes' class='min-h-0 flex-1 overflow-auto p-3 text-[#eee]'>
+      <section aria-label='Reading notes' class='min-h-0 flex-1 overflow-auto p-3 text-foreground'>
         {model.error ? (
-          <div role='alert' class='mb-3 rounded border border-red-800 p-2 text-xs text-red-200'>
+          <div
+            role='alert'
+            class='mb-3 rounded border border-destructive/40 p-2 text-xs text-destructive'
+          >
             <p>{model.error}</p>
             {model.conflict && model.form?.fingerprint === model.fingerprint ? (
               <>
                 <p class='mt-2'>
                   Your text is kept below. Keep it as a new note to preserve both versions.
                 </p>
-                <button class={button} disabled={model.pending} onClick={controller.keepAsNew}>
+                <Button
+                  variant='ghost'
+                  size='sm'
+                  disabled={model.pending}
+                  onClick={controller.keepAsNew}
+                >
                   Keep as new note
-                </button>
+                </Button>
               </>
             ) : null}
-            <button class={button} disabled={model.pending} onClick={controller.reload}>
+            <Button variant='ghost' size='sm' disabled={model.pending} onClick={controller.reload}>
               Refresh notes
-            </button>
+            </Button>
           </div>
         ) : null}
         {model.drafts.length && !model.form ? (
-          <div class='mb-3 space-y-2 rounded border border-amber-700/60 p-2 text-xs'>
-            <p>Unfinished notes saved in this browser</p>
-            {list(
-              model.drafts,
-              (draft) => draft.id,
-              (draft) => (
-                <div class='border-t border-white/10 pt-2'>
-                  <p class='text-white/60'>
-                    {new Date(draft.updatedAt).toLocaleString()}
-                    {draft.version !== model.fingerprint ? ' · Earlier document version' : ''}
-                  </p>
-                  <div class='flex flex-wrap gap-1'>
-                    {draft.version === model.fingerprint ? (
-                      <button
-                        class={button}
-                        disabled={model.pending}
-                        onClick={() => controller.restore(draft)}
-                      >
-                        Restore note
-                      </button>
-                    ) : null}
-                    <button
-                      class={button}
-                      disabled={model.pending}
-                      onClick={() => controller.export(draft)}
-                    >
-                      Download draft
-                    </button>
-                    <button
-                      class={button}
-                      disabled={model.pending}
-                      onClick={() => controller.discardDraft(draft)}
-                    >
-                      Discard draft
-                    </button>
-                  </div>
-                </div>
-              ),
-            )}
-          </div>
+          <DropdownMenu
+            trigger={
+              <Button variant='outline' class='mb-3'>
+                Recover note
+              </Button>
+            }
+            items={model.drafts.flatMap((draft) => [
+              ...(draft.version === model.fingerprint
+                ? [
+                    {
+                      kind: 'item' as const,
+                      label: new Date(draft.updatedAt).toLocaleString(),
+                      disabled: model.pending,
+                      onSelect: () => controller.restore(draft),
+                    },
+                  ]
+                : []),
+              {
+                kind: 'item' as const,
+                label: `Discard ${new Date(draft.updatedAt).toLocaleString()}`,
+                disabled: model.pending,
+                onSelect: () => controller.discardDraft(draft),
+              },
+            ])}
+          />
         ) : null}
         {model.form ? (
           <form
@@ -104,8 +99,8 @@ export const ReaderNotesPanel = view<{ controller: ReaderNotesController }>(({ c
           >
             <label class='block space-y-1 text-xs'>
               <span>Title</span>
-              <input
-                class={input}
+              <Input
+                class='w-full'
                 autofocus
                 maxLength={200}
                 required
@@ -115,18 +110,17 @@ export const ReaderNotesPanel = view<{ controller: ReaderNotesController }>(({ c
               />
             </label>
             {model.form.quote ? (
-              <blockquote class='max-h-40 overflow-auto border-l-2 border-amber-500/60 pl-2 text-xs leading-relaxed text-white/75'>
+              <blockquote class='max-h-40 overflow-auto border-l-2 border-amber-500/60 pl-2 text-xs leading-relaxed text-muted-foreground'>
                 {model.form.quote}
               </blockquote>
             ) : null}
             <label class='block space-y-1 text-xs'>
               <span>Note</span>
-              <textarea
-                class={`${input} min-h-28 resize-y`}
+              <Textarea
+                class='min-h-28 resize-y'
                 maxLength={32768}
                 disabled={model.pending}
                 value={model.form.note}
-                placeholder='Optional thoughts or context'
                 onInput={(event) => controller.change({ note: event.currentTarget.value })}
               />
             </label>
@@ -134,64 +128,70 @@ export const ReaderNotesPanel = view<{ controller: ReaderNotesController }>(({ c
               <p role='alert' class='text-xs text-amber-300'>
                 {model.draftError}
               </p>
-            ) : model.draftSaved ? (
-              <p role='status' class='text-xs text-white/50'>
-                Draft backed up in this browser
-              </p>
             ) : null}
             <div class='flex justify-end gap-2'>
-              <button
+              <Button
+                variant='ghost'
                 type='button'
-                class={button}
+                size='sm'
                 disabled={model.pending}
                 onClick={controller.cancel}
               >
                 Cancel
-              </button>
-              <button
-                class={`${button} bg-white/15`}
+              </Button>
+              <Button
+                variant='default'
+                type='submit'
                 disabled={model.pending || !model.form.label.trim()}
               >
                 {model.pending ? 'Saving…' : 'Save note'}
-              </button>
+              </Button>
             </div>
           </form>
         ) : (
           <>
-            <div class='mb-3 flex flex-wrap items-center justify-between gap-1'>
-              <button
-                class={`${button} border border-white/20`}
+            <div class='mb-3 flex items-center justify-between gap-2'>
+              <Button
+                variant='outline'
                 disabled={model.loading || model.pending || !model.fingerprint}
                 onClick={() => controller.create()}
               >
                 Bookmark this location
-              </button>
-              <button
-                class={button}
-                disabled={model.pending || !model.items.length}
-                onClick={() => controller.export()}
-              >
-                Export notes
-              </button>
+              </Button>
+              {model.items.length ? (
+                <BrowserDownload>
+                  <DropdownMenu
+                    aria-label='Notes actions'
+                    trigger={
+                      <Button variant='ghost' size='icon' aria-label='Notes actions'>
+                        <Ellipsis />
+                      </Button>
+                    }
+                    items={[
+                      {
+                        kind: 'item',
+                        label: 'Export notes',
+                        disabled: model.pending,
+                        onSelect: () => controller.export(),
+                      },
+                    ]}
+                  />
+                </BrowserDownload>
+              ) : null}
             </div>
             {model.items.length > 3 ? (
-              <input
+              <Input
                 type='search'
                 aria-label='Filter reading notes'
-                class={`${input} mb-3`}
+                class='mb-3'
                 placeholder='Filter notes'
                 value={model.filter}
                 onInput={(event) => controller.filter(event.currentTarget.value)}
               />
             ) : null}
             {model.loading && !model.items.length ? (
-              <p role='status' class='py-3 text-xs text-white/60'>
+              <p role='status' class='py-3 text-xs text-muted-foreground'>
                 Loading notes…
-              </p>
-            ) : null}
-            {!model.loading && !model.items.length ? (
-              <p class='py-3 text-sm leading-relaxed text-white/60'>
-                Bookmark a page or chapter, or select text and choose Save quote.
               </p>
             ) : null}
             <ol class='space-y-3'>
@@ -199,21 +199,52 @@ export const ReaderNotesPanel = view<{ controller: ReaderNotesController }>(({ c
                 matches.slice(0, model.limit),
                 (entry) => entry.id,
                 (entry) => (
-                  <li class='rounded-lg border border-white/15 p-2'>
-                    <button
-                      class='w-full rounded text-left text-sm font-medium hover:underline disabled:text-white/50 disabled:no-underline'
-                      disabled={entry.fingerprint !== model.fingerprint}
-                      onClick={() => controller.navigate(entry)}
-                    >
-                      {entry.label}
-                    </button>
+                  <li class='rounded-lg border border-border p-2'>
+                    <div class='flex items-start gap-1'>
+                      <Button
+                        variant='ghost'
+                        class='h-auto min-w-0 flex-1 justify-start whitespace-normal text-left'
+                        disabled={entry.fingerprint !== model.fingerprint}
+                        onClick={() => controller.navigate(entry)}
+                      >
+                        {entry.label}
+                      </Button>
+                      <div class='shrink-0'>
+                        <DropdownMenu
+                          trigger={
+                            <Button
+                              variant='ghost'
+                              size='icon-sm'
+                              aria-label={`Actions for ${entry.label}`}
+                            >
+                              <Ellipsis size={16} />
+                            </Button>
+                          }
+                          items={[
+                            {
+                              kind: 'item',
+                              label: 'Edit',
+                              disabled: model.pending,
+                              onSelect: () => controller.edit(entry),
+                            },
+                            {
+                              kind: 'item',
+                              label: 'Delete',
+                              variant: 'destructive',
+                              disabled: model.pending,
+                              onSelect: () => controller.confirmDelete(entry.id),
+                            },
+                          ]}
+                        />
+                      </div>
+                    </div>
                     {entry.fingerprint !== model.fingerprint ? (
                       <p class='mt-1 text-xs text-amber-300'>
                         Earlier document version · location unavailable
                       </p>
                     ) : null}
                     {entry.quote ? (
-                      <blockquote class='mt-2 max-h-32 overflow-auto border-l-2 border-amber-500/60 pl-2 text-xs leading-relaxed text-white/70'>
+                      <blockquote class='mt-2 max-h-32 overflow-auto border-l-2 border-amber-500/60 pl-2 text-xs leading-relaxed text-muted-foreground'>
                         {entry.quote}
                       </blockquote>
                     ) : null}
@@ -222,40 +253,27 @@ export const ReaderNotesPanel = view<{ controller: ReaderNotesController }>(({ c
                         {entry.note}
                       </p>
                     ) : null}
-                    <div class='mt-1 flex justify-end gap-1'>
-                      <button
-                        class={button}
-                        disabled={model.pending}
-                        onClick={() => controller.edit(entry)}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        class={button}
-                        disabled={model.pending}
-                        onClick={() => controller.confirmDelete(entry.id)}
-                      >
-                        Delete
-                      </button>
-                    </div>
+
                     {model.deleteId === entry.id ? (
-                      <div role='alert' class='border-t border-white/15 pt-2 text-xs'>
+                      <div role='alert' class='border-t border-border pt-2 text-xs'>
                         <p>Delete this saved note?</p>
                         <div class='flex justify-end gap-1'>
-                          <button
-                            class={button}
+                          <Button
+                            variant='ghost'
+                            size='sm'
                             disabled={model.pending}
                             onClick={() => controller.confirmDelete('')}
                           >
                             Keep note
-                          </button>
-                          <button
-                            class={`${button} text-red-300`}
+                          </Button>
+                          <Button
+                            variant='ghost'
+                            class='text-destructive'
                             disabled={model.pending}
                             onClick={() => controller.remove(entry)}
                           >
                             Delete note
-                          </button>
+                          </Button>
                         </div>
                       </div>
                     ) : null}
@@ -264,16 +282,13 @@ export const ReaderNotesPanel = view<{ controller: ReaderNotesController }>(({ c
               )}
             </ol>
             {matches.length > model.limit ? (
-              <button class={`${button} mt-3 w-full`} onClick={controller.more}>
+              <Button variant='ghost' class='mt-3 w-full' onClick={controller.more}>
                 Show more notes
-              </button>
+              </Button>
             ) : null}
             {model.items.length && !matches.length ? (
-              <p class='py-3 text-xs text-white/60'>No matching notes</p>
+              <p class='py-3 text-xs text-muted-foreground'>No matching notes</p>
             ) : null}
-            <p class='mt-4 text-[11px] leading-relaxed text-white/45'>
-              Saved with this library. The original document is unchanged.
-            </p>
           </>
         )}
       </section>

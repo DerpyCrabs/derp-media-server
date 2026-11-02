@@ -102,7 +102,6 @@ test('restores a minimized window and searches all entries beyond the initial re
   await seed(page, request, windows)
   await page.keyboard.press('F1')
   await expect(palette(page).getByRole('option')).toHaveCount(80)
-  await expect(palette(page)).toContainText('Type to narrow the list')
   await palette(page).getByRole('combobox').fill('documents')
   await expect(palette(page).getByRole('option')).toHaveCount(1)
   await expect(palette(page)).toContainText('Minimized')
@@ -111,14 +110,13 @@ test('restores a minimized window and searches all entries beyond the initial re
   await expect(page.locator('[data-workspace-content-id="target"]')).toBeFocused()
 })
 
-test('settings entry, keyboard selection, file search and pinned-tab protection work on a narrow screen', async ({
+test('keyboard entry, selection, file search and pinned-tab protection work on a narrow screen', async ({
   page,
   request,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await seed(page, request, [window('pinned', 'Pinned documents', { tabPinned: true })])
-  await page.getByRole('button', { name: 'Open settings' }).click()
-  await page.getByRole('button', { name: /Workspace commands…/ }).click()
+  await page.keyboard.press('Control+Shift+p')
   await expect(palette(page).getByRole('combobox')).toBeFocused()
   await palette(page).getByRole('combobox').fill('close active')
   await expect(palette(page).getByRole('option')).toHaveAttribute('aria-disabled', 'true')
@@ -222,8 +220,8 @@ for (const canvas of [false, true]) {
     ).toBeVisible()
     await page.keyboard.press('Escape')
     await page.getByRole('button', { name: 'Open settings', exact: true }).click()
-    await expect(
-      page.getByRole('button', { name: 'Reopen closed tab', exact: true }),
-    ).toBeDisabled()
+    await expect(page.getByRole('button', { name: 'Reopen closed tab', exact: true })).toHaveCount(
+      0,
+    )
   })
 }

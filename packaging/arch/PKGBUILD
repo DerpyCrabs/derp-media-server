@@ -1,10 +1,10 @@
 pkgname=derp-media-client
 pkgver=0.1.0
-pkgrel=3
+pkgrel=6
 pkgdesc='Qt file browser, media viewer and file chooser portal for Derp Media Server'
 arch=('x86_64' 'aarch64')
 license=('MIT')
-depends=('qt6-webengine' 'qt6-webchannel' 'qt6-pdf' 'kwindowsystem')
+depends=('glib2' 'qt6-webengine' 'qt6-webchannel' 'kwindowsystem')
 makedepends=('cmake' 'ninja' 'gcc')
 source=("$pkgname-$pkgver.tar.gz")
 sha256sums=('SKIP')
@@ -18,10 +18,15 @@ build() {
 package() {
   cd "$srcdir/$pkgname-$pkgver"
   install -Dm755 build/derp-media-client "$pkgdir/usr/bin/derp-media-client"
-  install -Dm644 packaging/arch/derp-media-client.desktop "$pkgdir/usr/share/applications/derp-media-client.desktop"
+  for entry in packaging/arch/*.desktop; do
+    install -Dm644 "$entry" "$pkgdir/usr/share/applications/${entry##*/}"
+  done
   install -Dm644 packaging/arch/derp-media-client.service "$pkgdir/usr/lib/systemd/user/derp-media-client.service"
   install -Dm644 packaging/arch/derp.portal "$pkgdir/usr/share/xdg-desktop-portal/portals/derp.portal"
   install -Dm644 packaging/arch/org.freedesktop.impl.portal.desktop.derp.service "$pkgdir/usr/share/dbus-1/services/org.freedesktop.impl.portal.desktop.derp.service"
+  for icon in desktop/icons/*.svg; do
+    install -Dm644 "$icon" "$pkgdir/usr/share/icons/hicolor/scalable/apps/${icon##*/}"
+  done
   install -Dm644 desktop/icon.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/derp-media-client.svg"
   install -Dm644 packaging/arch/desktop.example.json "$pkgdir/usr/share/$pkgname/desktop.example.json"
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"

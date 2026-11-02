@@ -46,13 +46,12 @@ pub fn media_type(ext: &str) -> &'static str {
         "pdf" => "pdf",
         "docx" | "odt" => "document",
         "epub" | "fb2" | "fb2.zip" => "book",
-        "m3u" | "m3u8" | "pls" | "xspf" | "txt" | "md" | "json" | "xml" | "csv" | "tsv" | "log"
-        | "yaml" | "yml" | "ini" | "conf" | "sh" | "bat" | "ps1" | "js" | "ts" | "jsx" | "tsx"
-        | "css" | "scss" | "html" | "py" | "java" | "c" | "cpp" | "h" | "cs" | "go" | "rs"
-        | "php" | "rb" | "swift" | "kt" | "sql" | "toml" | "jsonc" | "jsonl" | "ndjson"
-        | "desktop" | "service" | "socket" | "timer" | "target" | "cfg" | "config" | "env"
-        | "fish" | "zsh" | "bash" | "nix" | "lua" | "srt" | "vtt" | "ass" | "diff" | "patch"
-        | "properties" => "text",
+        "txt" | "md" | "json" | "xml" | "csv" | "tsv" | "log" | "yaml" | "yml" | "ini" | "conf"
+        | "sh" | "bat" | "ps1" | "js" | "ts" | "jsx" | "tsx" | "css" | "scss" | "html" | "py"
+        | "java" | "c" | "cpp" | "h" | "cs" | "go" | "rs" | "php" | "rb" | "swift" | "kt"
+        | "sql" | "toml" | "jsonc" | "jsonl" | "ndjson" | "desktop" | "service" | "socket"
+        | "timer" | "target" | "cfg" | "config" | "env" | "fish" | "zsh" | "bash" | "nix"
+        | "lua" | "srt" | "vtt" | "ass" | "diff" | "patch" | "properties" => "text",
         _ => "other",
     }
 }
@@ -140,9 +139,6 @@ pub fn mime_type(ext: &str) -> &'static str {
         "md" => "text/markdown",
         "json" => "application/json",
         "xml" => "application/xml",
-        "m3u" | "m3u8" => "audio/x-mpegurl",
-        "pls" => "audio/x-scpls",
-        "xspf" => "application/xspf+xml",
         "csv" => "text/csv",
         "tsv" => "text/tab-separated-values",
         "yaml" | "yml" => "text/yaml",
@@ -187,7 +183,7 @@ fn inside(child: &Path, root: &Path) -> bool {
 pub fn resolve(config: &Config, input: &str) -> AppResult<ResolvedPath> {
     let logical = clean_logical(input)?;
     let roots = &config.roots;
-    let multiple = roots.len() > 1;
+    let multiple = config.named_roots();
     let (root, relative) = if multiple {
         let mut split = logical.split('/');
         let first = split.next().unwrap_or("");
@@ -315,7 +311,7 @@ pub fn list_with_hidden(
         vec![]
     };
     let roots = &config.roots;
-    if roots.len() > 1 && logical.is_empty() {
+    if config.named_roots() && logical.is_empty() {
         for r in roots {
             items.push(FileItem {
                 name: r.name.clone(),
@@ -361,7 +357,7 @@ pub fn list_with_hidden(
         } else {
             format!("{}/{}", resolved.relative, name)
         };
-        let path = if roots.len() > 1 {
+        let path = if config.named_roots() {
             format!("{}/{}", resolved.root.name, rel)
         } else {
             rel

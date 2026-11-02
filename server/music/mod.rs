@@ -1,7 +1,6 @@
 mod catalog;
 mod curation;
 mod enrichment;
-mod playlist_interchange;
 mod playlists;
 mod radio;
 #[cfg(test)]
@@ -62,25 +61,13 @@ pub fn router() -> Router<Shared> {
         .route("/api/music/tracks", get(catalog::search))
         .route(
             "/api/music/playlists",
-            get(playlists::list)
-                .post(playlists::create)
-                .layer(axum::extract::DefaultBodyLimit::max(13 * 1024 * 1024)),
+            get(playlists::list).post(playlists::create),
         )
         .route(
             "/api/music/playlists/{id}",
             get(playlists::get)
                 .put(playlists::update)
-                .delete(playlists::delete)
-                .layer(axum::extract::DefaultBodyLimit::max(13 * 1024 * 1024)),
-        )
-        .route(
-            "/api/music/playlists/resolve",
-            post(playlist_interchange::resolve)
-                .layer(axum::extract::DefaultBodyLimit::max(13 * 1024 * 1024)),
-        )
-        .route(
-            "/api/music/playlists/{id}/export",
-            get(playlist_interchange::local_export),
+                .delete(playlists::delete),
         )
         .route("/api/music/playlists/{id}/tracks", post(playlists::append))
         .route("/api/music/playlists/{id}/played", post(playlists::played))

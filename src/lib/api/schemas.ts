@@ -38,6 +38,7 @@ export const workspaceSettingsSchema = Schema.Struct({
   ),
   fileColumns: Schema.Struct({ media: columns, workspace: columns }),
   favorites: strings,
+  sidebarFolders: Schema.optional(strings),
   knowledgeBases: strings,
   customIcons: Schema.Record(Schema.String, Schema.String),
   autoSave: Schema.Record(
@@ -49,12 +50,18 @@ export const workspaceSettingsSchema = Schema.Struct({
 })
 export const serverConfigSchema = Schema.Struct({
   desktopMode: Schema.optional(Schema.Boolean),
+  filesystemRoot: Schema.optional(Schema.Boolean),
   trashAvailable: Schema.optional(Schema.Boolean),
   writeAccess: Schema.optional(Schema.Literals(['editableFolders', 'filesystem'])),
   editableFolders: strings,
   mediaRoots: Schema.mutable(
     Schema.Array(
-      Schema.Struct({ id: Schema.String, name: Schema.String, editableFolders: strings }),
+      Schema.Struct({
+        namespaced: Schema.optional(Schema.Boolean),
+        id: Schema.String,
+        name: Schema.String,
+        editableFolders: strings,
+      }),
     ),
   ),
 })

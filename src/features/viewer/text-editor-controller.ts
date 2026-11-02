@@ -1,3 +1,5 @@
+import { viewWindow } from '@/lib/browser/view-window'
+import type { ControllerHost } from 'effectweb'
 import { Effect, Exit, Schema } from 'effect'
 import * as AsyncResult from 'effect/reactivity/AsyncResult'
 import { available, modelOwner, resourceError } from 'effectweb'
@@ -16,7 +18,7 @@ import {
   type TextDraft,
 } from '@/lib/editor/text-drafts'
 import { registerDesktopCloseHandler } from '@/desktop/close-handlers'
-import { showAppAlertEffect, showAppConfirmEffect } from '@/lib/ui/app-dialog'
+import { dialogsForWindow } from '@/lib/ui/app-dialog'
 import type { WorkspaceSettings } from '@/workspace/model/workspace-settings-types'
 import { observeQuery, query } from '@effectweb/query'
 const textDocumentSchema = Schema.Struct({ content: Schema.String, version: Schema.String })
@@ -45,6 +47,7 @@ export const dirtyGuard = (
   element: HTMLDivElement,
   current: () => { dirty: boolean; onSaveAs: () => void; canSaveAs: boolean },
 ) => {
+  const window = viewWindow({ document: element.ownerDocument })
   const warn = (event: BeforeUnloadEvent) => {
     if (current().dirty) {
       event.preventDefault()
@@ -70,7 +73,14 @@ export const dirtyGuard = (
     window.removeEventListener('beforeunload', warn)
   }
 }
-export function textController(props: TextEditorPaneProps) {
+export function textController(
+  props: TextEditorPaneProps,
+  host: ControllerHost = { document: globalThis.document },
+) {
+  const window = viewWindow(host)
+  const showAppAlertEffect = dialogsForWindow(window).alert
+  const showAppConfirmEffect = dialogsForWindow(window).confirm
+
   const draftWriter = createTextDraftWriter(props.viewingPath)
   let restoredFrom: TextDraft | undefined
   let closing = false
@@ -81,6 +91,7 @@ export function textController(props: TextEditorPaneProps) {
     remote: undefined as TextDocumentRemote | undefined,
     loading: true,
     loadError: '',
+    browserDownloads: !window.derpDesktop,
     settings: undefined as WorkspaceSettings | undefined,
     readOnly: false,
     tableView: true,
@@ -117,10 +128,7 @@ export function textController(props: TextEditorPaneProps) {
         },
         () => {
           if (!owner.disposed)
-            owner.patch({
-              draftError:
-                'Could not back up this draft in the browser. Save or download it before closing.',
-            })
+            owner.patch({ draftError: 'Could not back up changes. Save before closing.' })
         },
       )
   }
@@ -495,7 +503,7 @@ export function textController(props: TextEditorPaneProps) {
   }
   window.addEventListener('pagehide', flushDraft)
   window.addEventListener('beforeunload', flushDraft)
-  const stopClose = registerDesktopCloseHandler(() => Effect.tryPromise(persistDraft))
+  const stopClose = registerDesktopCloseHandler(() => Effect.tryPromise(persistDraft), window)
   owner.own({
     dispose: () => {
       window.removeEventListener('pagehide', flushDraft)

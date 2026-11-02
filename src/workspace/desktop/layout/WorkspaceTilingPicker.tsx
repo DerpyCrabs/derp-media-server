@@ -1,3 +1,4 @@
+import { Button } from '@/lib/ui/button'
 import { layoutViewportClientSize } from '@/lib/ui/layout-viewport'
 import { assistShapeLabel, type AssistGridSpan } from '@/workspace/model/workspace-assist-grid'
 import type { AssistSlotPick } from '@/workspace/model/workspace-snap-pick'
@@ -5,7 +6,7 @@ import {
   narrowPickToAssistShape,
   pickAssistSlotFromPoint,
 } from '@/workspace/model/workspace-snap-pick'
-import { component, view, domBinding } from 'effectweb'
+import { component, view, domBinding, list } from 'effectweb'
 import X from '@effectweb/lucide/icons/x'
 import { WorkspaceSnapAssistMasterGrid } from './WorkspaceSnapAssistMasterGrid'
 import { snapAssistSurfaceWidth } from '@/workspace/model/snap-zones'
@@ -47,13 +48,14 @@ export const WorkspaceTilingPicker = component<
     const pointerPick = () => local.pointerPick
     const { viewport, box, container } = local.geometry
     const aspect = () => (viewport.h > 0 ? viewport.w / viewport.h : 16 / 9)
-    const surfaceWidth = () => snapAssistSurfaceWidth(viewport.w, viewport.h)
+    const narrow = () => viewport.w < MIN_TILE_WIDTH * 2
+    const surfaceWidth = () => (narrow() ? 188 : snapAssistSurfaceWidth(viewport.w, viewport.h))
     const layout = () => {
       const width = box?.w ?? surfaceWidth(),
         height = box?.h ?? (viewport.w >= viewport.h ? 112 : 360),
         anchor = props.anchorRect
       return {
-        left: Math.max(0, Math.min(anchor.left, viewport.w - width)),
+        left: Math.max(8, Math.min(anchor.left, viewport.w - width - 8)),
         top: Math.max(
           0,
           Math.min(
@@ -98,59 +100,104 @@ export const WorkspaceTilingPicker = component<
       >
         <div class='flex h-8 items-center justify-between border-b border-border/70 px-2'>
           <div class='text-xs font-semibold text-foreground'>Choose window layout</div>
-          <button
+          <Button
+            size='icon'
+            variant='ghost'
             type='button'
             class='inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary'
             aria-label='Close layout picker'
             onClick={() => props.onClose()}
           >
-            <X class='h-3.5 w-3.5' stroke-width={2} />
-          </button>
+            <X class='size-3.5' stroke-width={2} />
+          </Button>
         </div>
-        <div
-          class={`grid max-h-[calc(100vh-40px)] justify-items-center gap-1.5 overflow-y-auto p-1.5 ${aspect() >= 1 ? 'grid-cols-4' : 'grid-cols-2'}`}
-        >
-          <WorkspaceSnapAssistMasterGrid
-            shape='2x2'
-            getHoverPick={() => narrowPickToAssistShape(pointerPick(), '2x2')}
-            aspectRatio={aspect()}
-            layoutLabel={assistShapeLabel('2x2')}
-            pickMode
-            compact
-            onPickSpan={(span) => props.onSelectSpan(span)}
-            isSpanDisabled={spanUnavailable}
-          />
-          <WorkspaceSnapAssistMasterGrid
-            shape='3x2'
-            getHoverPick={() => narrowPickToAssistShape(pointerPick(), '3x2')}
-            aspectRatio={aspect()}
-            layoutLabel={assistShapeLabel('3x2')}
-            pickMode
-            compact
-            onPickSpan={(span) => props.onSelectSpan(span)}
-            isSpanDisabled={spanUnavailable}
-          />
-          <WorkspaceSnapAssistMasterGrid
-            shape='2x3'
-            getHoverPick={() => narrowPickToAssistShape(pointerPick(), '2x3')}
-            aspectRatio={aspect()}
-            layoutLabel={assistShapeLabel('2x3')}
-            pickMode
-            compact
-            onPickSpan={(span) => props.onSelectSpan(span)}
-            isSpanDisabled={spanUnavailable}
-          />
-          <WorkspaceSnapAssistMasterGrid
-            shape='3x3'
-            getHoverPick={() => narrowPickToAssistShape(pointerPick(), '3x3')}
-            aspectRatio={aspect()}
-            layoutLabel={assistShapeLabel('3x3')}
-            pickMode
-            compact
-            onPickSpan={(span) => props.onSelectSpan(span)}
-            isSpanDisabled={spanUnavailable}
-          />
-        </div>
+        {narrow() ? (
+          <div class='flex justify-center gap-3 p-3'>
+            {list([2, 3] as const, (rows) => (
+              <div
+                class='grid h-36 w-18 gap-1 rounded-md border border-border bg-background p-1'
+                role='group'
+                aria-label={`Layout ${rows} rows`}
+              >
+                {list(
+                  Array.from({ length: rows }, (_, row) => row),
+                  (row) => {
+                    const span: AssistGridSpan = {
+                      gridCols: 2,
+                      gridRows: rows,
+                      gc0: 0,
+                      gc1: 1,
+                      gr0: row,
+                      gr1: row,
+                    }
+                    return (
+                      <Button
+                        variant='outline'
+                        class='h-full min-h-0 w-full p-0'
+                        aria-label={
+                          rows === 2
+                            ? row === 0
+                              ? 'Top half'
+                              : 'Bottom half'
+                            : ['Top third', 'Middle third', 'Bottom third'][row]
+                        }
+                        disabled={spanUnavailable(span)}
+                        onPointerMove={() => props.onHoverSpanChange?.(span)}
+                        onFocus={() => props.onHoverSpanChange?.(span)}
+                        onClick={() => props.onSelectSpan(span)}
+                      />
+                    )
+                  },
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div
+            class={`grid max-h-[calc(100vh-40px)] justify-items-center gap-1.5 overflow-y-auto p-1.5 ${aspect() >= 1 ? 'grid-cols-4' : 'grid-cols-2'}`}
+          >
+            <WorkspaceSnapAssistMasterGrid
+              shape='2x2'
+              getHoverPick={() => narrowPickToAssistShape(pointerPick(), '2x2')}
+              aspectRatio={aspect()}
+              layoutLabel={assistShapeLabel('2x2')}
+              pickMode
+              compact
+              onPickSpan={(span) => props.onSelectSpan(span)}
+              isSpanDisabled={spanUnavailable}
+            />
+            <WorkspaceSnapAssistMasterGrid
+              shape='3x2'
+              getHoverPick={() => narrowPickToAssistShape(pointerPick(), '3x2')}
+              aspectRatio={aspect()}
+              layoutLabel={assistShapeLabel('3x2')}
+              pickMode
+              compact
+              onPickSpan={(span) => props.onSelectSpan(span)}
+              isSpanDisabled={spanUnavailable}
+            />
+            <WorkspaceSnapAssistMasterGrid
+              shape='2x3'
+              getHoverPick={() => narrowPickToAssistShape(pointerPick(), '2x3')}
+              aspectRatio={aspect()}
+              layoutLabel={assistShapeLabel('2x3')}
+              pickMode
+              compact
+              onPickSpan={(span) => props.onSelectSpan(span)}
+              isSpanDisabled={spanUnavailable}
+            />
+            <WorkspaceSnapAssistMasterGrid
+              shape='3x3'
+              getHoverPick={() => narrowPickToAssistShape(pointerPick(), '3x3')}
+              aspectRatio={aspect()}
+              layoutLabel={assistShapeLabel('3x3')}
+              pickMode
+              compact
+              onPickSpan={(span) => props.onSelectSpan(span)}
+              isSpanDisabled={spanUnavailable}
+            />
+          </div>
+        )}
       </div>
     )
   }),

@@ -1,3 +1,4 @@
+import { Button } from '@/lib/ui/button'
 import { view } from 'effectweb'
 import ArrowLeft from '@effectweb/lucide/icons/arrow-left'
 import ArrowRight from '@effectweb/lucide/icons/arrow-right'
@@ -9,7 +10,9 @@ export type FolderNavigationActions = {
 }
 export const FolderNavigation = view<FolderNavigationActions>((props) => (
   <div class='flex shrink-0 items-center' aria-label='Folder navigation'>
-    <button
+    <Button
+      size='icon'
+      variant='ghost'
       type='button'
       aria-label='Back to previous folder'
       title='Back (Alt+Left)'
@@ -21,8 +24,10 @@ export const FolderNavigation = view<FolderNavigationActions>((props) => (
       }}
     >
       <ArrowLeft class='size-3.5' />
-    </button>
-    <button
+    </Button>
+    <Button
+      size='icon'
+      variant='ghost'
       type='button'
       aria-label='Forward to next folder'
       title='Forward (Alt+Right)'
@@ -34,6 +39,6 @@ export const FolderNavigation = view<FolderNavigationActions>((props) => (
       }}
     >
       <ArrowRight class='size-3.5' />
-    </button>
+    </Button>
   </div>
 ))

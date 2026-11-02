@@ -12,7 +12,7 @@ export type ExplorerFileRowMenuApi = {
   confirmDelete: (file: FileItem) => void
 }
 export type ExplorerRowAction =
-  | 'preview'
+  | 'sidebar'
   | 'properties'
   | 'set-icon'
   | 'pick-new-tab-target'
@@ -32,6 +32,7 @@ export type ExplorerRowAction =
   | 'rename'
   | 'delete'
 type ExplorerRowLabelAction =
+  | 'sidebar'
   | 'delete'
   | 'primary-open'
   | 'other-surface'
@@ -42,6 +43,7 @@ export type ExplorerRowMenuConfig = {
   api: ExplorerFileRowMenuApi
   permissions: {
     editableFolders: readonly string[]
+    hideDownloads?: boolean
     currentDirectoryEditable: boolean
     hasEditableFolders: boolean
   }
@@ -57,7 +59,6 @@ export type ExplorerRowMenuConfig = {
     setIcon?: (file: FileItem) => void
   }
   open: {
-    preview?: (file: FileItem) => void
     newTab?: (file: FileItem) => void
     newTabLabel?: string
     showNewTabForFiles?: boolean
@@ -71,6 +72,8 @@ export type ExplorerRowMenuConfig = {
     fileInNewWindow?: (file: FileItem) => void
   }
   metadata: {
+    toggleSidebar?: (file: FileItem) => void
+    isSidebar?: (file: FileItem) => boolean
     toggleFavorite?: (file: FileItem) => void
     isFavorite?: (file: FileItem) => boolean
     toggleKnowledgeBase?: (file: FileItem) => void
@@ -104,8 +107,8 @@ export function createExplorerRowMenu(config: ExplorerRowMenuConfig): ExplorerRo
     !!config.open.fileInNewWindow
   function available(action: ExplorerRowAction, file: FileItem): boolean {
     switch (action) {
-      case 'preview':
-        return !file.isVirtual && !file.isDirectory && !!config.open.preview
+      case 'sidebar':
+        return !file.isVirtual && file.isDirectory && !!config.metadata.toggleSidebar
       case 'properties':
         return !file.isVirtual && !!config.edit.properties
       case 'set-icon':
@@ -139,7 +142,9 @@ export function createExplorerRowMenu(config: ExplorerRowMenuConfig): ExplorerRo
       case 'knowledge-base':
         return file.isDirectory && !!config.metadata.toggleKnowledgeBase
       case 'download':
-        return !file.isVirtual || canVirtual('download', file)
+        return (
+          !config.permissions.hideDownloads && (!file.isVirtual || canVirtual('download', file))
+        )
       case 'copy':
         return config.permissions.hasEditableFolders && !file.isVirtual && !!config.edit.copy
       case 'copy-native':
@@ -157,8 +162,8 @@ export function createExplorerRowMenu(config: ExplorerRowMenuConfig): ExplorerRo
   }
   function run(action: ExplorerRowAction, file: FileItem) {
     switch (action) {
-      case 'preview':
-        config.open.preview?.(file)
+      case 'sidebar':
+        config.metadata.toggleSidebar?.(file)
         break
       case 'properties':
         config.edit.properties?.(file)
@@ -218,6 +223,8 @@ export function createExplorerRowMenu(config: ExplorerRowMenuConfig): ExplorerRo
     config.api.dismiss()
   }
   function label(action: ExplorerRowLabelAction, file: FileItem): string {
+    if (action === 'sidebar')
+      return config.metadata.isSidebar?.(file) ? 'Remove from sidebar' : 'Add to sidebar'
     if (action === 'delete') return config.edit.deleteLabel ?? 'Delete'
     switch (action) {
       case 'primary-open':

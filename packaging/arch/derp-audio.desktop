@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Derp Music
+GenericName=Audio player
+Exec=derp-media-client --viewer=audio -- %U
+Icon=derp-audio
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+MimeType=audio/mpeg;audio/flac;audio/x-flac;audio/ogg;audio/opus;audio/wav;audio/x-wav;audio/mp4;audio/x-m4a;audio/aac;audio/webm;
+StartupNotify=true
+StartupWMClass=derp-media-client

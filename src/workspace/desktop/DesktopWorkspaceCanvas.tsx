@@ -1,3 +1,4 @@
+import { Button } from '@/lib/ui/button'
 import { view, list, collection, domBinding } from 'effectweb'
 import type { AssistGridSpan } from '@/workspace/model/workspace-assist-grid'
 import { WorkspaceSnapAssistBar } from '@/workspace/desktop/layout/WorkspaceSnapAssistBar'
@@ -68,13 +69,14 @@ export const DesktopWorkspaceCanvas = view<DesktopWorkspaceCanvasProps>((props) 
           <div class='text-sm text-muted-foreground'>
             Start a browser window to build your workspace.
           </div>
-          <button
+          <Button
+            variant='default'
             type='button'
             class='inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90'
             onClick={props.empty.openBrowser}
           >
             Open Browser
-          </button>
+          </Button>
         </div>
       </div>
     </div>

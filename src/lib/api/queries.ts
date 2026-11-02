@@ -5,10 +5,11 @@ import { query } from '@effectweb/query'
 
 export interface ServerConfig {
   desktopMode?: boolean
+  filesystemRoot?: boolean
   trashAvailable?: boolean
   writeAccess?: 'editableFolders' | 'filesystem'
   editableFolders: string[]
-  mediaRoots: { id: string; name: string; editableFolders: string[] }[]
+  mediaRoots: { namespaced?: boolean; id: string; name: string; editableFolders: string[] }[]
 }
 export interface ViewStats {
   views: Record<string, number>

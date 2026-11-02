@@ -1,5 +1,7 @@
-import { openSleepTimer, sleepTimerLabel } from '@/features/playback/sleep-timer'
-import { PlaybackSetting } from '@/features/playback/PlaybackSetting'
+import { Slider } from '@/lib/ui/slider'
+import { AudioPlaybackMenu } from '@/features/playback/AudioPlaybackMenu'
+import { Button } from '@/lib/ui/button'
+import { TaskbarButton } from '../shared/TaskbarButton'
 import { PlaybackScrubber } from '@/features/playback/create-playback-scrubber'
 import { QueuePanel } from '@/features/music/QueuePanel'
 import { fetchDirectoryFilesEffect } from '@/lib/files/files-client'
@@ -198,9 +200,10 @@ export const WorkspaceTaskbarAudio = controllerView(
         )}
       >
         <div class='text-muted-foreground flex h-8 items-center gap-1 border-l border-border bg-muted/50 px-2'>
-          <button
+          <TaskbarButton
+            variant='ghost'
             type='button'
-            class='hover:opacity-90 flex min-w-0 cursor-pointer items-center gap-1.5 pr-1 text-left transition-opacity'
+            class='hover:opacity-90 flex min-w-0 cursor-pointer items-center gap-1.5 pr-1 justify-start text-left transition-opacity'
             onClick={() => {
               setDetailsOpen(!detailsOpen())
             }}
@@ -216,7 +219,7 @@ export const WorkspaceTaskbarAudio = controllerView(
                   loading='eager'
                 />
               ) : (
-                <Headphones class='text-muted-foreground h-3.5 w-3.5 shrink-0' stroke-width={2} />
+                <Headphones class='text-muted-foreground size-3.5 shrink-0' stroke-width={2} />
               )}
             </div>
             <div class='hidden max-w-52 min-w-52 min-[1150px]:block'>
@@ -227,12 +230,14 @@ export const WorkspaceTaskbarAudio = controllerView(
                 {audioMetadata?.artist || currentDir() || '\u00A0'}
               </div>
             </div>
-          </button>
+          </TaskbarButton>
         </div>
 
         {detailsOpen() ? (
           <div class='bg-popover absolute right-0 bottom-full z-100001 mb-2 w-80 border border-border shadow-xl'>
-            <button
+            <Button
+              size='icon'
+              variant='ghost'
               type='button'
               class='text-muted-foreground hover:bg-accent hover:text-foreground absolute top-2 right-2 z-10 inline-flex h-8 w-8 items-center justify-center rounded-md'
               title='Stop playback'
@@ -242,8 +247,8 @@ export const WorkspaceTaskbarAudio = controllerView(
                 setDetailsOpen(false)
               }}
             >
-              <X class='h-4 w-4' stroke-width={2} />
-            </button>
+              <X class='size-4' stroke-width={2} />
+            </Button>
             <div class='space-y-3 p-3'>
               <div class='flex items-center gap-3 pr-10'>
                 <div class='flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded bg-neutral-800'>
@@ -286,30 +291,11 @@ export const WorkspaceTaskbarAudio = controllerView(
                 <span class='w-9 tabular-nums'>{formatPlaybackTime(displayDuration())}</span>
               </div>
 
-              <div class='flex items-center justify-between gap-3 text-xs text-muted-foreground'>
-                <span>Playback speed</span>
-                <div class='w-24'>
-                  <PlaybackSetting
-                    label='Audio playback speed'
-                    status={playback.sleepTimer ? sleepTimerLabel(playback.sleepTimer) : undefined}
-                    action={{
-                      label: sleepTimerLabel(playback.sleepTimer),
-                      onClick: () => openSleepTimer(),
-                    }}
-                    value={String(playback.playbackRate)}
-                    options={[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3].map((rate) => ({
-                      value: String(rate),
-                      label: `${rate}×`,
-                    }))}
-                    onChange={(value) =>
-                      session.dispatch({ type: 'setPlaybackRate', rate: Number(value) })
-                    }
-                  />
-                </div>
-              </div>
               <div class='grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-3'>
                 <div class='flex shrink-0 items-center gap-1'>
-                  <button
+                  <Button
+                    size='icon'
+                    variant='ghost'
                     type='button'
                     class='hover:bg-accent inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md disabled:opacity-50'
                     disabled={!hasPreviousAudio()}
@@ -318,9 +304,11 @@ export const WorkspaceTaskbarAudio = controllerView(
                       session.dispatch({ type: 'previous' })
                     }}
                   >
-                    <StepBack class='h-4 w-4' stroke-width={2} />
-                  </button>
-                  <button
+                    <StepBack class='size-4' stroke-width={2} />
+                  </Button>
+                  <Button
+                    size='icon'
+                    variant='default'
                     type='button'
                     aria-label={playback.desiredPlaying ? 'Pause' : 'Play'}
                     class='bg-primary text-primary-foreground hover:bg-primary/90 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md'
@@ -328,9 +316,11 @@ export const WorkspaceTaskbarAudio = controllerView(
                       session.dispatch({ type: 'toggle' })
                     }}
                   >
-                    {playback.desiredPlaying ? <Pause class='h-4 w-4' /> : <Play class='h-4 w-4' />}
-                  </button>
-                  <button
+                    {playback.desiredPlaying ? <Pause class='size-4' /> : <Play class='size-4' />}
+                  </Button>
+                  <Button
+                    size='icon'
+                    variant='ghost'
                     type='button'
                     class='hover:bg-accent inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md disabled:opacity-50'
                     disabled={!hasNextAudio()}
@@ -339,40 +329,46 @@ export const WorkspaceTaskbarAudio = controllerView(
                       session.dispatch({ type: 'next' })
                     }}
                   >
-                    <StepForward class='h-4 w-4' stroke-width={2} />
-                  </button>
-                  <button
+                    <StepForward class='size-4' stroke-width={2} />
+                  </Button>
+                  <Button
+                    variant={playback.repeat ? 'default' : 'ghost'}
                     type='button'
                     aria-label={playback.repeat ? 'Disable repeat' : 'Enable repeat'}
                     aria-pressed={playback.repeat ? 'true' : 'false'}
-                    class={
-                      playback.repeat
-                        ? 'bg-primary text-primary-foreground inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md'
-                        : 'hover:bg-accent inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md'
-                    }
+                    size='icon'
+                    class='size-8 shrink-0'
                     onClick={() => {
                       session.dispatch({ type: 'toggleRepeat' })
                     }}
                   >
-                    <Repeat class='h-4 w-4' stroke-width={2} />
-                  </button>
+                    <Repeat class='size-4' stroke-width={2} />
+                  </Button>
                 </div>
 
                 <div class='flex min-w-0 items-center justify-end gap-2'>
-                  <QueuePanel />
+                  <AudioPlaybackMenu
+                    rate={playback.playbackRate}
+                    timer={playback.sleepTimer}
+                    onRate={(rate) => session.dispatch({ type: 'setPlaybackRate', rate })}
+                  />
+                  <QueuePanel compact />
                   {isVideoFile() ? (
-                    <button
+                    <Button
+                      variant='outline'
                       type='button'
                       class='border-input bg-background hover:bg-accent inline-flex h-8 shrink-0 items-center gap-1 rounded-md border px-2 text-xs'
                       onClick={handleShowVideo}
                     >
-                      <Monitor class='h-4 w-4' stroke-width={2} />
+                      <Monitor class='size-4' stroke-width={2} />
                       Show video
-                    </button>
+                    </Button>
                   ) : null}
 
                   <div class='ml-1 flex min-w-0 max-w-32 flex-1 items-center gap-2'>
-                    <button
+                    <Button
+                      size='icon'
+                      variant='ghost'
                       type='button'
                       aria-label={playback.muted ? 'Unmute' : 'Mute'}
                       class='hover:bg-accent inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md'
@@ -380,23 +376,19 @@ export const WorkspaceTaskbarAudio = controllerView(
                         session.dispatch({ type: 'setMuted', muted: !playback.muted })
                       }}
                     >
-                      {playback.muted ? <VolumeX class='h-4 w-4' /> : <Volume2 class='h-4 w-4' />}
-                    </button>
-                    <input
-                      type='range'
+                      {playback.muted ? <VolumeX class='size-4' /> : <Volume2 class='size-4' />}
+                    </Button>
+                    <Slider
                       aria-label='Volume'
                       aria-valuetext={`${Math.round((playback.muted ? 0 : playback.volume) * 100)} percent`}
                       min={0}
                       max={1}
                       step={0.01}
                       value={playback.muted ? 0 : playback.volume}
-                      onInput={(event) => {
-                        session.dispatch({
-                          type: 'setVolume',
-                          volume: Number.parseFloat(event.currentTarget.value),
-                        })
+                      onValueChange={(value) => {
+                        session.dispatch({ type: 'setVolume', volume: value })
                       }}
-                      class='[&::-webkit-slider-thumb]:bg-primary h-1.5 min-w-0 flex-1 cursor-pointer appearance-none rounded-none bg-secondary [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full'
+                      class='min-w-10 flex-1'
                     />
                   </div>
                 </div>

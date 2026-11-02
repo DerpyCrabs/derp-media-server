@@ -73,7 +73,7 @@ mod linux {
             if relative.is_empty() {
                 continue;
             }
-            let path = if config.roots.len() > 1 {
+            let path = if config.named_roots() {
                 format!("{}/{relative}", root.name)
             } else {
                 relative.to_string()

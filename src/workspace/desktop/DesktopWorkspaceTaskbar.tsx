@@ -1,3 +1,5 @@
+import { MenuItem } from '@/lib/ui/menu-item'
+import { TaskbarButton } from '../shared/TaskbarButton'
 import { view, type JSX } from 'effectweb'
 import { FLOATING_Z_PIN_MENU } from '@/lib/ui/floating-z-index'
 import type { TaskbarPin as PinnedTaskbarItem } from '@/lib/models/taskbar-pins'
@@ -57,15 +59,19 @@ export const DesktopWorkspaceTaskbar = view<DesktopWorkspaceTaskbarProps>((props
   return (
     <>
       <WorkspaceTaskbar>
-        <button
+        <TaskbarButton
+          size='icon'
+          variant='ghost'
           type='button'
           title='Open browser window'
           class='flex h-7 w-7 shrink-0 items-center justify-center rounded-none text-amber-500 hover:bg-amber-500/15 hover:text-amber-400'
           onClick={() => props.commands.openBrowser()}
         >
-          <FolderOpen class='h-5 w-5' stroke-width={1.75} />
-        </button>
-        <button
+          <FolderOpen class='size-5' stroke-width={1.75} />
+        </TaskbarButton>
+        <TaskbarButton
+          size='icon'
+          variant='ghost'
           type='button'
           title='Workspaces'
           aria-label='Open workspaces'
@@ -74,8 +80,8 @@ export const DesktopWorkspaceTaskbar = view<DesktopWorkspaceTaskbarProps>((props
           class={WORKSPACE_TASKBAR_ICON_BUTTON_CLASS}
           onClick={() => props.commands.openWorkspaces()}
         >
-          <PanelsTopLeft class='h-5 w-5' stroke-width={1.75} />
-        </button>
+          <PanelsTopLeft class='size-5' stroke-width={1.75} />
+        </TaskbarButton>
 
         <div class='scrollbar-none flex min-w-0 flex-1 items-center overflow-x-auto'>
           {props.items.hasAny ? (
@@ -134,8 +140,6 @@ export const DesktopWorkspaceTaskbar = view<DesktopWorkspaceTaskbarProps>((props
             onStopPlayback={props.playback.stop}
           />
           <WorkspaceTaskbarSettings
-            reopenClosedTab={props.commands.reopenClosedTab}
-            canReopenClosed={props.commands.canReopenClosed}
             workspaceTransition={props.items.settings?.workspaceTransition ?? 'fade'}
             onWorkspaceTransitionChange={props.commands.changeTransition}
           />
@@ -151,7 +155,8 @@ export const DesktopWorkspaceTaskbar = view<DesktopWorkspaceTaskbarProps>((props
         pinContextMenuRoot
       >
         {(m) => (
-          <button
+          <MenuItem
+            variant='ghost'
             type='button'
             data-slot='context-menu-item'
             class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
@@ -162,7 +167,7 @@ export const DesktopWorkspaceTaskbar = view<DesktopWorkspaceTaskbarProps>((props
             }}
           >
             Unpin
-          </button>
+          </MenuItem>
         )}
       </FloatingContextMenu>
     </>

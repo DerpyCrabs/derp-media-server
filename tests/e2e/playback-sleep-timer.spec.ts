@@ -52,7 +52,7 @@ async function audio(page: Page, native = false) {
 }
 async function timer(page: Page, mobile = false) {
   await page
-    .getByRole('button', { name: mobile ? 'Up next' : 'Audio playback speed', exact: true })
+    .getByRole('button', { name: mobile ? 'Up next' : 'Playback options', exact: true })
     .click()
   await page.getByRole(mobile ? 'button' : 'menuitem', { name: /^Sleep timer/ }).click()
   const dialog = page.getByRole('dialog', { name: 'Sleep timer', exact: true })
@@ -72,7 +72,7 @@ test('mobile queue timer counts down while paused, expires, and allows explicit 
   await page.clock.fastForward(30000)
   dialog = await timer(page, true)
   await expect(dialog.getByRole('status')).toContainText('Pauses in 0:30')
-  await dialog.getByRole('button', { name: 'Close sleep timer' }).click()
+  await dialog.getByRole('button', { name: 'Close' }).click()
   await page.getByRole('button', { name: 'Play', exact: true }).click()
   await page.clock.fastForward(31000)
   await expect(page.getByRole('button', { name: 'Play', exact: true })).toBeVisible()
@@ -81,7 +81,7 @@ test('mobile queue timer counts down while paused, expires, and allows explicit 
     .toBe(true)
   dialog = await timer(page, true)
   await expect(dialog.getByRole('status')).toContainText('Playback paused by the sleep timer')
-  await dialog.getByRole('button', { name: 'Close sleep timer' }).click()
+  await dialog.getByRole('button', { name: 'Close' }).click()
   await page.getByRole('button', { name: 'Play', exact: true }).click()
   await expect
     .poll(() => page.locator('audio').evaluate((el: HTMLAudioElement) => el.paused))
@@ -120,7 +120,7 @@ test('cancel timer preserves playback and reload does not restore the timer', as
   await expect(dialog.getByRole('status')).toHaveCount(0)
   await expect(dialog.getByRole('button', { name: 'Cancel timer', exact: true })).toHaveCount(0)
 })
-test('fullscreen video keeps the sleep dialog in its fullscreen element', async ({ page }) => {
+test('fullscreen video keeps the sleep dialog visible and usable', async ({ page }) => {
   await page.goto('/?dir=Videos&playing=Videos%2Fsample.mp4')
   await expect
     .poll(() => page.locator('video').evaluate((el: HTMLVideoElement) => el.readyState))
@@ -130,7 +130,8 @@ test('fullscreen video keeps the sleep dialog in its fullscreen element', async 
   await page.getByRole('button', { name: /^Sleep timer/ }).click()
   const dialog = page.getByRole('dialog', { name: 'Sleep timer', exact: true })
   await expect(dialog).toBeVisible()
-  expect(await dialog.evaluate((el) => document.fullscreenElement?.contains(el))).toBe(true)
+  expect(await page.evaluate(() => !!document.fullscreenElement)).toBe(true)
+  await expect(dialog).toBeInViewport()
   await dialog.getByRole('button', { name: '10 min', exact: true }).click()
   await expect(dialog).toBeHidden()
   await page.evaluate(() => document.exitFullscreen())
@@ -166,7 +167,7 @@ test('timer remains available across Library and Workspace without reloading pla
   await page.getByRole('button', { name: 'Open audio controls', exact: true }).click()
   dialog = await timer(page)
   await expect(dialog.getByRole('status')).toContainText('Pauses in 5:00')
-  await dialog.getByRole('button', { name: 'Close sleep timer', exact: true }).click()
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click()
   await page.clock.fastForward(301000)
   await expect(page.locator('audio')).toHaveAttribute('data-timer-host', 'original')
   await expect

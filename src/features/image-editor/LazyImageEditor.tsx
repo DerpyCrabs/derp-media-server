@@ -1,3 +1,4 @@
+import { Button } from '@/lib/ui/button'
 import { Effect } from 'effect'
 import { view } from 'effectweb'
 import { lazyView } from 'effectweb/advanced'
@@ -12,7 +13,7 @@ const Placeholder = view<{ props: ImageEditorProps; failed?: boolean }>(({ props
     class={
       props.embedded
         ? 'relative flex h-full flex-col items-center justify-center bg-background'
-        : 'fixed inset-0 z-50 flex flex-col items-center justify-center bg-background'
+        : 'fixed inset-0 z-[60] flex flex-col items-center justify-center bg-background'
     }
   >
     <p role={failed ? 'alert' : 'status'} class='p-4 text-center text-sm text-muted-foreground'>
@@ -20,12 +21,13 @@ const Placeholder = view<{ props: ImageEditorProps; failed?: boolean }>(({ props
         ? 'Unable to load the image editor. Reload the page to try again.'
         : 'Loading image editor…'}
     </p>
-    <button
+    <Button
+      variant='outline'
       class='rounded border border-input px-3 py-2 text-sm hover:bg-muted'
       onClick={props.onClose}
     >
       Back to image
-    </button>
+    </Button>
   </div>
 ))
 export const LazyImageEditor = lazyView(

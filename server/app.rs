@@ -102,12 +102,14 @@ pub(crate) fn server_config(state: &AppState) -> Value {
     };
     json!({
         "desktopMode": state.config.desktop_mode,
+        "filesystemRoot": state.config.filesystem_root(),
         "trashAvailable": crate::desktop_trash::available(&state.config),
         "writeAccess": state.config.write_access,
         "editableFolders": editable_folders,
         "mediaRoots": roots.iter().map(|root| json!({
             "id": root.id,
             "name": root.name,
+            "namespaced": state.config.named_roots(),
             "editableFolders": root.editable_folders,
         })).collect::<Vec<_>>(),
     })

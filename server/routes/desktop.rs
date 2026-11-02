@@ -66,7 +66,7 @@ pub(super) fn absolute_to_logical(config: &Config, input: &Path) -> AppResult<St
         };
         if let Ok(relative) = canonical.strip_prefix(root_path) {
             let relative = relative.to_string_lossy().replace('\\', "/");
-            return Ok(if config.roots.len() > 1 {
+            return Ok(if config.named_roots() {
                 if relative.is_empty() {
                     root.name.clone()
                 } else {
@@ -116,7 +116,16 @@ fn mount_paths(contents: &str) -> Vec<PathBuf> {
                 .replace("\\012", "\n")
                 .replace("\\134", "\\");
             let path = PathBuf::from(path);
-            if path == Path::new("/") || path.starts_with("/boot") {
+            if path == Path::new("/")
+                || path == Path::new("/home")
+                || [
+                    "/boot", "/efi", "/etc", "/usr", "/var", "/opt", "/srv", "/root", "/tmp",
+                    "/dev", "/proc", "/sys", "/snap", "/swap",
+                ]
+                .iter()
+                .any(|system| path.starts_with(system))
+                || (path.starts_with("/run") && !path.starts_with("/run/media"))
+            {
                 return None;
             }
             Some(path)
@@ -180,7 +189,7 @@ fn desktop_places(config: &Config) -> Value {
     for root in &config.roots {
         add(
             if root.path == Path::new("/") {
-                "Computer".into()
+                "Files".into()
             } else {
                 root.name.clone()
             },
@@ -199,6 +208,39 @@ fn desktop_places(config: &Config) -> Value {
         }
     }
     json!({"places":places})
+}
+
+async fn sidebar_folder(
+    State(state): State<Shared>,
+    Json(request): Json<ResolveRequest>,
+) -> AppResult<Json<Value>> {
+    if !state.config.desktop_mode {
+        return Err(AppError::not_found("Desktop mode is disabled"));
+    }
+    let candidate = crate::logical_path::normalize(&request.path);
+    let pinned = !request.absolute
+        && state.settings.read()?["sidebarFolders"]
+            .as_array()
+            .is_some_and(|paths| paths.iter().any(|path| path.as_str() == Some(&candidate)));
+    let path = if pinned {
+        candidate
+    } else {
+        let target = resolve_path(&state.config, request)?;
+        if target["isDirectory"] != true {
+            return Err(AppError::bad("Choose a folder"));
+        }
+        target["path"]
+            .as_str()
+            .ok_or_else(|| AppError::bad("Invalid folder"))?
+            .to_owned()
+    };
+    let result = state
+        .settings
+        .execute(crate::settings_persistence::SettingsCommand::ToggleSidebarFolder { path })?;
+    let _ = state
+        .admin_events
+        .send(json!({"type":"settings-changed","timestamp":crate::app::timestamp_ms()}));
+    Ok(Json(result))
 }
 
 async fn places(State(state): State<Shared>) -> AppResult<Json<Value>> {
@@ -266,6 +308,7 @@ pub fn router() -> Router<Shared> {
     Router::new()
         .route("/api/desktop/resolve", post(resolve))
         .route("/api/desktop/places", get(places))
+        .route("/api/desktop/sidebar", post(sidebar_folder))
         .route("/api/desktop/trash", get(trash_list))
         .route("/api/desktop/trash/restore", post(trash_restore))
 }
@@ -273,6 +316,49 @@ pub fn router() -> Router<Shared> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mount_list_hides_system_mounts_but_keeps_user_storage() {
+        let paths = [
+            "/",
+            "/home",
+            "/var/cache/pacman/pkg",
+            "/var/log",
+            "/efi",
+            "/boot/efi",
+            "/usr",
+            "/etc",
+            "/opt",
+            "/run/system/service",
+            "/mnt/trash",
+            "/mnt/backups",
+            "/mnt/data",
+            "/media/USB",
+            "/run/media/user/Drive",
+            "/home/user/Network",
+            "/data",
+        ];
+        let mounts = paths
+            .iter()
+            .enumerate()
+            .map(|(index, path)| format!("{index} 0 8:1 / {path} rw - ext4 /dev/sda1 rw"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert_eq!(
+            mount_paths(&mounts),
+            [
+                "/mnt/trash",
+                "/mnt/backups",
+                "/mnt/data",
+                "/media/USB",
+                "/run/media/user/Drive",
+                "/home/user/Network",
+                "/data",
+            ]
+            .map(PathBuf::from)
+            .to_vec()
+        );
+    }
 
     #[test]
     fn mount_list_decodes_names_and_ignores_kernel_filesystems() {

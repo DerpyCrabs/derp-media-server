@@ -1,3 +1,5 @@
+import { MenuItem } from '@/lib/ui/menu-item'
+import { Button } from '@/lib/ui/button'
 import { view, observe, list, component } from 'effectweb'
 import * as AsyncResult from 'effect/reactivity/AsyncResult'
 import { Effect, Schema } from 'effect'
@@ -66,7 +68,7 @@ export const TrackList = component(
           owner.task(['feedback', input.path], sendFeedback(input), 'drop'),
       }
       const action =
-        'flex min-h-11 w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm hover:bg-secondary'
+        'flex min-h-11 w-full items-center gap-3 rounded-md px-3 py-2 justify-start text-left text-sm hover:bg-secondary'
       return observe(playbackSource, (playback) =>
         observe(musicStatusSource, ({ enabled: aiEnabled }) => (
           <>
@@ -83,10 +85,12 @@ export const TrackList = component(
                     role='listitem'
                     class='group flex min-w-0 items-center gap-3 rounded-lg py-2 pr-1 hover:bg-secondary/40'
                   >
-                    <button
+                    <Button
+                      variant='ghost'
                       aria-label={`Play music ${track.title}`}
                       disabled={props.disabled || track.available === false}
-                      class='relative ml-1 shrink-0 rounded-lg focus-visible:ring-2 focus-visible:ring-ring'
+                      size='icon'
+                      class='relative ml-1 size-11 shrink-0 overflow-hidden p-0'
                       onClick={() =>
                         props.onPlay
                           ? props.onPlay(index)
@@ -100,9 +104,9 @@ export const TrackList = component(
                     >
                       <MusicArtwork path={track.path} hasArtwork={track.hasArtwork} />
                       <span class='absolute inset-0 grid place-items-center rounded-lg bg-black/40 text-white opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'>
-                        <Play size={18} />
+                        <Play class='size-[18px]' size={18} />
                       </span>
-                    </button>
+                    </Button>
                     <div class='min-w-0 flex-1'>
                       <div
                         class={`truncate text-sm font-medium ${playback.currentItem?.locator === track.path ? 'text-primary' : ''}`}
@@ -121,9 +125,13 @@ export const TrackList = component(
                     >
                       {track.available === false
                         ? 'Unavailable'
-                        : formatPlaybackTime(track.duration)}
+                        : track.duration > 0
+                          ? formatPlaybackTime(track.duration)
+                          : ''}
                     </span>
-                    <button
+                    <Button
+                      size='icon'
+                      variant='ghost'
                       aria-label={`Like music ${track.title}`}
                       aria-pressed={track.liked ? 'true' : 'false'}
                       disabled={feedback.isPending(track.path)}
@@ -133,8 +141,10 @@ export const TrackList = component(
                       }
                     >
                       <Heart size={16} class={track.liked ? 'fill-current' : ''} />
-                    </button>
-                    <button
+                    </Button>
+                    <Button
+                      size='icon'
+                      variant='ghost'
                       aria-label={`Music options for ${track.title}`}
                       disabled={props.disabled}
                       class='grid size-11 shrink-0 place-items-center rounded-full text-muted-foreground hover:bg-secondary'
@@ -143,8 +153,8 @@ export const TrackList = component(
                         setMenu({ item: track, x: Math.max(8, r.right - 240), y: r.bottom })
                       }}
                     >
-                      <EllipsisVertical size={18} />
-                    </button>
+                      <EllipsisVertical class='size-[18px]' size={18} />
+                    </Button>
                   </div>
                 ),
               )}
@@ -158,7 +168,8 @@ export const TrackList = component(
             >
               {(value) => (
                 <>
-                  <button
+                  <MenuItem
+                    variant='ghost'
                     class={action}
                     disabled={value.item.available === false}
                     onClick={() => {
@@ -171,10 +182,11 @@ export const TrackList = component(
                       notifyMusic('Playing next')
                     }}
                   >
-                    <StepForward size={17} />
+                    <StepForward class='size-[17px]' size={17} />
                     Play next
-                  </button>
-                  <button
+                  </MenuItem>
+                  <MenuItem
+                    variant='ghost'
                     class={action}
                     disabled={value.item.available === false}
                     onClick={() => {
@@ -187,10 +199,11 @@ export const TrackList = component(
                       notifyMusic('Added to queue')
                     }}
                   >
-                    <ListPlus size={17} />
+                    <ListPlus class='size-[17px]' size={17} />
                     Add to queue
-                  </button>
-                  <button
+                  </MenuItem>
+                  <MenuItem
+                    variant='ghost'
                     class={action}
                     disabled={value.item.available === false}
                     onClick={() => {
@@ -198,12 +211,13 @@ export const TrackList = component(
                       openPlaylists([value.item.path])
                     }}
                   >
-                    <ListPlus size={17} />
+                    <ListPlus class='size-[17px]' size={17} />
                     Add to playlist…
-                  </button>
+                  </MenuItem>
                   {props.onMove ? (
                     <>
-                      <button
+                      <MenuItem
+                        variant='ghost'
                         class={action}
                         disabled={props.items[0]?.path === value.item.path}
                         onClick={() => {
@@ -212,8 +226,9 @@ export const TrackList = component(
                         }}
                       >
                         Move up
-                      </button>
-                      <button
+                      </MenuItem>
+                      <MenuItem
+                        variant='ghost'
                         class={action}
                         disabled={props.items[props.items.length - 1]?.path === value.item.path}
                         onClick={() => {
@@ -222,11 +237,12 @@ export const TrackList = component(
                         }}
                       >
                         Move down
-                      </button>
+                      </MenuItem>
                     </>
                   ) : null}
                   {props.onRemove ? (
-                    <button
+                    <MenuItem
+                      variant='ghost'
                       class={action}
                       onClick={() => {
                         props.onRemove?.(value.item.path)
@@ -234,11 +250,12 @@ export const TrackList = component(
                       }}
                     >
                       Remove from playlist
-                    </button>
+                    </MenuItem>
                   ) : null}
                   {aiEnabled ? (
                     <>
-                      <button
+                      <MenuItem
+                        variant='ghost'
                         class={action}
                         onClick={() => {
                           startRadio(
@@ -249,11 +266,12 @@ export const TrackList = component(
                           setMenu(undefined)
                         }}
                       >
-                        <Radio size={17} />
+                        <Radio class='size-[17px]' size={17} />
                         Start radio
-                      </button>
+                      </MenuItem>
                       {value.item.artist ? (
-                        <button
+                        <MenuItem
+                          variant='ghost'
                           class={action}
                           onClick={() => {
                             startRadio(
@@ -264,23 +282,24 @@ export const TrackList = component(
                             setMenu(undefined)
                           }}
                         >
-                          <Radio size={17} />
+                          <Radio class='size-[17px]' size={17} />
                           Artist radio
-                        </button>
+                        </MenuItem>
                       ) : null}
                     </>
                   ) : null}
 
-                  <button
+                  <MenuItem
+                    variant='ghost'
                     class={action}
                     onClick={() => {
                       feedback.mutate({ path: value.item.path, kind: 'hide' })
                       setMenu(undefined)
                     }}
                   >
-                    <Ban size={17} />
+                    <Ban class='size-[17px]' size={17} />
                     Don’t recommend
-                  </button>
+                  </MenuItem>
                 </>
               )}
             </FloatingContextMenu>

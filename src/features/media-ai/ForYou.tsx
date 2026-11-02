@@ -1,3 +1,5 @@
+import { Input } from '@/lib/ui/input'
+import { Button } from '@/lib/ui/button'
 import { createForYou } from './for-you-controller'
 import {
   available,
@@ -158,7 +160,7 @@ export const ForYou = controllerView(
       })
     }
     const actionClass =
-      'flex min-h-11 w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm hover:bg-secondary focus:bg-secondary'
+      'flex min-h-11 w-full items-center gap-3 rounded-md px-3 py-2.5 justify-start text-left text-sm hover:bg-secondary focus:bg-secondary'
     function bookCard(props: { item: Pick; compact?: boolean }) {
       const progress = () => (props.item.lastRead === 0 ? undefined : props.item.readingProgress)
       const title = () => {
@@ -173,13 +175,18 @@ export const ForYou = controllerView(
       }
       return (
         <div class='flex items-center rounded-lg bg-secondary/25 transition-colors hover:bg-secondary/50'>
-          <button
-            class='group/book flex min-h-20 min-w-0 flex-1 items-center gap-3 rounded-lg px-4 py-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring'
+          <Button
+            variant='ghost'
+            class='group/book flex min-h-20 min-w-0 flex-1 items-center gap-3 rounded-lg px-4 py-3 justify-start text-left outline-none focus-visible:ring-2 focus-visible:ring-ring'
             aria-label={`Read ${props.item.name}`}
             title={props.item.name}
             onClick={() => open(asFile(props.item), [])}
           >
-            <BookOpen size={22} strokeWidth={1.5} class='shrink-0 text-muted-foreground/70' />
+            <BookOpen
+              size={22}
+              strokeWidth={1.5}
+              class='shrink-0 text-muted-foreground/70 size-[22px]'
+            />
             <span class='min-w-0 flex-1'>
               <span class='line-clamp-2 text-[15px] font-medium leading-5'>{title()}</span>
               {!props.compact && props.item.reason ? (
@@ -210,9 +217,11 @@ export const ForYou = controllerView(
               size={16}
               class='shrink-0 text-muted-foreground/50 transition-transform group-hover/book:translate-x-0.5 group-hover/book:text-foreground'
             />
-          </button>
+          </Button>
           {!props.compact ? (
-            <button
+            <Button
+              size='icon'
+              variant='ghost'
               aria-label={`Options for ${props.item.name}`}
               title='More'
               class='mr-1 flex min-h-11 min-w-11 items-center justify-center rounded-lg text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring'
@@ -221,8 +230,8 @@ export const ForYou = controllerView(
                 setMenu({ item: props.item, x: Math.max(8, rect.right - 240), y: rect.bottom })
               }}
             >
-              <EllipsisVertical size={17} />
-            </button>
+              <EllipsisVertical class='size-[17px]' size={17} />
+            </Button>
           ) : null}
         </div>
       )
@@ -249,14 +258,19 @@ export const ForYou = controllerView(
               >
                 {!isReading(item) ? (
                   <>
-                    <button
-                      class='relative block aspect-video w-full overflow-hidden rounded-lg bg-secondary text-left focus-visible:ring-2 focus-visible:ring-ring sm:rounded-xl'
+                    <Button
+                      variant='ghost'
+                      class='relative block h-auto p-0 aspect-video w-full overflow-hidden rounded-lg bg-secondary justify-start text-left focus-visible:ring-2 focus-visible:ring-ring sm:rounded-xl'
                       aria-label={`${isReading(item) ? 'Read' : item.type === MediaType.FOLDER ? 'Open' : 'Play'} ${item.name}`}
                       title={item.reason}
                       onClick={() => open(asFile(item), visible().map(asFile))}
                     >
                       <span class='absolute inset-0 grid place-items-center text-muted-foreground'>
-                        {isReading(item) ? <BookOpen size={32} /> : <Music2 size={32} />}
+                        {isReading(item) ? (
+                          <BookOpen class='size-[32px]' size={32} />
+                        ) : (
+                          <Music2 class='size-[32px]' size={32} />
+                        )}
                       </span>
                       {!isReading(item) ? (
                         <img
@@ -271,11 +285,11 @@ export const ForYou = controllerView(
                       <span class='absolute inset-0 flex items-center justify-center bg-black/0 transition-colors group-hover:bg-black/15'>
                         <span class='flex size-12 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100'>
                           {item.type === MediaType.FOLDER ? (
-                            <FolderOpen size={22} />
+                            <FolderOpen class='size-[22px]' size={22} />
                           ) : isReading(item) ? (
-                            <BookOpen size={22} />
+                            <BookOpen class='size-[22px]' size={22} />
                           ) : (
-                            <Play size={22} />
+                            <Play class='size-[22px]' size={22} />
                           )}
                         </span>
                       </span>
@@ -300,14 +314,15 @@ export const ForYou = controllerView(
                           {durationLabel(item.duration)}
                         </span>
                       ) : null}
-                    </button>
-                    <div class='relative mt-1.5 min-h-11 pr-8 sm:mt-3 sm:min-h-0 sm:pr-0'>
-                      <button
-                        class='flex w-full items-start text-left text-[13px] leading-[18px] font-medium hover:text-primary sm:h-10 sm:text-[15px] sm:leading-5'
+                    </Button>
+                    <div class='relative mt-1.5 min-h-11 pr-11 sm:mt-3 sm:min-h-0 sm:pr-0'>
+                      <Button
+                        variant='ghost'
+                        class='flex h-auto p-0 w-full items-start justify-start text-left text-[13px] leading-[18px] font-medium hover:text-primary sm:h-10 sm:text-[15px] sm:leading-5'
                         onClick={() => open(asFile(item), visible().map(asFile))}
                       >
                         <span class='line-clamp-2 min-w-0'>{itemTitle(item)}</span>
-                      </button>
+                      </Button>
                       <div class='mt-0.5 flex items-center gap-1 sm:mt-1'>
                         <p
                           class='min-w-0 flex-1 truncate text-[11px] text-muted-foreground sm:text-[13px]'
@@ -315,7 +330,9 @@ export const ForYou = controllerView(
                         >
                           {item.subtitle || item.path.split('/').at(-2) || 'Your library'}
                         </p>
-                        <button
+                        <Button
+                          size='icon'
+                          variant='ghost'
                           aria-label={`Like ${item.name}`}
                           title='More like this'
                           aria-pressed={
@@ -330,28 +347,32 @@ export const ForYou = controllerView(
                             })
                           }
                         >
-                          <ThumbsUp size={17} />
-                        </button>
-                        <button
+                          <ThumbsUp class='size-[17px]' size={17} />
+                        </Button>
+                        <Button
+                          size='icon'
+                          variant='ghost'
                           aria-label={`Dislike ${item.name}`}
                           title='Not interested'
                           class='hidden items-center justify-center rounded-full p-2 text-muted-foreground transition-colors min-h-11 min-w-11 hover:bg-secondary hover:text-foreground sm:inline-flex'
                           disabled={feedback.isPending}
                           onClick={() => feedback.mutate({ path: item.path, kind: 'hide' })}
                         >
-                          <ThumbsDown size={17} />
-                        </button>
-                        <button
+                          <ThumbsDown class='size-[17px]' size={17} />
+                        </Button>
+                        <Button
+                          size='icon'
+                          variant='ghost'
                           aria-label={`Options for ${item.name}`}
                           title='More'
-                          class='absolute -top-1.5 -right-2 inline-flex items-center justify-center rounded-full p-2 text-muted-foreground min-h-11 min-w-11 hover:bg-secondary hover:text-foreground sm:static sm:-mr-2'
+                          class='absolute -top-1.5 right-0 inline-flex items-center justify-center rounded-full p-2 text-muted-foreground min-h-11 min-w-11 hover:bg-secondary hover:text-foreground sm:static sm:-mr-2'
                           onClick={(e) => {
                             const r = e.currentTarget.getBoundingClientRect()
                             setMenu({ item, x: Math.max(8, r.right - 240), y: r.bottom })
                           }}
                         >
-                          <EllipsisVertical size={18} />
-                        </button>
+                          <EllipsisVertical class='size-[18px]' size={18} />
+                        </Button>
                       </div>
                     </div>
                   </>
@@ -374,20 +395,23 @@ export const ForYou = controllerView(
             categories,
             (item) => item.id,
             (item) => (
-              <button
+              <Button
+                variant='default'
                 class={`min-h-11 rounded-full px-5 text-sm font-medium ${category === item.id ? 'bg-primary text-primary-foreground' : 'bg-secondary/50 text-muted-foreground hover:bg-secondary'}`}
                 aria-pressed={category === item.id ? 'true' : 'false'}
                 onClick={() => setCategory(item.id)}
               >
                 {item.title}
-              </button>
+              </Button>
             ),
           )}
         </div>
         {((mount) =>
           mount ? (
             <Portal mount={mount}>
-              <button
+              <Button
+                size='icon'
+                variant='ghost'
                 class='flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-50 pointer-coarse:h-11 pointer-coarse:w-11'
                 aria-label='Refresh recommendations'
                 title='Refresh recommendations'
@@ -395,8 +419,11 @@ export const ForYou = controllerView(
                 disabled={refresh.isPending || home.isFetching}
                 onClick={() => refresh.mutate(category)}
               >
-                <RefreshCw size={18} class={refresh.isPending ? 'animate-spin' : ''} />
-              </button>
+                <RefreshCw
+                  size={18}
+                  class={'size-[18px] ' + (refresh.isPending ? 'animate-spin' : '')}
+                />
+              </Button>
             </Portal>
           ) : null)(props.aiEnabled && props.actions)}
         {props.searchOpen || ask.error ? (
@@ -411,7 +438,7 @@ export const ForYou = controllerView(
                   }}
                 >
                   <Search size={18} class='shrink-0 text-muted-foreground' />
-                  <input
+                  <Input
                     use={autofocus}
                     aria-label='Search your library'
                     class='h-full min-w-0 flex-1 bg-transparent text-base outline-none sm:text-sm'
@@ -420,23 +447,26 @@ export const ForYou = controllerView(
                     placeholder='Search your library'
                     onInput={(e) => setQuery(e.currentTarget.value)}
                   />
-                  <button
+                  <Button
+                    size='icon'
+                    variant='ghost'
                     class='inline-flex h-8 w-8 pointer-coarse:h-11 pointer-coarse:w-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-40'
                     aria-label='Search'
                     disabled={!props.aiEnabled || ask.isPending || !query.trim()}
                     type='submit'
                   >
                     {ask.isPending ? (
-                      <LoaderCircle size={18} class='animate-spin' />
+                      <LoaderCircle size={18} class='animate-spin size-[18px]' />
                     ) : (
-                      <ArrowRight size={18} />
+                      <ArrowRight class='size-[18px]' size={18} />
                     )}
-                  </button>
+                  </Button>
                 </form>
               </div>
             ) : null}
             {history.length ? (
-              <button
+              <Button
+                variant='ghost'
                 class='text-xs text-muted-foreground hover:text-foreground'
                 onClick={() => {
                   setHistory([])
@@ -445,7 +475,7 @@ export const ForYou = controllerView(
                 }}
               >
                 Start a new search
-              </button>
+              </Button>
             ) : null}
             {debounced.length >= 3 && debounced.length <= 200 ? (
               <LibraryMatches query={debounced} open={open} />
@@ -474,12 +504,13 @@ export const ForYou = controllerView(
                 <div class='flex items-center justify-between'>
                   <h2 class='text-lg font-semibold'>Books</h2>
                   {category === 'all' ? (
-                    <button
+                    <Button
+                      variant='ghost'
                       class='flex min-h-11 items-center gap-1 rounded-lg px-2 text-sm text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring'
                       onClick={() => setCategory('books')}
                     >
                       See all <ArrowRight size={16} />
-                    </button>
+                    </Button>
                   ) : null}
                 </div>
                 {cards({
@@ -498,9 +529,9 @@ export const ForYou = controllerView(
                 class='flex flex-wrap items-center gap-3 py-4 text-sm text-muted-foreground'
               >
                 <span>Couldn’t load your reading progress.</span>
-                <button class={button} onClick={() => reading.refetch()}>
+                <Button variant='ghost' class={button} onClick={() => reading.refetch()}>
                   Try again
-                </button>
+                </Button>
               </div>
             ) : null}
             {category === 'all' || category === 'music' ? <MusicHome /> : null}
@@ -537,14 +568,15 @@ export const ForYou = controllerView(
                     ? 'Couldn’t load more right now.'
                     : 'Recommendations are unavailable right now.'}
                 </span>
-                <button
+                <Button
+                  variant='ghost'
                   class={button}
                   onClick={() =>
                     home.isFetchNextPageError ? home.fetchNextPage() : home.refetch()
                   }
                 >
                   Try again
-                </button>
+                </Button>
               </div>
             ) : null}
             <div
@@ -576,9 +608,9 @@ export const ForYou = controllerView(
             ) : null}
             {category !== 'music' && home.hasNextPage && !home.isFetching && !home.error ? (
               <div class='text-center'>
-                <button class={button} onClick={() => home.fetchNextPage()}>
+                <Button variant='ghost' class={button} onClick={() => home.fetchNextPage()}>
                   {category === 'books' ? 'Load more recommendations' : 'More to play'}
-                </button>
+                </Button>
               </div>
             ) : null}
           </>
@@ -592,7 +624,8 @@ export const ForYou = controllerView(
         >
           {(value) => (
             <>
-              <button
+              <Button
+                variant='ghost'
                 class={`${actionClass} ${isReading(value.item) ? '' : 'sm:hidden'}`}
                 aria-label={`Like ${value.item.name}`}
                 aria-pressed={
@@ -607,10 +640,11 @@ export const ForYou = controllerView(
                   setMenu(undefined)
                 }}
               >
-                <ThumbsUp size={17} />
+                <ThumbsUp class='size-[17px]' size={17} />
                 {(likes[value.item.path] ?? value.item.liked) ? 'Remove like' : 'More like this'}
-              </button>
-              <button
+              </Button>
+              <Button
+                variant='ghost'
                 class={`${actionClass} ${isReading(value.item) ? '' : 'sm:hidden'}`}
                 aria-label={`Dislike ${value.item.name}`}
                 disabled={feedback.isPending}
@@ -619,11 +653,12 @@ export const ForYou = controllerView(
                   setMenu(undefined)
                 }}
               >
-                <ThumbsDown size={17} />
+                <ThumbsDown class='size-[17px]' size={17} />
                 Not interested
-              </button>
+              </Button>
               {!isReading(value.item) ? (
-                <button
+                <Button
+                  variant='ghost'
                   class={actionClass}
                   onClick={() => {
                     if (value.item.type === MediaType.FOLDER) playCollection(value.item)
@@ -633,20 +668,21 @@ export const ForYou = controllerView(
                 >
                   {value.item.type === MediaType.FOLDER ? (
                     <>
-                      <Play size={17} />
+                      <Play class='size-[17px]' size={17} />
                       Play collection
                     </>
                   ) : (
                     <>
-                      <ListPlus size={17} />
+                      <ListPlus class='size-[17px]' size={17} />
                       Add to queue
                     </>
                   )}
-                </button>
+                </Button>
               ) : null}
               {value.item.type === MediaType.AUDIO ? (
                 <>
-                  <button
+                  <Button
+                    variant='ghost'
                     class={actionClass}
                     onClick={() => {
                       const item = playbackItemFromFileItem(asFile(value.item))
@@ -655,10 +691,11 @@ export const ForYou = controllerView(
                       setMenu(undefined)
                     }}
                   >
-                    <StepForward size={17} />
+                    <StepForward class='size-[17px]' size={17} />
                     Play next
-                  </button>
-                  <button
+                  </Button>
+                  <Button
+                    variant='ghost'
                     class={actionClass}
                     onClick={() => {
                       startRadio(
@@ -669,14 +706,15 @@ export const ForYou = controllerView(
                       setMenu(undefined)
                     }}
                   >
-                    <Radio size={17} />
+                    <Radio class='size-[17px]' size={17} />
                     Start radio
-                  </button>
+                  </Button>
                 </>
               ) : null}
 
               {value.item.type === MediaType.FOLDER || value.item.path.includes('/') ? (
-                <button
+                <Button
+                  variant='ghost'
                   class={actionClass}
                   onClick={() => {
                     feedback.mutate({
@@ -689,11 +727,12 @@ export const ForYou = controllerView(
                     setMenu(undefined)
                   }}
                 >
-                  <FolderMinus size={17} />
+                  <FolderMinus class='size-[17px]' size={17} />
                   Hide this folder
-                </button>
+                </Button>
               ) : null}
-              <button
+              <Button
+                variant='ghost'
                 class={actionClass}
                 onClick={() => {
                   navigateSearchParams(
@@ -709,9 +748,9 @@ export const ForYou = controllerView(
                   setMenu(undefined)
                 }}
               >
-                <FolderOpen size={17} />
+                <FolderOpen class='size-[17px]' size={17} />
                 Open folder
-              </button>
+              </Button>
             </>
           )}
         </FloatingContextMenu>
@@ -757,8 +796,9 @@ const LibraryMatches = view<{ query: string; open: (item: FileItem, files: FileI
               available(search)?.results ?? [],
               (item) => item.path,
               (result) => (
-                <button
-                  class='truncate rounded-lg px-3 py-2 text-left text-sm hover:bg-secondary'
+                <Button
+                  variant='ghost'
+                  class='truncate rounded-lg px-3 py-2 justify-start text-left text-sm hover:bg-secondary'
                   title={result.path}
                   onClick={() =>
                     props.open(
@@ -770,7 +810,7 @@ const LibraryMatches = view<{ query: string; open: (item: FileItem, files: FileI
                   {result.isDirectory ? '▸ ' : ''}
                   {result.name}
                   <span class='ml-2 text-xs text-muted-foreground'>{result.parentPath}</span>
-                </button>
+                </Button>
               ),
             )}
           </div>

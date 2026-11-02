@@ -1,9 +1,8 @@
-import { PdfFormBar } from './PdfFormBar'
-import { createPdfForms, type PdfForms } from './pdf-forms'
+import { Input } from '@/lib/ui/input'
+import { Button } from '@/lib/ui/button'
 import { Effect, Exit } from 'effect'
-import { view, controllerView, modelOwner, domBinding, observe } from 'effectweb'
-import { modalFocus } from '@/lib/ui/modal-focus'
-import { modalDialogBackdropClass } from '@/features/explorer/modal-overlay-scope'
+import { view, controllerView, modelOwner, domBinding } from 'effectweb'
+import { Dialog } from '@/lib/ui/dialog'
 import { closeReader } from '../../reader-url'
 import * as pdfjs from 'pdfjs-dist'
 import { buildMediaUrl } from '@/lib/media/build-media-url'
@@ -12,7 +11,7 @@ import { mapPdfOutline } from './pdf-outline'
 import { PagedReader, type PagedDocument } from '../paged/PagedReader'
 import type { ReaderPage } from '../../reader-position'
 import type { ReaderContentProps } from '../../reader-types'
-type PdfReaderDocument = PagedDocument & { pdf: PdfDocument; forms?: PdfForms }
+type PdfReaderDocument = PagedDocument & { pdf: PdfDocument }
 type PasswordRequest = (update: (password: string | Error) => void, reason: number) => void
 const loadPdf = (
   path: string,
@@ -62,18 +61,7 @@ const loadPdf = (
           textCache.set(index, text)
           return text
         })
-      const fields = yield* Effect.tryPromise(() => pdf.getFieldObjects())
-      const forms = fields ? createPdfForms(pdf, path, fields) : undefined
-      return {
-        pdf,
-        pages,
-        outline,
-        pageText,
-        forms,
-        download: forms?.download,
-        beforeClose: forms?.beforeClose,
-        release: () => (forms?.close() ?? Effect.void).pipe(Effect.andThen(destroy)),
-      }
+      return { pdf, pages, outline, pageText, release: () => destroy }
     }).pipe(Effect.onExit((exit) => (Exit.isFailure(exit) ? destroy : Effect.void)))
   })
 
@@ -149,12 +137,6 @@ const PdfReader = controllerView(
           {...props}
           load={model.actions.load}
           selectionModes={['text', 'image']}
-          renderDocumentBar={(document) => {
-            const forms = (document as PdfReaderDocument).forms
-            return forms ? (
-              <PdfFormBar forms={forms} path={props.sourcePath} embedded={props.embedded} />
-            ) : null
-          }}
           renderPage={({
             document,
             page,
@@ -165,12 +147,8 @@ const PdfReader = controllerView(
             activeMatch,
             onNavigatePage,
           }) => {
-            const forms = (document as PdfReaderDocument).forms
-            const content = (revision = 0, pending = false) => (
+            return (
               <PdfContent
-                forms={forms}
-                formRevision={revision}
-                formPending={pending}
                 document={(document as PdfReaderDocument).pdf}
                 page={page}
                 pageIndex={pageIndex}
@@ -182,32 +160,26 @@ const PdfReader = controllerView(
                 onNavigatePage={onNavigatePage}
               />
             )
-            return forms
-              ? observe(forms.source, (state) => content(state.revision, state.pending))
-              : content()
           }}
         />
         {model.passwordOpen ? (
-          <div
-            data-no-window-drag
-            class={`${modalDialogBackdropClass(props.embedded ? 'window' : 'viewport')} z-[80]`}
+          <Dialog
+            open={model.passwordOpen}
+            onOpenChange={(open) => {
+              if (!open) model.actions.cancel()
+            }}
+            title='Unlock PDF'
           >
             <form
-              role='dialog'
-              aria-modal='true'
-              aria-label='Unlock PDF'
-              class='flex w-full max-w-sm flex-col gap-3 rounded-lg border border-border bg-background p-4 text-foreground shadow-xl'
-              use={modalFocus({ onEscape: model.actions.cancel })}
+              class='space-y-4'
               onSubmit={(event) => {
                 event.preventDefault()
                 model.actions.unlock()
               }}
             >
-              <h2 class='text-base font-semibold'>Unlock PDF</h2>
-              <p class='text-sm text-muted-foreground'>This document requires a password.</p>
               <label class='flex flex-col gap-1 text-sm'>
                 Password
-                <input
+                <Input
                   use={domBinding(model.unlocking, passwordFocus)}
                   type='password'
                   aria-label='PDF password'
@@ -225,23 +197,25 @@ const PdfReader = controllerView(
                 </p>
               ) : null}
               <div class='flex justify-end gap-2'>
-                <button
+                <Button
+                  variant='outline'
                   type='button'
                   class='rounded border border-input px-3 py-1.5 text-sm hover:bg-muted'
                   onClick={model.actions.cancel}
                 >
                   Cancel
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant='default'
                   type='submit'
                   class='rounded bg-primary px-3 py-1.5 text-sm text-primary-foreground disabled:opacity-40'
                   disabled={model.unlocking}
                 >
                   {model.unlocking ? 'Unlocking…' : 'Unlock'}
-                </button>
+                </Button>
               </div>
             </form>
-          </div>
+          </Dialog>
         ) : null}
       </div>
     )

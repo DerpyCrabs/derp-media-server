@@ -15,7 +15,7 @@ const attachLongPress = (element: HTMLElement, delay: () => number) => {
         new MouseEvent('contextmenu', {
           bubbles: true,
           cancelable: true,
-          view: window,
+          view: element.ownerDocument.defaultView,
           clientX,
           clientY,
         }),

@@ -8,7 +8,7 @@ test.describe('Drag and Drop File Moving', () => {
     await page.locator('button[title="Create new file"]').click()
     await page.locator('input[placeholder*="File name"]').fill('drag-test.txt')
     await page.getByRole('button', { name: 'Create' }).click()
-    await page.locator('button[title="Close"]').click()
+    await page.getByRole('button', { name: 'Close', exact: true }).click()
     await expect(page.locator('table').getByText('drag-test.txt')).toBeVisible()
 
     const sourceRow = page.locator('table tr').filter({ hasText: 'drag-test.txt' })

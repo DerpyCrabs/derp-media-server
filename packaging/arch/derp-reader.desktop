@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Derp Reader
+GenericName=Document and book reader
+Exec=derp-media-client --viewer=reader -- %U
+Icon=derp-reader
+Terminal=false
+Categories=Office;Viewer;
+MimeType=application/pdf;application/epub+zip;application/x-fictionbook+xml;application/vnd.openxmlformats-officedocument.wordprocessingml.document;application/vnd.oasis.opendocument.text;
+StartupNotify=true
+StartupWMClass=derp-media-client

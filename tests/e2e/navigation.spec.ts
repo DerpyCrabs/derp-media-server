@@ -92,12 +92,12 @@ test.describe('Folder Navigation', () => {
     await expect(page.locator('table')).toBeVisible()
 
     await page.getByRole('button', { name: 'Display options' }).click()
-    await page.getByRole('menuitem', { name: 'Grid view' }).click()
+    await page.getByRole('menuitemradio', { name: 'Grid view' }).click()
     await expect(page.locator('table')).not.toBeVisible()
     await expect(page.getByText('sample.mp4')).toBeVisible()
 
     await page.getByRole('button', { name: 'Display options' }).click()
-    await page.getByRole('menuitem', { name: 'List view' }).click()
+    await page.getByRole('menuitemradio', { name: 'List view' }).click()
     await expect(page.locator('table')).toBeVisible()
   })
 
@@ -168,8 +168,8 @@ test.describe('Folder Navigation', () => {
 
   test('shows virtual folders at root', async ({ page }) => {
     await page.goto('/')
-    await expect(page.getByText('Favorites')).toBeVisible()
-    await expect(page.getByText('Most Played')).toBeVisible()
+    await expect(page.locator('table').getByText('Favorites', { exact: true })).toBeVisible()
+    await expect(page.locator('table').getByText('Most Played', { exact: true })).toBeVisible()
   })
 
   test('context menu Open in Workspace targets workspace with folder dir', async ({ page }) => {
@@ -204,7 +204,7 @@ test.describe('Folder Navigation', () => {
     ])
 
     await page.goto('/?dir=Favorites')
-    await expect(page.getByText('Notes').first()).toBeVisible()
+    await expect(page.locator('table').getByText('Notes', { exact: true })).toBeVisible()
 
     await page.locator('table').getByText('Notes', { exact: true }).click({ button: 'right' })
     await Promise.all([

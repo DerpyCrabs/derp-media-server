@@ -41,6 +41,7 @@ export type DesktopGroupEnvironment = {
   tabs: Required<
     Pick<WorkspaceWindowChromeProps['tabs'], 'activate' | 'close' | 'togglePinned' | 'pull'>
   > & {
+    reopen?: () => void
     dropFile: (targetLeaderWindowId: string, data: FileDragData, insertIndex?: number) => void
     startSplitDrag: (groupId: string, event: PointerEvent) => void
   }

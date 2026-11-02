@@ -1,4 +1,5 @@
 import { navigateSearchParams } from './browser-history'
+import { navigateWindowSearchParams } from './window-history'
 import { movePath, pathIsWithin, type PathMutation } from '@/lib/files/path-mutation'
 
 type UrlParamKey = 'dir' | 'viewing' | 'playing' | 'audioOnly' | 'imageSeed'
@@ -42,8 +43,8 @@ export function setAudioOnly(enabled: boolean) {
   applyUpdates({ audioOnly: enabled ? 'true' : null }, 'replace')
 }
 
-export function applyPathMutationToUrl(mutation: PathMutation) {
-  const params = new URLSearchParams(window.location.search)
+export function applyPathMutationToUrl(mutation: PathMutation, target: Window = window) {
+  const params = new URLSearchParams(target.location.search)
   const updates: ParamUpdates = {}
   for (const key of ['dir', 'viewing', 'playing'] as const) {
     const path = params.get(key)
@@ -55,5 +56,6 @@ export function applyPathMutationToUrl(mutation: PathMutation) {
   }
   if (updates.viewing === null) updates.imageSeed = null
   if (updates.playing === null) updates.audioOnly = null
-  if (Object.keys(updates).length > 0) applyUpdates(updates, 'replace')
+  if (Object.keys(updates).length > 0)
+    navigateWindowSearchParams(target, updates as Record<string, string | null>, 'replace')
 }

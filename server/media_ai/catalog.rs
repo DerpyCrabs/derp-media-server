@@ -93,7 +93,7 @@ pub fn sync_page(state: &Shared, after: i64, epoch: i64) -> AppResult<(i64, bool
         .iter()
         .filter_map(|(_, id, relative, _, _)| {
             let root = state.config.roots.iter().find(|r| r.id == *id)?;
-            Some(if state.config.roots.len() == 1 {
+            Some(if !state.config.named_roots() {
                 relative.clone()
             } else {
                 format!("{}/{}", root.name, relative)
@@ -112,7 +112,7 @@ pub fn sync_page(state: &Shared, after: i64, epoch: i64) -> AppResult<(i64, bool
         .iter()
         .filter_map(|(_, id, relative, _, kind)| {
             let root = state.config.roots.iter().find(|r| r.id == *id)?;
-            let path = if state.config.roots.len() == 1 {
+            let path = if !state.config.named_roots() {
                 relative.clone()
             } else {
                 format!("{}/{}", root.name, relative)
@@ -131,7 +131,7 @@ pub fn sync_page(state: &Shared, after: i64, epoch: i64) -> AppResult<(i64, bool
             let Some(root) = state.config.roots.iter().find(|r| r.id == *root_id) else {
                 continue;
             };
-            let path = if state.config.roots.len() == 1 {
+            let path = if !state.config.named_roots() {
                 relative.clone()
             } else {
                 format!("{}/{}", root.name, relative)

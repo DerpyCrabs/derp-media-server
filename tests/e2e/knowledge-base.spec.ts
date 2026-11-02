@@ -67,7 +67,6 @@ test.describe('Knowledge Base', () => {
   test('defaults to .md extension when creating files in KB', async ({ page }) => {
     await page.goto('/?dir=Notes')
     await page.locator('button[title="Create new file"]').click()
-    await expect(page.getByText('.md extension will be added')).toBeVisible()
     const stem = `kb.${Date.now()}.08.08`
     await page.locator('input[placeholder*="File name"]').fill(stem)
     await page.getByRole('button', { name: 'Create' }).click()
@@ -93,7 +92,6 @@ test.describe('Knowledge Base', () => {
     await expect(page.getByTestId('directory-bg-menu-new-folder')).toBeVisible()
 
     await page.getByTestId('directory-bg-menu-new-file').click()
-    await expect(page.getByText('.md extension will be added')).toBeVisible()
     await expect(page.locator('input[placeholder*="File name"]')).toBeVisible()
   })
 
@@ -187,7 +185,9 @@ test.describe('Knowledge Base', () => {
     await page.goto('/?dir=Notes')
     await page.locator('table').getByText('welcome.md').click()
     // Notes is editable, so the file opens in edit mode — switch to read-only
-    await page.getByRole('button', { name: 'Read only' }).click()
+    await page.getByRole('button', { name: 'Document actions' }).click()
+    await page.getByRole('menuitemcheckbox', { name: 'Read only', exact: true }).click()
+    await page.keyboard.press('Escape')
     // welcome.md contains ![[diagram.png]] which should render as an <img>
     const document = page.getByRole('document', { name: 'welcome.md Markdown document' })
     await expect(document).toBeVisible()
@@ -210,9 +210,7 @@ test.describe('Knowledge Base', () => {
     await page.locator('[data-slot="context-menu-item"]').getByText('Set icon').click()
 
     // Icon editor dialog should appear (use data-slot to avoid matching ThemeSwitcher's button[title])
-    const dialog = page
-      .locator('[data-slot="dialog-content"]')
-      .filter({ hasText: 'Set Custom Icon' })
+    const dialog = page.getByRole('dialog').filter({ hasText: 'Set Custom Icon' })
     await expect(dialog).toBeVisible()
 
     // Pick an icon — scoped to dialog

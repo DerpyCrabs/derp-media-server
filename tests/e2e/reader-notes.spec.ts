@@ -41,13 +41,15 @@ test('bookmarks save, navigate, export and delete without changing the PDF', asy
   await panel.getByRole('button', { name: 'Вернуться к главному', exact: true }).click()
   await expect(page.getByTestId('reader-page-indicator')).toContainText('Page 3 / 4')
   const downloadPromise = page.waitForEvent('download')
-  await panel.getByRole('button', { name: 'Export notes' }).click()
+  await panel.getByRole('button', { name: 'Notes actions' }).click()
+  await page.getByRole('menuitem', { name: 'Export notes' }).click()
   const download = await downloadPromise
   const text = fs.readFileSync((await download.path())!, 'utf8')
   expect(text).toContain('Вернуться к главному')
   expect(text).toContain('Read this again tomorrow.')
   expect(fs.readFileSync(path.join(root(), source)).equals(original)).toBe(true)
-  await panel.getByRole('button', { name: 'Delete', exact: true }).click()
+  await panel.getByRole('button', { name: /^Actions for / }).click()
+  await page.getByRole('menuitem', { name: 'Delete', exact: true }).click()
   await panel.getByRole('button', { name: 'Delete note', exact: true }).click()
   await expect(panel.getByText('Read this again tomorrow.')).toHaveCount(0)
 })
@@ -56,11 +58,34 @@ test('unfinished notes recover after a reload and save once', async ({ page }) =
   await panel.getByRole('button', { name: 'Bookmark this location' }).click()
   await panel.getByLabel('Title', { exact: true }).fill('Recovered bookmark')
   await panel.getByLabel('Note', { exact: true }).fill('Unfinished thoughts')
-  await expect(panel.getByText('Draft backed up in this browser')).toBeVisible()
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          new Promise<boolean>((resolve, reject) => {
+            const open = indexedDB.open('derp-editor-drafts')
+            open.onerror = () => reject(open.error)
+            open.onsuccess = () => {
+              const database = open.result
+              const read = database.transaction('text').objectStore('text').getAll()
+              read.onsuccess = () => {
+                resolve(read.result.some((draft) => draft.content.includes('Unfinished thoughts')))
+                database.close()
+              }
+              read.onerror = () => {
+                reject(read.error)
+                database.close()
+              }
+            }
+          }),
+      ),
+    )
+    .toBe(true)
   await page.reload()
   await expect(page.getByTestId('pdf-text-layer').first()).toBeVisible()
   await page.keyboard.press('Control+b')
-  await panel.getByRole('button', { name: 'Restore note' }).click()
+  await panel.getByRole('button', { name: 'Recover note' }).click()
+  await page.getByRole('menuitem').filter({ hasNotText: 'Discard' }).click()
   await expect(panel.getByLabel('Note', { exact: true })).toHaveValue('Unfinished thoughts')
   await panel.getByRole('button', { name: 'Save note', exact: true }).click()
   await expect(panel.getByRole('button', { name: 'Recovered bookmark', exact: true })).toBeVisible()
@@ -72,13 +97,14 @@ test('unfinished notes recover after a reload and save once', async ({ page }) =
   await expect(page.getByTestId('pdf-text-layer').first()).toBeVisible()
   await page.keyboard.press('Control+b')
   await expect(panel.getByRole('button', { name: 'Recovered bookmark', exact: true })).toBeVisible()
-  await expect(panel.getByRole('button', { name: 'Restore note' })).toHaveCount(0)
+  await expect(panel.getByRole('button', { name: 'Recover note' })).toHaveCount(0)
 })
 test('a stale edit keeps the typed note and cannot overwrite another window', async ({ page }) => {
   const { source, panel } = await open(page)
   await panel.getByRole('button', { name: 'Bookmark this location' }).click()
   await panel.getByRole('button', { name: 'Save note', exact: true }).click()
-  await panel.getByRole('button', { name: 'Edit', exact: true }).click()
+  await panel.getByRole('button', { name: /^Actions for / }).click()
+  await page.getByRole('menuitem', { name: 'Edit', exact: true }).click()
   await panel.getByLabel('Note', { exact: true }).fill('Local thoughts')
   const data = await (
     await page.request.get(`/api/reader-notes?path=${encodeURIComponent(source)}`)
@@ -115,6 +141,12 @@ test('selected PDF text becomes a quoted note and remains available after the do
   const { source, panel } = await open(page)
   await page.getByRole('button', { name: 'Close document outline' }).click()
   await page.getByTestId('reader-settings-button').click()
+  if (
+    (await page
+      .getByRole('button', { name: 'Text actions', exact: true })
+      .getAttribute('aria-expanded')) !== 'true'
+  )
+    await page.getByRole('button', { name: 'Text actions', exact: true }).click()
   await page.getByRole('button', { name: 'none', exact: true }).click()
   await page
     .getByTestId('pdf-text-layer')

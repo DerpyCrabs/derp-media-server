@@ -38,3 +38,16 @@ test('cancellation cannot later be reported as successful', () => {
   finishNativeOperation(operation)
   expect(rows.map((r) => r[0])).toEqual([11, 13])
 })
+
+test('completion stays with its originating surface when another window becomes current', () => {
+  const first: number[][] = [],
+    second: number[][] = []
+  install((...values) => first.push(values))
+  const operation = beginNativeOperation(1, '/Source')
+  install((...values) => second.push(values))
+  finishNativeOperation(operation)
+  expect(first.map((row) => row[0])).toEqual([11, 10])
+  expect(second).toEqual([])
+  expect(beginNativeOperation(1, '/ordinary-page', null)).toBeUndefined()
+  expect(second).toEqual([])
+})

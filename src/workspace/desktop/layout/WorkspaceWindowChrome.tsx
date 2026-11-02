@@ -49,6 +49,7 @@ export type WorkspaceWindowChromeProps = {
     beginPointerGesture: () => WorkspacePointerGesture
   }
   tabs: {
+    reopen?: () => void
     activate?: (groupId: string, tabId: string) => void
     close?: (tabId: string) => void
     togglePinned?: (tabId: string) => void
@@ -348,6 +349,7 @@ export const WorkspaceWindowChrome = component<
               splitLeftTabId={props.tabs.splitLeftId}
               onActivateTab={props.tabs.activate}
               onFocusWindow={props.commands.focus}
+              onReopenClosedTab={props.tabs.reopen}
               onCloseTab={props.tabs.close}
               onToggleTabPinned={props.tabs.togglePinned}
               onTabPullStart={props.tabs.pull}

@@ -32,7 +32,7 @@ test.describe('Folder virtualization', () => {
   test('list view only mounts visible rows and scrolls to far files', async ({ page }) => {
     await page.goto(`/?dir=${encodeURIComponent(folderName)}`)
     await page.getByRole('button', { name: 'Display options' }).click()
-    await page.getByRole('menuitem', { name: 'List view' }).click()
+    await page.getByRole('menuitemradio', { name: 'List view' }).click()
     await expect(page.locator('table').getByText('item-0000.txt')).toBeVisible()
 
     expect(await page.locator('[data-file-path]').count()).toBeLessThan(80)
@@ -63,19 +63,28 @@ test.describe('Folder virtualization', () => {
       await page.goto(`/?dir=${encodeURIComponent(folderName)}`)
       await page.getByRole('button', { name: 'Display options' }).click()
       await page
-        .getByRole('menuitem', { name: mode === 'list' ? 'List view' : 'Grid view' })
+        .getByRole('menuitemradio', { name: mode === 'list' ? 'List view' : 'Grid view' })
         .click()
       const first = page.locator(`[data-file-path="${folderName}/item-0000.txt"]`)
       await first.focus()
       await page.keyboard.press(mode === 'list' ? 'Shift+ArrowDown' : 'Shift+ArrowRight')
-      await expect(page.getByRole('button', { name: 'Files (2)', exact: true })).toBeVisible()
+      await expect(page.getByRole('button', { name: 'File actions', exact: true })).toHaveAttribute(
+        'data-selected-count',
+        '2',
+      )
       await expect(page.locator(`[data-file-path="${folderName}/item-0001.txt"]`)).toBeFocused()
       await page.keyboard.press('Shift+End')
-      await expect(page.getByRole('button', { name: 'Files (500)', exact: true })).toBeVisible()
+      await expect(page.getByRole('button', { name: 'File actions', exact: true })).toHaveAttribute(
+        'data-selected-count',
+        '500',
+      )
       await expect(page.locator(`[data-file-path="${folderName}/item-0499.txt"]`)).toBeFocused()
       await page.keyboard.press('Shift+Home')
       await expect(first).toBeFocused()
-      await expect(page.getByRole('button', { name: 'Files (1)', exact: true })).toBeVisible()
+      await expect(page.getByRole('button', { name: 'File actions', exact: true })).toHaveAttribute(
+        'data-selected-count',
+        '1',
+      )
       await page.keyboard.press(mode === 'list' ? 'ArrowDown' : 'ArrowRight')
       await expect(first).toHaveAttribute('aria-selected', 'false')
       await expect(page.locator(`[data-file-path="${folderName}/item-0001.txt"]`)).toHaveAttribute(
@@ -83,16 +92,19 @@ test.describe('Folder virtualization', () => {
         'true',
       )
       await page.keyboard.press(mode === 'list' ? 'Shift+ArrowDown' : 'Shift+ArrowRight')
-      await expect(page.getByRole('button', { name: 'Files (2)', exact: true })).toBeVisible()
+      await expect(page.getByRole('button', { name: 'File actions', exact: true })).toHaveAttribute(
+        'data-selected-count',
+        '2',
+      )
       await page.keyboard.press('Escape')
-      await expect(page.getByRole('button', { name: 'Files', exact: true })).toBeVisible()
+      await expect(page.getByRole('button', { name: 'File actions', exact: true })).toBeVisible()
     })
   }
 
   test('grid view only mounts visible cards and scrolls to far files', async ({ page }) => {
     await page.goto(`/?dir=${encodeURIComponent(folderName)}`)
     await page.getByRole('button', { name: 'Display options' }).click()
-    await page.getByRole('menuitem', { name: 'Grid view' }).click()
+    await page.getByRole('menuitemradio', { name: 'Grid view' }).click()
     await expect(page.locator('[data-testid=file-browser] .file-browser-grid')).toBeVisible()
     await expect(page.getByText('item-0000.txt')).toBeVisible()
 
@@ -146,7 +158,7 @@ test.describe('Folder virtualization', () => {
   test('grid thumbnails load while virtualized cards are remounted', async ({ page }) => {
     await page.goto(`/?dir=${encodeURIComponent(mediaFolderName)}`)
     await page.getByRole('button', { name: 'Display options' }).click()
-    await page.getByRole('menuitem', { name: 'Grid view' }).click()
+    await page.getByRole('menuitemradio', { name: 'Grid view' }).click()
     const thumbnails = page.locator(
       '[data-testid=file-browser] img[data-testid=file-browser-image-thumbnail]',
     )
@@ -194,7 +206,7 @@ test.describe('Folder virtualization', () => {
     )
     await page.goto(`/?dir=${encodeURIComponent(mediaFolderName)}`)
     await page.getByRole('button', { name: 'Display options' }).click()
-    await page.getByRole('menuitem', { name: 'Grid view' }).click()
+    await page.getByRole('menuitemradio', { name: 'Grid view' }).click()
     await expect(page.getByText('image-0000.png')).toBeVisible()
     await page.evaluate(() => window.scrollTo(0, 3000))
     await expect
@@ -271,7 +283,7 @@ test.describe('Folder virtualization', () => {
     })
     const trigger = page.getByRole('button', { name: 'Display options' })
     await trigger.click()
-    await page.getByRole('menuitem', { name: 'Grid view' }).click()
+    await page.getByRole('menuitemradio', { name: 'Grid view' }).click()
     try {
       await expect.poll(() => started).toBe(4)
       await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
@@ -297,10 +309,10 @@ test.describe('Folder virtualization', () => {
       const trigger = page.getByRole('button', { name: 'Display options' })
       await trigger.click()
       try {
-        await page.getByRole('menuitem', { name: 'List view' }).click()
+        await page.getByRole('menuitemradio', { name: 'List view' }).click()
         await expect(trigger).toHaveAttribute('aria-expanded', 'false')
         await trigger.click()
-        const grid = page.getByRole('menuitem', { name: 'Grid view' })
+        const grid = page.getByRole('menuitemradio', { name: 'Grid view' })
         await expect(grid).toBeVisible()
         await grid.click()
         await expect(trigger).toHaveAttribute('aria-expanded', 'false')
@@ -313,11 +325,11 @@ test.describe('Folder virtualization', () => {
     test('shows a large image folder after switching from list to grid view', async ({ page }) => {
       await page.goto(`/?dir=${encodeURIComponent(mediaFolderName)}`)
       await page.getByRole('button', { name: 'Display options' }).click()
-      await page.getByRole('menuitem', { name: 'List view' }).click()
+      await page.getByRole('menuitemradio', { name: 'List view' }).click()
       await expect(page.getByText('image-0000.png')).toBeVisible()
 
       await page.getByRole('button', { name: 'Display options' }).click()
-      await page.getByRole('menuitem', { name: 'Grid view' }).click()
+      await page.getByRole('menuitemradio', { name: 'Grid view' }).click()
 
       await expect(page.locator('[data-testid=file-browser] .file-browser-grid')).toBeVisible()
       await expect(page.getByText('image-0000.png')).toBeVisible()

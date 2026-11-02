@@ -1,3 +1,8 @@
+import ChevronLeft from '@effectweb/lucide/icons/chevron-left'
+import ChevronRight from '@effectweb/lucide/icons/chevron-right'
+import { Input } from '@/lib/ui/input'
+import { Button } from '@/lib/ui/button'
+import { Select } from '@/lib/ui/select'
 import { Effect } from 'effect'
 import * as pdfjs from 'pdfjs-dist'
 import { controllerView, domBinding, modelOwner, view } from 'effectweb'
@@ -95,7 +100,6 @@ const measure = (element: HTMLDivElement, current: () => (width: number) => void
   update()
   return () => observer.disconnect()
 }
-const button = 'rounded border border-input px-2 py-1 text-sm hover:bg-accent disabled:opacity-40'
 export default controllerView(
   { controller },
   view((model) => {
@@ -109,13 +113,15 @@ export default controllerView(
     return (
       <div class='flex h-full min-h-0 flex-col'>
         <div class='flex shrink-0 flex-wrap items-center justify-center gap-2 border-b border-border p-2'>
-          <button
-            class={button}
+          <Button
+            variant='outline'
+            size='icon'
+            aria-label='Previous page'
             disabled={!model.document || model.index === 0}
             onClick={() => model.actions.navigate(model.index - 1)}
           >
-            Previous page
-          </button>
+            <ChevronLeft />
+          </Button>
           <form
             class='flex items-center gap-1 text-sm'
             onSubmit={(event) => {
@@ -123,37 +129,36 @@ export default controllerView(
               model.actions.jump()
             }}
           >
-            <input
+            <Input
               aria-label='Preview PDF page'
-              class='w-14 rounded border border-input bg-background p-1 text-center'
+              class='w-14 text-center'
               inputMode='numeric'
               value={model.input}
               onInput={(event) => model.actions.input(event.currentTarget.value)}
             />
             <span>/ {model.count || '…'}</span>
           </form>
-          <button
-            class={button}
+          <Button
+            variant='outline'
+            size='icon'
+            aria-label='Next page'
             disabled={!model.document || model.index >= model.count - 1}
             onClick={() => model.actions.navigate(model.index + 1)}
           >
-            Next page
-          </button>
-          <select
+            <ChevronRight />
+          </Button>
+          <Select
             aria-label='PDF preview zoom'
-            class={`${button} bg-background`}
+            class='w-28'
             value={String(model.zoom)}
-            onChange={(event) =>
-              model.actions.zoom(
-                event.currentTarget.value === 'fit' ? 'fit' : Number(event.currentTarget.value),
-              )
-            }
-          >
-            <option value='fit'>Fit width</option>
-            <option value='1'>100%</option>
-            <option value='1.5'>150%</option>
-            <option value='2'>200%</option>
-          </select>
+            onValueChange={(value) => model.actions.zoom(value === 'fit' ? 'fit' : Number(value))}
+            options={[
+              { value: 'fit', label: 'Fit width' },
+              { value: '1', label: '100%' },
+              { value: '1.5', label: '150%' },
+              { value: '2', label: '200%' },
+            ]}
+          />
         </div>
         {model.error ? (
           <p role='alert' class='p-4 text-sm text-destructive'>

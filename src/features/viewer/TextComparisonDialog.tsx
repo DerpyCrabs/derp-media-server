@@ -1,8 +1,10 @@
+import X from '@effectweb/lucide/icons/x'
+import Check from '@effectweb/lucide/icons/check'
+import { BrowserDownload } from '@/lib/ui/browser-download'
+import { Button } from '@/lib/ui/button'
 import { view } from 'effectweb'
-import { modalFocus } from '@/lib/ui/modal-focus'
-import { modalDialogBackdropClass } from '@/features/explorer/modal-overlay-scope'
+import { Dialog } from '@/lib/ui/dialog'
 import { LazyMergeDocument } from '@/lib/editor/LazyMergeDocument'
-import { detectLineSeparator, hasMixedLineEndings } from '@/lib/editor/line-endings'
 import type { TextDocumentRemote } from './text-editor-controller'
 type Props = {
   path: string
@@ -19,109 +21,79 @@ type Props = {
   onClose: () => void
   onDownload: () => void
 }
-const lineEnding = (text: string) =>
-  hasMixedLineEndings(text)
-    ? 'Mixed line endings'
-    : detectLineSeparator(text) === '\r\n'
-      ? 'CRLF'
-      : detectLineSeparator(text) === '\r'
-        ? 'CR'
-        : 'LF'
 export const TextComparisonDialog = view<Props>((props) => {
   const stale = props.remote.version !== props.latestVersion
   const large =
     props.remote.content.length > 2 * 1024 * 1024 || props.local.length > 2 * 1024 * 1024
-  return (
-    <div
-      data-no-window-drag
-      class={`${modalDialogBackdropClass(props.embedded ? 'window' : 'viewport')} z-[90]`}
-    >
-      <section
-        role='dialog'
-        aria-modal='true'
-        aria-label='Review file changes'
-        class='flex h-[min(44rem,calc(100dvh-2rem))] max-h-full w-full max-w-6xl flex-col overflow-hidden rounded-lg border border-border bg-background text-foreground shadow-xl'
-        use={modalFocus({ onEscape: props.onClose })}
-        onKeyDown={(event) => {
-          if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's')
-            event.preventDefault()
-        }}
+  const toolbarEnd = (
+    <>
+      <Button
+        variant='default'
+        size='icon'
+        aria-label='Use reviewed version'
+        title='Use reviewed version'
+        disabled={stale || props.pending || large}
+        onClick={props.onApply}
       >
-        <header class='flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3'>
-          <div class='min-w-0'>
-            <h2 class='text-base font-semibold'>Review file changes</h2>
-            <p class='truncate text-xs text-muted-foreground'>{props.path}</p>
-          </div>
-          <button
+        <Check />
+      </Button>
+      <Button variant='ghost' size='icon' aria-label='Close comparison' onClick={props.onClose}>
+        <X />
+      </Button>
+    </>
+  )
+  return (
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) props.onClose()
+      }}
+      showCloseButton={false}
+      aria-label='Review file changes'
+      class='flex h-[min(44rem,calc(100dvh-2rem))] sm:max-w-6xl flex-col overflow-hidden p-0 gap-0'
+    >
+      {stale ? (
+        <div
+          role='alert'
+          class='flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs'
+        >
+          <span>The file changed again while you were reviewing it.</span>
+          <Button
+            variant='ghost'
             type='button'
-            aria-label='Close comparison'
-            class='shrink-0 rounded border border-input px-2 py-1'
-            onClick={props.onClose}
+            class='underline disabled:opacity-40'
+            disabled={!props.latestVersion}
+            onClick={props.onLatest}
           >
-            Close
-          </button>
-        </header>
-        <p class='shrink-0 border-b border-border px-3 py-2 text-xs text-muted-foreground'>
-          Compare the server file with your draft. Edit your version or copy individual changes with
-          the arrows. Your edits stay in the draft when you close this view. The file is saved only
-          after you finish reviewing and press Save.
+            Review latest server version
+          </Button>
+        </div>
+      ) : null}
+      {props.error ? (
+        <p role='alert' class='shrink-0 px-3 py-2 text-sm text-destructive'>
+          {props.error}
         </p>
-        {stale ? (
-          <div
-            role='alert'
-            class='flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs'
-          >
-            <span>The file changed again while you were reviewing it.</span>
-            <button
-              type='button'
-              class='underline disabled:opacity-40'
-              disabled={!props.latestVersion}
-              onClick={props.onLatest}
-            >
-              Review latest server version
-            </button>
-          </div>
-        ) : null}
-        {props.error ? (
-          <p role='alert' class='shrink-0 px-3 py-2 text-sm text-destructive'>
-            {props.error}
-          </p>
-        ) : null}
-        {large ? (
-          <div class='flex-1 p-4 text-sm'>
-            <p>
-              Side-by-side comparison supports up to 2 million characters per version. Download your
-              draft to compare larger files in another editor.
-            </p>
-            <button type='button' class='mt-3 underline' onClick={props.onDownload}>
-              Download your draft
-            </button>
-          </div>
-        ) : (
-          <LazyMergeDocument
-            remote={props.remote.content}
-            local={props.local}
-            readOnly={props.readOnly}
-            onChange={props.onChange}
-          />
-        )}
-        <footer class='flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-border px-3 py-3 text-xs'>
-          <span class='text-muted-foreground'>
-            Server: {lineEnding(props.remote.content)}
-            {props.remote.content.startsWith('\uFEFF') ? ' · BOM' : ''} · Draft:{' '}
-            {lineEnding(props.local)}
-            {props.local.startsWith('\uFEFF') ? ' · BOM' : ''}
-          </span>
-          <button
-            type='button'
-            disabled={stale || props.pending || large}
-            class='rounded bg-primary px-3 py-2 text-sm text-primary-foreground disabled:opacity-40'
-            onClick={props.onApply}
-          >
-            Use reviewed version
-          </button>
-        </footer>
-      </section>
-    </div>
+      ) : null}
+      {large ? (
+        <div class='flex-1 p-4 text-sm'>
+          <div class='mb-4 flex justify-end gap-1'>{toolbarEnd}</div>
+          <p>This file is too large for comparison.</p>
+          <BrowserDownload>
+            <Button variant='ghost' type='button' class='mt-3 underline' onClick={props.onDownload}>
+              Save a copy
+            </Button>
+          </BrowserDownload>
+        </div>
+      ) : (
+        <LazyMergeDocument
+          name={props.path.split('/').pop() ?? props.path}
+          toolbarEnd={toolbarEnd}
+          remote={props.remote.content}
+          local={props.local}
+          readOnly={props.readOnly}
+          onChange={props.onChange}
+        />
+      )}
+    </Dialog>
   )
 })

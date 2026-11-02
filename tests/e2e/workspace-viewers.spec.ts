@@ -34,9 +34,9 @@ function getBrowserContent(page: Page) {
 
 async function chooseDisplayOption(page: Page, content: Locator, label: 'List view' | 'Grid view') {
   await content.getByRole('button', { name: 'Display options' }).click()
-  const menu = page.getByTestId('explorer-display-options')
+  const menu = page.getByRole('menu', { name: 'Display options', exact: true })
   await expect(menu).toBeVisible()
-  await menu.getByRole('menuitem', { name: label }).click()
+  await menu.getByRole('menuitemradio', { name: label }).click()
 }
 
 function getMarkdownEditor(container: Locator) {
@@ -414,7 +414,7 @@ test.describe('Workspace Image Viewer', () => {
           response.ok(),
       )
     const saved = waitForShuffleSave()
-    await viewer.getByRole('button', { name: 'Shuffle images' }).click()
+    await page.getByRole('button', { name: 'Shuffle images' }).click()
     const firstSave = await saved
     const firstSeed = (
       firstSave.request().postDataJSON().snapshot.windows as Array<{
@@ -431,12 +431,12 @@ test.describe('Workspace Image Viewer', () => {
         !response.request().postData()?.includes(firstSeed!) &&
         response.ok(),
     )
-    await viewer.getByRole('button', { name: 'Shuffle images' }).click()
+    await page.getByRole('button', { name: 'Shuffle images' }).click()
     await reshuffled
     await expect(viewer.getByText(/\d+ of \d+/)).toHaveText('1 of 2')
     const counter = await viewer.getByText(/\d+ of \d+/).textContent()
     await page.reload()
-    const restored = page.getByRole('button', { name: 'Shuffle images' })
+    const restored = page.getByRole('button', { name: 'Image actions' })
     await expect(restored).toBeVisible()
     await expect(
       getWindowGroups(page)
@@ -482,7 +482,7 @@ test.describe('Workspace Image Viewer', () => {
     await test.step('rotates image via rotate button', async () => {
       const img = viewer.locator('img[alt="photo.jpg"]')
       await expect(img).toBeVisible()
-      const rotateButton = viewer.locator('button:has(.lucide-rotate-cw)')
+      const rotateButton = page.getByRole('button', { name: 'Rotate clockwise' })
       await rotateButton.click()
       expect(await img.evaluate((el) => el.style.transform)).toContain('rotate(90deg)')
       const surfaceBox = (await viewer.getByTestId('workspace-image-surface').boundingBox())!
@@ -492,13 +492,15 @@ test.describe('Workspace Image Viewer', () => {
       expect(imageBox.x + imageBox.width).toBeLessThanOrEqual(surfaceBox.x + surfaceBox.width)
       expect(imageBox.y + imageBox.height).toBeLessThanOrEqual(surfaceBox.y + surfaceBox.height)
 
-      await rotateButton.click({ clickCount: 3 })
+      for (let step = 0; step < 3; step++) {
+        await rotateButton.click()
+      }
       expect(await img.evaluate((el) => el.style.transform)).toContain('rotate(0deg)')
     })
 
     await test.step('fit-to-screen resets zoom and rotation', async () => {
       await viewer.locator('button:has(.lucide-zoom-in)').click()
-      await viewer.locator('button:has(.lucide-rotate-cw)').click()
+      await page.getByRole('button', { name: 'Rotate clockwise' }).click()
       await viewer.locator('button[title="Fit to screen"]').click()
       await expect(viewer.getByText('Fit')).toBeVisible()
       const img = viewer.locator('img[alt="photo.jpg"]')
@@ -699,6 +701,7 @@ test.describe('Workspace PDF Viewer', () => {
       await viewer.getByTestId('reader-settings-button').click()
       await expect(viewer.getByTestId('reader-settings')).toContainText('Default action')
       await expect(viewer.getByTestId('reader-settings')).toContainText('Select')
+      await viewer.getByRole('button', { name: 'Text actions', exact: true }).click()
       await viewer.getByRole('button', { name: 'none', exact: true }).click()
     })
     await test.step('opens selection menu from real mouse text selection', async () => {
@@ -849,7 +852,7 @@ test.describe('Workspace Text Viewer', () => {
         imageBox!.y + imageBox!.height / 2,
       )
 
-      const overlay = viewer.locator('[role="dialog"][aria-label="View image fullscreen"]')
+      const overlay = page.getByRole('dialog').filter({ has: page.getByRole('img') })
       await expect(overlay).toBeVisible()
       await overlay.getByRole('button', { name: 'Close' }).click()
       await expect(overlay).not.toBeVisible()
@@ -1014,15 +1017,15 @@ test.describe('Workspace Text Viewer', () => {
       await page.keyboard.insertText('replacement')
       await expect(text).toHaveText(original!)
     })
-    await test.step('shows file type and line count', async () => {
+    await test.step('shows file type', async () => {
       await expect(viewer.getByText('TXT')).toBeVisible()
-      await expect(viewer.getByText(/\d+ lines/)).toBeVisible()
     })
     await test.step('does not show edit button for non-editable folders', async () => {
       await expect(viewer.getByRole('button', { name: 'Edit', exact: true })).not.toBeVisible()
     })
     await test.step('copy button exists', async () => {
-      await expect(viewer.locator('button[title="Copy to clipboard"]')).toBeVisible()
+      await viewer.getByRole('button', { name: 'Document actions' }).click()
+      await expect(page.getByRole('menuitem', { name: 'Copy text', exact: true })).toBeVisible()
     })
   })
 
@@ -1048,7 +1051,7 @@ test.describe('Workspace Text Viewer', () => {
   test('markdown image fullscreen overlay open and close paths', async () => {
     await gotoWorkspace(page)
     const viewer = await openFileFromBrowser(page, 'Documents', 'image-note.md')
-    const overlay = viewer.locator('[role="dialog"][aria-label="View image fullscreen"]')
+    const overlay = page.getByRole('dialog').filter({ has: page.getByRole('img') })
 
     await test.step('opens fullscreen from image click', async () => {
       const img = viewer.locator('img.cm-md-image[alt="photo"]')
@@ -1065,7 +1068,7 @@ test.describe('Workspace Text Viewer', () => {
     await test.step('closes on backdrop click', async () => {
       await viewer.locator('img.cm-md-image[alt="photo"]').click()
       await expect(overlay).toBeVisible()
-      await overlay.click({ position: { x: 10, y: 10 } })
+      await page.mouse.click(1, 1)
       await expect(overlay).not.toBeVisible()
     })
 
@@ -1084,7 +1087,7 @@ test.describe('Workspace Text Viewer', () => {
     await test.step('auto-enters edit mode in editable folders', async () => {
       await expect(getMarkdownEditor(viewer)).toBeVisible()
       await expect(viewer.getByTestId('markdown-document')).toHaveAttribute('data-mode', 'edit')
-      await expect(viewer.getByRole('button', { name: 'Read only' })).toBeVisible()
+      await expect(viewer.getByRole('button', { name: 'Document actions' })).toBeVisible()
     })
 
     await test.step('shows editor with exact Markdown source', async () => {
@@ -1093,24 +1096,28 @@ test.describe('Workspace Text Viewer', () => {
     })
 
     await test.step('switches one CodeMirror document between edit and read modes', async () => {
+      await viewer.getByRole('button', { name: 'Document actions' }).click()
       await Promise.all([
         page.waitForResponse(
           (response) => response.url().includes('/api/settings/autoSave') && response.ok(),
         ),
-        viewer.getByRole('button', { name: 'Read only' }).click(),
+        page.getByRole('menuitemcheckbox', { name: 'Read only', exact: true }).click(),
       ])
+      await page.keyboard.press('Escape')
       await expect(getMarkdownEditor(viewer)).not.toBeVisible()
       const document = getMarkdownDocument(viewer)
       await expect(document).toBeVisible()
       await expect(viewer.locator('.cm-md-heading-1')).toContainText('Todo List')
       await expect(viewer.locator('input[data-markdown-task="read"]').first()).toBeDisabled()
       expect(await copyMarkdownSource(page, document)).toContain('# Todo List')
+      await viewer.getByRole('button', { name: 'Document actions' }).click()
       await Promise.all([
         page.waitForResponse(
           (response) => response.url().includes('/api/settings/autoSave') && response.ok(),
         ),
-        viewer.getByRole('button', { name: 'Edit', exact: true }).click(),
+        page.getByRole('menuitemcheckbox', { name: 'Read only', exact: true }).click(),
       ])
+      await page.keyboard.press('Escape')
       const editor = getMarkdownEditor(viewer)
       await expect(editor).toBeVisible()
       await editor.press('ArrowRight')

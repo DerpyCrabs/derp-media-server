@@ -1,59 +1,55 @@
-import { Portal, observe, view } from 'effectweb'
-import { appDialogSource, settleAppDialog } from './app-dialog'
-import { modalFocus } from './modal-focus'
-
-export const AppDialogHost = view(() =>
-  observe(appDialogSource, ({ request: current }) =>
-    current ? (
-      <Portal>
-        <div
-          class='fixed inset-0 z-[2000000] flex items-center justify-center bg-black/55 p-4'
-          role='presentation'
-          onPointerDown={(event) => event.target === event.currentTarget && settleAppDialog(false)}
-        >
-          <div
-            use={modalFocus({ onEscape: () => settleAppDialog(false) })}
-            role={current.kind === 'confirm' ? 'alertdialog' : 'dialog'}
-            aria-modal='true'
-            aria-labelledby='app-dialog-title'
-            aria-describedby='app-dialog-description'
-            class='w-full max-w-md rounded-xl border border-border bg-popover p-5 text-popover-foreground shadow-2xl'
-          >
-            <h2 id='app-dialog-title' class='text-base font-semibold'>
-              {current.title}
-            </h2>
-            <p
-              id='app-dialog-description'
-              class='mt-2 whitespace-pre-wrap text-sm text-muted-foreground'
-            >
-              {current.message}
-            </p>
-            <div class='mt-5 flex justify-end gap-2'>
-              {current.kind === 'confirm' ? (
-                <button
-                  type='button'
-                  class='h-9 rounded-md border border-input bg-background px-4 text-sm font-medium hover:bg-accent'
-                  onClick={() => settleAppDialog(false)}
-                >
+import { Button } from '@/lib/ui/button'
+import { Dialog } from '@/lib/ui/dialog'
+import { controllerView, modelOwner, observe, view, type ControllerHost } from 'effectweb'
+import { acquireWindowDialogs } from './app-dialog'
+import { viewWindow } from '@/lib/browser/view-window'
+export const AppDialogHost = controllerView(
+  {
+    controller: (_props: object, host: ControllerHost) => {
+      const lease = acquireWindowDialogs(viewWindow(host))
+      const owner = modelOwner({ dialogs: lease.dialogs })
+      return {
+        source: owner.source,
+        lifetime: {
+          dispose: () => {
+            owner.dispose()
+            lease.dispose()
+          },
+        },
+      }
+    },
+  },
+  view((model) =>
+    observe(model.dialogs.source, ({ request }) =>
+      request ? (
+        <Dialog
+          open
+          role={request.kind === 'confirm' ? 'alertdialog' : 'dialog'}
+          title={request.title}
+          showCloseButton={false}
+          onOpenChange={(open) => {
+            if (!open) model.dialogs.settle(false)
+          }}
+          class='sm:max-w-md'
+          footer={
+            <>
+              {request.kind === 'confirm' ? (
+                <Button variant='outline' autofocus onClick={() => model.dialogs.settle(false)}>
                   Cancel
-                </button>
+                </Button>
               ) : null}
-              <button
-                type='button'
-                autofocus
-                class={
-                  current.destructive
-                    ? 'h-9 rounded-md bg-destructive px-4 text-sm font-medium text-destructive-foreground hover:bg-destructive/90'
-                    : 'h-9 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90'
-                }
-                onClick={() => settleAppDialog(true)}
+              <Button
+                variant={request.destructive ? 'destructive' : 'default'}
+                onClick={() => model.dialogs.settle(true)}
               >
-                {current.confirmLabel}
-              </button>
-            </div>
-          </div>
-        </div>
-      </Portal>
-    ) : null,
+                {request.confirmLabel}
+              </Button>
+            </>
+          }
+        >
+          <p class='whitespace-pre-wrap text-sm text-muted-foreground'>{request.message}</p>
+        </Dialog>
+      ) : null,
+    ),
   ),
 )

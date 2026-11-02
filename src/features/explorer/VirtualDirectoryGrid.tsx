@@ -7,6 +7,7 @@ type VirtualDirectoryGridProps = {
   onFocused?: () => void
   onMoveFocus?: (from: FileItem, to: FileItem, event: KeyboardEvent) => void
   files: readonly FileItem[]
+  warmThumbnails?: boolean
   includeParent: boolean
   scrollTarget:
     | { kind: 'window' }
@@ -47,6 +48,7 @@ export const VirtualDirectoryGrid = component(
         use={domBinding(
           {
             files,
+            warmThumbnails: props.warmThumbnails,
             onMoveFocus: props.onMoveFocus,
             focusOnLoad: props.focusOnLoad,
             onFocused: props.onFocused,

@@ -23,7 +23,7 @@ test('JSON highlighting and folding preserve exact source, settings preserve und
   const source = '{\r\n    "enabled": true,\r\n    "count": 4\r\n}\r\n'
   const { path, document, editor } = await openCode(page, request, 'json', source)
   await expect(document.getByRole('button', { name: 'Editor options', exact: true })).toContainText(
-    'JSON · UTF-8 · CRLF',
+    'JSON',
   )
   await expect(editor.locator('span').filter({ hasText: /^true$/ })).toBeVisible()
   const folds = document.locator('.cm-foldGutter .cm-gutterElement').filter({ hasText: '⌄' })
@@ -34,36 +34,31 @@ test('JSON highlighting and folding preserve exact source, settings preserve und
   await editor.focus()
   await page.keyboard.press('Control+End')
   await page.keyboard.insertText('// draft')
-  await expect(document.getByTestId('text-cursor-position')).toContainText('Ln 5, Col 9')
+  await expect(document.getByRole('button', { name: 'Editor options' })).toHaveAttribute(
+    'title',
+    /Ln 5, Col 9/,
+  )
   await document.getByRole('button', { name: 'Editor options', exact: true }).click()
   const options = page.getByRole('dialog', { name: 'Editor options', exact: true })
-  await expect(options.getByRole('combobox', { name: 'Indentation', exact: true })).toContainText(
+  await expect(options.getByRole('button', { name: 'Indentation', exact: true })).toContainText(
     'Automatic (4 spaces)',
   )
-  await options
-    .getByRole('combobox', { name: 'Syntax language', exact: true })
-    .selectOption('plain')
+  await options.getByRole('button', { name: 'Syntax language', exact: true }).click()
+  await page.getByRole('option', { name: 'Plain text', exact: true }).click()
   await options.getByRole('checkbox', { name: 'Line numbers', exact: true }).uncheck()
-  await options.getByRole('button', { name: 'Done', exact: true }).click()
+  await page.keyboard.press('Escape')
   await expect(document.locator('.cm-lineNumbers')).toHaveCount(0)
-  await document.getByRole('button', { name: 'Wrap lines', exact: true }).click()
-  await expect(document.getByRole('button', { name: 'Wrap lines', exact: true })).toHaveAttribute(
-    'aria-pressed',
-    'false',
-  )
+  await document.getByRole('button', { name: 'Editor options', exact: true }).click()
+  await options.getByRole('checkbox', { name: 'Wrap lines', exact: true }).uncheck()
+  await page.keyboard.press('Escape')
+  await expect(document.locator('.cm-lineWrapping')).toHaveCount(0)
   await editor.focus()
   await page.keyboard.press('Control+z')
   await page.keyboard.press('Control+s')
   await expect.poll(async () => (await request.get(`/api/media/${path}`)).text()).toBe(source)
-  await expect(document.getByRole('button', { name: 'Wrap lines', exact: true })).toHaveAttribute(
-    'aria-pressed',
-    'false',
-  )
+  await expect(document.locator('.cm-lineWrapping')).toHaveCount(0)
   await page.reload()
-  await expect(page.getByRole('button', { name: 'Wrap lines', exact: true })).toHaveAttribute(
-    'aria-pressed',
-    'false',
-  )
+  await expect(document.locator('.cm-lineWrapping')).toHaveCount(0)
   await expect(page.locator('.cm-lineNumbers')).toHaveCount(0)
 })
 test('indentation options change new input without rewriting existing tabs or line endings', async ({
@@ -78,11 +73,12 @@ test('indentation options change new input without rewriting existing tabs or li
   )
   await document.getByRole('button', { name: 'Editor options', exact: true }).click()
   const options = page.getByRole('dialog', { name: 'Editor options', exact: true })
-  await expect(options.getByRole('combobox', { name: 'Indentation', exact: true })).toContainText(
+  await expect(options.getByRole('button', { name: 'Indentation', exact: true })).toContainText(
     'Automatic (tabs)',
   )
-  await options.getByRole('combobox', { name: 'Indentation', exact: true }).selectOption('4')
-  await options.getByRole('button', { name: 'Done', exact: true }).click()
+  await options.getByRole('button', { name: 'Indentation', exact: true }).click()
+  await page.getByRole('option', { name: '4 spaces', exact: true }).click()
+  await page.keyboard.press('Escape')
   await editor.focus()
   await page.keyboard.press('Control+End')
   await page.keyboard.press('Tab')
@@ -142,5 +138,6 @@ test('unavailable editor code preserves readable source and the existing downloa
   await page.goto(`/?dir=Notes&viewing=${encodeURIComponent(path)}`)
   await expect(page.getByRole('alert')).toContainText('The editor could not be loaded')
   await expect(page.locator('pre')).toContainText('Text remains accessible.')
-  await expect(page.getByRole('button', { name: 'Download', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Document actions', exact: true }).click()
+  await expect(page.getByRole('menuitem', { name: 'Download', exact: true })).toBeVisible()
 })

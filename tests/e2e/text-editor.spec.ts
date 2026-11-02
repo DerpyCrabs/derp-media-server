@@ -107,14 +107,16 @@ test.describe('Text Editor', () => {
     const search = document.getByRole('textbox', { name: 'Find', exact: true })
     await search.pressSequentially('needle')
     await expect(document.locator('.cm-searchMatch')).toHaveCount(2)
+    await document.getByRole('button', { name: 'Toggle replace' }).click()
     await document.getByRole('textbox', { name: 'Replace', exact: true }).fill('thread')
-    await document.getByRole('button', { name: 'replace all', exact: true }).click()
+    await document.getByRole('button', { name: 'Replace all', exact: true }).click()
     await expect(editor).toContainText('alpha thread')
     await search.press('Escape')
     await expect(search).toHaveCount(0)
     await editor.focus()
     await page.keyboard.press('Control+z')
     await expect(editor).toContainText('alpha needle')
+    await document.getByRole('button', { name: 'Editor options' }).click()
     await document.getByRole('button', { name: 'Go to line', exact: true }).click()
     const line = document.locator('.cm-panel input')
     await line.fill('3')
@@ -124,7 +126,10 @@ test.describe('Text Editor', () => {
     await expect
       .poll(() => readFile(request, AUTOSAVE_PATH))
       .toBe('alpha needle\nbeta needle\ntarget: gamma\n')
-    await page.getByRole('button', { name: 'Read only', exact: true }).click()
+    await page.getByRole('button', { name: 'Document actions' }).click()
+    await page.getByRole('menuitemcheckbox', { name: 'Read only', exact: true }).click()
+    await page.keyboard.press('Escape')
+    await document.getByRole('button', { name: 'Editor options' }).click()
     await document.getByRole('button', { name: 'Find', exact: true }).click()
     await expect(document.getByRole('textbox', { name: 'Find', exact: true })).toBeVisible()
     await expect(document.getByRole('textbox', { name: 'Replace', exact: true })).toHaveCount(0)
@@ -141,10 +146,14 @@ test.describe('Text Editor', () => {
     const document = page.getByTestId('plain-text-document')
     const editor = document.getByRole('textbox', { name: 'autosave-parity.txt editor' })
     await editor.fill('unsaved draft')
-    await page.getByRole('button', { name: 'Read only', exact: true }).click()
+    await page.getByRole('button', { name: 'Document actions' }).click()
+    await page.getByRole('menuitemcheckbox', { name: 'Read only', exact: true }).click()
+    await page.keyboard.press('Escape')
     await expect(document.getByRole('document')).toHaveText('unsaved draft')
     expect(await readFile(request, AUTOSAVE_PATH)).toBe(AUTOSAVE_SOURCE)
-    await page.getByRole('button', { name: 'Edit', exact: true }).click()
+    await page.getByRole('button', { name: 'Document actions' }).click()
+    await page.getByRole('menuitemcheckbox', { name: 'Read only', exact: true }).click()
+    await page.keyboard.press('Escape')
     await editor.focus()
     await page.keyboard.press('Control+z')
     await expect(editor).toContainText(AUTOSAVE_SOURCE.trim())
@@ -182,16 +191,20 @@ test.describe('Text Editor', () => {
     await page.goto(`/?dir=Notes&viewing=${encodeURIComponent(AUTOSAVE_PATH)}`)
     await expect(page.locator('[data-testid=plain-text-document] [role=textbox]')).toBeVisible()
 
-    await page.locator('button[title="Close"]').click()
+    await page.getByRole('button', { name: 'Close', exact: true }).click()
     const markdownRow = page.locator('table').getByText('markdown-editor-e2e.md', { exact: true })
     await expect(markdownRow).toBeVisible()
     await markdownRow.click()
 
     await expect(markdownEditor(page)).toBeVisible()
 
-    await page.getByRole('button', { name: 'Read only' }).click()
+    await page.getByRole('button', { name: 'Document actions' }).click()
+    await page.getByRole('menuitemcheckbox', { name: 'Read only', exact: true }).click()
+    await page.keyboard.press('Escape')
     await expect(markdownDocument(page, 'read').getByRole('document')).toBeVisible()
-    await page.getByRole('button', { name: 'Edit', exact: true }).click()
+    await page.getByRole('button', { name: 'Document actions' }).click()
+    await page.getByRole('menuitemcheckbox', { name: 'Read only', exact: true }).click()
+    await page.keyboard.press('Escape')
     await expect(markdownEditor(page)).toBeVisible()
   })
 
@@ -366,7 +379,7 @@ test.describe('Text Editor', () => {
     const img = markdownDocument(page, 'read').locator('img.cm-md-image[alt="photo"]')
     await expect(img).toBeVisible()
     await img.click()
-    const overlay = page.locator('[role="dialog"][aria-label="View image fullscreen"]')
+    const overlay = page.getByRole('dialog', { name: 'photo', exact: true })
     await expect(overlay).toBeVisible()
   })
 
@@ -386,7 +399,9 @@ test.describe('Text Editor', () => {
     await expect(editor).toBeVisible()
     await expect(editor).toHaveAttribute('contenteditable', 'true')
     await expect(page.locator('[data-testid=plain-text-document] [role=textbox]')).toHaveCount(0)
-    await expect(page.getByRole('button', { name: 'Read only' })).toBeVisible()
+    await page.getByRole('button', { name: 'Document actions' }).click()
+    await expect(page.getByRole('menuitemcheckbox', { name: 'Read only' })).toBeVisible()
+    await page.keyboard.press('Escape')
     await expect(editDocument.locator('.cm-line').first()).toContainText('Todo List')
     await editDocument.locator('.cm-editor').evaluate((element) => {
       element.setAttribute('data-e2e-editor-instance', 'preserved')
@@ -400,7 +415,9 @@ test.describe('Text Editor', () => {
     await page.keyboard.press('Control+End')
     await page.keyboard.insertText('\nunsaved mode probe')
 
-    await page.getByRole('button', { name: 'Read only' }).click()
+    await page.getByRole('button', { name: 'Document actions' }).click()
+    await page.getByRole('menuitemcheckbox', { name: 'Read only', exact: true }).click()
+    await page.keyboard.press('Escape')
     const readDocument = markdownDocument(page, 'read')
     await expect(
       readDocument.getByRole('document', { name: 'markdown-editor-e2e.md Markdown document' }),
@@ -409,7 +426,9 @@ test.describe('Text Editor', () => {
     await expect(readDocument.locator('.cm-md-heading-1')).toContainText('Todo List')
     await expect(readDocument).toContainText('unsaved mode probe')
 
-    await page.getByRole('button', { name: 'Edit', exact: true }).click()
+    await page.getByRole('button', { name: 'Document actions' }).click()
+    await page.getByRole('menuitemcheckbox', { name: 'Read only', exact: true }).click()
+    await page.keyboard.press('Escape')
     await expect(markdownEditor(page)).toBeVisible()
     await expect(
       markdownDocument(page, 'edit').locator('[data-e2e-editor-instance="preserved"]'),
@@ -550,14 +569,18 @@ test.describe('Text Editor', () => {
         'switch read and edit modes',
         LARGE_MARKDOWN_INTERACTION_THRESHOLD_MS,
         async () => {
-          await page.getByRole('button', { name: 'Read only' }).click()
+          await page.getByRole('button', { name: 'Document actions' }).click()
+          await page.getByRole('menuitemcheckbox', { name: 'Read only', exact: true }).click()
+          await page.keyboard.press('Escape')
           const readDocument = markdownDocument(page, 'read')
           await expect(readDocument.getByRole('document')).toBeVisible()
           await expect(readDocument).toContainText('MIDDLE_MARKER MIDDLE_EDIT')
           await expect(
             readDocument.locator('[data-e2e-large-editor-instance="preserved"]'),
           ).toBeVisible()
-          await page.getByRole('button', { name: 'Edit', exact: true }).click()
+          await page.getByRole('button', { name: 'Document actions' }).click()
+          await page.getByRole('menuitemcheckbox', { name: 'Read only', exact: true }).click()
+          await page.keyboard.press('Escape')
           await expect(markdownEditor(page)).toBeVisible()
           await expect(
             markdownDocument(page, 'edit').locator('[data-e2e-large-editor-instance="preserved"]'),
@@ -742,7 +765,9 @@ test.describe('Text Editor', () => {
       '# Tasks\n\n- [x] open\n- [x] upper\n  - [x] nested\n',
     )
 
-    await page.getByRole('button', { name: 'Read only' }).click()
+    await page.getByRole('button', { name: 'Document actions' }).click()
+    await page.getByRole('menuitemcheckbox', { name: 'Read only', exact: true }).click()
+    await page.keyboard.press('Escape')
     const readTasks = markdownDocument(page, 'read').locator('.cm-md-task-checkbox')
     await expect(readTasks).toHaveCount(3)
     for (let index = 0; index < 3; index += 1) await expect(readTasks.nth(index)).toBeDisabled()
@@ -809,7 +834,7 @@ test.describe('Text Editor', () => {
     ])
     expect(await readFile(request, TODO_PATH)).toBe(updated)
 
-    await page.locator('button[title="Close"]').click()
+    await page.getByRole('button', { name: 'Close', exact: true }).click()
     await page.locator('table').getByText('markdown-editor-e2e.md').click()
     const reopened = markdownDocument(page, 'edit')
     await expect(reopened.locator('.cm-md-heading-1')).toContainText('Updated Todo')
@@ -819,7 +844,7 @@ test.describe('Text Editor', () => {
   test('closes text viewer returns to file list', async ({ page }) => {
     await page.goto(`/?dir=Documents&viewing=${encodeURIComponent('Documents/readme.txt')}`)
     await expect(page.getByText('This is a test readme file')).toBeVisible()
-    await page.locator('button[title="Close"]').click()
+    await page.getByRole('button', { name: 'Close', exact: true }).click()
     await expect(page).not.toHaveURL(/viewing=/)
     await expect(page.locator('table').getByText('readme.txt')).toBeVisible()
   })
@@ -827,14 +852,15 @@ test.describe('Text Editor', () => {
   test('displays JSON files', async ({ page }) => {
     await page.goto(`/?dir=Documents&viewing=${encodeURIComponent('Documents/data.json')}`)
     await expect(page).toHaveURL(/viewing=.*data\.json/)
-    await expect(page.locator('button[title="Close"]')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Close', exact: true })).toBeVisible()
     await expect(page.getByText('"name"')).toBeVisible()
     await expect(page.getByText('"test"')).toBeVisible()
   })
 
   test('copy-to-clipboard button exists', async ({ page }) => {
     await page.goto(`/?dir=Documents&viewing=${encodeURIComponent('Documents/readme.txt')}`)
-    await expect(page.locator('button[title="Copy to clipboard"]')).toBeVisible()
+    await page.getByRole('button', { name: 'Document actions' }).click()
+    await expect(page.getByRole('menuitem', { name: 'Copy text', exact: true })).toBeVisible()
   })
 
   test('with auto-save off, blur does not persist ordinary text edits', async ({ page }) => {
@@ -848,29 +874,26 @@ test.describe('Text Editor', () => {
       if (resp.url().includes('/api/files/edit') && resp.status() === 200) editResponses += 1
     })
 
+    await page.getByRole('button', { name: 'Document actions' }).click()
     await Promise.all([
       page.waitForResponse((r) => r.url().includes('/api/settings/autoSave') && r.status() === 200),
-      page.getByRole('button', { name: 'Auto-save' }).click(),
+      page.getByRole('menuitemcheckbox', { name: 'Auto-save' }).click(),
     ])
+    await page.keyboard.press('Escape')
     await textarea.fill('autosave off probe\n\nunique-string-xyz-123\n')
 
-    await page.locator('button[title="Close"]').focus()
+    await page.getByRole('button', { name: 'Close', exact: true }).focus()
     await page.waitForTimeout(2300)
 
     expect(editResponses).toBe(0)
 
-    await page.locator('button[title="Close"]').click()
+    await page.getByRole('button', { name: 'Close', exact: true }).click()
     await page.locator('table').getByText('autosave-parity.txt').click()
     await expect(textarea).toBeVisible()
     expect(await textarea.textContent()).not.toContain('unique-string-xyz-123')
 
-    await textarea.fill(AUTOSAVE_SOURCE)
-    await Promise.all([
-      page.waitForResponse(
-        (resp) => resp.url().includes('/api/files/edit') && resp.status() === 200,
-      ),
-      page.getByRole('button', { name: 'Save', exact: true }).click(),
-    ])
+    expect(await readFile(page.request, AUTOSAVE_PATH)).toBe(AUTOSAVE_SOURCE)
+    await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled()
   })
 
   test('shows autosave errors and retries on request', async ({ page }) => {
@@ -888,16 +911,16 @@ test.describe('Text Editor', () => {
     const textarea = page.locator('[data-testid=plain-text-document] [role=textbox]')
     await expect(textarea).toBeVisible()
     await textarea.fill(draft)
-    await page.locator('button[title="Close"]').focus()
-    const retry = page.getByRole('button', { name: 'Save failed — retry' })
-    await expect(retry).toBeVisible()
-    await expect(retry).toHaveAttribute('title', /503|Unavailable/)
+    await page.getByRole('button', { name: 'Close', exact: true }).focus()
+    const retry = page.getByRole('button', { name: 'Save', exact: true })
+    await expect(page.getByRole('alert')).toContainText(/503|Unavailable/)
+    await expect(retry).toBeEnabled()
     await page.unroute('**/api/files/edit')
     await retry.click()
-    await expect(retry).not.toBeVisible()
+    await expect(page.getByRole('alert')).not.toBeVisible()
     await expect.poll(() => readFile(page.request, AUTOSAVE_PATH)).toBe(draft)
     await textarea.fill(AUTOSAVE_SOURCE)
-    await page.locator('button[title="Close"]').click()
+    await page.getByRole('button', { name: 'Close', exact: true }).click()
     await expect(page).not.toHaveURL(/viewing=/)
   })
 

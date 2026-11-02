@@ -29,7 +29,8 @@ async function chooseWorkspaceOpenTarget(page: Page, label: 'New tab' | 'New win
   const dialog = page
     .getByRole('dialog')
     .filter({ has: page.getByRole('heading', { name: 'Settings' }) })
-  await dialog.getByRole('button', { name: label }).click()
+  await dialog.getByRole('button', { name: 'Open files in', exact: true }).click()
+  await page.getByRole('option', { name: label, exact: true }).click()
   await page.keyboard.press('Escape')
 }
 
@@ -76,26 +77,24 @@ test.describe('Workspace file open target', () => {
       const secondDialog = secondPage
         .getByRole('dialog')
         .filter({ has: secondPage.getByRole('heading', { name: 'Settings' }) })
-      await expect(secondDialog.getByRole('button', { name: 'New tab' })).toHaveClass(
-        /border-primary/,
-      )
+      await expect(
+        secondDialog.getByRole('button', { name: 'Open files in', exact: true }),
+      ).toContainText('New tab')
 
       await page.getByRole('button', { name: 'Open settings' }).click()
       const firstDialog = page
         .getByRole('dialog')
         .filter({ has: page.getByRole('heading', { name: 'Settings' }) })
-      const firstSnapAssist = firstDialog.getByRole('checkbox', {
-        name: 'Show snap assist when dragging to the top-center handle',
-      })
-      const secondSnapAssist = secondDialog.getByRole('checkbox', {
-        name: 'Show snap assist when dragging to the top-center handle',
-      })
+      const firstSnapAssist = firstDialog.getByRole('checkbox', { name: 'Snap assist' })
+      const secondSnapAssist = secondDialog.getByRole('checkbox', { name: 'Snap assist' })
       await firstSnapAssist.uncheck()
       await expect(secondSnapAssist).not.toBeChecked()
 
       const firstGap = firstDialog.getByRole('slider', { name: /Window gaps/ })
       const secondGap = secondDialog.getByRole('slider', { name: /Window gaps/ })
-      await firstGap.fill('7')
+      await firstGap.focus()
+      await firstGap.press('Home')
+      for (let step = 0; step < 7; step++) await firstGap.press('ArrowRight')
       await expect(secondGap).toHaveValue('7')
 
       await secondPage.keyboard.press('Escape')

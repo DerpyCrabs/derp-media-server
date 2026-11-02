@@ -48,6 +48,7 @@ test('DOCX opens as a document with searchable structure, merged tables, local i
   await page.getByRole('searchbox', { name: 'Find in document' }).fill('Footnote details')
   await expect(content.getByText('Footnote details', { exact: true })).toBeVisible()
   await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: 'Reader settings', exact: true }).click()
   const downloaded = page.waitForEvent('download')
   await page.getByRole('link', { name: 'Download original', exact: true }).click()
   const download = await downloaded
@@ -142,6 +143,6 @@ test('real Word and LibreOffice documents open from the file browser and in the 
     )
     await page.goto(`/desktop?mode=viewer&dir=Documents&viewing=${encodeURIComponent(source)}`)
     await expect(page.locator('.book-document')).toContainText('Second numbered item')
-    await expect(page.getByRole('link', { name: 'Download original', exact: true })).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Download original', exact: true })).toHaveCount(0)
   }
 })

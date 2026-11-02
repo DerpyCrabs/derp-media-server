@@ -1,3 +1,4 @@
+import { Button } from '@/lib/ui/button'
 import BookmarkPlus from '@effectweb/lucide/icons/bookmark-plus'
 import Languages from '@effectweb/lucide/icons/languages'
 import RefreshCw from '@effectweb/lucide/icons/refresh-cw'
@@ -128,7 +129,7 @@ export const ReaderSelectionMenu = controllerView(
     return (
       <div
         data-testid='reader-selection-menu'
-        class='reader-selection-menu fixed z-[80] box-border flex w-[min(460px,calc(100vw-24px))] flex-col gap-[5px] overflow-hidden rounded-lg border border-[#3a3a3a] bg-[#181818] p-1.5 text-[#e8e8e8] shadow-[0_14px_34px_rgb(0_0_0/42%)]'
+        class='reader-selection-menu fixed z-[80] box-border flex w-[min(460px,calc(100vw-24px))] flex-col gap-[5px] overflow-hidden rounded-lg border border-border bg-background p-1.5 text-foreground shadow-[0_14px_34px_rgb(0_0_0/42%)]'
         style={style()}
         onPointerDown={(event) => {
           if ((event.target as Element | null)?.closest('[data-reader-copyable]'))
@@ -142,10 +143,10 @@ export const ReaderSelectionMenu = controllerView(
         onClick={(event) => event.stopPropagation()}
       >
         {props.selection.kind === 'text' && props.selection.text.trim() ? (
-          <div class='relative min-w-0 rounded-[7px] border border-[#444] bg-[#202020] focus-within:border-[#666]'>
+          <div class='relative min-w-0 rounded-[7px] border border-input bg-background focus-within:border-ring'>
             <div
               use={domBinding(props.selection.text, editableText)}
-              class='reader-selection-preview box-border max-h-44 min-w-0 overflow-auto py-[7px] pr-[108px] pl-2 text-[0.86rem] leading-[1.35] whitespace-pre-wrap text-[#e8e8e8] outline-none [overflow-wrap:anywhere] [scrollbar-color:#555_#181818]'
+              class='reader-selection-preview box-border max-h-44 min-w-0 overflow-auto py-[7px] pr-[108px] pl-2 text-[0.86rem] leading-[1.35] whitespace-pre-wrap text-foreground outline-none [overflow-wrap:anywhere] [scrollbar-color:#555_#181818]'
               style={{ 'min-height': `calc(${previewRows()} * 1.35em + 14px)` }}
               role='textbox'
               aria-label='Selected text'
@@ -157,11 +158,13 @@ export const ReaderSelectionMenu = controllerView(
             />
             <div class='absolute top-1/2 right-1 flex -translate-y-1/2 items-center gap-1'>
               {props.onSaveQuote ? (
-                <button
+                <Button
+                  size='icon'
+                  variant='ghost'
                   type='button'
                   aria-label='Save quote'
                   title='Save quote'
-                  class='grid size-8 place-items-center rounded hover:bg-white/10'
+                  class='grid size-8 place-items-center rounded hover:bg-muted'
                   onPointerDown={(event) => {
                     event.preventDefault()
                     event.stopPropagation()
@@ -176,7 +179,7 @@ export const ReaderSelectionMenu = controllerView(
                   }}
                 >
                   <BookmarkPlus size={16} />
-                </button>
+                </Button>
               ) : null}
               <SelectionActionButton
                 kind='translate'
@@ -218,7 +221,7 @@ export const ReaderSelectionMenu = controllerView(
           </div>
         ) : null}
         {busy ? (
-          <div class='flex min-h-[34px] items-center gap-2 rounded-[7px] border border-[#444] bg-[#202020] px-[10px] text-[0.92rem] text-[#e8e8e8]'>
+          <div class='flex min-h-[34px] items-center gap-2 rounded-[7px] border border-input bg-background px-[10px] text-[0.92rem] text-foreground'>
             <span class='h-2 w-2 animate-pulse rounded-full bg-current' />
             {model.task === 'translate' ? 'Translating...' : 'Defining...'}
           </div>
@@ -226,7 +229,7 @@ export const ReaderSelectionMenu = controllerView(
         {error ? (
           <div
             role='alert'
-            class='rounded-[7px] border border-red-800 bg-red-950 px-3 py-2 text-sm text-red-300'
+            class='rounded-[7px] border border-destructive/40 bg-red-950 px-3 py-2 text-sm text-destructive'
           >
             {error}
           </div>
@@ -235,7 +238,7 @@ export const ReaderSelectionMenu = controllerView(
           <div
             data-testid='reader-ai-result'
             data-reader-copyable
-            class='reader-selection-result box-border min-h-0 w-0 min-w-full max-w-full max-h-[220px] cursor-text overflow-auto rounded-[7px] border border-[#444] bg-[#202020] px-[10px] py-[9px] text-[0.88rem] leading-[1.42] whitespace-pre-wrap text-[#e8e8e8] select-text [overflow-wrap:anywhere] [scrollbar-color:#555_#181818]'
+            class='reader-selection-result box-border min-h-0 w-0 min-w-full max-w-full max-h-[220px] cursor-text overflow-auto rounded-[7px] border border-input bg-background px-[10px] py-[9px] text-[0.88rem] leading-[1.42] whitespace-pre-wrap text-foreground select-text [overflow-wrap:anywhere] [scrollbar-color:#555_#181818]'
           >
             {model.task === 'translate' && props.aiDetail === 'compact' ? (
               result
@@ -271,12 +274,14 @@ const SelectionActionButton = view<{
         ? 'Checking Reader AI availability'
         : label()
   return (
-    <button
+    <Button
+      size='icon'
+      variant='ghost'
       type='button'
       data-testid={`reader-${props.kind}`}
       title={title()}
       aria-label={label()}
-      class='flex size-[30px] shrink-0 items-center justify-center rounded-md text-[#cfcfcf] transition-colors hover:bg-[#363636] hover:text-white disabled:opacity-40'
+      class='flex size-[30px] shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40'
       disabled={props.busy || props.available !== true}
       onPointerDown={(event) => props.onPointerDown(event, props.kind)}
       onKeyDown={(event) => props.onKeyDown(event, props.kind)}
@@ -288,6 +293,6 @@ const SelectionActionButton = view<{
       ) : (
         <Sparkles class='size-[17px]' />
       )}
-    </button>
+    </Button>
   )
 })

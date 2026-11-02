@@ -1,3 +1,4 @@
+import { Button } from '@/lib/ui/button'
 import { available, modelOwner, view, list, resourceError, controllerView } from 'effectweb'
 import * as AsyncResult from 'effect/reactivity/AsyncResult'
 import { queryCache } from '@/lib/api/cache'
@@ -35,12 +36,13 @@ export const MusicHome = controllerView(
               </p>
             ) : null}
           </div>
-          <button
+          <Button
+            variant='outline'
             class='min-h-11 rounded-lg border border-border px-4 text-sm hover:bg-secondary'
             onClick={() => openPlaylists()}
           >
             Playlists
-          </button>
+          </Button>
         </div>
         {content()?.mixes.length ? (
           <section class='space-y-3' aria-label='Genre mixes'>
@@ -51,8 +53,9 @@ export const MusicHome = controllerView(
                 (item) => item.genre,
                 (item) => (
                   <article class='flex items-center gap-1 rounded-xl border border-border/60 bg-secondary/20 pr-2 transition-colors hover:bg-secondary/40'>
-                    <button
-                      class='group flex min-h-20 min-w-0 flex-1 items-center gap-4 p-4 text-left disabled:opacity-50'
+                    <Button
+                      variant='ghost'
+                      class='group flex min-h-20 min-w-0 flex-1 items-center gap-4 p-4 justify-start text-left disabled:opacity-50'
                       aria-label={`Play ${item.genre} mix`}
                       onClick={() =>
                         playMusic(getPlaybackSession(), item.items, {
@@ -62,7 +65,7 @@ export const MusicHome = controllerView(
                       }
                     >
                       <span class='grid size-11 shrink-0 place-items-center rounded-full bg-secondary text-muted-foreground group-hover:bg-primary group-hover:text-primary-foreground'>
-                        <Play size={18} class='ml-0.5' />
+                        <Play size={18} class='ml-0.5 size-[18px]' />
                       </span>
                       <span class='min-w-0'>
                         <span class='block truncate text-sm font-medium capitalize'>
@@ -81,7 +84,7 @@ export const MusicHome = controllerView(
                           {item.count} songs
                         </span>
                       </span>
-                    </button>
+                    </Button>
                     <CollectionActions
                       label={`${item.genre} mix`}
                       onRadio={() =>
@@ -109,7 +112,8 @@ export const MusicHome = controllerView(
               >
                 <div class='flex items-center justify-between gap-3'>
                   <h3 class='truncate text-base font-semibold'>{row.title}</h3>
-                  <button
+                  <Button
+                    variant='ghost'
                     class='inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-lg px-2 text-xs text-muted-foreground hover:bg-secondary'
                     onClick={() =>
                       playMusic(getPlaybackSession(), row.items, {
@@ -118,9 +122,9 @@ export const MusicHome = controllerView(
                       })
                     }
                   >
-                    <Play size={14} />
+                    <Play class='size-[14px]' size={14} />
                     Play all
-                  </button>
+                  </Button>
                 </div>
                 <TrackList
                   items={row.items}
@@ -140,8 +144,10 @@ export const MusicHome = controllerView(
                 (album) => `${album.artist}\0${album.title}`,
                 (album) => (
                   <article class='min-w-0'>
-                    <button
-                      class='group relative block w-full overflow-hidden rounded-xl text-left'
+                    <Button
+                      size='icon'
+                      variant='ghost'
+                      class='group relative block h-auto p-0 w-full overflow-hidden rounded-xl justify-start text-left'
                       aria-label={`View album ${album.title}`}
                       onClick={() =>
                         setMusicDialog({
@@ -156,7 +162,7 @@ export const MusicHome = controllerView(
                         hasArtwork={album.cover?.hasArtwork}
                         class='aspect-square w-full'
                       />
-                    </button>
+                    </Button>
                     <div class='mt-2 flex items-start gap-1'>
                       <div class='min-w-0 flex-1 pt-1'>
                         <p class='line-clamp-2 text-sm font-medium leading-snug'>{album.title}</p>
@@ -187,9 +193,9 @@ export const MusicHome = controllerView(
         {resourceError(model.result) ? (
           <p role='alert' class='text-sm text-destructive'>
             Couldn’t load your music.{' '}
-            <button class='underline' onClick={() => model.refresh()}>
+            <Button variant='ghost' class='underline' onClick={() => model.refresh()}>
               Try again
-            </button>
+            </Button>
           </p>
         ) : null}
         {content()?.total === 0 ? (

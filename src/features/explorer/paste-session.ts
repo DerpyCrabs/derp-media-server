@@ -26,6 +26,7 @@ export function createPasteSession(
   context: () => Context,
   operations: FileOperations,
   onSaved?: (path: string) => void,
+  window: Window = globalThis.window,
 ) {
   const owner = modelOwner({
     session: null as { data: PasteData; existingFiles: readonly FileItem[] } | null,

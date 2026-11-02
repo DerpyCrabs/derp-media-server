@@ -45,6 +45,7 @@ enum Request {
 pub struct FileSearch {
     config: FileSearchConfig,
     roots: RwLock<Vec<Root>>,
+    namespaced: bool,
     db: StdMutex<Option<IndexDb>>,
     reader: StdMutex<Option<IndexDb>>,
     init_error: StdMutex<Option<String>>,
@@ -56,7 +57,7 @@ pub struct FileSearch {
 }
 
 impl FileSearch {
-    pub fn new(config: FileSearchConfig, roots: Vec<MediaRoot>) -> Arc<Self> {
+    pub fn new(config: FileSearchConfig, roots: Vec<MediaRoot>, namespaced: bool) -> Arc<Self> {
         let roots = roots.into_iter().map(root_from_media).collect::<Vec<_>>();
         let (sender, receiver) = mpsc::unbounded_channel();
         let (db, init_error, rebuild) = if config.enabled {
@@ -73,6 +74,7 @@ impl FileSearch {
         let service = Arc::new(Self {
             config,
             roots: RwLock::new(roots),
+            namespaced,
             db: StdMutex::new(db),
             reader: StdMutex::new(None),
             init_error: StdMutex::new(init_error),
@@ -228,8 +230,8 @@ impl FileSearch {
                 .unwrap_or((packed.as_str(), "other"));
             results.push(ResultEntry {
                 name: name.clone(),
-                path: logical_path(root, relative, roots.len()),
-                parent_path: logical_path(root, parent, roots.len()),
+                path: logical_path(root, relative, self.namespaced || roots.len() > 1),
+                parent_path: logical_path(root, parent, self.namespaced || roots.len() > 1),
                 root_id: root.id.clone(),
                 root_name: root.name.clone(),
                 is_directory: *is_directory,
@@ -247,7 +249,7 @@ impl FileSearch {
             }
             results.push(ResultEntry {
                 name: root.name.clone(),
-                path: logical_path(root, "", roots.len()),
+                path: logical_path(root, "", self.namespaced || roots.len() > 1),
                 parent_path: String::new(),
                 root_id: root.id.clone(),
                 root_name: root.name.clone(),
@@ -504,7 +506,7 @@ impl FileSearch {
     fn map_logical(&self, directory: &str) -> Option<(String, String)> {
         let normalized = normalize_relative(directory);
         let roots = self.roots.blocking_read();
-        if roots.len() <= 1 {
+        if !self.namespaced && roots.len() <= 1 {
             return roots.first().map(|root| (root.id.clone(), normalized));
         }
         let mut parts = normalized.split('/');
@@ -734,8 +736,8 @@ fn ignored_event_path(path: &str) -> bool {
     });
     ignored_parent || ignored_file
 }
-fn logical_path(root: &Root, relative: &str, count: usize) -> String {
-    if count <= 1 {
+fn logical_path(root: &Root, relative: &str, namespaced: bool) -> String {
+    if !namespaced {
         relative.into()
     } else if relative.is_empty() {
         root.name.clone()
@@ -839,7 +841,7 @@ mod tests {
             path: ".".into(),
             source: "config".into(),
         };
-        assert_eq!(logical_path(&root, "a.jpg", 2), "Media/a.jpg");
+        assert_eq!(logical_path(&root, "a.jpg", true), "Media/a.jpg");
     }
 
     #[tokio::test]
@@ -870,6 +872,7 @@ mod tests {
         let service = Arc::new(FileSearch {
             config,
             roots: RwLock::new(vec![root]),
+            namespaced: false,
             db: StdMutex::new(Some(writer)),
             reader: StdMutex::new(None),
             init_error: StdMutex::new(None),

@@ -1,3 +1,9 @@
+import { MenuItem } from '@/lib/ui/menu-item'
+import { Slider } from '@/lib/ui/slider'
+import { Input } from '@/lib/ui/input'
+import { Button } from '@/lib/ui/button'
+import { TaskbarButton } from '../shared/TaskbarButton'
+import { Select } from '@/lib/ui/select'
 import { WorkspaceCommands } from '@/workspace/commands/WorkspaceCommands'
 import { windowCommands, type WorkspaceCommand } from '@/workspace/commands/commands'
 import { cn } from '@/lib/ui/cn'
@@ -42,7 +48,7 @@ import { FileSearchButton } from '@/features/explorer/FileSearchPalette'
 import { CanvasWindowGroup } from './CanvasWindowGroup'
 import { FloatingContextMenu } from '@/features/explorer/FloatingContextMenu'
 import { FLOATING_Z_PIN_MENU } from '@/lib/ui/floating-z-index'
-import { modalFocus } from '@/lib/ui/modal-focus'
+import { Dialog } from '@/lib/ui/dialog'
 import {
   FAR_ZOOM,
   EMPTY_CANVAS_BOUNDS,
@@ -58,16 +64,17 @@ const MenuButton = view<{
   disabled?: boolean
 }>((props) => {
   return (
-    <button
+    <Button
+      variant='destructive'
       type='button'
       disabled={props.disabled}
-      class={`flex h-9 w-full items-center gap-2 rounded-md px-2.5 text-left text-sm disabled:opacity-40 ${props.danger ? 'text-destructive hover:bg-destructive/10' : 'hover:bg-muted'}`}
+      class={`flex h-9 w-full items-center gap-2 rounded-md px-2.5 justify-start text-left text-sm disabled:opacity-40 ${props.danger ? 'text-destructive hover:bg-destructive/10' : 'hover:bg-muted'}`}
       onClick={() => {
         props.onClick()
       }}
     >
       {props.children as never}
-    </button>
+    </Button>
   )
 })
 function canvasDialogLabel(dialog: CanvasDialogState): string {
@@ -227,7 +234,9 @@ export const CanvasWorkspace = controllerView(
           </div>
         ) : null}
         <WorkspaceTaskbar fixed scrollable class='canvas-taskbar'>
-          <button
+          <TaskbarButton
+            size='icon'
+            variant='ghost'
             type='button'
             title='Canvas outline'
             aria-label='Canvas outline'
@@ -236,9 +245,11 @@ export const CanvasWorkspace = controllerView(
               setOutlineOpen((open) => !open)
             }}
           >
-            <PanelLeft class='h-5 w-5' stroke-width={1.75} />
-          </button>
-          <button
+            <PanelLeft class='size-5' stroke-width={1.75} />
+          </TaskbarButton>
+          <TaskbarButton
+            size='icon'
+            variant='ghost'
             type='button'
             title='Workspaces'
             aria-label='Open workspaces'
@@ -247,8 +258,8 @@ export const CanvasWorkspace = controllerView(
             class={WORKSPACE_TASKBAR_ICON_BUTTON_CLASS}
             onClick={toggleWorkspacePanel}
           >
-            <PanelsTopLeft class='h-5 w-5' stroke-width={1.75} />
-          </button>
+            <PanelsTopLeft class='size-5' stroke-width={1.75} />
+          </TaskbarButton>
           <div class='flex min-w-0 flex-1 items-center'>
             {model.serverPins.length > 0 ? (
               <WorkspaceTaskbarPins
@@ -268,16 +279,17 @@ export const CanvasWorkspace = controllerView(
             <div class='flex min-w-0 flex-1 items-center' data-testid='canvas-navigation'>
               {((item) =>
                 item ? (
-                  <button
+                  <TaskbarButton
+                    variant='ghost'
                     type='button'
                     data-testid='canvas-window-breadcrumb'
-                    class='min-w-0 flex-1 truncate rounded px-2 py-1 text-left text-sm hover:bg-muted'
+                    class='min-w-0 flex-1 truncate rounded px-2 py-1 justify-start text-left text-sm hover:bg-muted'
                     onClick={() => {
                       focusWindow(item.id)
                     }}
                   >
                     {definitionFor(item).title}
-                  </button>
+                  </TaskbarButton>
                 ) : null)(selectedWindow)}
             </div>
           </div>
@@ -297,21 +309,21 @@ export const CanvasWorkspace = controllerView(
                     }
                   }}
                 >
-                  <input
-                    type='range'
+                  <Slider
                     title='Canvas zoom'
                     aria-label='Canvas zoom'
                     aria-valuetext={`${Math.round(state().camera.zoom * 100)} percent`}
                     min={Math.round(CANVAS_MIN_ZOOM * 100)}
                     max={Math.round(CANVAS_MAX_ZOOM * 100)}
-                    step='1'
+                    step={1}
                     value={Math.round(state().camera.zoom * 100)}
-                    class='[&::-webkit-slider-thumb]:bg-primary h-1 w-16 cursor-pointer appearance-none rounded-full bg-secondary [&::-webkit-slider-thumb]:size-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full'
-                    onInput={(event) => {
-                      setZoomFromControl(event.currentTarget.valueAsNumber / 100)
+                    class='data-horizontal:w-16 w-16'
+                    onValueChange={(value) => {
+                      setZoomFromControl(value / 100)
                     }}
                   />
-                  <button
+                  <TaskbarButton
+                    variant='ghost'
                     type='button'
                     title='Reset zoom'
                     aria-label={`Reset canvas zoom, currently ${Math.round(state().camera.zoom * 100)} percent`}
@@ -321,10 +333,12 @@ export const CanvasWorkspace = controllerView(
                     }}
                   >
                     {Math.round(state().camera.zoom * 100)}%
-                  </button>
+                  </TaskbarButton>
                 </div>
               ) : null}
-              <button
+              <TaskbarButton
+                size='icon'
+                variant='ghost'
                 type='button'
                 class={WORKSPACE_TASKBAR_ICON_BUTTON_CLASS}
                 title='Fit all canvas cards'
@@ -332,10 +346,12 @@ export const CanvasWorkspace = controllerView(
                 onClick={fitAllWindows}
               >
                 <Maximize2 class='size-3.5' />
-              </button>
+              </TaskbarButton>
               {((item) =>
                 item ? (
-                  <button
+                  <TaskbarButton
+                    size='icon'
+                    variant='default'
                     type='button'
                     data-testid='canvas-playing-audio-focus'
                     aria-label={`Focus audio player: ${definitionFor(item).title}`}
@@ -346,7 +362,7 @@ export const CanvasWorkspace = controllerView(
                     }}
                   >
                     <Volume2 class='size-4' />
-                  </button>
+                  </TaskbarButton>
                 ) : null)(lastAudioWindow)}
               <FileSearchButton
                 title='Search library and open a new canvas window'
@@ -369,8 +385,6 @@ export const CanvasWorkspace = controllerView(
               onStopPlayback={() => playbackSession.dispatch({ type: 'stop' })}
             />
             <WorkspaceTaskbarSettings
-              reopenClosedTab={model.reopenClosedTab}
-              canReopenClosed={model.canReopenClosed}
               workspaceTransition={model.settings?.workspaceTransition ?? 'fade'}
               onWorkspaceTransitionChange={(value) => setWorkspaceTransition(value)}
             />
@@ -386,7 +400,8 @@ export const CanvasWorkspace = controllerView(
           pinContextMenuRoot
         >
           {(current) => (
-            <button
+            <MenuItem
+              variant='ghost'
               type='button'
               data-slot='context-menu-item'
               class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
@@ -397,7 +412,7 @@ export const CanvasWorkspace = controllerView(
               }}
             >
               Unpin
-            </button>
+            </MenuItem>
           )}
         </FloatingContextMenu>
 
@@ -446,7 +461,9 @@ export const CanvasWorkspace = controllerView(
           <aside class='fixed top-0 bottom-8 left-0 z-[110000] flex w-72 flex-col border-r border-border bg-card/95 shadow-xl backdrop-blur'>
             <div class='flex h-11 items-center justify-between border-b px-3'>
               <span class='text-sm font-semibold'>Canvas outline</span>
-              <button
+              <Button
+                size='icon'
+                variant='ghost'
                 type='button'
                 aria-label='Close canvas outline'
                 class='size-8 rounded hover:bg-muted'
@@ -455,16 +472,17 @@ export const CanvasWorkspace = controllerView(
                 }}
               >
                 <X class='mx-auto size-4' />
-              </button>
+              </Button>
             </div>
             <div class='min-h-0 flex-1 overflow-auto p-2'>
               <p class='px-2 pt-3 pb-1 text-[10px] font-semibold tracking-wider text-muted-foreground uppercase'>
                 Windows
               </p>
               {list(canvasWindows.from(state().windows), (item) => (
-                <button
+                <Button
+                  variant='ghost'
                   type='button'
-                  class='flex h-9 w-full items-center gap-2 rounded px-2 text-left text-sm hover:bg-muted'
+                  class='flex h-9 w-full items-center gap-2 rounded px-2 justify-start text-left text-sm hover:bg-muted'
                   onClick={() => {
                     focusWindow(item.id)
                   }}
@@ -473,7 +491,7 @@ export const CanvasWorkspace = controllerView(
                     {windowIcon(definitionFor(item), fileIconContext(), 'sm')}
                   </span>
                   <span class='truncate'>{definitionFor(item).title}</span>
-                </button>
+                </Button>
               ))}
             </div>
           </aside>
@@ -579,7 +597,8 @@ export const CanvasWorkspace = controllerView(
                   Add documents, files, or AI chats.
                 </p>
                 <div class='mt-5 flex flex-wrap justify-center gap-2'>
-                  <button
+                  <Button
+                    variant='default'
                     type='button'
                     class='rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground'
                     onClick={() => {
@@ -587,8 +606,9 @@ export const CanvasWorkspace = controllerView(
                     }}
                   >
                     New document
-                  </button>
-                  <button
+                  </Button>
+                  <Button
+                    variant='outline'
                     type='button'
                     class='rounded-md border border-border px-3 py-2 text-sm hover:bg-muted'
                     onClick={() => {
@@ -596,8 +616,9 @@ export const CanvasWorkspace = controllerView(
                     }}
                   >
                     Browse files
-                  </button>
-                  <button
+                  </Button>
+                  <Button
+                    variant='outline'
                     type='button'
                     class='rounded-md border border-border px-3 py-2 text-sm hover:bg-muted'
                     onClick={() => {
@@ -605,7 +626,7 @@ export const CanvasWorkspace = controllerView(
                     }}
                   >
                     Ask AI
-                  </button>
+                  </Button>
                 </div>
               </div>
             </div>
@@ -655,11 +676,12 @@ export const CanvasWorkspace = controllerView(
                     }
                   }
                   return item() ? (
-                    <button
+                    <Button
+                      variant='ghost'
                       type='button'
                       data-testid='canvas-window-summary'
                       data-window-id={item()!.id}
-                      class='absolute overflow-hidden rounded-lg bg-card p-0 text-left shadow-lg'
+                      class='absolute overflow-hidden rounded-lg bg-card p-0 justify-start text-left shadow-lg'
                       style={{
                         left: `${bounds().x}px`,
                         top: `${bounds().y}px`,
@@ -718,7 +740,7 @@ export const CanvasWorkspace = controllerView(
                           ) : null}
                         </span>
                       </span>
-                    </button>
+                    </Button>
                   ) : null
                 })
               : null}
@@ -796,93 +818,72 @@ export const CanvasWorkspace = controllerView(
         ) : null}
 
         {model.noteDialog ? (
-          <div
-            class='fixed inset-0 z-[1300000] flex items-center justify-center bg-black/55 p-4'
-            onPointerDown={(event) => {
-              if (event.target === event.currentTarget) overlayCommands.closeNote()
+          <Dialog
+            open
+            onOpenChange={(open) => {
+              if (!open) overlayCommands.closeNote()
             }}
+            title={canvasDialogLabel(model.noteDialog)}
+            class='sm:max-w-lg'
           >
-            <div
-              use={modalFocus({
-                onEscape: overlayCommands.closeNote,
-                fallbackFocus: () =>
-                  document.querySelector('[data-testid="workspace-taskbar-workspaces"]'),
-              })}
-              role='dialog'
-              aria-modal='true'
-              aria-labelledby='canvas-dialog-title'
-              class={cn(
-                'w-full rounded-xl border border-border bg-popover p-5 text-popover-foreground shadow-2xl',
-                {
-                  'max-w-lg': model.noteDialog.kind === 'new-note',
-                  'max-w-sm': model.noteDialog.kind !== 'new-note',
-                },
-              )}
-            >
-              <span id='canvas-dialog-title' class='sr-only'>
-                {canvasDialogLabel(model.noteDialog)}
-              </span>
-              {((value) =>
-                value ? (
-                  <form
-                    onSubmit={(event) => {
-                      event.preventDefault()
-                      if (!value.title.trim() || !value.directory) return
-                      createDocumentFromComposer(value)
+            {((value) =>
+              value ? (
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault()
+                    if (!value.title.trim() || !value.directory) return
+                    createDocumentFromComposer(value)
+                  }}
+                >
+                  <label class='mt-4 block text-sm text-muted-foreground'>Title</label>
+                  <Input
+                    autofocus
+                    aria-label='Document title'
+                    maxlength={120}
+                    class='mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring'
+                    value={model.noteDialog.title}
+                    onInput={(event) => {
+                      overlayCommands.updateNoteTitle(event.currentTarget.value)
                     }}
-                  >
-                    <h2 class='text-base font-semibold'>New document</h2>
-                    <p class='mt-1 text-xs text-muted-foreground'>
-                      Creates a Markdown file and opens it on this canvas.
-                    </p>
-                    <label class='mt-4 block text-sm text-muted-foreground'>Title</label>
-                    <input
-                      autofocus
-                      aria-label='Document title'
-                      maxlength={120}
-                      class='mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring'
-                      value={model.noteDialog.title}
-                      onInput={(event) => {
-                        overlayCommands.updateNoteTitle(event.currentTarget.value)
-                      }}
-                    />
-                    <label class='mt-4 block text-sm text-muted-foreground'>Location</label>
-                    <select
-                      aria-label='Document location'
-                      class='mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring'
-                      value={model.noteDialog.directory}
-                      onChange={(event) => {
-                        overlayCommands.updateNoteDirectory(event.currentTarget.value)
-                      }}
+                  />
+                  <label class='mt-4 block text-sm text-muted-foreground'>Location</label>
+                  <Select
+                    aria-label='Document location'
+                    class='min-w-0 w-full'
+                    value={model.noteDialog.directory}
+                    onValueChange={(value) => {
+                      overlayCommands.updateNoteDirectory(value)
+                    }}
+                    options={writableDirectories.map((directory) => ({
+                      value: directory,
+                      label: directory,
+                    }))}
+                  />
+                  <div class='mt-5 flex justify-end gap-2'>
+                    <Button
+                      variant='ghost'
+                      type='button'
+                      class='h-9 rounded-md px-3 text-sm hover:bg-muted'
+                      onClick={overlayCommands.closeNote}
                     >
-                      {list(canvasStrings.from(writableDirectories), (directory) => (
-                        <option value={directory}>{directory}</option>
-                      ))}
-                    </select>
-                    <div class='mt-5 flex justify-end gap-2'>
-                      <button
-                        type='button'
-                        class='h-9 rounded-md px-3 text-sm hover:bg-muted'
-                        onClick={overlayCommands.closeNote}
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        type='submit'
-                        class='h-9 rounded-md bg-primary px-3 text-sm text-primary-foreground disabled:opacity-40'
-                        disabled={!model.noteDialog.title.trim() || !model.noteDialog.directory}
-                      >
-                        Create document
-                      </button>
-                    </div>
-                  </form>
-                ) : null)(
-                model.noteDialog.kind === 'new-note'
-                  ? (model.noteDialog as Extract<CanvasDialogState, { kind: 'new-note' }>)
-                  : undefined,
-              )}
-            </div>
-          </div>
+                      Cancel
+                    </Button>
+                    <Button
+                      variant='default'
+                      type='submit'
+                      class='h-9 rounded-md bg-primary px-3 text-sm text-primary-foreground disabled:opacity-40'
+                      disabled={!model.noteDialog.title.trim() || !model.noteDialog.directory}
+                    >
+                      Create document
+                    </Button>
+                  </div>
+                </form>
+              ) : null)(
+              model.noteDialog.kind === 'new-note'
+                ? (model.noteDialog as Extract<CanvasDialogState, { kind: 'new-note' }>)
+                : undefined,
+            )}
+          </Dialog>
         ) : null}
       </div>
     )

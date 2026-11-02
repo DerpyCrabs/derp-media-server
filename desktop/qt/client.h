@@ -26,6 +26,7 @@ class ClientWindow : public QWebEngineView {
     QStringList dropPaths;
     QString parentHandle;
     void showTarget();
+    void updateWindowIcon();
     bool ready = false, approvedClose = false, closing = false, targetPending = false;
     std::function<void(uint, QJsonObject)> pickerFinished;
     void finishPicker(uint code, const QJsonObject &selection = {});
@@ -58,6 +59,8 @@ class Client : public QObject {
     QSet<ClientWindow *> windows;
     QPointer<ClientWindow> spare;
     void openTarget(const QJsonObject &target);
+    void openViewerPicker(const QJsonObject &application);
+    void openHome();
     void openPaths(const QStringList &paths);
     void handleArguments(const QStringList &args, const QString &cwd);
     void prepareSpare();

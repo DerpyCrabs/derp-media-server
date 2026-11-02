@@ -32,8 +32,8 @@ test.describe('File display settings', () => {
       await page.goto(`/?dir=${encodeURIComponent(folderName)}`)
       await expect(page.getByRole('group', { name: 'View mode' })).toHaveCount(0)
       await page.getByRole('button', { name: 'Display options' }).click()
-      await expect(page.getByRole('menuitem', { name: 'List view' })).toBeVisible()
-      await expect(page.getByRole('menuitem', { name: 'Grid view' })).toBeVisible()
+      await expect(page.getByRole('menuitemradio', { name: 'List view' })).toBeVisible()
+      await expect(page.getByRole('menuitemradio', { name: 'Grid view' })).toBeVisible()
       await page.getByRole('button', { name: 'Display options' }).click()
       await expect(page.locator('thead')).toHaveCount(0)
       await expect(
@@ -48,9 +48,9 @@ test.describe('File display settings', () => {
         (response) => response.url().includes('/api/settings/sortOrder') && response.ok(),
       )
       await page.getByRole('button', { name: 'Display options' }).click()
-      await page.getByRole('menuitem', { name: 'Size' }).click()
+      await page.getByRole('menuitem', { name: 'Sort by' }).click()
+      await page.getByRole('menuitemradio', { name: 'Size', exact: true }).click()
       await sizeResponse
-      await page.getByRole('button', { name: 'Display options' }).click()
 
       const fileNames = page.locator('tbody tr[data-file-path] td:nth-child(2)')
       await expect(fileNames).toHaveText(['beta.txt', 'gamma.txt', 'alpha.txt'])
@@ -58,16 +58,19 @@ test.describe('File display settings', () => {
       await expect(fileNames).toHaveText(['beta.txt', 'gamma.txt', 'alpha.txt'])
 
       await page.getByRole('button', { name: 'Display options' }).click()
-      const menu = page.getByTestId('explorer-display-options')
+      const menu = page.getByRole('menu', { name: 'Display options', exact: true })
       const columnsResponse = page.waitForResponse(
         (response) => response.url().includes('/api/settings/fileColumns') && response.ok(),
       )
-      await expect(menu.getByRole('checkbox', { name: 'Created' })).not.toBeChecked()
-      await expect(menu.getByRole('checkbox', { name: 'Favorites' })).toBeChecked()
-      await expect(menu.getByRole('checkbox', { name: 'Views' })).toBeChecked()
-      await expect(menu.getByRole('menuitem', { name: 'Favorites' })).toBeVisible()
-      await expect(menu.getByRole('menuitem', { name: 'Views' })).toBeVisible()
-      await menu.getByRole('checkbox', { name: 'Created' }).check()
+      await menu.getByRole('menuitem', { name: 'Columns', exact: true }).click()
+      await expect(
+        page.getByRole('menuitemcheckbox', { name: 'Created', exact: true }),
+      ).not.toBeChecked()
+      await expect(
+        page.getByRole('menuitemcheckbox', { name: 'Favorites', exact: true }),
+      ).toBeChecked()
+      await expect(page.getByRole('menuitemcheckbox', { name: 'Views', exact: true })).toBeChecked()
+      await page.getByRole('menuitemcheckbox', { name: 'Created', exact: true }).click()
       await columnsResponse
       await expect(
         page.locator('tbody tr[data-file-path] td[data-column="created-date"]'),
