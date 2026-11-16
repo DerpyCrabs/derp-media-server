@@ -232,6 +232,17 @@ describe('Markdown link extraction and safety', () => {
     )
   })
 
+  test('preserves explicit schemes containing an email-like address', () => {
+    for (const href of [
+      'mailto:reader@example.com?subject=Hello%20world&body=one%0Atwo',
+      'https://user@example.com/path',
+      'https://example.com/?email=reader@example.com',
+    ]) {
+      const state = parsed(`[link](${href})`)
+      expect(extractMarkdownLink(findNode(state, 'Link'), state.doc)?.href).toBe(href)
+    }
+  })
+
   test('extracts GFM bare HTTP URL', () => {
     const source = 'https://example.com/path'
     const state = parsed(source)

@@ -48,7 +48,8 @@ function isExternalLink(href: string): boolean {
 
 function normalizedLinkHref(href: string): string {
   const trimmed = href.trim()
-  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) return `mailto:${trimmed}`
+  if (!/^[a-z][a-z\d+.-]*:/i.test(trimmed) && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed))
+    return `mailto:${trimmed}`
   if (/^www\./i.test(trimmed)) return `http://${trimmed}`
   return trimmed
 }
