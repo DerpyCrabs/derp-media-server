@@ -92,12 +92,15 @@ type FileBrowserViewListing = Readonly<{
 }>
 type FileBrowserViewHost = Readonly<{
   picking?: boolean
+  focusRevealed?: boolean
+  revealPath?: string
   focusListing?: boolean
   onListingFocused?: () => void
   openParent: () => void
   openFile: (file: FileItem, event?: MouseEvent | KeyboardEvent) => void
   activateFile?: (file: FileItem) => void
   selected?: (file: FileItem) => boolean
+  dragFiles?: (file: FileItem) => readonly FileItem[]
   moveFocus?: (from: FileItem, to: FileItem, event: KeyboardEvent) => void
   selectionKeyDown?: (event: KeyboardEvent) => void
   setViewMode: (mode: 'list' | 'grid') => void
@@ -391,7 +394,12 @@ export const FileBrowserView = controllerView(
         use: longPressContextMenu(),
         onDragStart:
           dragGrid || kind === 'list'
-            ? (event: globalThis.DragEvent) => onFileDragStart(file, event)
+            ? (event: globalThis.DragEvent) =>
+                onFileDragStart(
+                  file,
+                  event,
+                  window.derpDesktop ? props.host.dragFiles?.(file) : undefined,
+                )
             : undefined,
         onDragEnd: dragGrid || kind === 'list' ? onFileDragEnd : undefined,
         onDragOver:
@@ -462,6 +470,8 @@ export const FileBrowserView = controllerView(
                 listSizeColumnClass: 'w-20 @min-[560px]/explorer:w-28',
               }}
               rows={{
+                focusRevealed: props.host.focusRevealed,
+                revealPath: props.host.revealPath,
                 focusOnLoad: props.host.focusListing,
                 onFocused: props.host.onListingFocused,
                 onMoveFocus: props.host.moveFocus,

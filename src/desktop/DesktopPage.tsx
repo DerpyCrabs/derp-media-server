@@ -186,6 +186,26 @@ export const DesktopPage = controllerView(
           : undefined
       },
       currentPath: directory(),
+      reveal: (() => {
+        try {
+          const value = JSON.parse(
+            new URLSearchParams(model.location.search).get('reveal') ?? 'null',
+          )
+          return value &&
+            typeof value.directory === 'string' &&
+            Array.isArray(value.paths) &&
+            value.paths.length <= 16 &&
+            value.paths.every((path: unknown) => typeof path === 'string')
+            ? {
+                directory: value.directory,
+                paths: value.paths as string[],
+                properties: value.properties === true,
+              }
+            : undefined
+        } catch {
+          return undefined
+        }
+      })(),
       editableFolders: editableFolders(),
       mediaRoots: mediaRoots(),
       iconContext: {

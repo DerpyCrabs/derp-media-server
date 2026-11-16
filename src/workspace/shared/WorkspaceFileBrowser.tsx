@@ -114,6 +114,7 @@ export const WorkspaceFileBrowser = view<WorkspaceFileBrowserProps>((props) =>
       layout: 'workspace',
       navigationKey: props.definition?.id ?? props.windowId,
       currentPath: currentPath(),
+      reveal: props.definition?.initialState?.reveal,
       editableFolders: props.editableFolders,
       active: props.active,
       iconContext: props.fileIconContext,

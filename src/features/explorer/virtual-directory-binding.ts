@@ -15,6 +15,8 @@ export type DirectoryViewport = {
   estimateSize?: number
   overscan?: number
   range: DirectoryRange
+  focusRevealed?: boolean
+  revealPath?: string
   focusOnLoad?: boolean
   onFocused?: () => void
   onMoveFocus?: (from: FileItem, to: FileItem, event: KeyboardEvent) => void
@@ -52,6 +54,24 @@ export const directoryViewport = (
       : count
     return { start, end, columns, rowHeight }
   }
+  let disposed = false
+  const canFocusListing = () => {
+    const active = document.activeElement
+    return (
+      !disposed &&
+      element.isConnected &&
+      ![
+        ...document.querySelectorAll<HTMLElement>(
+          '[role=dialog], [role=alertdialog], [data-floating-surface][role=menu]',
+        ),
+      ].some((surface) => surface.getClientRects().length > 0) &&
+      (!active?.isConnected ||
+        active === document.body ||
+        active === element.closest('[data-folder-navigation]'))
+    )
+  }
+  let revealedPath: string | undefined
+  let revealFocusHandled = false
   const write = ({ start, end, columns, rowHeight }: DirectoryRange) => {
     const state = current()
     if (
@@ -61,6 +81,41 @@ export const directoryViewport = (
       rowHeight !== state.range.rowHeight
     )
       state.patch({ start, end, columns, rowHeight })
+    if (state.revealPath && revealedPath !== state.revealPath && element.clientWidth > 0) {
+      const index = state.files.findIndex((file) => file.path === state.revealPath)
+      const target = state.target.kind === 'element' ? state.target.getScrollElement() : window
+      if (index >= 0 && target) {
+        revealedPath = state.revealPath
+        revealFocusHandled = false
+        const rect = element.getBoundingClientRect()
+        const base =
+          target instanceof window.HTMLElement
+            ? rect.top - target.getBoundingClientRect().top + target.scrollTop
+            : rect.top + window.scrollY
+        target.scrollTo({
+          top: Math.max(
+            0,
+            base +
+              Math.floor((index + (state.includeParent ? 1 : 0)) / columns) * rowHeight -
+              (target instanceof window.HTMLElement ? target.clientHeight : window.innerHeight) / 2,
+          ),
+          behavior: 'instant',
+        })
+        schedule()
+      }
+    }
+    if (!revealFocusHandled && state.focusRevealed && revealedPath) {
+      const row = element.querySelector<HTMLElement>(
+        `[data-file-path="${CSS.escape(revealedPath)}"]`,
+      )
+      if (row) {
+        revealFocusHandled = true
+        // Never take focus back from a control the user already entered, or from
+        // the properties dialog. Virtual rows may appear after the first frame.
+        if (canFocusListing()) row.focus({ preventScroll: true })
+        state.onFocused?.()
+      }
+    }
     if (registeredScope !== state.scope) {
       unregister?.()
       registeredScope = state.scope
@@ -179,13 +234,17 @@ export const directoryViewport = (
   }
   let focusHandled = false
   const focusOnLoad = () => {
-    if (focusHandled || !current().focusOnLoad) return
+    if (
+      disposed ||
+      focusHandled ||
+      !current().focusOnLoad ||
+      (current().focusRevealed && current().revealPath)
+    )
+      return
     focusHandled = true
     focusFrame = window.requestAnimationFrame(() => {
-      if (
-        document.activeElement === document.body ||
-        document.activeElement === element.closest('[data-folder-navigation]')
-      ) {
+      if (disposed || !element.isConnected) return
+      if (canFocusListing()) {
         const row = element.querySelector<HTMLElement>('[data-file-path]')
         if (row) row.focus({ preventScroll: true })
         else {
@@ -212,6 +271,7 @@ export const directoryViewport = (
       focusOnLoad()
     },
     dispose: () => {
+      disposed = true
       window.cancelAnimationFrame(focusFrame)
       element.removeEventListener('keydown', onKeyDown)
       observer.disconnect()

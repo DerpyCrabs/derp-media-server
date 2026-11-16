@@ -59,6 +59,13 @@ export const workspaceDocumentSchema = Schema.Struct({
         rootPath: Schema.optional(nullableString),
       }),
       initialState: Schema.Struct({
+        reveal: Schema.optional(
+          Schema.Struct({
+            directory: Schema.String,
+            paths: Schema.Array(Schema.String),
+            properties: Schema.optional(Schema.Boolean),
+          }),
+        ),
         dir: Schema.optional(nullableString),
         viewing: Schema.optional(nullableString),
         playing: Schema.optional(nullableString),

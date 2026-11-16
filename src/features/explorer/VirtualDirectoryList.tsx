@@ -3,6 +3,8 @@ import { collection, domBinding, list, component, view, type JSX } from 'effectw
 import type { FileItem } from '@/lib/files/types'
 import { directoryViewport } from './virtual-directory-binding'
 type VirtualDirectoryListProps = {
+  focusRevealed?: boolean
+  revealPath?: string
   focusOnLoad?: boolean
   onFocused?: () => void
   onMoveFocus?: (from: FileItem, to: FileItem, event: KeyboardEvent) => void
@@ -57,6 +59,8 @@ export const VirtualDirectoryList = component(
             files,
             warmThumbnails: props.warmThumbnails,
             onMoveFocus: props.onMoveFocus,
+            focusRevealed: props.focusRevealed,
+            revealPath: props.revealPath,
             focusOnLoad: props.focusOnLoad,
             onFocused: props.onFocused,
             includeParent: parent,

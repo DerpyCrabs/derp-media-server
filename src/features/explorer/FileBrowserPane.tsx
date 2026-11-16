@@ -34,6 +34,8 @@ export type FileBrowserPaneLayout = Readonly<{
   listSizeColumnClass?: string
 }>
 export type FileBrowserPaneRows = Readonly<{
+  focusRevealed?: boolean
+  revealPath?: string
   focusOnLoad?: boolean
   onFocused?: () => void
   onMoveFocus?: (from: FileItem, to: FileItem, event: KeyboardEvent) => void
@@ -225,6 +227,8 @@ export const FileBrowserPane = view<FileBrowserPaneProps>((props) => {
             files={props.listing.files}
             warmThumbnails={props.listing.warmThumbnails}
             onMoveFocus={props.rows.onMoveFocus}
+            focusRevealed={props.rows.focusRevealed}
+            revealPath={props.rows.revealPath}
             focusOnLoad={props.rows.focusOnLoad}
             onFocused={props.rows.onFocused}
             includeParent={props.listing.includeParent}
@@ -246,6 +250,8 @@ export const FileBrowserPane = view<FileBrowserPaneProps>((props) => {
             files={props.listing.files}
             warmThumbnails={props.listing.warmThumbnails}
             onMoveFocus={props.rows.onMoveFocus}
+            focusRevealed={props.rows.focusRevealed}
+            revealPath={props.rows.revealPath}
             focusOnLoad={props.rows.focusOnLoad}
             onFocused={props.rows.onFocused}
             includeParent={props.listing.includeParent}

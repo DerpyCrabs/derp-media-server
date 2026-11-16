@@ -90,6 +90,9 @@ export function createFileTools(
   const showAppAlertEffect = dialogsForWindow(window).alert
   const runDesktopOperation = (operation: () => Promise<unknown>) =>
     runWindowOperation(operation, window)
+  const requestedHidden =
+    host().reveal?.directory === host().currentPath &&
+    host().reveal!.paths.some((path) => path.split('/').at(-1)?.startsWith('.'))
   const owner = modelOwner({
     desktop: !!window.derpDesktop,
     desktopMode: false,
@@ -131,11 +134,11 @@ export function createFileTools(
     owner.patch({ hiddenFiles: available(result)?.files })
     if (result._tag === 'Failure') owner.patch({ error: 'Could not load hidden files.' })
   })
-  hidden.select(owner.read().hidden ? host().currentPath : undefined)
+  hidden.select(owner.read().hidden || requestedHidden ? host().currentPath : undefined)
   owner.own(
     browserPreferences.source.subscribe((preferences) => {
       owner.patch({ hidden: preferences.showHidden, hiddenFiles: undefined })
-      hidden.select(preferences.showHidden ? host().currentPath : undefined)
+      hidden.select(preferences.showHidden || requestedHidden ? host().currentPath : undefined)
     }),
   )
   const favoritePlaces = observeQuery(owner, queryCache, favoritePlacesQuery, (result) => {
@@ -445,7 +448,7 @@ export function createFileTools(
       } else if (key === 'f5' && actions) {
         event.preventDefault()
         actions.refresh()
-        if (owner.read().hidden) hidden.refresh()
+        if (owner.read().hidden || requestedHidden) hidden.refresh()
       } else if (
         control &&
         event.shiftKey &&

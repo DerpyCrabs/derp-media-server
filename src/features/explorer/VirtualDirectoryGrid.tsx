@@ -3,6 +3,8 @@ import type { FileItem } from '@/lib/files/types'
 import { cn } from '@/lib/ui/cn'
 import { directoryViewport } from './virtual-directory-binding'
 type VirtualDirectoryGridProps = {
+  focusRevealed?: boolean
+  revealPath?: string
   focusOnLoad?: boolean
   onFocused?: () => void
   onMoveFocus?: (from: FileItem, to: FileItem, event: KeyboardEvent) => void
@@ -50,6 +52,8 @@ export const VirtualDirectoryGrid = component(
             files,
             warmThumbnails: props.warmThumbnails,
             onMoveFocus: props.onMoveFocus,
+            focusRevealed: props.focusRevealed,
+            revealPath: props.revealPath,
             focusOnLoad: props.focusOnLoad,
             onFocused: props.onFocused,
             includeParent: parent,

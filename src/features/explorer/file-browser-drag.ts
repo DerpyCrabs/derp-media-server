@@ -115,10 +115,21 @@ export function createFileBrowserDragController(
       move(data.path, destination)
     }
   }
-  function onFileDragStart(file: FileItem, event: globalThis.DragEvent) {
+  function onFileDragStart(
+    file: FileItem,
+    event: globalThis.DragEvent,
+    selected: readonly FileItem[] = [file],
+  ) {
     if (window.derpDesktop && !file.isVirtual) {
       event.preventDefault()
-      runDesktopOperation(() => window.derpDesktop!.drag([file.path]), window)
+      const files = selected.some((item) => item.path === file.path) ? selected : [file]
+      runDesktopOperation(
+        () =>
+          window.derpDesktop!.drag(
+            files.filter((item) => !item.isVirtual).map((item) => item.path),
+          ),
+        window,
+      )
       return
     }
     const dataTransfer = event.dataTransfer

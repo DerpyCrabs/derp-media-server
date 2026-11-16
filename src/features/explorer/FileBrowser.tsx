@@ -66,6 +66,7 @@ export type FileBrowserPresentation = Readonly<{
   ({ kind: 'default' } | { kind: 'reader' } | { kind: 'virtual'; target: VirtualOpenTarget })
 export type FileBrowserHost = Readonly<{
   layout: 'media' | 'workspace'
+  reveal?: { directory: string; paths: readonly string[]; properties?: boolean }
   navigationKey?: string
   navigation?: FolderNavigationActions
   focusListing?: boolean
@@ -138,17 +139,38 @@ const DirectoryBrowser = controllerView(
         !(Object.values(VIRTUAL_FOLDERS) as string[]).includes(path) &&
         !currentListing().virtualDirectory &&
         isPathEditable(path, currentHost.editableFolders, currentHost.mediaRoots)
+      const reveal = currentHost.reveal?.directory === path ? currentHost.reveal : undefined
+      const visibleFiles = (): readonly FileItem[] => {
+        const data = currentListing()
+        if (data.virtualDirectory) return data.files
+        const hidden = tools.read().hiddenFiles
+        return includeHiddenFiles(
+          data.files,
+          tools.read().hidden
+            ? hidden
+            : hidden?.filter((file) => reveal?.paths.includes(file.path)),
+        )
+      }
       const tools = createFileTools(
         () => currentHost,
         () =>
-          (tools.read().hidden && !currentListing().virtualDirectory
-            ? includeHiddenFiles(currentListing().files, tools.read().hiddenFiles)
-            : currentListing().files
-          ).filter((file) =>
+          visibleFiles().filter((file) =>
             file.name.toLocaleLowerCase().includes(tools.read().folderFilter.toLocaleLowerCase()),
           ),
         window,
       )
+      if (reveal) tools.patch({ selected: [...reveal.paths], anchor: reveal.paths[0] ?? null })
+      let propertiesOpened = false
+      const revealProperties = () => {
+        if (
+          !propertiesOpened &&
+          reveal?.properties &&
+          visibleFiles().some((file) => file.path === reveal.paths[0])
+        ) {
+          propertiesOpened = true
+          tools.open('properties')
+        }
+      }
       const stats = createViewStats()
       const presentCreated = (filePath: string, displayName?: string) => {
         const file = fileItemFromPath(filePath, displayName)
@@ -222,10 +244,7 @@ const DirectoryBrowser = controllerView(
         const metadata = createFileSortMetadata(settings?.favorites, views)
         const sortingDisabled =
           (Object.values(VIRTUAL_FOLDERS) as string[]).includes(path) || !!data.virtualDirectory
-        const files =
-          tools.read().hidden && !data.virtualDirectory
-            ? includeHiddenFiles(data.files, tools.read().hiddenFiles)
-            : data.files
+        const files = visibleFiles()
         const orderedFiles = sortFilesForPath(
           files.filter(
             (file) =>
@@ -275,8 +294,19 @@ const DirectoryBrowser = controllerView(
         owner.patch({ ...changes, presentation: next })
         currentHost.onListingChange?.(next)
       }
-      owner.own(tools.source.subscribe((toolsState) => publishPresentation({ toolsState })))
-      owner.own(listing.source.subscribe((listing) => publishPresentation({ listing })))
+      owner.own(
+        tools.source.subscribe((toolsState) => {
+          publishPresentation({ toolsState })
+          revealProperties()
+        }),
+      )
+      owner.own(
+        listing.source.subscribe((listing) => {
+          publishPresentation({ listing })
+          revealProperties()
+        }),
+      )
+      revealProperties()
       owner.own(browser.source.subscribe((browser) => publishPresentation({ browser })))
       owner.own(actions.source.subscribe((actions) => owner.patch({ actions })))
       owner.own(chrome.source.subscribe((chrome) => owner.patch({ chrome })))
@@ -605,6 +635,9 @@ const DirectoryBrowser = controllerView(
                 listing={listingProps}
                 host={{
                   picking: !!host.selection,
+                  focusRevealed: !host.reveal?.properties && (host.active ?? true),
+                  revealPath:
+                    host.reveal?.directory === currentPath() ? host.reveal.paths[0] : undefined,
                   focusListing: host.focusListing,
                   onListingFocused: host.onListingFocused,
                   openParent: () =>
@@ -616,6 +649,22 @@ const DirectoryBrowser = controllerView(
                         ? undefined
                         : openFile(file),
                   activateFile: host.selection?.activate ?? openFile,
+                  dragFiles: (file) => {
+                    if (host.selection)
+                      return host.selection.includes(file)
+                        ? displayedFiles.filter(
+                            (item) => !item.isVirtual && host.selection!.includes(item),
+                          )
+                        : [file]
+                    const selected = model.tools.read().selected
+                    if (!selected.includes(file.path)) {
+                      model.tools.patch({ selected: [file.path], anchor: file.path })
+                      return [file]
+                    }
+                    return displayedFiles.filter(
+                      (item) => !item.isVirtual && selected.includes(item.path),
+                    )
+                  },
                   selected:
                     host.selection?.includes ??
                     ((file) => model.toolsState.selected.includes(file.path)),
