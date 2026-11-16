@@ -2,7 +2,8 @@ import { Effect } from 'effect'
 import { modelOwner } from 'effectweb'
 
 export type AppDialogRequest = {
-  readonly kind: 'alert' | 'confirm'
+  readonly kind: 'alert' | 'confirm' | 'choose'
+  readonly choices?: readonly { id: string; label: string }[]
   readonly title: string
   readonly message: string
   readonly confirmLabel: string
@@ -17,11 +18,11 @@ export type AppConfirmOptions = {
 
 export function createAppDialogs() {
   const owner = modelOwner({ request: null as AppDialogRequest | null })
-  type Pending = { request: AppDialogRequest; settle: (confirmed: boolean) => void }
+  type Pending = { request: AppDialogRequest; settle: (confirmed: boolean | string) => void }
   const pending: Pending[] = []
   const publish = () => owner.patch({ request: pending[0]?.request ?? null })
   const enqueue = (request: AppDialogRequest) =>
-    Effect.callback<boolean>((resume) => {
+    Effect.callback<boolean | string>((resume) => {
       if (owner.disposed) return resume(Effect.succeed(false))
       const entry: Pending = { request, settle: (value) => resume(Effect.succeed(value)) }
       pending.push(entry)
@@ -43,7 +44,13 @@ export function createAppDialogs() {
   return {
     source: owner.source,
     read: () => owner.read().request,
-    settle: (confirmed: boolean) => {
+    settle: (confirmed: boolean | string) => {
+      if (
+        typeof confirmed === 'string' &&
+        !pending[0]?.request.choices?.some((choice) => choice.id === confirmed)
+      )
+        return
+      if (confirmed === true && pending[0]?.request.kind === 'choose') return
       const current = pending.shift()
       if (!current) return
       publish()
@@ -60,7 +67,16 @@ export function createAppDialogs() {
         message: options.message,
         confirmLabel: options.confirmLabel ?? 'Confirm',
         destructive: options.destructive ?? false,
-      }),
+      }).pipe(Effect.map((value) => value === true)),
+    choose: (title: string, message: string, choices: readonly { id: string; label: string }[]) =>
+      enqueue({
+        kind: 'choose',
+        title,
+        message,
+        choices,
+        confirmLabel: '',
+        destructive: false,
+      }).pipe(Effect.map((value) => (typeof value === 'string' ? value : null))),
     dispose,
   }
 }

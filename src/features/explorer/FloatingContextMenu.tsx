@@ -18,9 +18,12 @@ import {
   FLOATING_Z_CONTEXT_MENU,
   FLOATING_Z_PATH_MENU,
 } from '@/lib/ui/floating-z-index'
+import { layoutViewportClientSize } from '@/lib/ui/layout-viewport'
 import { clampFixedMenuPosition } from '@/lib/ui/clamp-fixed-menu'
 import { cn } from '@/lib/ui/cn'
+import { nextMenuItem } from '@/lib/ui/menu'
 type CommonFloatingProps = {
+  focusFirstItem?: boolean
   mount?: HTMLElement
   onDismiss: () => void
   zIndex?: number
@@ -39,6 +42,7 @@ export type FloatingContextMenuAnchorProps = CommonFloatingProps & {
   open: boolean
   anchorRef: HTMLElement | null
   gap?: number
+  side?: 'bottom' | 'right'
   minWidthMin?: number
   children: JSX.Element
 }
@@ -54,6 +58,7 @@ type SurfaceProps = CommonFloatingProps & {
   anchorElement?: HTMLElement | null
   position?: { x: number; y: number }
   gap: number
+  side?: 'bottom' | 'right'
   minWidth: number
   zIndex: number
   children: JSX.Element
@@ -61,7 +66,36 @@ type SurfaceProps = CommonFloatingProps & {
 const surfaceBinding = (element: HTMLDivElement, current: () => SurfaceProps) => {
   const document = element.ownerDocument
   const window = viewWindow({ document })
-  let frame = 0
+  let frame = 0,
+    focusRequested = false
+  const items = () =>
+    [...element.querySelectorAll<HTMLButtonElement>('button[role^="menuitem"]')].filter(
+      (item) =>
+        !item.disabled &&
+        item.getAttribute('aria-disabled') !== 'true' &&
+        item.getClientRects().length > 0 &&
+        item.closest('[role="menu"]') === element,
+    )
+  const keyboard = (event: KeyboardEvent) => {
+    if (event.defaultPrevented || element.getAttribute('role') !== 'menu') return
+    const entries = items(),
+      index = entries.indexOf(document.activeElement as HTMLButtonElement)
+    if (index < 0) return
+    if (event.key === 'ArrowLeft' && current().side === 'right') {
+      event.preventDefault()
+      event.stopPropagation()
+      current().onDismiss()
+      current().anchorElement?.focus({ preventScroll: true })
+      return
+    }
+    const next = nextMenuItem(entries.length, index, event.key)
+    if (next !== null) {
+      event.preventDefault()
+      event.stopPropagation()
+      entries[next]?.focus({ preventScroll: true })
+    }
+  }
+  element.addEventListener('keydown', keyboard)
   const apply = () => {
     const props = current()
     const anchor = props.anchorElement
@@ -70,21 +104,34 @@ const surfaceBinding = (element: HTMLDivElement, current: () => SurfaceProps) =>
     element.style.left = '0px'
     element.style.top = '0px'
     const bounds = element.getBoundingClientRect()
+    const toRight = props.side === 'right' && rect
+    let preferredLeft = rect?.left ?? props.position?.x ?? 0
+    if (toRight) {
+      preferredLeft = rect.right + props.gap
+      if (preferredLeft + bounds.width > layoutViewportClientSize(document).w - 8)
+        preferredLeft = rect.left - bounds.width - props.gap
+    }
     const position = clampFixedMenuPosition(
       {
-        preferredLeft: rect?.left ?? props.position?.x ?? 0,
+        preferredLeft,
         width: Math.max(bounds.width, 1),
         height: Math.max(bounds.height, 1),
         flip: {
           anchorTop: rect?.top ?? props.position?.y ?? 0,
-          anchorBottom: rect?.bottom ?? props.position?.y ?? 0,
-          gap: rect ? props.gap : 0,
+          anchorBottom: toRight ? rect.top : (rect?.bottom ?? props.position?.y ?? 0),
+          gap: rect && !toRight ? props.gap : 0,
         },
       },
       document,
     )
     element.style.left = `${position.left}px`
     element.style.top = `${position.top}px`
+    const requested = props.focusFirstItem === true
+    if (requested && !focusRequested) {
+      const first = items()[0]
+      first?.focus({ preventScroll: true })
+      focusRequested = !!first
+    } else if (!requested) focusRequested = false
   }
   const schedule = () => {
     window.cancelAnimationFrame(frame)
@@ -126,6 +173,7 @@ const surfaceBinding = (element: HTMLDivElement, current: () => SurfaceProps) =>
       window.cancelAnimationFrame(frame)
       if (element.matches(':popover-open')) element.hidePopover()
       resize.disconnect()
+      element.removeEventListener('keydown', keyboard)
       unregister()
       window.removeEventListener('resize', schedule)
       window.removeEventListener('scroll', schedule, true)

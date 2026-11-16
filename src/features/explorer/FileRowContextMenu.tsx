@@ -3,6 +3,7 @@ import { MenuItem } from '@/lib/ui/menu-item'
 import { component, view } from 'effectweb'
 import type { FileItem } from '@/lib/files/types'
 import { FloatingContextMenu } from './FloatingContextMenu'
+import { FLOATING_Z_CONTEXT_MENU } from '@/lib/ui/floating-z-index'
 import Info from '@effectweb/lucide/icons/info'
 import AppWindow from '@effectweb/lucide/icons/app-window'
 import BookOpen from '@effectweb/lucide/icons/book-open'
@@ -21,19 +22,32 @@ type MenuState = { x: number; y: number; file: FileItem }
 export const FileRowContextMenu = component(
   {
     init: (_props: { model: ExplorerRowMenu }) => ({
-      openWithState: { menu: null, open: false } as { menu: MenuState | null; open: boolean },
+      openWithState: { menu: null, open: false, anchor: null, focusFirstItem: false } as {
+        menu: MenuState | null
+        open: boolean
+        anchor: HTMLElement | null
+        focusFirstItem: boolean
+      },
     }),
   },
   view((local, patch) => {
     const props = local.props
     const openWithState = () => local.openWithState
-    const setOpenWithState = (value: { menu: MenuState | null; open: boolean }) =>
-      patch({ openWithState: value })
+    const setOpenWithState = (value: {
+      menu: MenuState | null
+      open: boolean
+      anchor: HTMLElement | null
+      focusFirstItem: boolean
+    }) => patch({ openWithState: value })
     const openWithOpen = () => {
       const state = openWithState()
       return state.menu === props.model.menu && state.open
     }
-    const setOpenWithOpen = (open: boolean) => setOpenWithState({ menu: props.model.menu, open })
+    const setOpenWithOpen = (
+      open: boolean,
+      anchor = openWithState().anchor,
+      focusFirstItem = false,
+    ) => setOpenWithState({ menu: props.model.menu, open, anchor, focusFirstItem })
     return (
       <FloatingContextMenu
         state={props.model.menu}
@@ -185,7 +199,7 @@ export const FileRowContextMenu = component(
                   Delete Permanently
                 </MenuItem>
               ) : null}
-              {!ctx.file.isVirtual ? (
+              {!ctx.file.isVirtual && !available('open-with') ? (
                 <NativeOpenButton
                   path={ctx.file.path}
                   role='menuitem'
@@ -252,11 +266,7 @@ export const FileRowContextMenu = component(
                 </MenuItem>
               ) : null}
               {available('open-with') ? (
-                <div
-                  class='relative'
-                  onPointerEnter={() => setOpenWithOpen(true)}
-                  onPointerLeave={() => setOpenWithOpen(false)}
-                >
+                <div class='relative'>
                   <MenuItem
                     variant='ghost'
                     type='button'
@@ -266,11 +276,14 @@ export const FileRowContextMenu = component(
                     aria-expanded={openWithOpen() ? 'true' : 'false'}
                     class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
                     role='menuitem'
-                    onClick={() => setOpenWithOpen(true)}
+                    onPointerEnter={(event) => setOpenWithOpen(true, event.currentTarget)}
+                    onClick={(event) =>
+                      setOpenWithOpen(true, event.currentTarget, event.detail === 0)
+                    }
                     onKeyDown={(event) => {
                       if (event.key === 'ArrowRight') {
                         event.preventDefault()
-                        setOpenWithOpen(true)
+                        setOpenWithOpen(true, event.currentTarget, true)
                       }
                     }}
                   >
@@ -279,10 +292,16 @@ export const FileRowContextMenu = component(
                     <ChevronRight class='size-4 shrink-0' stroke-width={2} />
                   </MenuItem>
                   {openWithOpen() ? (
-                    <div
-                      role='menu'
+                    <FloatingContextMenu
+                      open={openWithOpen()}
+                      anchorRef={openWithState().anchor}
+                      focusFirstItem={openWithState().focusFirstItem}
+                      side='right'
+                      class='w-56'
+                      gap={0}
+                      zIndex={FLOATING_Z_CONTEXT_MENU + 1}
+                      onDismiss={() => setOpenWithOpen(false)}
                       data-testid='open-with-submenu'
-                      class='absolute top-[-4px] left-[calc(100%-2px)] z-10 min-w-36 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md'
                     >
                       <MenuItem
                         variant='ghost'
@@ -306,7 +325,12 @@ export const FileRowContextMenu = component(
                         <BookOpen class='size-4 shrink-0' stroke-width={2} />
                         Reader
                       </MenuItem>
-                    </div>
+                      <NativeOpenButton
+                        path={ctx.file.path}
+                        chooserLabel='Installed application…'
+                        onDone={props.model.dismiss}
+                      />
+                    </FloatingContextMenu>
                   ) : null}
                 </div>
               ) : null}
