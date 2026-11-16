@@ -62,6 +62,7 @@ export function computeSnappedResizeWindows(
   direction: string,
   canvas?: WorkspaceCanvasSize | null,
 ): readonly WindowDefinition[] {
+  const normalizedDirection = direction.toLowerCase()
   const windows = current
   const target = windows.find((w) => w.id === windowId)
   if (!target?.layout?.bounds) {
@@ -80,16 +81,16 @@ export function computeSnappedResizeWindows(
     )
     const colLines = [...tiling.colLines]
     const rowLines = [...tiling.rowLines]
-    if (direction.includes('right') && tiling.colEnd < tiling.cols) {
+    if (normalizedDirection.includes('right') && tiling.colEnd < tiling.cols) {
       colLines[tiling.colEnd] = (newBounds.x + newBounds.width) / canvasWidth
     }
-    if (direction.includes('left') && tiling.colStart > 0) {
+    if (normalizedDirection.includes('left') && tiling.colStart > 0) {
       colLines[tiling.colStart] = newBounds.x / canvasWidth
     }
-    if (direction.includes('bottom') && tiling.rowEnd < tiling.rows) {
+    if (normalizedDirection.includes('bottom') && tiling.rowEnd < tiling.rows) {
       rowLines[tiling.rowEnd] = (newBounds.y + newBounds.height) / canvasHeight
     }
-    if (direction.includes('top') && tiling.rowStart > 0) {
+    if (normalizedDirection.includes('top') && tiling.rowStart > 0) {
       rowLines[tiling.rowStart] = newBounds.y / canvasHeight
     }
     const clampLine = (lines: number[], index: number, minFraction: number) => {
@@ -99,10 +100,13 @@ export function computeSnappedResizeWindows(
         Math.min(lines[index]!, lines[index + 1]! - minFraction),
       )
     }
-    if (direction.includes('right')) clampLine(colLines, tiling.colEnd, 360 / canvasWidth)
-    if (direction.includes('left')) clampLine(colLines, tiling.colStart, 360 / canvasWidth)
-    if (direction.includes('bottom')) clampLine(rowLines, tiling.rowEnd, 260 / canvasHeight)
-    if (direction.includes('top')) clampLine(rowLines, tiling.rowStart, 260 / canvasHeight)
+    if (normalizedDirection.includes('right')) clampLine(colLines, tiling.colEnd, 360 / canvasWidth)
+    if (normalizedDirection.includes('left'))
+      clampLine(colLines, tiling.colStart, 360 / canvasWidth)
+    if (normalizedDirection.includes('bottom'))
+      clampLine(rowLines, tiling.rowEnd, 260 / canvasHeight)
+    if (normalizedDirection.includes('top'))
+      clampLine(rowLines, tiling.rowStart, 260 / canvasHeight)
     const resolvedCanvas = { width: canvasWidth, height: canvasHeight }
     return windows.map((w) => {
       const t = w.layout?.tiling
@@ -144,7 +148,7 @@ export function computeSnappedResizeWindows(
 
     let updated = false
 
-    if (direction.includes('right') && deltaRight !== 0) {
+    if (normalizedDirection.includes('right') && deltaRight !== 0) {
       const gutter = ox1
       if (verticalSpanOverlap(oy0, oy1, wb.y, wb.y + wb.height)) {
         if (Math.abs(wb.x - gutter) <= EDGE_ALIGN_TOL) {
@@ -161,7 +165,7 @@ export function computeSnappedResizeWindows(
       }
     }
 
-    if (direction.includes('left') && deltaLeft !== 0) {
+    if (normalizedDirection.includes('left') && deltaLeft !== 0) {
       const gutter = ox0
       if (verticalSpanOverlap(oy0, oy1, wb.y, wb.y + wb.height)) {
         if (
@@ -181,7 +185,7 @@ export function computeSnappedResizeWindows(
       }
     }
 
-    if (direction.includes('bottom') && deltaBottom !== 0) {
+    if (normalizedDirection.includes('bottom') && deltaBottom !== 0) {
       const gutter = oy1
       if (horizontalSpanOverlap(ox0, ox1, wb.x, wb.x + wb.width)) {
         if (Math.abs(wb.y - gutter) <= EDGE_ALIGN_TOL) {
@@ -198,7 +202,7 @@ export function computeSnappedResizeWindows(
       }
     }
 
-    if (direction.includes('top') && deltaTop !== 0) {
+    if (normalizedDirection.includes('top') && deltaTop !== 0) {
       const gutter = oy0
       if (horizontalSpanOverlap(ox0, ox1, wb.x, wb.x + wb.width)) {
         if (

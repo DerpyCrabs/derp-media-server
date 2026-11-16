@@ -302,6 +302,43 @@ test.describe('Drag Restore', () => {
   })
 })
 
+test.describe('Corner resizing', () => {
+  for (const viewport of [
+    { width: 1280, height: 720 },
+    { width: 700, height: 1100 },
+  ]) {
+    for (const corner of ['topLeft', 'topRight', 'bottomLeft', 'bottomRight']) {
+      test(`${corner} changes both dimensions and reverses at ${viewport.width}px`, async () => {
+        await page.setViewportSize(viewport)
+        await gotoWorkspace(page)
+        const group = getWindowGroups(page).first()
+        const before = await getWindowBounds(group)
+        const left = corner.endsWith('Left')
+        const top = corner.startsWith('top')
+        const x = before.x + (left ? 4 : before.width - 4)
+        const y = before.y + (top ? 4 : before.height - 4)
+        const dx = left ? 10 : -10
+        const dy = top ? 40 : -40
+
+        await page.mouse.move(x, y)
+        await page.mouse.down()
+        await page.mouse.move(x + dx, y + dy, { steps: 8 })
+        await expect
+          .poll(() => getWindowBounds(group))
+          .toEqual({
+            x: before.x + (left ? 10 : 0),
+            y: before.y + (top ? 40 : 0),
+            width: before.width - 10,
+            height: before.height - 40,
+          })
+        await page.mouse.move(x, y, { steps: 8 })
+        await page.mouse.up()
+        await expect.poll(() => getWindowBounds(group)).toEqual(before)
+      })
+    }
+  }
+})
+
 test.describe('Window Minimum Size', () => {
   test('window cannot be resized below 360x260', async () => {
     await gotoWorkspace(page)

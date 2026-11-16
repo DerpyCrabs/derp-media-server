@@ -217,7 +217,8 @@ export const WorkspaceWindowChrome = component<
           cancel: pointerGesture.cancel,
         })
       }
-      const startResize = (direction: string, e: PointerEvent) => {
+      const startResize = (direction: ResizeHandleKey, e: PointerEvent) => {
+        const normalizedDirection = direction.toLowerCase()
         const container = props.environment.container()
         if (!container) return
         const pointerGesture = props.commands.beginPointerGesture()
@@ -255,13 +256,13 @@ export const WorkspaceWindowChrome = component<
           const dx = ev.clientX - startX
           const dy = ev.clientY - startY
           let nb: WorkspaceBounds = { ...initialBounds }
-          if (direction.includes('right')) nb.width = initialBounds.width + dx
-          if (direction.includes('left')) {
+          if (normalizedDirection.includes('right')) nb.width = initialBounds.width + dx
+          if (normalizedDirection.includes('left')) {
             nb.x = initialBounds.x + dx
             nb.width = initialBounds.width - dx
           }
-          if (direction.includes('bottom')) nb.height = initialBounds.height + dy
-          if (direction.includes('top')) {
+          if (normalizedDirection.includes('bottom')) nb.height = initialBounds.height + dy
+          if (normalizedDirection.includes('top')) {
             nb.y = initialBounds.y + dy
             nb.height = initialBounds.height - dy
           }

@@ -56,6 +56,54 @@ function assertExactAbutment(
 }
 
 describe('semantic workspace tiling', () => {
+  for (const direction of ['topLeft', 'topRight', 'bottomLeft', 'bottomRight']) {
+    test(`corner ${direction} moves both shared grid lines and preserves abutment`, () => {
+      const windows = [0, 1, 2, 3].map((index) => {
+        const colStart = index % 2
+        const rowStart = Math.floor(index / 2)
+        const tiling = {
+          cols: 2,
+          rows: 2,
+          colStart,
+          colEnd: colStart + 1,
+          rowStart,
+          rowEnd: rowStart + 1,
+          colLines: [0, 0.5, 1],
+          rowLines: [0, 0.5, 1],
+        }
+        return {
+          ...tiledWindow(String(index), 0, 1),
+          layout: { tiling, bounds: tilingPlacementToBounds(tiling, CANVAS) },
+        }
+      })
+      const left = direction.endsWith('Left')
+      const top = direction.startsWith('top')
+      const index = (top ? 2 : 0) + (left ? 1 : 0)
+      const target = windows[index]!
+      const before = target.layout.bounds
+      const expected = {
+        x: before.x + (left ? 20 : 0),
+        y: before.y + (top ? 20 : 0),
+        width: before.width + (left ? -20 : 20),
+        height: before.height + (top ? -20 : 20),
+      }
+      const next = computeSnappedResizeWindows(windows, target.id, expected, direction, CANVAS)
+      expect(next[index]!.layout!.bounds).toEqual(expected)
+      for (const [a, b, axis] of [
+        [0, 1, 'x'],
+        [2, 3, 'x'],
+        [0, 2, 'y'],
+        [1, 3, 'y'],
+      ] as const) {
+        assertExactAbutment(next[a]!.layout!.bounds!, next[b]!.layout!.bounds!, axis)
+      }
+      const restored = computeSnappedResizeWindows(next, target.id, before, direction, CANVAS)
+      expect(restored.map((window) => window.layout!.bounds)).toEqual(
+        windows.map((window) => window.layout.bounds),
+      )
+    })
+  }
+
   test('adjacent equal spans use the exact same rounded boundary', () => {
     const left = assistGridSpanToBounds(CANVAS, {
       gridCols: 3,
