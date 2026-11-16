@@ -17,7 +17,7 @@ import {
   removeTextDraft,
   type TextDraft,
 } from '@/lib/editor/text-drafts'
-import { registerDesktopCloseHandler } from '@/desktop/close-handlers'
+import { DesktopCloseCancelled, registerDesktopCloseHandler } from '@/desktop/close-handlers'
 import { dialogsForWindow } from '@/lib/ui/app-dialog'
 import type { WorkspaceSettings } from '@/workspace/model/workspace-settings-types'
 import { observeQuery, query } from '@effectweb/query'
@@ -503,7 +503,34 @@ export function textController(
   }
   window.addEventListener('pagehide', flushDraft)
   window.addEventListener('beforeunload', flushDraft)
-  const stopClose = registerDesktopCloseHandler(() => Effect.tryPromise(persistDraft), window)
+  const stopClose = registerDesktopCloseHandler(
+    () =>
+      Effect.gen(function* () {
+        closing = true
+        owner.cancel(debounceSlot)
+        try {
+          if (owner.read().edit !== owner.read().base) {
+            const confirmed = yield* showAppConfirmEffect({
+              title: 'Save changes before closing?',
+              message: `Save changes to ${fileNameFromPath(props.viewingPath)} before closing this window.`,
+              confirmLabel: 'Save and close',
+            })
+            if (!confirmed) return yield* Effect.fail(new DesktopCloseCancelled('Close cancelled'))
+            yield* saveDocument(false)
+            if (owner.read().edit !== owner.read().base)
+              return yield* Effect.fail(
+                new Error('The document changed while saving. Review it before closing.'),
+              )
+          }
+          yield* Effect.tryPromise(persistDraft)
+        } finally {
+          closing = false
+          schedule()
+        }
+        return undefined
+      }),
+    window,
+  )
   owner.own({
     dispose: () => {
       window.removeEventListener('pagehide', flushDraft)

@@ -40,7 +40,7 @@
         Promise.resolve()
           .then(callback)
           .then(
-            () => call('close-ready'),
+            (result) => call('close-ready', result === false ? false : ''),
             (error) => call('close-ready', String(error)),
           )
       }),

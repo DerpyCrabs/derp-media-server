@@ -436,7 +436,9 @@ void Bridge::call(const QString &id, const QString &method, const QJsonArray &ar
     }
     if (method == "close-ready") {
         window->closing = false;
-        if (!args.isEmpty() && !args[0].toString().isEmpty()) {
+        if (!args.isEmpty() && args[0].isBool() && !args[0].toBool()) {
+            client->quitting = false;
+        } else if (!args.isEmpty() && !args[0].toString().isEmpty()) {
             client->quitting = false;
             client->error(args[0].toString());
         } else

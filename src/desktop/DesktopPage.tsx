@@ -5,7 +5,7 @@ import { getPlaybackSession } from '@/features/playback/PlaybackProvider'
 import { fileJobs } from '@/features/explorer/file-jobs'
 import { Effect } from 'effect'
 import ClipboardPaste from '@effectweb/lucide/icons/clipboard-paste'
-import { flushDesktopClose } from './close-handlers'
+import { DesktopCloseCancelled, flushDesktopClose } from './close-handlers'
 import { available, modelOwner, view, controllerView } from 'effectweb'
 import { queryCache } from '@/lib/api/cache'
 import { settingsQuery, configQuery, type ServerConfig } from '@/lib/api/queries'
@@ -84,7 +84,16 @@ function desktopController({ browserWindow }: { browserWindow: Window }) {
     picker.receive()
   })
   const stopOpen = bridge?.onOpen(receive),
-    stopClose = bridge?.onBeforeClose(() => Effect.runPromise(flushDesktopClose(window)))
+    stopClose = bridge?.onBeforeClose(() =>
+      Effect.runPromise(
+        flushDesktopClose(window).pipe(
+          Effect.as(true),
+          Effect.catch((error) =>
+            error instanceof DesktopCloseCancelled ? Effect.succeed(false) : Effect.fail(error),
+          ),
+        ),
+      ),
+    )
   if (bridge) runDesktopOperation(() => bridge.ready())
   const operation = (event: Event) => {
     const status = (event as CustomEvent<{ pending?: boolean; error?: string }>).detail

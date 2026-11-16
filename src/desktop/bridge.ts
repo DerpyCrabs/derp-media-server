@@ -22,7 +22,7 @@ export interface DesktopBridge {
   terminal?(path: string): Promise<void>
   cut?(paths: string[]): Promise<void>
   ready(): Promise<void>
-  onBeforeClose(callback: () => Promise<void>): () => void
+  onBeforeClose(callback: () => Promise<void | boolean>): () => void
   onOpen(callback: (target: DesktopTarget) => void): () => void
   open(path: string, reader?: boolean): Promise<void>
   openRoot(): Promise<void>

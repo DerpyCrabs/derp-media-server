@@ -1,5 +1,7 @@
 import { Effect } from 'effect'
 
+export class DesktopCloseCancelled extends Error {}
+
 type Handler = () => Effect.Effect<void, unknown>
 const windows = new WeakMap<Window, Set<Handler>>()
 
