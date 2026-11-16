@@ -453,6 +453,14 @@ const DirectoryBrowser = controllerView(
             rename: fileActions.requestRename,
             move: fileActions.requestMove,
             copy: fileActions.requestCopy,
+            extract: (file) => {
+              fileJobs.start({
+                operation: 'extractArchive',
+                paths: [file.path],
+                destination: currentPath(),
+              })
+              model.tools.open('operations')
+            },
             copyToClipboard: host.actions.copyToClipboard,
           },
           open: {

@@ -17,6 +17,7 @@ export interface FileItem {
   size: number
   createdDate?: number
   extension: string
+  isExecutable?: boolean
   isDirectory: boolean
   isVirtual?: boolean
   viewCount?: number

@@ -130,6 +130,7 @@ pub(crate) async fn list_for_browser(state: &Shared, dir: &str, offset: usize) -
             size: 0,
             created_date: None,
             extension: String::new(),
+            is_executable: false,
             is_directory: true,
             is_virtual: Some(true),
             view_count: None,
@@ -275,6 +276,7 @@ pub(crate) fn legacy_virtual_items(
                     .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
                     .map(|duration| duration.as_secs_f64() * 1000.0),
                 extension,
+                is_executable: media::is_executable(&metadata),
                 is_directory: metadata.is_dir(),
                 is_virtual: None,
                 view_count,

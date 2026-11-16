@@ -18,6 +18,7 @@ export const fileItemSchema = Schema.Struct({
   size: Schema.Number,
   createdDate: Schema.optional(Schema.Number),
   extension: Schema.String,
+  isExecutable: Schema.optional(Schema.Boolean),
   isDirectory: Schema.Boolean,
   isVirtual: Schema.optional(Schema.Boolean),
   viewCount: Schema.optional(Schema.Number),

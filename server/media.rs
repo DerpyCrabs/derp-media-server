@@ -27,6 +27,7 @@ pub struct FileItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_date: Option<f64>,
     pub extension: String,
+    pub is_executable: bool,
     pub is_directory: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_virtual: Option<bool>,
@@ -36,6 +37,18 @@ pub struct FileItem {
     pub thumbnail_generated: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<f64>,
+}
+
+pub fn is_executable(metadata: &fs::Metadata) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(not(unix))]
+    {
+        false
+    }
 }
 
 pub fn media_type(ext: &str) -> &'static str {
@@ -284,6 +297,7 @@ fn virtual_item(name: &str) -> FileItem {
         size: 0,
         created_date: None,
         extension: String::new(),
+        is_executable: false,
         is_directory: true,
         is_virtual: Some(true),
         view_count: None,
@@ -324,6 +338,7 @@ pub fn list_with_hidden(
                     .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
                     .map(|duration| duration.as_secs_f64() * 1000.0),
                 extension: String::new(),
+                is_executable: false,
                 is_directory: true,
                 is_virtual: None,
                 view_count: None,
@@ -384,6 +399,7 @@ pub fn list_with_hidden(
             size: if meta.is_dir() { 0 } else { meta.len() },
             created_date,
             extension: ext,
+            is_executable: is_executable(&meta),
             is_directory: meta.is_dir(),
             is_virtual: None,
             view_count: None,

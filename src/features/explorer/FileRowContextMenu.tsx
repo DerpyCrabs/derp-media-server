@@ -202,9 +202,18 @@ export const FileRowContextMenu = component(
               {!ctx.file.isVirtual && !available('open-with') ? (
                 <NativeOpenButton
                   path={ctx.file.path}
+                  runnable={
+                    !ctx.file.isDirectory &&
+                    (ctx.file.isExecutable || /\.(sh|py)$/i.test(ctx.file.path))
+                  }
                   role='menuitem'
                   onDone={props.model.dismiss}
                 />
+              ) : null}
+              {available('extract') ? (
+                <MenuItem role='menuitem' onClick={() => props.model.run('extract', ctx.file)}>
+                  Extract here
+                </MenuItem>
               ) : null}
               {available('set-icon') ? (
                 <MenuItem
@@ -327,6 +336,10 @@ export const FileRowContextMenu = component(
                       </MenuItem>
                       <NativeOpenButton
                         path={ctx.file.path}
+                        runnable={
+                          !ctx.file.isDirectory &&
+                          (ctx.file.isExecutable || /\.(sh|py)$/i.test(ctx.file.path))
+                        }
                         chooserLabel='Installed application…'
                         onDone={props.model.dismiss}
                       />

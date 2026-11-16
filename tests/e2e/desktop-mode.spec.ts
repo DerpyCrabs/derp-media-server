@@ -18,6 +18,10 @@ for (const desktopMode of [false, true]) {
     await fs.mkdir(path.join(home, 'Downloads'), { recursive: true })
     await fs.writeFile(path.join(home, 'note.txt'), 'test')
     await fs.mkdir(path.join(home, 'Projects'))
+    await fs.writeFile(path.join(home, 'hello.sh'), 'echo hello')
+    await fs.writeFile(path.join(home, 'hello.py'), 'print("hello")')
+    await fs.writeFile(path.join(home, 'tool'), '#!/bin/sh\nexit 0', { mode: 0o755 })
+    await fs.mkdir(path.join(home, 'folder.sh'))
     const config = path.join(directory, 'config.json')
     await fs.writeFile(
       config,
@@ -68,8 +72,55 @@ for (const desktopMode of [false, true]) {
         ).status(),
       ).toBe(desktopMode ? 400 : 404)
       await nativeSidebar(page.context())
+      await page.context().addInitScript(() => {
+        if (!window.derpDesktop) return
+        window.derpDesktop.runProgram = async (path) => {
+          document.documentElement.dataset.launchedProgram = path
+        }
+      })
       await page.goto(desktopMode ? origin + '/desktop?mode=browser' : origin)
       if (desktopMode) {
+        const listing = await (await request.get(origin + '/api/files')).json()
+        expect(
+          listing.files.find((file: { name: string }) => file.name === 'tool').isExecutable,
+        ).toBe(true)
+        expect(
+          listing.files.find((file: { name: string }) => file.name === 'hello.sh').isExecutable,
+        ).toBe(false)
+        for (const name of ['hello.sh', 'hello.py', 'tool']) {
+          const row = page.locator('[data-file-path="' + name + '"]').first()
+          await expect(row.locator('[data-file-icon]')).toHaveAttribute(
+            'data-file-icon',
+            name === 'tool' ? 'program' : 'script',
+          )
+          await row.click({ button: 'right' })
+          if (name === 'hello.sh') {
+            await page.screenshot({ path: testInfo.outputPath('program-menu-desktop.png') })
+            await page.keyboard.press('Escape')
+            await page.setViewportSize({ width: 430, height: 800 })
+            await row.click({ button: 'right' })
+            await expect(
+              page.getByRole('menuitem', { name: 'Run as program', exact: true }),
+            ).toBeInViewport()
+            await page.screenshot({ path: testInfo.outputPath('program-menu-narrow.png') })
+          }
+          await page.getByRole('menuitem', { name: 'Run as program', exact: true }).click()
+          if (name === 'hello.sh') await page.setViewportSize({ width: 1280, height: 720 })
+          await expect(page.locator('html')).toHaveAttribute('data-launched-program', name)
+        }
+        for (const name of ['note.txt', 'folder.sh']) {
+          await page
+            .locator('[data-file-path="' + name + '"]')
+            .first()
+            .click({ button: 'right' })
+          await expect(
+            page.getByRole('menuitem', { name: 'Run as program', exact: true }),
+          ).toHaveCount(0)
+          await expect(
+            page.getByRole('menuitem', { name: 'Extract here', exact: true }),
+          ).toHaveCount(0)
+          await page.keyboard.press('Escape')
+        }
         expect((await places.json()).places).toEqual(
           expect.arrayContaining([
             { name: 'Home', path: '', kind: 'home' },

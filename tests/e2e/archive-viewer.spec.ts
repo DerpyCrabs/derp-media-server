@@ -133,3 +133,31 @@ test('archive reuses the folder grid and supports selection on a phone without o
   )
   await expect(viewer.getByRole('button', { name: 'Extract (1)…' })).toBeVisible()
 })
+
+test('context menu extracts an archive beside the original and handles conflicts', async ({
+  page,
+  request,
+}) => {
+  const { dir } = await archive(request, 'zip')
+  await page.goto(`/?dir=${encodeURIComponent(dir)}`)
+  const row = page.locator('table tr').filter({ hasText: 'Bundle.zip' })
+  await expect(row.locator('[data-file-icon="archive"]')).toBeVisible()
+  await row.click({ button: 'right' })
+  const started = page.waitForResponse(
+    (response) =>
+      response.url().endsWith('/api/file-jobs') && response.request().method() === 'POST',
+  )
+  await page.getByRole('menuitem', { name: 'Extract here', exact: true }).click()
+  const { id } = await (await started).json()
+  const conflict = page.getByRole('dialog').filter({ hasText: 'already exists' })
+  await expect(conflict).toBeVisible()
+  await conflict.getByRole('checkbox', { name: 'Apply to remaining conflicts' }).check()
+  await conflict.getByRole('button', { name: 'Replace', exact: true }).click()
+  await complete(request, id)
+  expect(
+    (
+      await request.get(`/api/files/text?path=${encodeURIComponent(dir + '/source/leave.txt')}`)
+    ).ok(),
+  ).toBeTruthy()
+  await expect(page.getByLabel('Archive contents', { exact: true })).toHaveCount(0)
+})

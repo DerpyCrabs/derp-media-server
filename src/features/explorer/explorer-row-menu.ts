@@ -1,3 +1,4 @@
+import { isArchivePath } from './archive-contents'
 import { isPathEditable } from '@/lib/files/path-utils'
 import { MediaType, type FileItem } from '@/lib/files/types'
 import type { FileOpenTarget } from '@/lib/models/open-target'
@@ -12,6 +13,7 @@ export type ExplorerFileRowMenuApi = {
   confirmDelete: (file: FileItem) => void
 }
 export type ExplorerRowAction =
+  | 'extract'
   | 'sidebar'
   | 'properties'
   | 'set-icon'
@@ -54,6 +56,7 @@ export type ExplorerRowMenuConfig = {
     addToTaskbar?: (file: FileItem) => void
     rename?: (file: FileItem) => void
     move?: (file: FileItem) => void
+    extract?: (file: FileItem) => void
     copy?: (file: FileItem) => void
     copyToClipboard?: (file: FileItem) => void
     setIcon?: (file: FileItem) => void
@@ -107,6 +110,14 @@ export function createExplorerRowMenu(config: ExplorerRowMenuConfig): ExplorerRo
     !!config.open.fileInNewWindow
   function available(action: ExplorerRowAction, file: FileItem): boolean {
     switch (action) {
+      case 'extract':
+        return (
+          !file.isVirtual &&
+          !file.isDirectory &&
+          isArchivePath(file.path) &&
+          config.permissions.currentDirectoryEditable &&
+          !!config.edit.extract
+        )
       case 'sidebar':
         return !file.isVirtual && file.isDirectory && !!config.metadata.toggleSidebar
       case 'properties':
@@ -162,6 +173,9 @@ export function createExplorerRowMenu(config: ExplorerRowMenuConfig): ExplorerRo
   }
   function run(action: ExplorerRowAction, file: FileItem) {
     switch (action) {
+      case 'extract':
+        config.edit.extract?.(file)
+        break
       case 'sidebar':
         config.metadata.toggleSidebar?.(file)
         break

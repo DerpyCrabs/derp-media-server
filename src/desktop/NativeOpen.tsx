@@ -13,6 +13,12 @@ function nativeOpen(path: () => string | undefined, window: Window) {
   const bridge = window.derpDesktop
   return {
     available: typeof bridge?.openDefault === 'function',
+    runnable: typeof bridge?.runProgram === 'function',
+    run: () => {
+      const target = path()
+      if (bridge?.runProgram && target)
+        runDesktopOperation(() => bridge.runProgram!(target), window)
+    },
     chooser: typeof bridge?.applications === 'function' && typeof bridge?.openWith === 'function',
     choose: () => {
       const target = path()
@@ -50,6 +56,7 @@ function nativeOpen(path: () => string | undefined, window: Window) {
 
 type NativeOpenProps = {
   path: string
+  runnable?: boolean
   onDone?: () => void
   role?: 'menuitem'
   chooserLabel?: string
@@ -58,12 +65,17 @@ type NativeOpenProps = {
 export const NativeOpenButton = controllerView(
   {
     controller: (props: NativeOpenProps, host: ControllerHost) => {
-      const owner = modelOwner({ props, available: false, chooser: false })
+      const owner = modelOwner({ props, available: false, chooser: false, runnable: false })
       const action = nativeOpen(() => owner.read().props.path, viewWindow(host))
-      owner.patch({ available: action.available, chooser: action.chooser })
+      owner.patch({
+        available: action.available,
+        chooser: action.chooser,
+        runnable: action.runnable,
+      })
       return {
         source: owner.source,
         lifetime: owner,
+        run: action.run,
         open: action.open,
         choose: action.choose,
         receive: (props: NativeOpenProps) => owner.patch({ props }),
@@ -71,19 +83,33 @@ export const NativeOpenButton = controllerView(
     },
   },
   view((model) =>
-    model.available && model.props.path ? (
+    (model.available || model.runnable) && model.props.path ? (
       <>
-        <MenuItem
-          data-native-open='default'
-          role={model.props.role}
-          onClick={() => {
-            model.actions.open()
-            model.props.onDone?.()
-          }}
-        >
-          <ExternalLink class='size-4 shrink-0' stroke-width={2} />
-          Open in default app
-        </MenuItem>
+        {model.runnable && model.props.runnable ? (
+          <MenuItem
+            role={model.props.role}
+            onClick={() => {
+              model.actions.run()
+              model.props.onDone?.()
+            }}
+          >
+            <AppWindow class='size-4 shrink-0' stroke-width={2} />
+            Run as program
+          </MenuItem>
+        ) : null}
+        {model.available ? (
+          <MenuItem
+            data-native-open='default'
+            role={model.props.role}
+            onClick={() => {
+              model.actions.open()
+              model.props.onDone?.()
+            }}
+          >
+            <ExternalLink class='size-4 shrink-0' stroke-width={2} />
+            Open in default app
+          </MenuItem>
+        ) : null}
         {model.chooser ? (
           <MenuItem
             data-native-open='chooser'

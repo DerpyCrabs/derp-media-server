@@ -1,3 +1,13 @@
+import { fileIconKind } from './file-icon-kind'
+import FileCode from '@effectweb/lucide/icons/file-code'
+import FileCog from '@effectweb/lucide/icons/file-cog'
+import FileSpreadsheet from '@effectweb/lucide/icons/file-spreadsheet'
+import Presentation from '@effectweb/lucide/icons/presentation'
+import Database from '@effectweb/lucide/icons/database'
+import Type from '@effectweb/lucide/icons/type'
+import Package from '@effectweb/lucide/icons/package'
+import Terminal from '@effectweb/lucide/icons/terminal'
+import AppWindow from '@effectweb/lucide/icons/app-window'
 import { domBinding, component, view, type JSX } from 'effectweb'
 import { buildThumbnailUrl } from '@/lib/media/build-media-url'
 import { thumbnailBinding } from './thumbnail-binding'
@@ -116,6 +126,7 @@ function renderFileIcon(
   isVirtual: boolean,
   ctx: FileIconContext,
   size: IconSize = 'md',
+  executable = false,
 ): JSX.Element {
   const { cls, sz, sw } = sizeProps(size)
   const fp = norm(filePath)
@@ -167,6 +178,30 @@ function renderFileIcon(
   if (!isVirtual && type === MediaType.FOLDER && knowledgeBases.some((kb) => norm(kb) === fp)) {
     return <BookOpen class={`${cls} text-primary`} size={sz} stroke-width={sw} />
   }
+  const kind = !isVirtual && type !== MediaType.FOLDER ? fileIconKind(fp, executable) : undefined
+  if (kind) {
+    const icons = {
+      archive: Archive,
+      code: FileCode,
+      config: FileCog,
+      spreadsheet: FileSpreadsheet,
+      presentation: Presentation,
+      database: Database,
+      font: Type,
+      package: Package,
+      script: Terminal,
+      program: AppWindow,
+    }
+    const Icon = icons[kind]
+    return (
+      <Icon
+        class={`${cls} ${kind === 'archive' || kind === 'package' ? 'text-orange-500' : kind === 'program' || kind === 'script' ? 'text-emerald-500' : 'text-cyan-500'}`}
+        size={sz}
+        stroke-width={sw}
+        data-file-icon={kind}
+      />
+    )
+  }
   switch (type) {
     case MediaType.FOLDER:
       return <Folder class={`${cls} text-blue-500`} size={sz} stroke-width={sw} />
@@ -203,6 +238,7 @@ export function fileItemIcon(
     file.isVirtual ?? false,
     ctx,
     size,
+    file.isExecutable,
   )
 }
 /** Standalone file browser without settings or player context. */

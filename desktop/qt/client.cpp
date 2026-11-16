@@ -505,6 +505,24 @@ void Bridge::call(const QString &id, const QString &method, const QJsonArray &ar
                     throw std::runtime_error("Choose a folder");
                 return {{"result", target.value("path")}};
             }
+            if (method == "run-program") {
+                const auto path = server.resolve(args[0].toString()).value("absolutePath").toString();
+                const QFileInfo file(path);
+                if (!file.isFile())
+                    throw std::runtime_error("Choose a regular file");
+                QString program = path;
+                QStringList arguments;
+                const auto extension = file.suffix().toLower();
+                if (extension == "sh" || extension == "py") {
+                    program = extension == "py" ? "python3" : "bash";
+                    arguments << path;
+                } else if (!file.isExecutable()) {
+                    throw std::runtime_error("File is not executable");
+                }
+                if (!QProcess::startDetached(program, arguments, file.absolutePath()))
+                    throw std::runtime_error("Could not start the program");
+                return {};
+            }
             if (method == "applications" || method == "open-with" || method == "open-default" || method == "terminal") {
                 const auto path = server.resolve(args[0].toString()).value("absolutePath").toString();
                 if (method == "applications")

@@ -40,6 +40,7 @@ fn item(name: String, path: String, folder: bool) -> media::FileItem {
         size: 0,
         created_date: None,
         extension: String::new(),
+        is_executable: false,
         is_directory: folder,
         is_virtual: Some(true),
         view_count: None,

@@ -17,6 +17,7 @@ export interface DesktopBridge {
   places?(): Promise<{ name: string; path: string }[]>
   resolvePath?(path: string): Promise<string>
   applications?(path: string): Promise<{ id: string; name: string }[]>
+  runProgram?(path: string): Promise<void>
   openDefault?(path: string): Promise<void>
   openWith?(path: string, application: string): Promise<void>
   terminal?(path: string): Promise<void>
