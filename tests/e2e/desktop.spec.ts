@@ -183,6 +183,8 @@ test.describe('system file associations', () => {
     try {
       await page.goto('/desktop?mode=browser&dir=')
       await page.locator('table tr').filter({ hasText: 'Notes' }).first().click({ button: 'right' })
+      if (await page.getByRole('menuitem', { name: 'Open with...', exact: true }).isVisible())
+        await page.getByRole('menuitem', { name: 'Open with...', exact: true }).hover()
       await page.getByRole('menuitem', { name: 'Open in default app', exact: true }).click()
       await expect
         .poll(() =>
@@ -192,6 +194,8 @@ test.describe('system file associations', () => {
       await expect(page).toHaveURL(/mode=browser&dir=$/)
       await page.goto('/desktop?mode=browser&dir=Notes')
       await page.locator('tr[data-file-path]').filter({ hasText: file }).click({ button: 'right' })
+      if (await page.getByRole('menuitem', { name: 'Open with...', exact: true }).isVisible())
+        await page.getByRole('menuitem', { name: 'Open with...', exact: true }).hover()
       await page.getByRole('menuitem', { name: 'Open in default app', exact: true }).click()
       await expect
         .poll(() =>

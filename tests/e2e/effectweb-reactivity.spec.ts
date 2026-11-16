@@ -97,7 +97,7 @@ for (const workspaceType of ['desktop', 'canvas']) {
     try {
       await expect(page).not.toHaveURL(new RegExp(`ws=${id}(?:&|$)`))
       await expect(page.locator('[data-workspace-opened]')).toBeAttached()
-      await expect(page.getByText('Read only — workspace is open elsewhere')).toBeHidden()
+      await expect(page.getByText('Workspace layout is controlled elsewhere')).toBeHidden()
     } finally {
       diagnostics.expectNone()
     }

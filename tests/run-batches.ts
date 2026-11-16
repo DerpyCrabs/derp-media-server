@@ -62,6 +62,7 @@ export const BATCHES = [
       'archive-preview',
       'favorite-places',
       'desktop',
+      'downstream-features',
       'desktop-shared-runtime',
       'desktop-picker',
       'desktop-audio',

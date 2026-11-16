@@ -49,7 +49,7 @@ export const AppDialogHost = controllerView(
             </>
           }
         >
-          <p class='whitespace-pre-wrap break-all text-sm text-muted-foreground'>
+          <p class='whitespace-pre-wrap [overflow-wrap:anywhere] text-sm text-muted-foreground'>
             {request.message}
           </p>
           {request.kind === 'choose' ? (

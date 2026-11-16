@@ -636,7 +636,7 @@ test('locked canvas is visibly read only and rejects tab mutations', async ({
   const duplicateContext = await browser.newContext()
   const duplicate = await duplicateContext.newPage()
   await duplicate.goto(page.url())
-  await expect(duplicate.getByText('Read only — workspace is open elsewhere')).toBeVisible()
+  await expect(duplicate.getByText('Workspace layout is controlled elsewhere')).toBeVisible()
   await duplicate.locator('[data-workspace-tab-id]').click({ button: 'right' })
   await duplicate.getByRole('menuitem', { name: 'Pin tab' }).click()
 

@@ -91,7 +91,7 @@ test.describe('workspace registry', () => {
     ).toHaveCount(0)
     const releasedView = await sharedContext.newPage()
     await releasedView.goto(`/workspace?ws=${workspaceId}`)
-    await expect(releasedView.getByText('Read only — workspace is open elsewhere')).toBeHidden()
+    await expect(releasedView.getByText('Workspace layout is controlled elsewhere')).toBeHidden()
     await releasedView.evaluate(async (id) => {
       await fetch('/api/workspaces/release', {
         method: 'POST',
@@ -105,7 +105,7 @@ test.describe('workspace registry', () => {
 
     const duplicate = await sharedContext.newPage()
     await duplicate.goto(`/workspace?ws=${workspaceId}`)
-    await expect(duplicate.getByText('Read only — workspace is open elsewhere')).toBeVisible()
+    await expect(duplicate.getByText('Workspace layout is controlled elsewhere')).toBeVisible()
     await duplicate.getByRole('button', { name: 'Open workspaces' }).click()
     const duplicateRow = duplicate
       .getByTestId('workspace-switcher')
@@ -113,7 +113,7 @@ test.describe('workspace registry', () => {
     await expect(duplicateRow.locator('.lucide-lock')).toBeVisible()
     await expect(duplicateRow).toContainText('Open in another tab')
     await duplicate.getByRole('button', { name: 'Take control' }).click()
-    await expect(duplicate.getByText('Read only — workspace is open elsewhere')).toBeHidden()
+    await expect(duplicate.getByText('Workspace layout is controlled elsewhere')).toBeHidden()
 
     await sharedContext.close()
   })
@@ -146,7 +146,9 @@ test.describe('workspace registry', () => {
 
       const releasedSecond = await context.newPage()
       await releasedSecond.goto(`/workspace?ws=${secondId}`)
-      await expect(releasedSecond.getByText('Read only — workspace is open elsewhere')).toBeHidden()
+      await expect(
+        releasedSecond.getByText('Workspace layout is controlled elsewhere'),
+      ).toBeHidden()
       await releasedSecond.evaluate(async (id) => {
         await fetch('/api/workspaces/release', {
           method: 'POST',
@@ -232,7 +234,7 @@ test.describe('workspace registry', () => {
       await expect(getWindowGroups(writer)).toHaveCount(1)
 
       await gotoWorkspaceWithSSE(observer, `/workspace?ws=${workspaceId}`)
-      await expect(observer.getByText('Read only — workspace is open elsewhere')).toBeVisible()
+      await expect(observer.getByText('Workspace layout is controlled elsewhere')).toBeVisible()
       await expect(getWindowGroups(observer)).toHaveCount(1)
 
       const mutationStartedAt = Date.now()
@@ -346,7 +348,7 @@ test.describe('workspace registry', () => {
           { timeout: 5_000, intervals: [50, 100, 200] },
         )
         .toBe(2)
-      await expect(page.getByText('Read only — workspace is open elsewhere')).toBeHidden()
+      await expect(page.getByText('Workspace layout is controlled elsewhere')).toBeHidden()
     } finally {
       await context.close()
     }
@@ -547,7 +549,7 @@ test.describe('workspace registry', () => {
     await expect(getWindowGroups(page)).toHaveCount(1)
     const releasedSource = await context.newPage()
     await releasedSource.goto(`/workspace?ws=${sourceId}`)
-    await expect(releasedSource.getByText('Read only — workspace is open elsewhere')).toBeHidden()
+    await expect(releasedSource.getByText('Workspace layout is controlled elsewhere')).toBeHidden()
     await expect(getWindowGroups(releasedSource)).toHaveCount(0)
     await releasedSource.evaluate(async (id) => {
       await fetch('/api/workspaces/release', {
