@@ -19,6 +19,7 @@ export const TaskbarGroupRow = memoView(
       focusWindow: (id: string) => void
       setWindowMinimized: (id: string, minimized: boolean) => void
       closeWindow: (id: string) => void
+      readOnly?: boolean
     },
     { menu: { x: number; y: number } | null; mouseHandled: boolean }
   >(
@@ -66,7 +67,7 @@ export const TaskbarGroupRow = memoView(
           const lid = props.group.leaderId
           if (!lid) return
           const visibleId = activeTabId() || lid
-          if (isMinimized()) {
+          if (isMinimized() || props.readOnly) {
             props.focusWindow(visibleId)
           } else if (isActive()) {
             props.setWindowMinimized(lid, true)
@@ -176,6 +177,7 @@ export const TaskbarGroupRow = memoView(
                       type='button'
                       data-slot='context-menu-item'
                       data-testid='workspace-taskbar-menu-minimize'
+                      disabled={props.readOnly}
                       class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
                       role='menuitem'
                       onClick={() => {
@@ -191,6 +193,7 @@ export const TaskbarGroupRow = memoView(
                     type='button'
                     data-slot='context-menu-item'
                     data-testid='workspace-taskbar-menu-close'
+                    disabled={props.readOnly}
                     class='flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none hover:bg-accent hover:text-accent-foreground'
                     role='menuitem'
                     onClick={() => {

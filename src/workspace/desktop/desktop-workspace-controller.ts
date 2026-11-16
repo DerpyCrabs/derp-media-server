@@ -106,8 +106,24 @@ export function createDesktopController(props: { session: WorkspaceSession }) {
     fileOpenTargetPick: null as { sourceBrowserId: string } | null,
     fileOpenPickHoverId: null as string | null,
     pinMenu: null as { x: number; y: number; pinId: string } | null,
+    previewFocus: null as {
+      workspaceId: string
+      windowId: string
+      width: number
+      height: number
+    } | null,
   }
   const owner = modelOwner(initial)
+  const previewViewport = () => ({
+    width: Math.max(1, globalThis.innerWidth),
+    height: Math.max(1, globalThis.innerHeight - 32),
+  })
+  const resizePreview = () => {
+    const preview = owner.read().previewFocus
+    if (preview) owner.patch({ previewFocus: { ...preview, ...previewViewport() } })
+  }
+  window.addEventListener('resize', resizePreview)
+  cleanups.push(() => window.removeEventListener('resize', resizePreview))
   const urlSearchParams = () => new URLSearchParams(browserHistory.model().search)
   const playbackSession = getPlaybackSession()
   const playback = () => playbackSource.model()
@@ -133,7 +149,61 @@ export function createDesktopController(props: { session: WorkspaceSession }) {
   const unblock = workspaceRegistry.registerSavingBlocker(
     () => activePointerGestures() > 0 || (crossWorkspaceTransfer?.active() ?? false),
   )
-  const workspace = workspaceRegistry.document.value
+  let previewCache:
+    | {
+        source: PersistedWorkspaceState
+        focus: NonNullable<typeof initial.previewFocus>
+        value: PersistedWorkspaceState
+      }
+    | undefined
+  const workspace = () => {
+    const source = workspaceRegistry.document.value()
+    const preview = owner.read().previewFocus
+    if (!source || workspaceRegistry.state.editable() || preview?.workspaceId !== workspaceId())
+      return source
+    const target = source.windows.find((window) => window.id === preview.windowId)
+    if (!target) return source
+    if (previewCache?.source === source && previewCache.focus === preview) return previewCache.value
+    const group = groupIdForWindow(target)
+    let value = activateDesktopTabState(source, group, target.id)
+    // Preview presentation may fit a smaller browser; persisted desktop geometry
+    // and all live application identities remain owned by the editable session.
+    const leader = tabsInGroup(source.windows, group)[0] ?? target
+    const bounds = leader.layout?.bounds ?? createDefaultBounds(0, leader.type)
+    const width = Math.min(bounds.width, preview.width),
+      height = Math.min(bounds.height, preview.height)
+    const fitted = {
+      x: Math.max(0, Math.min(bounds.x, preview.width - width)),
+      y: Math.max(0, Math.min(bounds.y, preview.height - height)),
+      width,
+      height,
+    }
+    if (
+      Object.keys(fitted).some(
+        (key) => fitted[key as keyof typeof fitted] !== bounds[key as keyof typeof fitted],
+      )
+    ) {
+      value = {
+        ...value,
+        windows: value.windows.map((window) =>
+          groupIdForWindow(window) === group
+            ? {
+                ...window,
+                layout: {
+                  ...window.layout,
+                  bounds: fitted,
+                  fullscreen: false,
+                  snapZone: null,
+                  tiling: null,
+                },
+              }
+            : window,
+        ),
+      }
+    }
+    previewCache = { source, focus: preview, value }
+    return value
+  }
   const setWorkspace = workspaceRegistry.document.update
   const closedWindows = createClosedWindowHistory()
   function reopenClosedTab() {
@@ -271,7 +341,13 @@ export function createDesktopController(props: { session: WorkspaceSession }) {
     return { commit: finish, cancel }
   }
   const editableOpenBrowser = () => ifEditable(() => openBrowser())
-  const editableFocusWindow = (id: string) => ifEditable(() => focusWindow(id))
+  const editableFocusWindow = (id: string) => {
+    if (workspaceRegistry.state.editable()) return focusWindow(id)
+    if (!workspaceRegistry.document.value()?.windows.some((window) => window.id === id)) return
+    owner.patch({
+      previewFocus: { workspaceId: workspaceId(), windowId: id, ...previewViewport() },
+    })
+  }
   const editableSetWindowMinimized = (id: string, minimized: boolean) =>
     ifEditable(() => snap.setWindowMinimized(id, minimized))
   const editableCloseWindow = (id: string) =>
@@ -283,8 +359,15 @@ export function createDesktopController(props: { session: WorkspaceSession }) {
   const editableOpenSearchResult = (result: FileSearchResult) =>
     ifEditable(() => openGlobalSearchResult(result))
   const editableToggleFullscreen = (id: string) => ifEditable(() => snap.toggleFullscreenWindow(id))
-  const editableActivateTab = (groupId: string, tabId: string) =>
-    ifEditable(() => activateTab(groupId, tabId))
+  const editableActivateTab = (groupId: string, tabId: string) => {
+    if (workspaceRegistry.state.editable()) return activateTab(groupId, tabId)
+    if (
+      workspace()?.windows.some(
+        (window) => window.id === tabId && groupIdForWindow(window) === groupId,
+      )
+    )
+      editableFocusWindow(tabId)
+  }
   const editableCloseTab = (id: string, options?: { ignoreTabPinForListenOnlyDismiss?: boolean }) =>
     ifEditable(() => owner.run(actionSlot, closeTab(id, options), 'parallel'))
   const editableToggleTabPinned = (id: string) => ifEditable(() => toggleTabPinned(id))
@@ -1509,6 +1592,14 @@ export function createDesktopController(props: { session: WorkspaceSession }) {
   const presentation = projectionSource({
     project,
     refresh: () => {
+      const preview = owner.read().previewFocus
+      if (
+        preview &&
+        (workspaceRegistry.state.editable() || preview.workspaceId !== workspaceId())
+      ) {
+        previewCache = undefined
+        owner.patch({ previewFocus: null })
+      }
       workspaceRegistry.savingBlockChanged()
       synchronize0()
       synchronize1()

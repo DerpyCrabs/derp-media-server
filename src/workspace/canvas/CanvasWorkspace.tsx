@@ -229,8 +229,12 @@ export const CanvasWorkspace = controllerView(
       >
         <WorkspaceCommands available={model.opened} items={commands} />
         {!model.editable ? (
-          <div class='fixed left-1/2 top-2 z-[100002] -translate-x-1/2 rounded-md border border-border bg-popover px-3 py-1.5 text-xs shadow-lg'>
-            Read only — workspace is open elsewhere
+          <div
+            data-testid='workspace-ownership-notice'
+            role='status'
+            class='fixed left-1/2 top-2 z-[100002] -translate-x-1/2 rounded-md border border-border bg-popover px-3 py-1.5 text-xs shadow-lg'
+          >
+            Workspace layout is controlled elsewhere
           </div>
         ) : null}
         <WorkspaceTaskbar fixed scrollable class='canvas-taskbar'>

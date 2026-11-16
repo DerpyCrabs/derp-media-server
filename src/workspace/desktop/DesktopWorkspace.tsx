@@ -62,6 +62,7 @@ export const DesktopWorkspace = controllerView(
             focusWindow={editableFocusWindow}
             setWindowMinimized={editableSetWindowMinimized}
             closeWindow={editableCloseWindow}
+            readOnly={!model.editable}
           />
         ))}{' '}
       </>
@@ -149,8 +150,12 @@ export const DesktopWorkspace = controllerView(
           }}
         >
           {!model.editable ? (
-            <div class='absolute left-1/2 top-2 z-[100002] -translate-x-1/2 rounded-md border border-border bg-popover px-3 py-1.5 text-xs shadow-lg'>
-              Read only — workspace is open elsewhere
+            <div
+              data-testid='workspace-ownership-notice'
+              role='status'
+              class='absolute left-1/2 top-2 z-[100002] -translate-x-1/2 rounded-md border border-border bg-popover px-3 py-1.5 text-xs shadow-lg'
+            >
+              Workspace layout is controlled elsewhere
             </div>
           ) : null}
           <DesktopWorkspaceCanvas
