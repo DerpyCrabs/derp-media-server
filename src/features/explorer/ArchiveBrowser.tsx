@@ -9,7 +9,15 @@ import { FileOperationRow } from './FileOperationRow'
 import Search from '@effectweb/lucide/icons/search'
 import ArrowLeft from '@effectweb/lucide/icons/arrow-left'
 import { Effect, Schema } from 'effect'
-import { available, controllerView, domBinding, modelOwner, view, type JSX } from 'effectweb'
+import {
+  available,
+  controllerView,
+  domBinding,
+  modelOwner,
+  ownerController,
+  view,
+  type JSX,
+} from 'effectweb'
 import { observeQuery } from '@effectweb/query'
 import { queryCache } from '@/lib/api/cache'
 import { postSchemaEffect } from '@/lib/api/client'
@@ -118,7 +126,7 @@ function archiveController(props: Props) {
     owner.patch(selectFiles(state.selected, state.anchor, file, orderedFiles(), event, toggle))
   }
   return {
-    source: owner.source,
+    ...ownerController(owner),
     scrollTarget: () => scrollTarget,
     setScrollElement: (element: HTMLDivElement | undefined) => {
       scrollElement = element
@@ -187,8 +195,6 @@ function archiveController(props: Props) {
         'replace',
       )
     },
-    receive: (props: Props) => owner.patch({ props }),
-    lifetime: owner,
   }
 }
 export const ArchiveBrowser = controllerView(

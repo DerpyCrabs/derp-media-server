@@ -1,4 +1,4 @@
-import { available, modelOwner, view, controllerView } from 'effectweb'
+import { available, modelOwner, ownerController, view, controllerView } from 'effectweb'
 import { queryCache } from '@/lib/api/cache'
 import { configQuery, settingsQuery, type ServerConfig } from '@/lib/api/queries'
 import type { GlobalSettings } from '@/lib/models/settings-types'
@@ -144,12 +144,7 @@ function createMediaBrowser(props: Props) {
   )
   owner.own(subscribeAdminEvents(applyPathMutationToUrl))
   updateFavicon()
-  return {
-    source: owner.source,
-    ...actions,
-    receive: (props: Props) => owner.patch({ props }),
-    lifetime: owner,
-  }
+  return { ...ownerController(owner), ...actions }
 }
 export const MediaCenterFileBrowser = controllerView(
   { controller: createMediaBrowser },

@@ -2,7 +2,15 @@ import { BrowserDownload } from '@/lib/ui/browser-download'
 import { Input } from '@/lib/ui/input'
 import { Button } from '@/lib/ui/button'
 import { Select } from '@/lib/ui/select'
-import { controllerView, modelOwner, view, available, resourceError, list } from 'effectweb'
+import {
+  controllerView,
+  modelOwner,
+  ownerController,
+  view,
+  available,
+  resourceError,
+  list,
+} from 'effectweb'
 import { AsyncResult } from 'effect/reactivity'
 import { observeQuery, query } from '@effectweb/query'
 import Folder from '@effectweb/lucide/icons/folder'
@@ -96,12 +104,7 @@ export const SaveFileDialog = controllerView(
         },
       }
       select()
-      return {
-        source: owner.source,
-        ...actions,
-        receive: (next: Props) => owner.patch({ props: next }),
-        lifetime: owner,
-      }
+      return { ...ownerController(owner), ...actions }
     },
   },
   view((model) => {

@@ -224,10 +224,9 @@ export const VideoPlayer = controllerView(
             <div class='video-surface relative w-full bg-black' style={videoAreaStyle()}>
               <video
                 data-playback-source={snapshot.source?.url}
-                use={{
-                  ...domBinding({ set: model.actions.setVideo }, videoBinding),
+                use={domBinding({ set: model.actions.setVideo }, videoBinding, {
                   identity: model.actions.setVideo,
-                }}
+                })}
                 playsinline
                 tabindex={0}
                 class='h-full w-full bg-black object-contain'

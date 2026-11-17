@@ -387,7 +387,7 @@ export function createForYou(props: Props) {
   const focus = () => reading.refresh()
   window.addEventListener('focus', focus)
   owner.own(() => window.removeEventListener('focus', focus))
-  reading.select(true)
+  reading.select()
   select()
   return {
     source: owner.source,

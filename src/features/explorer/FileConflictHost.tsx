@@ -1,4 +1,4 @@
-import { available, controllerView, list, modelOwner, view } from 'effectweb'
+import { available, controllerView, list, modelOwner, ownerController, view } from 'effectweb'
 import { Schema } from 'effect'
 import { AsyncResult } from 'effect/reactivity'
 import { observeQuery, query } from '@effectweb/query'
@@ -53,9 +53,7 @@ const ConflictDialog = controllerView(
       source.select(['copy', 'move'].includes(props.job.operation) ? props.job.current : undefined)
       destination.select(props.job.conflict ?? undefined)
       return {
-        source: owner.source,
-        lifetime: owner,
-        receive: (props: Props) => owner.patch({ props }),
+        ...ownerController(owner),
         applyAll: (applyAll: boolean) => owner.patch({ applyAll }),
       }
     },

@@ -51,9 +51,9 @@ export const MediaCenterPage = controllerView(
       const ai = observeQuery(owner, queryCache, mediaAiStatusQuery, 'ai')
       const config = observeQuery(owner, queryCache, configQuery, 'config')
       const settings = observeQuery(owner, queryCache, settingsQuery, 'settings')
-      ai.select(true)
-      config.select(true)
-      settings.select(true)
+      ai.select()
+      config.select()
+      settings.select()
       owner.run(
         statusPoll,
         Effect.forever(
@@ -149,10 +149,9 @@ export const MediaCenterPage = controllerView(
                       <Search class='size-[18px]' size={18} />
                     </Button>
                     <div
-                      use={{
-                        ...domBinding({ set: model.actions.setFeedActions }, feedTarget),
+                      use={domBinding({ set: model.actions.setFeedActions }, feedTarget, {
                         identity: model.actions.setFeedActions,
-                      }}
+                      })}
                     />
                   </div>
                 ) : null}

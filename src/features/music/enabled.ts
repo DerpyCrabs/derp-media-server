@@ -8,6 +8,6 @@ export function initializeMusicStatus() {
   const status = observeQuery(owner, queryCache, mediaAiStatusQuery, (result) =>
     owner.patch({ enabled: available(result)?.enabled === true }),
   )
-  status.select(true)
+  status.select()
   return { dispose: owner.dispose, close: owner.close }
 }

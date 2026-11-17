@@ -109,8 +109,8 @@ function audioController(props: Props) {
     files.select(enabled && path ? parentPath(path) : undefined)
     metadata.select(enabled && path ? path : undefined)
   }
-  settings.select(true)
-  stats.select(true)
+  settings.select()
+  stats.select()
   const stop = playbackSource.subscribe(select)
   select()
   const details = (open: boolean) => {

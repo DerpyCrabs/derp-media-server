@@ -56,10 +56,11 @@ const RenameDialogContent = component(
         }
       >
         <Input
-          use={{
-            ...domBinding({ name: props.itemName, directory: props.isDirectory }, selectRenameStem),
-            identity: props.itemName,
-          }}
+          use={domBinding(
+            { name: props.itemName, directory: props.isDirectory },
+            selectRenameStem,
+            { identity: props.itemName },
+          )}
           type='text'
           aria-label='New name'
           aria-invalid={nameExists()}

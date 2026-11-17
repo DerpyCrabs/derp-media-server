@@ -68,8 +68,8 @@ export function createWorkspacePageServerData() {
     const value = available(result)
     if (value) owner.patch({ editableFolders: value.editableFolders })
   })
-  settings.select(true)
-  config.select(true)
+  settings.select()
+  config.select()
   const pinsSlot = 'workspace-taskbar-pin'
   const transitionSlot = 'workspace-transition'
   const pinCommand = (command: TaskbarPinCommand) => {

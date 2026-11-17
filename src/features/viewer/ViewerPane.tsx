@@ -69,8 +69,8 @@ function viewerController(props: ViewerPaneProps) {
         : undefined,
     )
   }
-  settings.select(true)
-  stats.select(true)
+  settings.select()
+  stats.select()
   select(props)
   return {
     source: owner.source,

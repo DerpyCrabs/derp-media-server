@@ -101,8 +101,8 @@ function createAudioPlayer() {
     }
     syncQueue()
   }
-  settings.select(true)
-  stats.select(true)
+  settings.select()
+  stats.select()
   owner.own(session.subscribe(update))
   owner.own(mediaSelectionSource.subscribe(syncQueue))
   update()

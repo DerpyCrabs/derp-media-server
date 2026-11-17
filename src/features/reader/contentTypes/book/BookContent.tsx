@@ -83,18 +83,16 @@ const Chapter = component<ChapterProps, { intersecting: boolean; height: number 
     const near = Math.abs(props.index - props.currentIndex) <= 2 || model.intersecting
     return (
       <article
-        use={{
-          ...domBinding(
-            {
-              props,
-              near,
-              changed: (intersecting: boolean) => patch({ intersecting }),
-              measured: (height: number) => patch({ height }),
-            },
-            chapterObserver,
-          ),
-          identity: props.viewport,
-        }}
+        use={domBinding(
+          {
+            props,
+            near,
+            changed: (intersecting: boolean) => patch({ intersecting }),
+            measured: (height: number) => patch({ height }),
+          },
+          chapterObserver,
+          { identity: props.viewport },
+        )}
         id={`reader-${props.chapter.id}`}
         data-book-chapter={props.chapter.id}
         aria-label={props.chapter.title}

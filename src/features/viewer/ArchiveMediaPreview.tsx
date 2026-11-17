@@ -1,5 +1,5 @@
 import { Effect } from 'effect'
-import { controllerView, domBinding, modelOwner, view } from 'effectweb'
+import { controllerView, domBinding, modelOwner, ownerController, view } from 'effectweb'
 import Play from '@effectweb/lucide/icons/play'
 import Pause from '@effectweb/lucide/icons/pause'
 import Volume2 from '@effectweb/lucide/icons/volume-2'
@@ -25,9 +25,7 @@ export const ArchiveMediaPreview = controllerView(
       const owner = modelOwner({ props, playing: false, position: 0, duration: 0, muted: false })
       let media: HTMLMediaElement | undefined
       return {
-        source: owner.source,
-        lifetime: owner,
-        receive: (props: Props) => owner.patch({ props }),
+        ...ownerController(owner),
         attach: (element: HTMLMediaElement) => {
           media = element
           const session = getPlaybackSession()

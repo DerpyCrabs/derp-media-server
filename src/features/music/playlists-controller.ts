@@ -67,7 +67,7 @@ export function playlistsController(props: { request: PlaylistRequest }) {
       ...(result._tag === 'Failure' ? { error: 'Could not search music. Try again.' } : {}),
     })
   })
-  list.select(true)
+  list.select()
   function select(id: string) {
     owner.patch({
       id,
@@ -82,7 +82,7 @@ export function playlistsController(props: { request: PlaylistRequest }) {
     detail.select(id)
   }
   function back() {
-    detail.select(undefined)
+    detail.clear()
     owner.patch({
       id: '',
       playlist: null,

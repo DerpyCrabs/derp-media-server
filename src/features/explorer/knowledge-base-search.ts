@@ -39,7 +39,7 @@ export function createKnowledgeBaseSearch(
     )
   const clear = () => {
     owner.patch({ query: '', debouncedQuery: '', open: false })
-    observer.select(undefined)
+    observer.clear()
     owner.run(debounceSlot, Effect.void, 'replace')
   }
   const setOpen = (open: boolean) => {

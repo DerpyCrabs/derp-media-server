@@ -103,7 +103,7 @@ test('book recommendation events refetch an observed infinitely fresh recommenda
   })
   const observer = observeQuery(owner, cache, feed, () => {})
   try {
-    observer.select(true)
+    observer.select()
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(loads).toBe(1)
     handleAdminEvent(

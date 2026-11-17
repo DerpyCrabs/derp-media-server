@@ -1,5 +1,5 @@
 import { Select as ShadcnSelect, type SelectProps } from '@effectweb/shadcn/select'
-import { controllerView, modelOwner, view } from 'effectweb'
+import { controllerView, modelOwner, ownerController, view } from 'effectweb'
 import { cn } from './cn'
 export type { SelectProps, SelectOption } from '@effectweb/shadcn/select'
 export const Select = controllerView(
@@ -7,9 +7,7 @@ export const Select = controllerView(
     controller: (props: SelectProps) => {
       const owner = modelOwner({ props, open: props.open ?? props.defaultOpen ?? false })
       return {
-        source: owner.source,
-        lifetime: owner,
-        receive: (props: SelectProps) => owner.patch({ props }),
+        ...ownerController(owner),
         open: (open: boolean) => {
           owner.patch({ open })
           owner.read().props.onOpenChange?.(open)

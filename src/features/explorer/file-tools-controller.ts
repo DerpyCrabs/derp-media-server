@@ -152,7 +152,7 @@ export function createFileTools(
     owner.patch({ sidebarFolders: available(result)?.sidebarFolders ?? [] })
     favoritePlaces.select(available(result)?.favorites.length ? true : undefined)
   })
-  settings.select(true)
+  settings.select()
   const places = observeQuery(owner, queryCache, placesQuery, (result) => {
     owner.patch({ places: available(result)?.places ?? [] })
   })
@@ -161,7 +161,7 @@ export function createFileTools(
     owner.patch({ desktopMode, trashAvailable: available(result)?.trashAvailable ?? false })
     places.select(desktopMode ? true : undefined)
   })
-  config.select(true)
+  config.select()
   const trash = observeQuery(owner, queryCache, trashQuery, (result) => {
     owner.patch({ trashEntries: available(result)?.entries, trashLoading: result.waiting })
     if (result._tag === 'Failure')

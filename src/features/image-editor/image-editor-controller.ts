@@ -10,7 +10,7 @@ import {
 import { registerDesktopCloseHandler } from '@/desktop/close-handlers'
 import { randomId } from '@/lib/random-id'
 import { Effect } from 'effect'
-import { modelOwner } from 'effectweb'
+import { modelOwner, ownerController } from 'effectweb'
 import { apiEffect } from '@/lib/api/client'
 import { groups, queryCache } from '@/lib/api/cache'
 import { fileNameFromPath, parentPath } from '@/lib/files/path-utils'
@@ -477,9 +477,7 @@ export function imageEditorController(
       owner.cancel('image-draft')
       flush()
     },
-    source: owner.source,
+    ...ownerController(owner),
     ...actions,
-    receive: (next: ImageEditorProps) => owner.patch({ props: next }),
-    lifetime: owner,
   }
 }

@@ -214,7 +214,7 @@ export function createResponsiveImage(initial: Options, window: BrowserWindow) {
     enabled = value === undefined ? true : Boolean(value.enabled)
     update()
   })
-  config.select(true)
+  config.select()
   return {
     source: owner.source,
     select: (next: Options) => {

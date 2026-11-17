@@ -468,7 +468,7 @@ export function textController(
     if (data) settingsLoaded = true
     schedule()
   })
-  settings.select(true)
+  settings.select()
   const content = observeQuery(owner, queryCache, textContentQuery, (result) => {
     const remote = available(result)
     const current = owner.read()

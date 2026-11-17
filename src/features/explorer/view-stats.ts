@@ -9,7 +9,7 @@ const incrementSlots = (key: string | number) => ['increment-view', key] as cons
 export function createViewStats(options?: { includeCounts?: boolean }) {
   const owner = modelOwner({ result: AsyncResult.initial<ViewStats, Error>() })
   const query = observeQuery(owner, queryCache, statsQuery, 'result')
-  if (options?.includeCounts !== false) query.select(true)
+  if (options?.includeCounts !== false) query.select()
   return {
     source: owner.source,
     read: owner.read,

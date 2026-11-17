@@ -68,7 +68,7 @@ export const PlaylistDialog = controllerView(
         </header>
         <div
           class='min-h-0 overflow-y-auto'
-          use={{ ...domBinding(null, focusContent), identity: focusKey }}
+          use={domBinding(null, focusContent, { identity: focusKey })}
         >
           {model.error ? (
             <div role='alert' class='mb-4 rounded-lg border border-destructive/40 p-3 text-sm'>

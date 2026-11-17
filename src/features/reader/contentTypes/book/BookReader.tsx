@@ -78,6 +78,7 @@ function bookController(props: ReaderContentProps) {
   let released: (() => void) | undefined
   let viewport: HTMLDivElement | undefined
   let pendingPosition: BookReaderPosition | null = null
+  let navigationTop: number | undefined
   let restored = false
   let loadedPosition: BookReaderPosition | null | undefined
   let closing = false
@@ -189,7 +190,8 @@ function bookController(props: ReaderContentProps) {
       schedule()
     },
     scroll: (element: HTMLDivElement) => {
-      if (!owner.read().positionReady) return
+      if (!owner.read().positionReady || element.scrollTop === navigationTop) return
+      navigationTop = undefined
       version++
       const top = element.getBoundingClientRect().top + 8
       const chapters = [...element.querySelectorAll<HTMLElement>('[data-book-chapter]')]
@@ -240,6 +242,7 @@ function bookController(props: ReaderContentProps) {
   const capture = (): BookReaderPosition => {
     const state = owner.read().position
     if (pendingPosition) return { ...pendingPosition, outlineExpanded: [...state.outlineExpanded] }
+    if (navigationTop !== undefined && viewport?.scrollTop === navigationTop) return state
     const chapters = viewport
       ? [...viewport.querySelectorAll<HTMLElement>('[data-book-chapter]')]
       : []
@@ -310,6 +313,9 @@ function bookController(props: ReaderContentProps) {
                 : 0),
             behavior: 'instant',
           })
+        // Several short chapters can share the same clamped scroll offset at the end.
+        // Keep the chosen link target until the reader actually scrolls away.
+        navigationTop = target ? viewport.scrollTop : undefined
         pendingPosition = null
         restored = true
         owner.patch({ positionReady: true })

@@ -2,7 +2,7 @@ import { viewWindow } from '@/lib/browser/view-window'
 import type { ControllerHost } from 'effectweb'
 import { Cause, Effect, Schema } from 'effect'
 import { AsyncResult } from 'effect/reactivity'
-import { modelOwner } from 'effectweb'
+import { modelOwner, ownerController } from 'effectweb'
 import { queryCache } from '@/lib/api/cache'
 import { apiSchemaEffect, postSchemaEffect } from '@/lib/api/client'
 import { fileSearchResponseSchema, fileSearchStatusSchema } from '@/lib/files/file-schemas'
@@ -142,7 +142,7 @@ export function createFileSearchPalette(
       'drop',
     )
   }
-  status.select(true)
+  status.select()
   owner.run(
     pollingSlot,
     Effect.forever(
@@ -157,9 +157,5 @@ export function createFileSearchPalette(
     ),
     'replace',
   )
-  return {
-    source: owner.source,
-    receive: (next: FileSearchPaletteProps) => owner.patch({ props: next }),
-    lifetime: owner,
-  }
+  return { ...ownerController(owner) }
 }

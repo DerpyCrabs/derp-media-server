@@ -2,7 +2,16 @@ import { Button } from '@/lib/ui/button'
 import { Sheet } from '@/lib/ui/sheet'
 import { MenuItem } from '@/lib/ui/menu-item'
 import { FloatingContextMenu } from './FloatingContextMenu'
-import { component, controllerView, modelOwner, domBinding, list, view, type JSX } from 'effectweb'
+import {
+  component,
+  controllerView,
+  modelOwner,
+  ownerController,
+  domBinding,
+  list,
+  view,
+  type JSX,
+} from 'effectweb'
 import Star from '@effectweb/lucide/icons/star'
 import PanelLeft from '@effectweb/lucide/icons/panel-left'
 import HardDrive from '@effectweb/lucide/icons/hard-drive'
@@ -154,9 +163,7 @@ export const ExplorerSidebar = controllerView(
       const owner = modelOwner({ props, wide: false, open: false })
       props.onRefresh()
       return {
-        source: owner.source,
-        lifetime: owner,
-        receive: (props: SidebarProps) => owner.patch({ props }),
+        ...ownerController(owner),
         resize: (wide: boolean) => {
           if (wide !== owner.read().wide) owner.patch({ wide, open: false })
         },

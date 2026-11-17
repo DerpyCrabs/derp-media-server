@@ -2,7 +2,7 @@ import { Effect } from 'effect'
 import { dialogsForWindow } from '@/lib/ui/app-dialog'
 import { viewWindow } from '@/lib/browser/view-window'
 import type { ControllerHost } from 'effectweb'
-import { controllerView, modelOwner, view } from 'effectweb'
+import { controllerView, modelOwner, ownerController, view } from 'effectweb'
 import { MenuItem } from '@/lib/ui/menu-item'
 import AppWindow from '@effectweb/lucide/icons/app-window'
 import ExternalLink from '@effectweb/lucide/icons/external-link'
@@ -73,12 +73,10 @@ export const NativeOpenButton = controllerView(
         runnable: action.runnable,
       })
       return {
-        source: owner.source,
-        lifetime: owner,
+        ...ownerController(owner),
         run: action.run,
         open: action.open,
         choose: action.choose,
-        receive: (props: NativeOpenProps) => owner.patch({ props }),
       }
     },
   },
@@ -134,13 +132,7 @@ export const NativeFileMenu = controllerView(
       const owner = modelOwner({ props, available: false, chooser: false })
       const action = nativeOpen(() => owner.read().props.path, viewWindow(host))
       owner.patch({ available: action.available, chooser: action.chooser })
-      return {
-        source: owner.source,
-        lifetime: owner,
-        open: action.open,
-        choose: action.choose,
-        receive: (props: DropdownMenuProps & { path?: string }) => owner.patch({ props }),
-      }
+      return { ...ownerController(owner), open: action.open, choose: action.choose }
     },
   },
   view((model) => (

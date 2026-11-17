@@ -5,6 +5,7 @@ import { FolderNavigation, type FolderNavigationActions } from './FolderNavigati
 import {
   controllerView,
   modelOwner,
+  ownerController,
   view,
   domBinding,
   type JSX,
@@ -159,11 +160,9 @@ export const FileBrowserView = controllerView(
         directoryBackgroundMenu: null as { x: number; y: number } | null,
       })
       return {
-        source: owner.source,
-        receive: (props: FileBrowserViewProps) => owner.patch({ props }),
+        ...ownerController(owner),
         setDirectoryBackgroundMenu: (value: { x: number; y: number } | null) =>
           owner.patch({ directoryBackgroundMenu: value }),
-        lifetime: owner,
       }
     },
   },
@@ -499,10 +498,9 @@ export const FileBrowserView = controllerView(
     const scrollableListing = () =>
       props.listing.scrollTarget.kind === 'element' ? (
         <div
-          use={{
-            ...domBinding(props.listing.setScrollElement, directoryElementBinding),
+          use={domBinding(props.listing.setScrollElement, directoryElementBinding, {
             identity: props.listing.setScrollElement,
-          }}
+          })}
           class='min-h-0 flex-1 overflow-auto'
           onScroll={(event) =>
             props.listing.onScroll?.(
@@ -754,10 +752,9 @@ export const FileBrowserView = controllerView(
                   data-testid='kb-search-bar'
                 >
                   <Input
-                    use={{
-                      ...domBinding(props.controller.search.setInputElement, searchInputBinding),
+                    use={domBinding(props.controller.search.setInputElement, searchInputBinding, {
                       identity: props.controller.search.setInputElement,
-                    }}
+                    })}
                     type='text'
                     placeholder='Search notes...'
                     autocomplete='off'

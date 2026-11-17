@@ -53,9 +53,9 @@ function desktopController({ browserWindow }: { browserWindow: Window }) {
     confirm: dialogsForWindow(window).confirm,
   })
   const config = observeQuery(owner, queryCache, configQuery, 'config', available)
-  config.select(true)
+  config.select()
   const settings = observeQuery(owner, queryCache, settingsQuery, 'settings', available)
-  settings.select(true)
+  settings.select()
   function receive(target: DesktopTarget) {
     if (!target.isDirectory) {
       owner.patch({ pickerRequest: undefined })

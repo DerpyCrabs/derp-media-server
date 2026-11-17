@@ -24,10 +24,9 @@ export const DesktopWorkspaceCanvas = view<DesktopWorkspaceCanvasProps>((props) 
   return props.empty.hasWindows() ? (
     <>
       <div
-        use={{
-          ...domBinding(snap().actions.bindSnapPreview, previewBinding),
+        use={domBinding(snap().actions.bindSnapPreview, previewBinding, {
           identity: snap().actions.bindSnapPreview,
-        }}
+        })}
         data-snap-preview
         class='pointer-events-none absolute border-2 border-blue-400/50 bg-blue-500/15 transition-all duration-150'
       />

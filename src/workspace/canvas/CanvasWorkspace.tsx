@@ -502,10 +502,9 @@ export const CanvasWorkspace = controllerView(
         ) : null}
 
         <div
-          use={{
-            ...domBinding(model.mountViewport, mountCanvasElement),
+          use={domBinding(model.mountViewport, mountCanvasElement, {
             identity: model.mountViewport,
-          }}
+          })}
           data-testid='infinite-canvas'
           class={cn('relative min-h-0 flex-1 overflow-hidden bg-muted/20 outline-none', {
             'cursor-grab': spaceHeld,
@@ -636,10 +635,7 @@ export const CanvasWorkspace = controllerView(
             </div>
           ) : null}
           <div
-            use={{
-              ...domBinding(model.mountWorld, mountCanvasElement),
-              identity: model.mountWorld,
-            }}
+            use={domBinding(model.mountWorld, mountCanvasElement, { identity: model.mountWorld })}
             data-testid='canvas-world'
             class={cn('absolute top-0 left-0 origin-top-left will-change-transform', {
               'transition-transform duration-200 ease-out': cameraAnimating,

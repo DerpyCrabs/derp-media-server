@@ -8,6 +8,7 @@ import {
   controllerView,
   domBinding,
   modelOwner,
+  ownerController,
   view,
   type JSX,
   type ControllerModel,
@@ -99,15 +100,13 @@ function controller(props: MergeDocumentProps) {
   const owner = modelOwner({ props, count: 0, inline: false })
   let command: ((value: Command) => void) | null = null
   return {
-    source: owner.source,
+    ...ownerController(owner),
     command: (value: Command) => command?.(value),
     register: (handler: typeof command) => {
       command = handler
     },
     count: (count: number) => owner.patch({ count }),
     inline: (inline: boolean) => owner.patch({ inline }),
-    receive: (props: MergeDocumentProps) => owner.patch({ props }),
-    lifetime: owner,
   }
 }
 type Model = ControllerModel<typeof controller>

@@ -6,6 +6,7 @@ import {
   component,
   controllerView,
   modelOwner,
+  ownerController,
   view,
   domBinding,
   observe,
@@ -542,11 +543,7 @@ export const Breadcrumbs = controllerView(
         props,
         floatingController: breadcrumbFloatingForWindow(viewWindow(host)),
       })
-      return {
-        source: owner.source,
-        receive: (props: BreadcrumbsProps) => owner.patch({ props }),
-        lifetime: owner,
-      }
+      return { ...ownerController(owner) }
     },
   },
   view((model) =>

@@ -7,7 +7,7 @@ import { observeQuery } from '@effectweb/query'
 export function createExplorerSettings() {
   const owner = modelOwner({ result: AsyncResult.initial<GlobalSettings, Error>() })
   const query = observeQuery(owner, queryCache, settingsQuery, 'result')
-  query.select(true)
+  query.select()
   return {
     source: owner.source,
     read: owner.read,

@@ -1,3 +1,4 @@
+import { viewWindow } from '../../lib/browser/view-window'
 import type { DelimitedData } from './delimited-text'
 type ViewportState = {
   update: (top: number, left: number, height: number, width: number) => void
@@ -9,6 +10,7 @@ type ViewportState = {
   data: DelimitedData | null
 }
 export const tableViewport = (element: HTMLDivElement, current: () => ViewportState) => {
+  const window = viewWindow({ document: element.ownerDocument })
   let reset = current().reset
   let frame = 0
   const update = () =>
@@ -19,7 +21,7 @@ export const tableViewport = (element: HTMLDivElement, current: () => ViewportSt
       element.clientWidth,
     )
   const button = (target: EventTarget | null) =>
-    target instanceof HTMLElement
+    target instanceof window.HTMLElement
       ? target.closest<HTMLButtonElement>('button[data-table-row]')
       : null
   const focus = (event: FocusEvent) => {
@@ -36,7 +38,10 @@ export const tableViewport = (element: HTMLDivElement, current: () => ViewportSt
     event.preventDefault()
   }
   const key = (event: KeyboardEvent) => {
-    if (event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLInputElement)
+    if (
+      event.target instanceof window.HTMLTextAreaElement ||
+      event.target instanceof window.HTMLInputElement
+    )
       return
     const command = event.ctrlKey || event.metaKey
     if (command && event.key.toLowerCase() === 's') {
@@ -54,8 +59,8 @@ export const tableViewport = (element: HTMLDivElement, current: () => ViewportSt
     if (event.key === 'F2' || event.key === 'Enter') {
       event.preventDefault()
       cell.click()
-      cancelAnimationFrame(frame)
-      frame = requestAnimationFrame(() =>
+      window.cancelAnimationFrame(frame)
+      frame = window.requestAnimationFrame(() =>
         element.parentElement?.querySelector<HTMLTextAreaElement>('textarea')?.focus(),
       )
       return
@@ -104,8 +109,8 @@ export const tableViewport = (element: HTMLDivElement, current: () => ViewportSt
     update()
     const sourceRow = state.order[row]!
     current().focus(sourceRow, column)
-    cancelAnimationFrame(frame)
-    frame = requestAnimationFrame(() =>
+    window.cancelAnimationFrame(frame)
+    frame = window.requestAnimationFrame(() =>
       element
         .querySelector<HTMLButtonElement>(
           `button[data-table-row="${sourceRow}"][data-table-column="${column}"]`,
@@ -113,7 +118,7 @@ export const tableViewport = (element: HTMLDivElement, current: () => ViewportSt
         ?.focus({ preventScroll: true }),
     )
   }
-  const resize = new ResizeObserver(update)
+  const resize = new window.ResizeObserver(update)
   resize.observe(element)
   element.addEventListener('scroll', update, { passive: true })
   element.addEventListener('keydown', key)
@@ -128,7 +133,7 @@ export const tableViewport = (element: HTMLDivElement, current: () => ViewportSt
       }
     },
     dispose: () => {
-      cancelAnimationFrame(frame)
+      window.cancelAnimationFrame(frame)
       resize.disconnect()
       element.removeEventListener('scroll', update)
       element.removeEventListener('keydown', key)

@@ -97,7 +97,7 @@ const resource = observeQuery(owner, queryCache, definition, (result) => {
 })
 function refresh() {
   if (!subscribed) {
-    resource.select(true)
+    resource.select()
     subscribed = true
   } else resource.refresh()
 }

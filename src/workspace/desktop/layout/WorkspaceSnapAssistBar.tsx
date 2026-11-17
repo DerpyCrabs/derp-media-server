@@ -47,7 +47,7 @@ export const WorkspaceSnapAssistBar = component<
         <div class='contents' use={domBinding(setViewportSize, snapViewport)}>
           {props.visible ? (
             <div
-              use={{ ...domBinding(props.rootRef, snapAssistRoot), identity: props.rootRef }}
+              use={domBinding(props.rootRef, snapAssistRoot, { identity: props.rootRef })}
               data-workspace-snap-assist
               class='pointer-events-auto fixed left-1/2 top-0 z-[100000] max-w-[calc(100%-1rem)] -translate-x-1/2 overflow-hidden rounded-b-xl border border-border/80 bg-popover/95 shadow-2xl ring-1 ring-black/10 backdrop-blur-xl'
               style={{ width: `${surfaceWidth()}px` }}

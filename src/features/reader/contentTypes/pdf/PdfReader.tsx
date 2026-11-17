@@ -1,7 +1,7 @@
 import { Input } from '@/lib/ui/input'
 import { Button } from '@/lib/ui/button'
 import { Effect, Exit } from 'effect'
-import { view, controllerView, modelOwner, domBinding } from 'effectweb'
+import { view, controllerView, modelOwner, ownerController, domBinding } from 'effectweb'
 import { Dialog } from '@/lib/ui/dialog'
 import { closeReader } from '../../reader-url'
 import * as pdfjs from 'pdfjs-dist'
@@ -120,12 +120,7 @@ function pdfController(props: ReaderContentProps) {
         },
       ),
   }
-  return {
-    source: owner.source,
-    ...actions,
-    receive: (next: ReaderContentProps) => owner.patch({ props: next }),
-    lifetime: owner,
-  }
+  return { ...ownerController(owner), ...actions }
 }
 const PdfReader = controllerView(
   { controller: pdfController, identity: (props) => props.sourcePath },

@@ -144,10 +144,9 @@ export const DesktopWorkspace = controllerView(
         <WorkspaceCommands available={model.opened} items={commands} />
         <div
           class='relative min-h-0 flex-1 overflow-hidden'
-          use={{
-            ...domBinding(snap.actions.bindWorkspaceAreaRoot, mountDesktopArea),
+          use={domBinding(snap.actions.bindWorkspaceAreaRoot, mountDesktopArea, {
             identity: snap.actions.bindWorkspaceAreaRoot,
-          }}
+          })}
         >
           {!model.editable ? (
             <div

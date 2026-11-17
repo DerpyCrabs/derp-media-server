@@ -1,6 +1,14 @@
 import { Button } from '@/lib/ui/button'
 import { Dialog } from '@/lib/ui/dialog'
-import { list, available, modelOwner, resourceError, view, controllerView } from 'effectweb'
+import {
+  list,
+  available,
+  modelOwner,
+  ownerController,
+  resourceError,
+  view,
+  controllerView,
+} from 'effectweb'
 import { AsyncResult } from 'effect/reactivity'
 import { groups, queryCache } from '@/lib/api/cache'
 import { fetchDirectoryFilesEffect } from '@/lib/files/files-client'
@@ -65,12 +73,7 @@ export const MoveToDialog = controllerView(
         },
       }
       observer.select(owner.read().browsePath)
-      return {
-        source: owner.source,
-        ...actions,
-        receive: (next: MoveToDialogProps) => owner.patch({ props: next }),
-        lifetime: owner,
-      }
+      return { ...ownerController(owner), ...actions }
     },
   },
   view((model) => {
